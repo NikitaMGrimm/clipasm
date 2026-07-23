@@ -1,0 +1,5 @@
+/target/
+/.rhythmcut/
+*.mp4
+*.manifest.json
+

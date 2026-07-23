@@ -1,0 +1,9 @@
+//! `RhythmCut`'s compiler and renderer.
+
+pub mod cli;
+pub mod compiler;
+pub mod diagnostic;
+pub mod model;
+pub mod program;
+pub mod render;
+pub mod syntax;

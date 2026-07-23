@@ -1,0 +1,33 @@
+[package]
+name = "rhythmcut"
+version = "0.1.0"
+edition = "2024"
+description = "A strict, typed, stack-based programmatic video compiler"
+license = "MIT"
+
+[lib]
+name = "rhythmcut"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rhythmcut"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+yaml-rust2 = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+
