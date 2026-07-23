@@ -66,7 +66,7 @@ impl CompiledWorkflow {
     /// Cannot panic for values produced by the compiler; construction records
     /// and checks the root domain before returning `CompiledWorkflow`.
     pub fn root_domain(&self) -> &VideoDomain {
-        self.nodes[self.root.id().0 as usize]
+        self.nodes[self.root.id().get() as usize]
             .domain
             .as_ref()
             .expect("the compiler gives every Video value a domain")
@@ -196,10 +196,17 @@ pub(super) struct DraftNode {
 }
 
 #[derive(Clone, Debug)]
+pub(super) enum DeclaredValueType {
+    Known(ValueType),
+    Alias(String),
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct Symbol {
     declared_at: SourceSpan,
     value: Option<ValueRef>,
-    value_type: ValueType,
+    declared_type: DeclaredValueType,
+    value_type: Option<ValueType>,
 }
 
 #[derive(Clone, Debug)]
@@ -475,7 +482,7 @@ impl<'a> GraphBuilder<'a> {
         semantic_version: u32,
         origin: SourceOrigin,
     ) -> Result<ValueRef> {
-        let id = ValueId(u32::try_from(self.nodes.len()).map_err(|_| {
+        let id = ValueId::new(u32::try_from(self.nodes.len()).map_err(|_| {
             Diagnostic::new(
                 "E_GRAPH_TOO_LARGE",
                 "semantic graph contains too many values",

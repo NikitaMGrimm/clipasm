@@ -20,8 +20,6 @@ pub(crate) struct InputPort {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterType {
-    #[allow(dead_code)]
-    String,
     Integer,
     File,
     Duration,
@@ -340,7 +338,7 @@ mod tests {
     ];
     const COLLIDING_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
         name: "video",
-        parameter_type: ParameterType::String,
+        parameter_type: ParameterType::File,
         required: false,
     }];
     const DUPLICATE_PARAMETERS: &[ParameterDescriptor] = &[
@@ -351,7 +349,7 @@ mod tests {
         },
         ParameterDescriptor {
             name: "path",
-            parameter_type: ParameterType::String,
+            parameter_type: ParameterType::Duration,
             required: false,
         },
     ];

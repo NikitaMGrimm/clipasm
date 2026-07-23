@@ -25,15 +25,41 @@ impl FrameCount {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+/// A nonempty closed-open range of frame indexes.
+///
+/// ```compile_fail
+/// use rhythmcut::model::FrameRange;
+///
+/// let invalid = FrameRange { start: 10, end: 5 };
+/// ```
 pub struct FrameRange {
-    pub start: u64,
-    pub end: u64,
+    start: u64,
+    end: u64,
 }
 
 impl FrameRange {
     #[must_use]
-    pub fn frames(self) -> FrameCount {
+    pub const fn new(start: u64, end: u64) -> Option<Self> {
+        if start < end {
+            Some(Self { start, end })
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn start(self) -> u64 {
+        self.start
+    }
+
+    #[must_use]
+    pub const fn end(self) -> u64 {
+        self.end
+    }
+
+    #[must_use]
+    pub const fn frames(self) -> FrameCount {
         FrameCount(self.end - self.start)
     }
 }
@@ -57,10 +83,10 @@ impl SourceTime {
                 span.clone(),
             ));
         }
-        let (number, unit, scale) = if let Some(number) = text.strip_suffix("ms") {
-            (number, "ms", 1_000_000_u64)
+        let (number, scale) = if let Some(number) = text.strip_suffix("ms") {
+            (number, 1_000_000_u64)
         } else if let Some(number) = text.strip_suffix('s') {
-            (number, "s", 1_000_000_000_u64)
+            (number, 1_000_000_000_u64)
         } else {
             return Err(Diagnostic::new(
                 "E_INVALID_DURATION",
@@ -89,7 +115,6 @@ impl SourceTime {
                 span.clone(),
             )
         })?;
-        let _ = unit;
         Ok(Self { nanoseconds })
     }
 
@@ -125,11 +150,30 @@ impl SourceTime {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SourceTimeRange {
-    pub start: SourceTime,
-    pub end: SourceTime,
+    start: SourceTime,
+    end: SourceTime,
 }
 
 impl SourceTimeRange {
+    #[must_use]
+    pub const fn new(start: SourceTime, end: SourceTime) -> Option<Self> {
+        if start.nanoseconds < end.nanoseconds {
+            Some(Self { start, end })
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn start(self) -> SourceTime {
+        self.start
+    }
+
+    #[must_use]
+    pub const fn end(self) -> SourceTime {
+        self.end
+    }
+
     /// Parse a closed-open duration range such as `2s..4s`.
     ///
     /// # Errors
@@ -151,18 +195,17 @@ impl SourceTimeRange {
                 span.clone(),
             ));
         }
-        let range = Self {
-            start: SourceTime::parse(start, span)?,
-            end: SourceTime::parse(end, span)?,
-        };
-        if range.start.nanoseconds >= range.end.nanoseconds {
-            return Err(Diagnostic::new(
+        Self::new(
+            SourceTime::parse(start, span)?,
+            SourceTime::parse(end, span)?,
+        )
+        .ok_or_else(|| {
+            Diagnostic::new(
                 "E_INVALID_DURING_RANGE",
                 "`during` range start must be earlier than its end",
                 span.clone(),
-            ));
-        }
-        Ok(range)
+            )
+        })
     }
 
     /// Convert both endpoints to exact frame indexes.
@@ -171,9 +214,16 @@ impl SourceTimeRange {
     ///
     /// Returns a diagnostic when either endpoint is not frame-aligned.
     pub fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<FrameRange> {
-        Ok(FrameRange {
-            start: self.start.to_frames(fps, span)?,
-            end: self.end.to_frames(fps, span)?,
+        FrameRange::new(
+            self.start.to_frames(fps, span)?,
+            self.end.to_frames(fps, span)?,
+        )
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_DURING_RANGE",
+                "`during` range must contain at least one frame",
+                span.clone(),
+            )
         })
     }
 }
@@ -220,5 +270,15 @@ mod tests {
     fn rejects_reversed_range() {
         let error = SourceTimeRange::parse("4s..2s", &span()).expect_err("reversed");
         assert_eq!(error.code, "E_INVALID_DURING_RANGE");
+    }
+
+    #[test]
+    fn frame_ranges_require_increasing_endpoints() {
+        assert!(FrameRange::new(10, 5).is_none());
+        assert!(FrameRange::new(5, 5).is_none());
+        let range = FrameRange::new(5, 10).expect("range");
+        assert_eq!(range.start(), 5);
+        assert_eq!(range.end(), 10);
+        assert_eq!(range.frames(), FrameCount(5));
     }
 }

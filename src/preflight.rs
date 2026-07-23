@@ -14,6 +14,7 @@ use crate::model::{
 };
 
 const PREPARED_FORMAT_VERSION: u32 = 1;
+const CACHE_FORMAT_VERSION: u32 = 1;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale", "crop", "pad", "fps", "setsar", "format", "trim", "setpts", "concat",
 ];
@@ -29,10 +30,17 @@ struct PreparedNodeIdentity<'a> {
 #[derive(Serialize)]
 struct PreparedPlanIdentity<'a> {
     format_version: u32,
-    engine_version: &'a str,
     video: &'a VideoSpec,
     root: &'a str,
     names: BTreeMap<&'a str, &'a str>,
+}
+
+#[derive(Serialize)]
+struct CacheIdentity<'a> {
+    format_version: u32,
+    ffmpeg: &'a ToolIdentity,
+    ffprobe: &'a ToolIdentity,
+    media_policy: RenderMediaPolicy,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -183,7 +191,7 @@ impl PreparedAsset {
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
-pub struct RenderMediaPolicy {
+pub(crate) struct RenderMediaPolicy {
     working_pixel_format: WorkingPixelFormat,
     export_pixel_format: ExportPixelFormat,
 }
@@ -201,6 +209,8 @@ impl RenderMediaPolicy {
     pub(crate) const fn working_pixel_format(self) -> &'static str {
         match self.working_pixel_format {
             WorkingPixelFormat::Yuv444p => "yuv444p",
+            #[cfg(test)]
+            WorkingPixelFormat::Test => "test",
         }
     }
 
@@ -215,6 +225,8 @@ impl RenderMediaPolicy {
 #[serde(rename_all = "lowercase")]
 enum WorkingPixelFormat {
     Yuv444p,
+    #[cfg(test)]
+    Test,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -263,13 +275,8 @@ pub fn preflight(compiled: &CompiledWorkflow) -> Result<PreparedPlan> {
 
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
-    let execution_namespace = hex::encode(Sha256::digest(format!(
-        "{}\n{}\n{}\n{}\nprepared-v1",
-        ffmpeg.executable.display(),
-        ffmpeg.version,
-        ffprobe.executable.display(),
-        ffprobe.version
-    )));
+    let media_policy = RenderMediaPolicy::default();
+    let execution_namespace = cache_execution_namespace(&ffmpeg, &ffprobe, media_policy)?;
     let mut lowerer = PreflightLowerer {
         compiled,
         ffmpeg: &ffmpeg,
@@ -296,7 +303,7 @@ pub fn preflight(compiled: &CompiledWorkflow) -> Result<PreparedPlan> {
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         semantic_hash,
         video,
-        media_policy: RenderMediaPolicy::default(),
+        media_policy,
         nodes: lowerer.nodes,
         root,
         named_values,
@@ -323,7 +330,7 @@ impl PreflightLowerer<'_> {
         if let Some(node) = self.lowered.get(&value.id()) {
             return Ok(*node);
         }
-        let compiled_node = &self.compiled.nodes()[value.id().0 as usize];
+        let compiled_node = &self.compiled.nodes()[value.id().get() as usize];
         let result = match compiled_node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
                 let asset = prepare_asset(
@@ -379,21 +386,19 @@ impl PreflightLowerer<'_> {
             } => {
                 let base_node = self.lower(*base)?;
                 let processed_node = self.lower(*processed)?;
-                let base_domain = self.compiled.nodes()[base.id().0 as usize]
+                let base_domain = self.compiled.nodes()[base.id().get() as usize]
                     .domain()
                     .expect("during base domain");
                 let mut pieces = Vec::new();
-                if range.start > 0 {
+                if range.start() > 0 {
                     pieces.push(self.add_node(
                         PreparedNodeKind::Slice {
                             input: base_node,
-                            range: FrameRange {
-                                start: 0,
-                                end: range.start,
-                            },
+                            range:
+                                FrameRange::new(0, range.start()).expect("nonempty during prefix"),
                         },
                         VideoDomain {
-                            frames: FrameCount(range.start),
+                            frames: FrameCount(range.start()),
                             width: base_domain.width,
                             height: base_domain.height,
                             frame_rate: base_domain.frame_rate,
@@ -403,24 +408,24 @@ impl PreflightLowerer<'_> {
                     )?);
                 }
                 pieces.push(processed_node);
-                if range.end < base_domain.frames.0 {
-                    pieces.push(self.add_node(
-                        PreparedNodeKind::Slice {
-                            input: base_node,
-                            range: FrameRange {
-                                start: range.end,
-                                end: base_domain.frames.0,
+                if range.end() < base_domain.frames.0 {
+                    pieces.push(
+                        self.add_node(
+                            PreparedNodeKind::Slice {
+                                input: base_node,
+                                range: FrameRange::new(range.end(), base_domain.frames.0)
+                                    .expect("nonempty during suffix"),
                             },
-                        },
-                        VideoDomain {
-                            frames: FrameCount(base_domain.frames.0 - range.end),
-                            width: base_domain.width,
-                            height: base_domain.height,
-                            frame_rate: base_domain.frame_rate,
-                        },
-                        1,
-                        compiled_node.origin().clone_with_construct("during suffix"),
-                    )?);
+                            VideoDomain {
+                                frames: FrameCount(base_domain.frames.0 - range.end()),
+                                width: base_domain.width,
+                                height: base_domain.height,
+                                frame_rate: base_domain.frame_rate,
+                            },
+                            1,
+                            compiled_node.origin().clone_with_construct("during suffix"),
+                        )?,
+                    );
                 }
                 if pieces.len() == 1 {
                     pieces[0]
@@ -445,7 +450,7 @@ impl PreflightLowerer<'_> {
         semantic_version: u32,
         origin: SourceOrigin,
     ) -> Result<NodeId> {
-        let id = NodeId(u32::try_from(self.nodes.len()).map_err(|_| {
+        let id = NodeId::new(u32::try_from(self.nodes.len()).map_err(|_| {
             Diagnostic::new(
                 "E_GRAPH_TOO_LARGE",
                 "prepared graph contains too many primitive nodes",
@@ -593,7 +598,7 @@ fn node_fingerprint(
     };
     let upstream = inputs
         .iter()
-        .map(|input| existing[input.0 as usize].fingerprint.as_str())
+        .map(|input| existing[input.get() as usize].fingerprint.as_str())
         .collect::<Vec<_>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
@@ -611,14 +616,26 @@ fn prepared_semantic_hash(
 ) -> Result<String> {
     let names = names
         .iter()
-        .map(|(name, id)| (name.as_str(), nodes[id.0 as usize].fingerprint.as_str()))
+        .map(|(name, id)| (name.as_str(), nodes[id.get() as usize].fingerprint.as_str()))
         .collect::<BTreeMap<_, _>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
         format_version: PREPARED_FORMAT_VERSION,
-        engine_version: env!("CARGO_PKG_VERSION"),
         video,
-        root: &nodes[root.0 as usize].fingerprint,
+        root: &nodes[root.get() as usize].fingerprint,
         names,
+    })
+}
+
+fn cache_execution_namespace(
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+    media_policy: RenderMediaPolicy,
+) -> Result<String> {
+    crate::compiler::fingerprint::hash_serializable(&CacheIdentity {
+        format_version: CACHE_FORMAT_VERSION,
+        ffmpeg,
+        ffprobe,
+        media_policy,
     })
 }
 
@@ -978,6 +995,30 @@ mod tests {
             manifest.as_os_str().as_bytes(),
             b"video-\xFF.mp4.manifest.json"
         );
+    }
+
+    #[test]
+    fn cache_identity_includes_the_working_media_policy() {
+        let ffmpeg = ToolIdentity {
+            executable: PathBuf::from("/tools/ffmpeg"),
+            version: "ffmpeg test".to_owned(),
+        };
+        let ffprobe = ToolIdentity {
+            executable: PathBuf::from("/tools/ffprobe"),
+            version: "ffprobe test".to_owned(),
+        };
+        let default = cache_execution_namespace(&ffmpeg, &ffprobe, RenderMediaPolicy::default())
+            .expect("default identity");
+        let changed = cache_execution_namespace(
+            &ffmpeg,
+            &ffprobe,
+            RenderMediaPolicy {
+                working_pixel_format: WorkingPixelFormat::Test,
+                export_pixel_format: ExportPixelFormat::Yuv420p,
+            },
+        )
+        .expect("changed identity");
+        assert_ne!(default, changed);
     }
 
     #[test]

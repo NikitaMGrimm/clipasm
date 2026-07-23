@@ -15,14 +15,14 @@ pub(super) fn finalize(
     detect_cycles(&evaluation)?;
     let domains = infer_domains(&evaluation, &video)?;
     let structure_hash =
-        super::fingerprint::compiled_structure_hash(&evaluation, &domains, &video)?;
+        super::fingerprint::compiled_structure_hash(&evaluation, &domains, &video, format_version)?;
 
     let nodes = evaluation
         .nodes
         .iter()
         .enumerate()
         .map(|(index, node)| CompiledNode {
-            id: ValueId(u32::try_from(index).expect("draft node IDs already fit in u32")),
+            id: ValueId::new(u32::try_from(index).expect("draft node IDs already fit in u32")),
             kind: node.kind.clone(),
             value_type: node.value_type,
             domain: domains[index].clone(),
@@ -91,12 +91,15 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
                     node.origin.span.clone(),
                 ));
             }
-            if symbol.value_type != node.value_type {
+            let symbol_type = symbol
+                .value_type
+                .expect("symbol types are resolved before evaluation");
+            if symbol_type != node.value_type {
                 return Err(Diagnostic::new(
                     "E_TYPE_MISMATCH",
                     format!(
                         "reference `${name}` has type {}, but its expression was recorded as {}",
-                        symbol.value_type, node.value_type
+                        symbol_type, node.value_type
                     ),
                     node.origin.span.clone(),
                 ));
@@ -138,7 +141,7 @@ fn collect_direct_references(
     if !visited.insert(value.id()) {
         return;
     }
-    match &nodes[value.id().0 as usize].kind {
+    match &nodes[value.id().get() as usize].kind {
         SemanticNodeKind::ImageVideo { .. } => {}
         SemanticNodeKind::Reference { name } => {
             output.insert(name.clone());
@@ -219,7 +222,7 @@ fn infer_value(
     domains: &mut [Option<VideoDomain>],
     visiting: &mut BTreeSet<ValueId>,
 ) -> Result<Option<VideoDomain>> {
-    if let Some(domain) = &domains[value.id().0 as usize] {
+    if let Some(domain) = &domains[value.id().get() as usize] {
         return Ok(Some(domain.clone()));
     }
     if value.value_type() != ValueType::Video {
@@ -229,10 +232,13 @@ fn infer_value(
         return Err(Diagnostic::new(
             "E_DEPENDENCY_CYCLE",
             "dependency cycle encountered while inferring video duration",
-            evaluation.nodes[value.id().0 as usize].origin.span.clone(),
+            evaluation.nodes[value.id().get() as usize]
+                .origin
+                .span
+                .clone(),
         ));
     }
-    let node = &evaluation.nodes[value.id().0 as usize];
+    let node = &evaluation.nodes[value.id().get() as usize];
     let frames = match &node.kind {
         SemanticNodeKind::ImageVideo { frames, .. } => *frames,
         SemanticNodeKind::Reference { name } => {
@@ -279,7 +285,7 @@ fn infer_value(
         height: video.height,
         frame_rate: video.fps,
     };
-    domains[value.id().0 as usize] = Some(domain.clone());
+    domains[value.id().get() as usize] = Some(domain.clone());
     Ok(Some(domain))
 }
 
@@ -288,12 +294,14 @@ fn validate_range(
     input: FrameCount,
     span: &crate::diagnostic::SourceSpan,
 ) -> Result<()> {
-    if range.start >= range.end || range.end > input.0 {
+    if range.end() > input.0 {
         return Err(Diagnostic::new(
             "E_INVALID_DURING_RANGE",
             format!(
                 "frame range {}..{} is outside the base Video domain of {} frames",
-                range.start, range.end, input.0
+                range.start(),
+                range.end(),
+                input.0
             ),
             span.clone(),
         ));

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::compiler::{
-    Evaluation, GraphBuilder, ResolvedCall, SourceOrigin, SurfaceRecord, Symbol, require_value_type,
+    DeclaredValueType, Evaluation, GraphBuilder, ResolvedCall, SourceOrigin, SurfaceRecord, Symbol,
+    require_value_type,
 };
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueStack, ValueType, VideoSpec};
@@ -46,12 +47,17 @@ struct Evaluator<'a> {
 impl Evaluator<'_> {
     fn collect_names(&mut self) -> Result<()> {
         for clip in self.workflow.clips() {
-            self.add_symbol(&clip.name, &clip.span, ValueType::Video)?;
+            self.add_symbol(
+                &clip.name,
+                &clip.span,
+                DeclaredValueType::Known(ValueType::Video),
+            )?;
         }
         for clip in self.workflow.clips() {
             self.collect_item_names(&clip.body)?;
         }
         self.collect_item_names(self.workflow.timeline())?;
+        resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
         self.symbol_order.sort();
         Ok(())
     }
@@ -59,7 +65,12 @@ impl Evaluator<'_> {
     fn collect_item_names(&mut self, items: &[Item]) -> Result<()> {
         for item in items {
             if let Some(id) = &item.id {
-                self.add_symbol(&id.value, &id.span, self.item_output_type(&item.kind)?)?;
+                let declared_type = if item.during.is_some() {
+                    DeclaredValueType::Known(ValueType::Video)
+                } else {
+                    self.item_output_type(&item.kind)?
+                };
+                self.add_symbol(&id.value, &id.span, declared_type)?;
             }
             match &item.kind {
                 ItemKind::Then(body) | ItemKind::Join(body) | ItemKind::Timeline(body) => {
@@ -71,12 +82,12 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn item_output_type(&self, kind: &ItemKind) -> Result<ValueType> {
+    fn item_output_type(&self, kind: &ItemKind) -> Result<DeclaredValueType> {
         match kind {
             ItemKind::Invocation(invocation) => self
                 .registry
                 .get(&invocation.program.value)
-                .map(|definition| definition.descriptor.output)
+                .map(|definition| DeclaredValueType::Known(definition.descriptor.output))
                 .ok_or_else(|| {
                     Diagnostic::new(
                         "E_UNKNOWN_PROGRAM",
@@ -84,14 +95,21 @@ impl Evaluator<'_> {
                         invocation.program.span.clone(),
                     )
                 }),
-            ItemKind::Reference(_)
-            | ItemKind::Then(_)
-            | ItemKind::Join(_)
-            | ItemKind::Timeline(_) => Ok(ValueType::Video),
+            ItemKind::Reference(reference) => {
+                Ok(DeclaredValueType::Alias(reference.name.value.clone()))
+            }
+            ItemKind::Then(_) | ItemKind::Join(_) | ItemKind::Timeline(_) => {
+                Ok(DeclaredValueType::Known(ValueType::Video))
+            }
         }
     }
 
-    fn add_symbol(&mut self, name: &str, span: &SourceSpan, value_type: ValueType) -> Result<()> {
+    fn add_symbol(
+        &mut self,
+        name: &str,
+        span: &SourceSpan,
+        declared_type: DeclaredValueType,
+    ) -> Result<()> {
         if let Some(previous) = self.symbols.get(name) {
             return Err(Diagnostic::new(
                 "E_DUPLICATE_NAME",
@@ -111,7 +129,8 @@ impl Evaluator<'_> {
             Symbol {
                 declared_at: span.clone(),
                 value: None,
-                value_type,
+                declared_type,
+                value_type: None,
             },
         );
         Ok(())
@@ -315,7 +334,9 @@ impl Evaluator<'_> {
         })?;
         GraphBuilder::new(&mut self.nodes, self.video).reference(
             reference.name.value.clone(),
-            symbol.value_type,
+            symbol
+                .value_type
+                .expect("symbol types are resolved before evaluation"),
             SourceOrigin {
                 construct: "reference".to_owned(),
                 span: reference.name.span.clone(),
@@ -331,7 +352,6 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
     ) -> Result<ValueRef> {
-        crate::syntax::validate_arguments(definition, arguments, span)?;
         let inputs = self.bind_inputs(definition, arguments, stack, span)?;
         let call = ResolvedCall {
             definition,
@@ -504,12 +524,15 @@ impl Evaluator<'_> {
             .symbols
             .get_mut(name)
             .expect("all symbols are collected before evaluation");
-        if symbol.value_type != value.value_type() {
+        let declared_type = symbol
+            .value_type
+            .expect("symbol types are resolved before evaluation");
+        if declared_type != value.value_type() {
             return Err(Diagnostic::new(
                 "E_TYPE_MISMATCH",
                 format!(
                     "name `{name}` was declared as {}, but its value is {}",
-                    symbol.value_type,
+                    declared_type,
                     value.value_type()
                 ),
                 symbol.declared_at.clone(),
@@ -524,6 +547,60 @@ impl Evaluator<'_> {
         }
         Ok(())
     }
+}
+
+fn resolve_symbol_types(
+    symbols: &mut BTreeMap<String, Symbol>,
+    symbol_order: &[String],
+) -> Result<()> {
+    let mut states = BTreeMap::<String, u8>::new();
+    let mut path = Vec::new();
+    for name in symbol_order {
+        resolve_symbol_type(name, symbols, &mut states, &mut path)?;
+    }
+    Ok(())
+}
+
+fn resolve_symbol_type(
+    name: &str,
+    symbols: &mut BTreeMap<String, Symbol>,
+    states: &mut BTreeMap<String, u8>,
+    path: &mut Vec<String>,
+) -> Result<ValueType> {
+    if let Some(value_type) = symbols.get(name).and_then(|symbol| symbol.value_type) {
+        return Ok(value_type);
+    }
+    if states.get(name) == Some(&1) {
+        let start = path.iter().position(|entry| entry == name).unwrap_or(0);
+        let mut cycle = path[start..].to_vec();
+        cycle.push(name.to_owned());
+        return Err(Diagnostic::new(
+            "E_DEPENDENCY_CYCLE",
+            format!("named-value dependency cycle: {}", cycle.join(" -> ")),
+            symbols[name].declared_at.clone(),
+        ));
+    }
+
+    states.insert(name.to_owned(), 1);
+    path.push(name.to_owned());
+    let declared_type = symbols[name].declared_type.clone();
+    let value_type = match declared_type {
+        DeclaredValueType::Known(value_type) => value_type,
+        DeclaredValueType::Alias(target) => {
+            if !symbols.contains_key(&target) {
+                return Err(Diagnostic::new(
+                    "E_MISSING_REFERENCE",
+                    format!("reference `${target}` does not name any clip or invocation id"),
+                    symbols[name].declared_at.clone(),
+                ));
+            }
+            resolve_symbol_type(&target, symbols, states, path)?
+        }
+    };
+    path.pop();
+    states.insert(name.to_owned(), 2);
+    symbols.get_mut(name).expect("collected symbol").value_type = Some(value_type);
+    Ok(value_type)
 }
 
 fn bind_missing_fixed(
@@ -635,6 +712,74 @@ mod tests {
     };
     static TEST_PROGRAMS: [ProgramDefinition; 2] = [IMAGE, TEST_VALUE];
 
+    const TWO_TEST_INPUTS: &[InputPort] = &[
+        InputPort {
+            name: "original",
+            value_type: ValueType::Test,
+            cardinality: Cardinality::One,
+        },
+        InputPort {
+            name: "alias",
+            value_type: ValueType::Test,
+            cardinality: Cardinality::One,
+        },
+    ];
+
+    fn lower_test_source(
+        call: &ResolvedCall<'_>,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        builder.push(
+            crate::compiler::SemanticNodeKind::ImageVideo {
+                path: "test.value".into(),
+                frames: FrameCount(1),
+                fit: crate::model::ImageFit::Cover,
+            },
+            ValueType::Test,
+            1,
+            call.origin().clone(),
+        )
+    }
+
+    fn lower_test_sink(
+        call: &ResolvedCall<'_>,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        let _ = call.one_input("original")?;
+        let _ = call.one_input("alias")?;
+        builder.image_video(
+            "result.png".into(),
+            FrameCount(1),
+            crate::model::ImageFit::Cover,
+            1,
+            call.origin().clone(),
+        )
+    }
+
+    const TEST_SOURCE: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "test_source",
+            version: 1,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Test,
+        },
+        lower: lower_test_source,
+    };
+    const TEST_SINK: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "test_sink",
+            version: 1,
+            inputs: TWO_TEST_INPUTS,
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Video,
+        },
+        lower: lower_test_sink,
+    };
+    static ALIAS_TEST_PROGRAMS: [ProgramDefinition; 2] = [TEST_SOURCE, TEST_SINK];
+
     const VIDEO_PORTS_2: [InputPort; 2] = [
         InputPort {
             name: "before",
@@ -670,7 +815,7 @@ mod tests {
     }
 
     fn video(id: u32) -> ValueRef {
-        ValueRef::new(ValueId(id), ValueType::Video)
+        ValueRef::new(ValueId::new(id), ValueType::Video)
     }
 
     #[test]
@@ -679,8 +824,8 @@ mod tests {
         let mut stack = vec![video(1), video(2)];
         bind_missing_fixed("combine", &VIDEO_PORTS_2, &mut slots, &mut stack, &span())
             .expect("bind");
-        assert_eq!(slots[0].as_ref().expect("before")[0].id(), ValueId(1));
-        assert_eq!(slots[1].as_ref().expect("after")[0].id(), ValueId(2));
+        assert_eq!(slots[0].as_ref().expect("before")[0].id().get(), 1);
+        assert_eq!(slots[1].as_ref().expect("after")[0].id().get(), 2);
     }
 
     #[test]
@@ -697,7 +842,7 @@ mod tests {
         .expect("bind after");
         assert_eq!(
             first_explicit[1].as_ref().expect("implicit after")[0].id(),
-            ValueId(2)
+            ValueId::new(2)
         );
 
         let mut second_explicit = vec![None, Some(vec![video(9)])];
@@ -712,7 +857,7 @@ mod tests {
         .expect("bind before");
         assert_eq!(
             second_explicit[0].as_ref().expect("implicit before")[0].id(),
-            ValueId(1)
+            ValueId::new(1)
         );
     }
 
@@ -722,8 +867,8 @@ mod tests {
         let mut stack = vec![video(1), video(3)];
         bind_missing_fixed("combine", &VIDEO_PORTS_3, &mut slots, &mut stack, &span())
             .expect("bind");
-        assert_eq!(slots[0].as_ref().expect("first")[0].id(), ValueId(1));
-        assert_eq!(slots[2].as_ref().expect("last")[0].id(), ValueId(3));
+        assert_eq!(slots[0].as_ref().expect("first")[0].id().get(), 1);
+        assert_eq!(slots[2].as_ref().expect("last")[0].id().get(), 3);
     }
 
     #[test]
@@ -734,7 +879,7 @@ mod tests {
             cardinality: Cardinality::One,
         }];
         let mut slots = vec![None];
-        let mut stack = vec![video(1), ValueRef::new(ValueId(2), ValueType::Test)];
+        let mut stack = vec![video(1), ValueRef::new(ValueId::new(2), ValueType::Test)];
         let error = bind_missing_fixed("consume", &ports, &mut slots, &mut stack, &span())
             .expect_err("type");
         assert_eq!(error.code, "E_TYPE_MISMATCH");
@@ -757,7 +902,7 @@ mod tests {
             symbol_order: Vec::new(),
             surface: Vec::new(),
         };
-        let mut stack = vec![ValueRef::new(ValueId(0), ValueType::Test)];
+        let mut stack = vec![ValueRef::new(ValueId::new(0), ValueType::Test)];
 
         let error = evaluator
             .evaluate_item_kind(&ItemKind::Then(Vec::new()), &span(), &mut stack, None)
@@ -780,5 +925,39 @@ mod tests {
             .expect_err("then output type");
         assert_eq!(error.code, "E_TYPE_MISMATCH");
         assert!(error.message.contains("program `then` port `output`"));
+    }
+
+    #[test]
+    fn reference_alias_preserves_a_non_video_value_type() {
+        let registry = ProgramRegistry::from_definitions(&ALIAS_TEST_PROGRAMS).expect("registry");
+        let workflow = crate::syntax::parse_str_with_registry(
+            Path::new("test.yaml"),
+            "version: 1\ntimeline:\n  - test_source:\n    id: original\n  - ref: $original\n    id: alias\n  - test_sink\n",
+            registry,
+        )
+        .expect("workflow");
+
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("typed alias");
+        let document: serde_json::Value =
+            serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
+        assert_eq!(document["named_values"]["original"]["value_type"], "test");
+        assert_eq!(document["named_values"]["alias"]["value_type"], "test");
+    }
+
+    #[test]
+    fn reference_alias_cycles_use_the_dependency_cycle_diagnostic() {
+        let registry = ProgramRegistry::from_definitions(&ALIAS_TEST_PROGRAMS).expect("registry");
+        let workflow = crate::syntax::parse_str_with_registry(
+            Path::new("test.yaml"),
+            "version: 1\ntimeline:\n  - ref: $second\n    id: first\n  - ref: $first\n    id: second\n",
+            registry,
+        )
+        .expect("workflow");
+
+        let error =
+            crate::compiler::compile_with_registry(&workflow, registry).expect_err("alias cycle");
+        assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
+        assert!(error.message.contains("first -> second -> first"));
     }
 }

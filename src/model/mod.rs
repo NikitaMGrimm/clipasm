@@ -6,11 +6,40 @@ pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct ValueId(pub u32);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+/// An engine-owned semantic value identifier.
+///
+/// ```compile_fail
+/// use rhythmcut::model::ValueId;
+///
+/// let fabricated = ValueId(42);
+/// ```
+pub struct ValueId(u32);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct NodeId(pub u32);
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct NodeId(u32);
+
+impl ValueId {
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl NodeId {
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,7 +67,7 @@ pub struct ValueRef {
 
 impl ValueRef {
     #[must_use]
-    pub fn new(id: ValueId, value_type: ValueType) -> Self {
+    pub(crate) const fn new(id: ValueId, value_type: ValueType) -> Self {
         Self { id, value_type }
     }
 

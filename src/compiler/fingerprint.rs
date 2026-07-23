@@ -10,7 +10,6 @@ use crate::model::{ValueId, ValueRef, VideoDomain, VideoSpec};
 #[derive(Serialize)]
 struct CompiledIdentity<'a> {
     format_version: u32,
-    engine_version: &'a str,
     video: &'a VideoSpec,
     root: &'a str,
     names: &'a BTreeMap<&'a str, String>,
@@ -29,6 +28,7 @@ pub(super) fn compiled_structure_hash(
     evaluation: &Evaluation,
     domains: &[Option<VideoDomain>],
     video: &VideoSpec,
+    format_version: u32,
 ) -> Result<String> {
     let mut memo = BTreeMap::<ValueId, String>::new();
     let root = value_hash(evaluation.root, evaluation, domains, &mut memo)?;
@@ -47,8 +47,7 @@ pub(super) fn compiled_structure_hash(
         .collect::<Result<BTreeMap<_, _>>>()?;
 
     hash_serializable(&CompiledIdentity {
-        format_version: 2,
-        engine_version: env!("CARGO_PKG_VERSION"),
+        format_version,
         video,
         root: &root,
         names: &names,
@@ -64,7 +63,7 @@ fn value_hash(
     if let Some(hash) = memo.get(&value.id()) {
         return Ok(hash.clone());
     }
-    let node = &evaluation.nodes[value.id().0 as usize];
+    let node = &evaluation.nodes[value.id().get() as usize];
     let upstream = match &node.kind {
         SemanticNodeKind::ImageVideo { .. } => Vec::new(),
         SemanticNodeKind::Reference { name } => {
@@ -111,7 +110,7 @@ fn value_hash(
     let hash = hash_serializable(&ValueIdentity {
         semantic_version: node.semantic_version,
         value_type: node.value_type,
-        domain: &domains[value.id().0 as usize],
+        domain: &domains[value.id().get() as usize],
         operation,
         upstream,
     })?;

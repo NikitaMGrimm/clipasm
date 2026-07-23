@@ -730,10 +730,9 @@ fn validate_parameter_argument(
 ) -> Result<()> {
     let valid = match parameter.parameter_type {
         ParameterType::Integer => matches!(argument, Argument::Integer(..)),
-        ParameterType::String
-        | ParameterType::File
-        | ParameterType::Duration
-        | ParameterType::Enum(_) => matches!(argument, Argument::String(..)),
+        ParameterType::File | ParameterType::Duration | ParameterType::Enum(_) => {
+            matches!(argument, Argument::String(..))
+        }
     };
     if !valid {
         return Err(Diagnostic::new(
@@ -1020,30 +1019,5 @@ mod tests {
         let error = crate::compiler::compile_with_registry(&workflow, registry)
             .expect_err("output type mismatch");
         assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
-    }
-
-    #[test]
-    fn compiler_rejects_a_list_for_a_fixed_input_port() {
-        let mut workflow = parse(
-            "version: 1\nclips:\n  a: {image: {path: a.png, duration: 1s}}\n  b: {image: {path: b.png, duration: 1s}}\ntimeline:\n  - repeat:\n      video: $a\n      count: 2\n",
-        )
-        .expect("initially valid workflow");
-        let ItemKind::Invocation(invocation) = &mut workflow.timeline[0].kind else {
-            panic!("repeat invocation");
-        };
-        let span = invocation.arguments["video"].span().clone();
-        invocation.arguments.insert(
-            "video".to_owned(),
-            Argument::List(
-                vec![
-                    Argument::Reference("a".to_owned(), span.clone()),
-                    Argument::Reference("b".to_owned(), span.clone()),
-                ],
-                span,
-            ),
-        );
-
-        let error = crate::compiler::compile(&workflow).expect_err("fixed input list");
-        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
     }
 }

@@ -23,6 +23,12 @@ code and future design work should preserve the distinctions below.
   lowers root-reachable semantic operations to renderer primitives, and assigns
   content fingerprints.
 
+Compiled structure and prepared semantic hashes identify language and graph
+semantics, not the Cargo package release. Engine release versions remain plan
+and manifest metadata. Artifact-cache namespaces are a separate execution
+identity containing an explicit cache-format version, resolved FFmpeg/FFprobe
+identities, and the working-media policy.
+
 ## Public syntax
 
 A workflow has `version: 1`, an optional `project.video` mapping (`width`,

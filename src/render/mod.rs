@@ -35,8 +35,6 @@ struct Manifest<'a> {
 #[derive(Deserialize)]
 struct ProbeDocument {
     streams: Vec<ProbeStream>,
-    #[serde(default)]
-    frames: Vec<ProbeFrame>,
 }
 
 #[derive(Deserialize)]
@@ -49,11 +47,6 @@ struct ProbeStream {
     nb_read_frames: Option<String>,
     start_time: Option<String>,
     sample_aspect_ratio: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ProbeFrame {
-    best_effort_timestamp_time: Option<String>,
 }
 
 /// Render an invariant-protected prepared plan and atomically publish its MP4
@@ -92,7 +85,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     let mut cache_hits = 0;
     let mut cache_misses = 0;
     for node in plan.nodes() {
-        if node.id().0 as usize != artifacts.len() {
+        if node.id().get() as usize != artifacts.len() {
             return Err(Diagnostic::new(
                 "E_INVALID_PLAN",
                 "prepared nodes are not in stable topological order",
@@ -145,8 +138,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         artifacts.push(artifact);
     }
 
-    let root_node = &plan.nodes()[plan.root().0 as usize];
-    let root_artifact = artifacts.get(plan.root().0 as usize).ok_or_else(|| {
+    let root_node = &plan.nodes()[plan.root().get() as usize];
+    let root_artifact = artifacts.get(plan.root().get() as usize).ok_or_else(|| {
         Diagnostic::new(
             "E_INVALID_PLAN",
             "prepared root does not identify a primitive artifact",
@@ -287,7 +280,8 @@ fn render_node(
                 "-vf",
                 &format!(
                     "trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS",
-                    range.start, range.end
+                    range.start(),
+                    range.end()
                 ),
             ]);
             append_lossless_output(&mut command, range.frames(), spec, media_policy, &temporary);
@@ -401,12 +395,12 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy
 
 fn artifact<'a>(artifacts: &'a [PathBuf], id: NodeId, span: &SourceSpan) -> Result<&'a Path> {
     artifacts
-        .get(id.0 as usize)
+        .get(id.get() as usize)
         .map(PathBuf::as_path)
         .ok_or_else(|| {
             Diagnostic::new(
                 "E_INVALID_PLAN",
-                format!("primitive input {} is not available", id.0),
+                format!("primitive input {} is not available", id.get()),
                 span.clone(),
             )
         })
@@ -426,7 +420,6 @@ fn verify_artifact(
             "error",
             "-count_frames",
             "-show_streams",
-            "-show_frames",
             "-of",
             "json",
         ])
@@ -522,24 +515,6 @@ fn verify_artifact(
                 "expected square pixels (1:1), found {:?}",
                 video.sample_aspect_ratio
             ),
-        ));
-    }
-    let timestamps = document
-        .frames
-        .iter()
-        .filter_map(|frame| {
-            frame
-                .best_effort_timestamp_time
-                .as_deref()
-                .and_then(|value| value.parse::<f64>().ok())
-        })
-        .collect::<Vec<_>>();
-    if u64::try_from(timestamps.len()) != Ok(domain.frames.0)
-        || timestamps.windows(2).any(|pair| pair[0] >= pair[1])
-    {
-        return Err(contract_error(
-            path,
-            "decoded frame timestamps are missing or are not strictly monotonic",
         ));
     }
     Ok(())

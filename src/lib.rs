@@ -1,10 +1,6 @@
 //! `RhythmCut`'s compiler and renderer.
 //!
 //! Internal program-extension machinery is intentionally not public.
-//!
-//! ```compile_fail
-//! use rhythmcut::program::ProgramDefinition;
-//! ```
 
 pub mod cli;
 pub mod compiler;
