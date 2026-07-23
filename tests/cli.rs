@@ -11,7 +11,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - image: card.ppm\n    duration: 1s\n",
+        "version: 1\ntimeline:\n  - image:\n      path: card.ppm\n      duration: 1s\n",
     )
     .expect("workflow");
     (directory, workflow)
@@ -26,7 +26,7 @@ fn compile_prints_machine_readable_plan() {
         .expect("run rhythmcut");
     assert!(output.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
-    assert!(plan["plan_hash"].as_str().is_some());
+    assert!(plan["structure_hash"].as_str().is_some());
     assert_eq!(plan["nodes"][0]["kind"]["operation"], "image_video");
 }
 

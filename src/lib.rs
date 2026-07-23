@@ -4,6 +4,7 @@ pub mod cli;
 pub mod compiler;
 pub mod diagnostic;
 pub mod model;
+pub mod preflight;
 pub mod program;
 pub mod render;
 pub mod syntax;

@@ -11,6 +11,19 @@ pub struct SourceSpan {
     pub column: usize,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Spanned<T> {
+    pub value: T,
+    pub span: SourceSpan,
+}
+
+impl<T> Spanned<T> {
+    #[must_use]
+    pub fn new(value: T, span: SourceSpan) -> Self {
+        Self { value, span }
+    }
+}
+
 impl SourceSpan {
     #[must_use]
     pub fn new(file: impl Into<PathBuf>, line: usize, column: usize) -> Self {

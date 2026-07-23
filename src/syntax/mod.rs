@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::{Marker, TScalarStyle};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
 use crate::model::SourceTimeRange;
+use crate::program::{ParameterType, ProgramDefinition, ProgramRegistry};
 
 #[derive(Clone, Debug)]
 pub struct Workflow {
@@ -15,14 +16,14 @@ pub struct Workflow {
     pub video: VideoSettings,
     pub clips: Vec<NamedClip>,
     pub timeline: Vec<Item>,
-    pub output: Option<PathBuf>,
+    pub output: Option<Spanned<PathBuf>>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct VideoSettings {
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-    pub fps: Option<String>,
+    pub width: Option<Spanned<u32>>,
+    pub height: Option<Spanned<u32>>,
+    pub fps: Option<Spanned<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,20 +36,29 @@ pub struct NamedClip {
 #[derive(Clone, Debug)]
 pub struct Item {
     pub kind: ItemKind,
-    pub id: Option<(String, SourceSpan)>,
-    pub during: Option<(SourceTimeRange, SourceSpan)>,
+    pub id: Option<Spanned<String>>,
+    pub during: Option<Spanned<SourceTimeRange>>,
     pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug)]
 pub enum ItemKind {
-    Call {
-        program: String,
-        arguments: BTreeMap<String, Argument>,
-    },
+    Reference(Reference),
+    Invocation(Invocation),
     Then(Vec<Item>),
     Join(Vec<Item>),
     Timeline(Vec<Item>),
+}
+
+#[derive(Clone, Debug)]
+pub struct Reference {
+    pub name: Spanned<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Invocation {
+    pub program: Spanned<String>,
+    pub arguments: BTreeMap<String, Argument>,
 }
 
 #[derive(Clone, Debug)]
@@ -104,7 +114,7 @@ pub fn parse_file(path: &Path) -> Result<Workflow> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
     let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    parse_str(&source_path, &source)
+    parse_str_with_registry(&source_path, &source, ProgramRegistry::default())
 }
 
 /// Parse workflow source supplied by tests or an embedding application.
@@ -113,6 +123,19 @@ pub fn parse_file(path: &Path) -> Result<Workflow> {
 ///
 /// Returns a source-located diagnostic for invalid YAML or workflow syntax.
 pub fn parse_str(path: &Path, source: &str) -> Result<Workflow> {
+    parse_str_with_registry(path, source, ProgramRegistry::default())
+}
+
+/// Parse workflow source with an explicit static program registry.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic for invalid YAML or workflow syntax.
+pub fn parse_str_with_registry(
+    path: &Path,
+    source: &str,
+    registry: ProgramRegistry,
+) -> Result<Workflow> {
     let mut sink = EventSink { events: Vec::new() };
     Parser::new_from_str(source)
         .load(&mut sink, true)
@@ -145,7 +168,7 @@ pub fn parse_str(path: &Path, source: &str) -> Result<Workflow> {
         .map_or(0, |index| index + 1);
     let mut cursor = start;
     let root = raw_node(&sink.events, &mut cursor, path)?;
-    parse_workflow(source_path(path), root)
+    parse_workflow(source_path(path), root, registry)
 }
 
 fn source_path(path: &Path) -> PathBuf {
@@ -254,7 +277,11 @@ fn reject_properties(anchor: usize, has_tag: bool, span: &SourceSpan) -> Result<
     Ok(())
 }
 
-fn parse_workflow(source_path: PathBuf, root: RawNode) -> Result<Workflow> {
+fn parse_workflow(
+    source_path: PathBuf,
+    root: RawNode,
+    registry: ProgramRegistry,
+) -> Result<Workflow> {
     let root_span = root.span.clone();
     let entries = into_mapping(root, "the workflow root")?;
     let mut version = None;
@@ -276,11 +303,11 @@ fn parse_workflow(source_path: PathBuf, root: RawNode) -> Result<Workflow> {
                 })?);
             }
             "project" => video = parse_project(value)?,
-            "clips" => clips = parse_clips(value)?,
-            "timeline" => timeline = Some(parse_body(value, "`timeline`")?),
+            "clips" => clips = parse_clips(value, registry)?,
+            "timeline" => timeline = Some(parse_body(value, "`timeline`", registry)?),
             "output" => {
                 let (text, _) = scalar(&value, "`output`")?;
-                output = Some(PathBuf::from(text));
+                output = Some(Spanned::new(PathBuf::from(text), value.span));
             }
             _ => {
                 return Err(Diagnostic::new(
@@ -338,9 +365,21 @@ fn parse_project(node: RawNode) -> Result<VideoSettings> {
         for (setting, setting_span, value) in into_mapping(value, "`project.video`")? {
             let (text, _) = scalar(&value, "a video setting")?;
             match setting.as_str() {
-                "width" => video.width = Some(parse_u32(text, &value.span, "width")?),
-                "height" => video.height = Some(parse_u32(text, &value.span, "height")?),
-                "fps" => video.fps = Some(text.to_owned()),
+                "width" => {
+                    video.width = Some(Spanned::new(
+                        parse_u32(text, &value.span, "width")?,
+                        value.span,
+                    ));
+                }
+                "height" => {
+                    video.height = Some(Spanned::new(
+                        parse_u32(text, &value.span, "height")?,
+                        value.span,
+                    ));
+                }
+                "fps" => {
+                    video.fps = Some(Spanned::new(text.to_owned(), value.span));
+                }
                 _ => {
                     return Err(Diagnostic::new(
                         "E_UNKNOWN_VIDEO_FIELD",
@@ -372,20 +411,22 @@ fn parse_u32(text: &str, span: &SourceSpan, field: &str) -> Result<u32> {
     Ok(value)
 }
 
-fn parse_clips(node: RawNode) -> Result<Vec<NamedClip>> {
+fn parse_clips(node: RawNode, registry: ProgramRegistry) -> Result<Vec<NamedClip>> {
     let mut clips = Vec::new();
     for (name, span, value) in into_mapping(node, "`clips`")? {
         validate_name(&name, &span)?;
         let body = match value.kind {
-            RawKind::Sequence(_) => parse_body(value, "a clip body")?,
-            RawKind::Mapping(_) | RawKind::Scalar { .. } => vec![parse_item(value)?],
+            RawKind::Sequence(_) => parse_body(value, "a clip body", registry)?,
+            RawKind::Mapping(_) | RawKind::Scalar { .. } => {
+                vec![parse_item(value, registry)?]
+            }
         };
         clips.push(NamedClip { name, body, span });
     }
     Ok(clips)
 }
 
-fn parse_body(node: RawNode, owner: &str) -> Result<Vec<Item>> {
+fn parse_body(node: RawNode, owner: &str, registry: ProgramRegistry) -> Result<Vec<Item>> {
     let span = node.span.clone();
     let RawKind::Sequence(values) = node.kind else {
         return Err(Diagnostic::new(
@@ -394,35 +435,42 @@ fn parse_body(node: RawNode, owner: &str) -> Result<Vec<Item>> {
             span,
         ));
     };
-    values.into_iter().map(parse_item).collect()
+    values
+        .into_iter()
+        .map(|value| parse_item(value, registry))
+        .collect()
 }
 
-fn parse_item(node: RawNode) -> Result<Item> {
+fn parse_item(node: RawNode, registry: ProgramRegistry) -> Result<Item> {
     let item_span = node.span.clone();
     match node.kind {
         RawKind::Scalar { value, style } => {
             if style == TScalarStyle::Plain && value.starts_with('$') {
                 let reference = parse_reference(&value, &item_span)?;
-                let mut arguments = BTreeMap::new();
-                arguments.insert(
-                    "video".to_owned(),
-                    Argument::Reference(reference, item_span.clone()),
-                );
                 Ok(Item {
-                    kind: ItemKind::Call {
-                        program: "clip".to_owned(),
-                        arguments,
-                    },
+                    kind: ItemKind::Reference(Reference {
+                        name: Spanned::new(reference, item_span.clone()),
+                    }),
                     id: None,
                     during: None,
                     span: item_span,
                 })
             } else if style == TScalarStyle::Plain {
+                let definition = registry.get(&value).ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_UNKNOWN_PROGRAM",
+                        format!("unknown program `{value}`"),
+                        item_span.clone(),
+                    )
+                })?;
                 Ok(Item {
-                    kind: ItemKind::Call {
-                        program: value,
+                    kind: ItemKind::Invocation(Invocation {
+                        program: Spanned::new(
+                            definition.descriptor.name.to_owned(),
+                            item_span.clone(),
+                        ),
                         arguments: BTreeMap::new(),
-                    },
+                    }),
                     id: None,
                     during: None,
                     span: item_span,
@@ -435,7 +483,7 @@ fn parse_item(node: RawNode) -> Result<Item> {
                 ))
             }
         }
-        RawKind::Mapping(entries) => parse_invocation(entries, item_span),
+        RawKind::Mapping(entries) => parse_invocation(entries, item_span, registry),
         RawKind::Sequence(_) => Err(Diagnostic::new(
             "E_INVALID_SEQUENCE_ITEM",
             "a sequence item must be a program invocation or reference",
@@ -445,62 +493,49 @@ fn parse_item(node: RawNode) -> Result<Item> {
 }
 
 #[allow(clippy::too_many_lines)]
-fn parse_invocation(entries: Vec<(String, SourceSpan, RawNode)>, span: SourceSpan) -> Result<Item> {
+fn parse_invocation(
+    entries: Vec<(String, SourceSpan, RawNode)>,
+    span: SourceSpan,
+    registry: ProgramRegistry,
+) -> Result<Item> {
     let mut id = None;
     let mut during = None;
-    let mut program_entries = Vec::new();
+    let mut structural_entries = Vec::new();
     for (key, key_span, value) in entries {
         match key.as_str() {
             "id" => {
                 let (name, _) = scalar(&value, "`id`")?;
                 validate_name(name, &value.span)?;
-                id = Some((name.to_owned(), value.span));
+                id = Some(Spanned::new(name.to_owned(), value.span));
             }
             "during" => {
                 let (range, _) = scalar(&value, "`during`")?;
-                during = Some((SourceTimeRange::parse(range, &value.span)?, value.span));
+                during = Some(Spanned::new(
+                    SourceTimeRange::parse(range, &value.span)?,
+                    value.span,
+                ));
             }
-            _ => program_entries.push((key, key_span, value)),
+            _ => structural_entries.push((key, key_span, value)),
         }
     }
-    if program_entries.is_empty() {
+    if structural_entries.is_empty() {
         return Err(Diagnostic::new(
             "E_MISSING_PROGRAM_KEY",
             "an invocation mapping must contain one program key",
             span,
         ));
     }
-
-    let candidates = program_entries
-        .iter()
-        .enumerate()
-        .filter(|(_, (key, _, _))| {
-            known_program(key) || matches!(key.as_str(), "then" | "join" | "timeline")
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    let program_index = match candidates.as_slice() {
-        [index] => *index,
-        [] if program_entries.len() == 1 => 0,
-        _ => {
-            return Err(Diagnostic::new(
-                "E_MULTIPLE_PROGRAM_KEYS",
-                "an invocation mapping must identify exactly one program key",
-                span,
-            ));
-        }
-    };
-    let (program, _program_span, primary_value) = program_entries.remove(program_index);
+    if structural_entries.len() != 1 {
+        return Err(Diagnostic::new(
+            "E_UNKNOWN_INVOCATION_FIELD",
+            "program parameters must be nested inside the program mapping; only `id` and `during` may be sibling fields",
+            structural_entries[1].1.clone(),
+        ));
+    }
+    let (program, program_span, primary_value) = structural_entries.remove(0);
     let kind = match program.as_str() {
         "then" | "join" | "timeline" => {
-            if !program_entries.is_empty() {
-                return Err(Diagnostic::new(
-                    "E_UNKNOWN_INVOCATION_FIELD",
-                    format!("compound `{program}` accepts only `id` and `during` fields"),
-                    program_entries[0].1.clone(),
-                ));
-            }
-            let body = parse_body(primary_value, &format!("`{program}` body"))?;
+            let body = parse_body(primary_value, &format!("`{program}` body"), registry)?;
             match program.as_str() {
                 "then" => ItemKind::Then(body),
                 "join" => ItemKind::Join(body),
@@ -508,10 +543,30 @@ fn parse_invocation(entries: Vec<(String, SourceSpan, RawNode)>, span: SourceSpa
                 _ => unreachable!("matched above"),
             }
         }
+        "ref" => {
+            let argument = parse_argument(primary_value)?;
+            let Argument::Reference(name, reference_span) = argument else {
+                return Err(Diagnostic::new(
+                    "E_INVALID_REFERENCE",
+                    "`ref` requires one `$name` reference",
+                    argument.span().clone(),
+                ));
+            };
+            ItemKind::Reference(Reference {
+                name: Spanned::new(name, reference_span),
+            })
+        }
         _ => {
+            let definition = registry.get(&program).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_UNKNOWN_PROGRAM",
+                    format!("unknown program `{program}`"),
+                    program_span.clone(),
+                )
+            })?;
             let mut arguments = BTreeMap::new();
             if is_empty_scalar(&primary_value) {
-                // No primary shorthand argument.
+                // A no-argument invocation relies on implicit input binding.
             } else if matches!(primary_value.kind, RawKind::Mapping(_)) {
                 for (name, name_span, value) in
                     into_mapping(primary_value, "a full argument mapping")?
@@ -528,29 +583,20 @@ fn parse_invocation(entries: Vec<(String, SourceSpan, RawNode)>, span: SourceSpa
                     }
                 }
             } else {
-                let Some(primary) = primary_argument(&program) else {
-                    if known_program(&program) {
-                        return Err(Diagnostic::new(
-                            "E_INVALID_PRIMARY_ARGUMENT",
-                            format!("program `{program}` has no primary shorthand argument"),
-                            primary_value.span,
-                        ));
-                    }
-                    // Preserve an unknown program for the registry diagnostic.
-                    arguments.insert("value".to_owned(), parse_argument(primary_value)?);
-                    return finish_invocation(
-                        program,
-                        arguments,
-                        program_entries,
-                        id,
-                        during,
-                        span,
-                    );
+                let Some(primary) = definition.descriptor.primary_parameter else {
+                    return Err(Diagnostic::new(
+                        "E_INVALID_PRIMARY_ARGUMENT",
+                        format!("program `{program}` has no primary shorthand parameter"),
+                        primary_value.span,
+                    ));
                 };
                 arguments.insert(primary.to_owned(), parse_argument(primary_value)?);
             }
-            finish_arguments(&program, &mut arguments, program_entries)?;
-            ItemKind::Call { program, arguments }
+            validate_arguments(definition, &arguments, &program_span)?;
+            ItemKind::Invocation(Invocation {
+                program: Spanned::new(program, program_span),
+                arguments,
+            })
         }
     };
 
@@ -562,59 +608,112 @@ fn parse_invocation(entries: Vec<(String, SourceSpan, RawNode)>, span: SourceSpa
     })
 }
 
-fn finish_invocation(
-    program: String,
-    mut arguments: BTreeMap<String, Argument>,
-    entries: Vec<(String, SourceSpan, RawNode)>,
-    id: Option<(String, SourceSpan)>,
-    during: Option<(SourceTimeRange, SourceSpan)>,
-    span: SourceSpan,
-) -> Result<Item> {
-    finish_arguments(&program, &mut arguments, entries)?;
-    Ok(Item {
-        kind: ItemKind::Call { program, arguments },
-        id,
-        during,
-        span,
-    })
-}
-
-fn finish_arguments(
-    program: &str,
-    arguments: &mut BTreeMap<String, Argument>,
-    entries: Vec<(String, SourceSpan, RawNode)>,
+fn validate_arguments(
+    definition: &ProgramDefinition,
+    arguments: &BTreeMap<String, Argument>,
+    invocation_span: &SourceSpan,
 ) -> Result<()> {
-    for (name, span, value) in entries {
-        if arguments
-            .insert(name.clone(), parse_argument(value)?)
-            .is_some()
-        {
-            return Err(Diagnostic::new(
-                "E_DUPLICATE_ARGUMENT",
-                format!("argument `{name}` was supplied twice"),
-                span,
-            ));
-        }
-    }
-    validate_argument_names(program, arguments)
-}
-
-fn validate_argument_names(program: &str, arguments: &BTreeMap<String, Argument>) -> Result<()> {
-    let allowed: &[&str] = match program {
-        "image" => &["path", "duration", "fit"],
-        "clip" => &["video"],
-        "concat" => &["videos"],
-        "repeat" => &["video", "count"],
-        _ => return Ok(()),
-    };
+    let descriptor = &definition.descriptor;
     for (name, value) in arguments {
-        if !allowed.contains(&name.as_str()) {
+        if let Some(port) = descriptor.inputs.iter().find(|port| port.name == name) {
+            validate_input_argument(descriptor.name, port.cardinality, value)?;
+        } else if let Some(parameter) = descriptor
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == name)
+        {
+            validate_parameter_argument(descriptor.name, parameter, value)?;
+        } else {
             return Err(Diagnostic::new(
                 "E_UNKNOWN_PROGRAM_ARGUMENT",
-                format!("unknown argument `{name}` for program `{program}`"),
+                format!(
+                    "unknown argument `{name}` for program `{}`",
+                    descriptor.name
+                ),
                 value.span().clone(),
             ));
         }
+    }
+    for parameter in descriptor
+        .parameters
+        .iter()
+        .filter(|parameter| parameter.required)
+    {
+        if !arguments.contains_key(parameter.name) {
+            return Err(Diagnostic::new(
+                "E_MISSING_ARGUMENT",
+                format!(
+                    "missing required parameter `{}.{}`",
+                    descriptor.name, parameter.name
+                ),
+                invocation_span.clone(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_input_argument(
+    program: &str,
+    cardinality: crate::program::Cardinality,
+    argument: &Argument,
+) -> Result<()> {
+    let valid = match cardinality {
+        crate::program::Cardinality::One => matches!(argument, Argument::Reference(..)),
+        crate::program::Cardinality::Variadic { .. } => match argument {
+            Argument::Reference(..) => true,
+            Argument::List(values, _) => values
+                .iter()
+                .all(|value| matches!(value, Argument::Reference(..))),
+            _ => false,
+        },
+    };
+    if !valid {
+        return Err(Diagnostic::new(
+            "E_INVALID_ARGUMENT_TYPE",
+            format!("explicit inputs for `{program}` must be `$name` references"),
+            argument.span().clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_parameter_argument(
+    program: &str,
+    parameter: &crate::program::ParameterDescriptor,
+    argument: &Argument,
+) -> Result<()> {
+    let valid = match parameter.parameter_type {
+        ParameterType::Integer => matches!(argument, Argument::Integer(..)),
+        ParameterType::String
+        | ParameterType::File
+        | ParameterType::Duration
+        | ParameterType::Enum(_) => matches!(argument, Argument::String(..)),
+    };
+    if !valid {
+        return Err(Diagnostic::new(
+            "E_INVALID_ARGUMENT_TYPE",
+            format!(
+                "parameter `{}.{}` has the wrong value type",
+                program, parameter.name
+            ),
+            argument.span().clone(),
+        ));
+    }
+    if let (ParameterType::Enum(allowed), Argument::String(value, span)) =
+        (parameter.parameter_type, argument)
+        && !allowed.contains(&value.as_str())
+    {
+        return Err(Diagnostic::new(
+            "E_INVALID_ARGUMENT_VALUE",
+            format!(
+                "parameter `{}.{}` must be one of: {}",
+                program,
+                parameter.name,
+                allowed.join(", ")
+            ),
+            span.clone(),
+        ));
     }
     Ok(())
 }
@@ -685,20 +784,6 @@ pub fn validate_name(name: &str, span: &SourceSpan) -> Result<()> {
     Ok(())
 }
 
-fn primary_argument(program: &str) -> Option<&'static str> {
-    match program {
-        "image" => Some("path"),
-        "clip" => Some("video"),
-        "concat" => Some("videos"),
-        "repeat" => Some("count"),
-        _ => None,
-    }
-}
-
-fn known_program(program: &str) -> bool {
-    matches!(program, "image" | "clip" | "concat" | "repeat")
-}
-
 fn is_empty_scalar(node: &RawNode) -> bool {
     matches!(
         &node.kind,
@@ -735,20 +820,82 @@ fn into_mapping(node: RawNode, owner: &str) -> Result<Vec<(String, SourceSpan, R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::{GraphBuilder, ResolvedCall, SourceOrigin};
+    use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
+    use crate::program::{
+        CONCAT, IMAGE, ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
+        REPEAT,
+    };
+
+    const TEST_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
+        name: "path",
+        parameter_type: ParameterType::File,
+        required: true,
+    }];
+
+    fn lower_test_source(
+        call: &ResolvedCall<'_>,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        let (path, _) = call.string_parameter("path")?;
+        builder.image_video(
+            PathBuf::from(path),
+            FrameCount(1),
+            ImageFit::Cover,
+            call.definition().descriptor.version,
+            SourceOrigin {
+                construct: "test_source".to_owned(),
+                span: call.origin().span.clone(),
+            },
+        )
+    }
+
+    const TEST_SOURCE: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "test_source",
+            version: 7,
+            inputs: &[],
+            parameters: TEST_PARAMETERS,
+            primary_parameter: Some("path"),
+            output: ValueType::Video,
+        },
+        lower: lower_test_source,
+    };
+    static TEST_PROGRAMS: [ProgramDefinition; 4] = [IMAGE, CONCAT, REPEAT, TEST_SOURCE];
+
+    fn lower_wrong_type(
+        call: &ResolvedCall<'_>,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        lower_test_source(call, builder)
+    }
+
+    const WRONG_OUTPUT: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "wrong_output",
+            version: 1,
+            inputs: &[],
+            parameters: TEST_PARAMETERS,
+            primary_parameter: Some("path"),
+            output: ValueType::Test,
+        },
+        lower: lower_wrong_type,
+    };
+    static WRONG_PROGRAMS: [ProgramDefinition; 1] = [WRONG_OUTPUT];
 
     fn parse(source: &str) -> Result<Workflow> {
         parse_str(Path::new("workflow.yaml"), source)
     }
 
     #[test]
-    fn normalizes_reference_and_primary_shorthand() {
+    fn normalizes_reference_and_full_arguments() {
         let workflow = parse(
-            "version: 1\nclips:\n  a:\n    image: a.png\n    duration: 1s\ntimeline:\n  - $a\n",
+            "version: 1\nclips:\n  a:\n    image:\n      path: a.png\n      duration: 1s\ntimeline:\n  - $a\n",
         )
         .expect("workflow");
         assert!(matches!(
             workflow.timeline[0].kind,
-            ItemKind::Call { ref program, .. } if program == "clip"
+            ItemKind::Reference(Reference { .. })
         ));
         assert_eq!(workflow.clips[0].body.len(), 1);
     }
@@ -768,9 +915,65 @@ mod tests {
     #[test]
     fn retains_during_span_and_normalized_range() {
         let workflow = parse(
-            "version: 1\ntimeline:\n  - image: a.png\n    duration: 2s\n    during: 0s..1s\n",
+            "version: 1\ntimeline:\n  - image:\n      path: a.png\n      duration: 2s\n    during: 0s..1s\n",
         )
         .expect("workflow");
         assert!(workflow.timeline[0].during.is_some());
+    }
+
+    #[test]
+    fn expanded_and_plain_references_share_one_syntax_kind() {
+        let plain =
+            parse("version: 1\nclips:\n  a: $a\ntimeline: [$a]\n").expect("plain reference");
+        let expanded =
+            parse("version: 1\nclips:\n  a: $a\ntimeline:\n  - ref: $a\n    id: opening\n")
+                .expect("expanded reference");
+        let ItemKind::Reference(plain_reference) = &plain.timeline[0].kind else {
+            panic!("plain reference kind");
+        };
+        let ItemKind::Reference(expanded_reference) = &expanded.timeline[0].kind else {
+            panic!("expanded reference kind");
+        };
+        assert_eq!(plain_reference.name.value, expanded_reference.name.value);
+        assert_eq!(
+            expanded.timeline[0].id.as_ref().expect("expanded id").value,
+            "opening"
+        );
+    }
+
+    #[test]
+    fn one_test_definition_drives_lookup_shorthand_validation_and_lowering() {
+        let registry = ProgramRegistry::from_definitions(&TEST_PROGRAMS);
+        let workflow = parse_str_with_registry(
+            Path::new("workflow.yaml"),
+            "version: 1\ntimeline:\n  - test_source: asset.any\n",
+            registry,
+        )
+        .expect("parse test program");
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("compile program");
+        assert_eq!(compiled.root_domain().frames.0, 1);
+
+        let error = parse_str_with_registry(
+            Path::new("workflow.yaml"),
+            "version: 1\ntimeline:\n  - test_source: 3\n",
+            registry,
+        )
+        .expect_err("descriptor rejects integer file parameter");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    }
+
+    #[test]
+    fn declared_output_type_is_checked_against_lowerer_result() {
+        let registry = ProgramRegistry::from_definitions(&WRONG_PROGRAMS);
+        let workflow = parse_str_with_registry(
+            Path::new("workflow.yaml"),
+            "version: 1\ntimeline:\n  - wrong_output: asset.any\n",
+            registry,
+        )
+        .expect("parse");
+        let error = crate::compiler::compile_with_registry(&workflow, registry)
+            .expect_err("output type mismatch");
+        assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
     }
 }

@@ -2,13 +2,17 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-use crate::compiler::{CompiledPlan, PlanNode, PrimitiveNodeKind};
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
-use crate::model::{FrameCount, ImageFit, NodeId, VideoSpec};
+use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain, VideoSpec};
+use crate::preflight::{
+    PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_assets,
+};
+
+static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize)]
 pub struct RenderReport {
@@ -25,7 +29,7 @@ struct Manifest<'a> {
     ffprobe: &'a str,
     cache_hits: usize,
     cache_misses: usize,
-    plan: &'a CompiledPlan,
+    plan: &'a PreparedPlan,
 }
 
 #[derive(Deserialize)]
@@ -52,31 +56,28 @@ struct ProbeFrame {
     best_effort_timestamp_time: Option<String>,
 }
 
-/// Execute a compiled plan, verify artifacts, export MP4, and write a manifest.
+/// Render an invariant-protected prepared plan and atomically publish its MP4
+/// and manifest.
+///
+/// Working intermediates use lossless FFV1 with non-subsampled `yuv444p`.
+/// The only delivery profile is H.264 MP4 with `yuv420p`, square pixels, and
+/// no audio. This is the renderer's initial fixed color/media policy.
 ///
 /// # Errors
 ///
-/// Returns a diagnostic when tool preflight, rendering, cache I/O, artifact
-/// verification, export, or manifest writing fails.
+/// Returns a diagnostic for changed assets, rendering/cache failures, contract
+/// violations, or atomic publication failures.
 #[allow(clippy::too_many_lines)]
-pub fn render(plan: &CompiledPlan, workflow_path: &Path) -> Result<RenderReport> {
-    let output_path = plan.output.as_ref().ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_OUTPUT",
-            "`render` requires the top-level `output` field",
-            SourceSpan::file_start(workflow_path),
-        )
-    })?;
-    let ffmpeg_version = tool_version("ffmpeg")?;
-    let ffprobe_version = tool_version("ffprobe")?;
-    let namespace = hex::encode(Sha256::digest(format!(
-        "{ffmpeg_version}\n{ffprobe_version}\nrender-v1"
-    )));
-    let workflow_directory = workflow_path.parent().unwrap_or_else(|| Path::new("."));
+pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
+    verify_prepared_assets(plan)?;
+    let workflow_directory = plan
+        .workflow_path()
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
     let cache_directory = workflow_directory
         .join(".rhythmcut")
         .join("cache")
-        .join(namespace);
+        .join(plan.execution_namespace());
     fs::create_dir_all(&cache_directory).map_err(|error| {
         Diagnostic::new(
             "E_CACHE_IO",
@@ -84,24 +85,29 @@ pub fn render(plan: &CompiledPlan, workflow_path: &Path) -> Result<RenderReport>
                 "could not create cache directory `{}`: {error}",
                 cache_directory.display()
             ),
-            SourceSpan::file_start(workflow_path),
+            SourceSpan::file_start(plan.workflow_path()),
         )
     })?;
 
-    let mut artifacts = Vec::<PathBuf>::with_capacity(plan.nodes.len());
+    let mut artifacts = Vec::<PathBuf>::with_capacity(plan.nodes().len());
     let mut cache_hits = 0;
     let mut cache_misses = 0;
-    for node in &plan.nodes {
-        if node.id.0 as usize != artifacts.len() {
+    for node in plan.nodes() {
+        if node.id().0 as usize != artifacts.len() {
             return Err(Diagnostic::new(
                 "E_INVALID_PLAN",
-                "primitive nodes are not in stable topological order",
-                node.origin.span.clone(),
+                "prepared nodes are not in stable topological order",
+                node.origin().span.clone(),
             ));
         }
-        let artifact = cache_directory.join(format!("{}.mkv", node.fingerprint));
-        let hit =
-            artifact.is_file() && verify_artifact(&artifact, &plan.video, node.frames).is_ok();
+        let artifact = cache_directory.join(format!("{}.mkv", node.fingerprint()));
+        let hit = artifact.is_file()
+            && verify_artifact(
+                &artifact,
+                node.domain(),
+                plan.media_policy().working_pixel_format(),
+            )
+            .is_ok();
         if hit {
             cache_hits += 1;
         } else {
@@ -114,24 +120,35 @@ pub fn render(plan: &CompiledPlan, workflow_path: &Path) -> Result<RenderReport>
                             "could not replace invalid cache artifact `{}`: {error}",
                             artifact.display()
                         ),
-                        node.origin.span.clone(),
+                        node.origin().span.clone(),
                     )
                 })?;
             }
-            render_node(node, &artifacts, &artifact, &plan.video)?;
-            verify_artifact(&artifact, &plan.video, node.frames)?;
+            render_node(
+                node,
+                &artifacts,
+                &artifact,
+                plan.video(),
+                plan.media_policy(),
+            )?;
+            verify_artifact(
+                &artifact,
+                node.domain(),
+                plan.media_policy().working_pixel_format(),
+            )?;
         }
         artifacts.push(artifact);
     }
 
-    let root_artifact = artifacts.get(plan.root.0 as usize).ok_or_else(|| {
+    let root_node = &plan.nodes()[plan.root().0 as usize];
+    let root_artifact = artifacts.get(plan.root().0 as usize).ok_or_else(|| {
         Diagnostic::new(
             "E_INVALID_PLAN",
-            "compiled root does not identify a primitive artifact",
-            SourceSpan::file_start(workflow_path),
+            "prepared root does not identify a primitive artifact",
+            SourceSpan::file_start(plan.workflow_path()),
         )
     })?;
-    if let Some(parent) = output_path.parent() {
+    if let Some(parent) = plan.output().parent() {
         fs::create_dir_all(parent).map_err(|error| {
             Diagnostic::new(
                 "E_OUTPUT_IO",
@@ -139,90 +156,109 @@ pub fn render(plan: &CompiledPlan, workflow_path: &Path) -> Result<RenderReport>
                     "could not create output directory `{}`: {error}",
                     parent.display()
                 ),
-                SourceSpan::file_start(workflow_path),
+                SourceSpan::file_start(plan.output()),
             )
         })?;
     }
-    export_mp4(
+
+    publish_export(
         root_artifact,
-        output_path,
-        &plan.video,
-        plan.nodes[plan.root.0 as usize].frames,
-    )?;
-    verify_artifact(
-        output_path,
-        &plan.video,
-        plan.nodes[plan.root.0 as usize].frames,
+        plan.output(),
+        plan.video(),
+        root_node.domain(),
+        plan.media_policy(),
     )?;
 
-    let manifest_path = PathBuf::from(format!("{}.manifest.json", output_path.display()));
     let manifest = Manifest {
         engine_version: env!("CARGO_PKG_VERSION"),
-        ffmpeg: &ffmpeg_version,
-        ffprobe: &ffprobe_version,
+        ffmpeg: plan.ffmpeg().version(),
+        ffprobe: plan.ffprobe().version(),
         cache_hits,
         cache_misses,
         plan,
     };
-    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|error| {
+    let manifest_json = serde_json::to_vec_pretty(&manifest).map_err(|error| {
         Diagnostic::new(
             "E_MANIFEST",
             format!("could not serialize render manifest: {error}"),
-            SourceSpan::file_start(workflow_path),
+            SourceSpan::file_start(plan.workflow_path()),
         )
     })?;
-    fs::write(&manifest_path, manifest_json).map_err(|error| {
-        Diagnostic::new(
-            "E_MANIFEST",
-            format!(
-                "could not write manifest `{}`: {error}",
-                manifest_path.display()
-            ),
-            SourceSpan::file_start(workflow_path),
-        )
-    })?;
+    write_atomically(
+        plan.manifest(),
+        &manifest_json,
+        "manifest",
+        "json",
+        "E_MANIFEST",
+    )?;
 
     Ok(RenderReport {
-        output: output_path.clone(),
-        manifest: manifest_path,
+        output: plan.output().to_path_buf(),
+        manifest: plan.manifest().to_path_buf(),
         cache_hits,
         cache_misses,
     })
 }
 
+fn publish_export(
+    artifact: &Path,
+    output: &Path,
+    spec: &VideoSpec,
+    domain: &VideoDomain,
+    media_policy: RenderMediaPolicy,
+) -> Result<()> {
+    let temporary = temporary_sibling(output, "export", "mp4");
+    let result = export_mp4(artifact, &temporary, spec, domain.frames, media_policy)
+        .and_then(|()| verify_artifact(&temporary, domain, media_policy.export_pixel_format()));
+    if let Err(error) = result {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    atomic_replace(&temporary, output, "E_OUTPUT_IO")
+}
+
+fn write_atomically(
+    destination: &Path,
+    contents: &[u8],
+    role: &str,
+    extension: &str,
+    code: &'static str,
+) -> Result<()> {
+    let temporary = temporary_sibling(destination, role, extension);
+    if let Err(error) = fs::write(&temporary, contents) {
+        let _ = fs::remove_file(&temporary);
+        return Err(Diagnostic::new(
+            code,
+            format!(
+                "could not write temporary file `{}`: {error}",
+                temporary.display()
+            ),
+            SourceSpan::file_start(destination),
+        ));
+    }
+    atomic_replace(&temporary, destination, code)
+}
+
 fn render_node(
-    node: &PlanNode,
+    node: &PreparedNode,
     artifacts: &[PathBuf],
     destination: &Path,
     spec: &VideoSpec,
+    media_policy: RenderMediaPolicy,
 ) -> Result<()> {
-    let temporary = destination.with_extension(format!("{}.tmp.mkv", std::process::id()));
-    if temporary.exists() {
-        fs::remove_file(&temporary).map_err(|error| {
-            Diagnostic::new(
-                "E_CACHE_IO",
-                format!(
-                    "could not clear temporary artifact `{}`: {error}",
-                    temporary.display()
-                ),
-                node.origin.span.clone(),
-            )
-        })?;
-    }
+    let temporary = temporary_sibling(destination, "cache", "mkv");
     let mut command = Command::new("ffmpeg");
     command.args(["-y", "-v", "error"]);
-    match &node.kind {
-        PrimitiveNodeKind::ImageVideo {
-            path, fit, frames, ..
-        } => {
-            command.args(["-loop", "1", "-i"]).arg(path);
-            command.args(["-vf", &image_filter(*fit, spec)]);
-            append_lossless_output(&mut command, *frames, spec, &temporary);
+    match node.kind() {
+        PreparedNodeKind::ImageVideo { asset, fit, frames } => {
+            command.args(["-loop", "1", "-i"]).arg(asset.source_path());
+            command.args(["-vf", &image_filter(*fit, spec, media_policy)]);
+            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
         }
-        PrimitiveNodeKind::Slice { input, range } => {
+        PreparedNodeKind::Slice { input, range } => {
             command
                 .arg("-i")
-                .arg(artifact(artifacts, *input, &node.origin.span)?);
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
             command.args([
                 "-vf",
                 &format!(
@@ -230,13 +266,13 @@ fn render_node(
                     range.start, range.end
                 ),
             ]);
-            append_lossless_output(&mut command, range.frames(), spec, &temporary);
+            append_lossless_output(&mut command, range.frames(), spec, media_policy, &temporary);
         }
-        PrimitiveNodeKind::Concat { inputs } => {
+        PreparedNodeKind::Concat { inputs } => {
             for input in inputs {
                 command
                     .arg("-i")
-                    .arg(artifact(artifacts, *input, &node.origin.span)?);
+                    .arg(artifact(artifacts, *input, &node.origin().span)?);
             }
             let labels = (0..inputs.len()).fold(String::new(), |mut output, index| {
                 let _ = write!(output, "[{index}:v]");
@@ -247,53 +283,70 @@ fn render_node(
                 inputs.len()
             );
             command.args(["-filter_complex", &filter, "-map", "[v]"]);
-            append_lossless_output(&mut command, node.frames, spec, &temporary);
+            append_lossless_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                media_policy,
+                &temporary,
+            );
         }
     }
-    run_command(command, "E_FFMPEG", &node.origin.span)?;
-    fs::rename(&temporary, destination).map_err(|error| {
-        Diagnostic::new(
-            "E_CACHE_IO",
-            format!(
-                "could not store cache artifact `{}`: {error}",
-                destination.display()
-            ),
-            node.origin.span.clone(),
-        )
-    })
+    if let Err(error) = run_command(command, "E_FFMPEG", &node.origin().span) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    atomic_replace(&temporary, destination, "E_CACHE_IO")
 }
 
 fn append_lossless_output(
     command: &mut Command,
     frames: FrameCount,
     spec: &VideoSpec,
+    media_policy: RenderMediaPolicy,
     destination: &Path,
 ) {
     command
         .args(["-frames:v", &frames.0.to_string(), "-an", "-c:v", "ffv1"])
-        .args(["-level", "3", "-pix_fmt", "yuv420p", "-r"])
+        .args([
+            "-level",
+            "3",
+            "-pix_fmt",
+            media_policy.working_pixel_format(),
+            "-r",
+        ])
         .arg(format!("{}/{}", spec.fps.numerator, spec.fps.denominator))
         .arg(destination);
 }
 
-fn export_mp4(artifact: &Path, output: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<()> {
+fn export_mp4(
+    artifact: &Path,
+    output: &Path,
+    spec: &VideoSpec,
+    frames: FrameCount,
+    media_policy: RenderMediaPolicy,
+) -> Result<()> {
     let mut command = Command::new("ffmpeg");
     command
         .args(["-y", "-v", "error", "-i"])
         .arg(artifact)
-        .args(["-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r"])
+        .args(["-an", "-c:v", "libx264", "-pix_fmt"])
+        .arg(media_policy.export_pixel_format())
+        .arg("-r")
         .arg(format!("{}/{}", spec.fps.numerator, spec.fps.denominator))
         .args([
             "-frames:v",
             &frames.0.to_string(),
             "-movflags",
             "+faststart",
+            "-f",
+            "mp4",
         ])
         .arg(output);
     run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
 }
 
-fn image_filter(fit: ImageFit, spec: &VideoSpec) -> String {
+fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy) -> String {
     let width = spec.width;
     let height = spec.height;
     let geometry = match fit {
@@ -306,8 +359,10 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec) -> String {
         ImageFit::Stretch => format!("scale={width}:{height}"),
     };
     format!(
-        "{geometry},fps={}/{},setsar=1,format=yuv420p",
-        spec.fps.numerator, spec.fps.denominator
+        "{geometry},fps={}/{},setsar=1,format={}",
+        spec.fps.numerator,
+        spec.fps.denominator,
+        media_policy.working_pixel_format()
     )
 }
 
@@ -325,7 +380,7 @@ fn artifact<'a>(artifacts: &'a [PathBuf], id: NodeId, span: &SourceSpan) -> Resu
 }
 
 #[allow(clippy::too_many_lines)]
-fn verify_artifact(path: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<()> {
+fn verify_artifact(path: &Path, domain: &VideoDomain, pixel_format: &str) -> Result<()> {
     let mut command = Command::new("ffprobe");
     command
         .args([
@@ -369,22 +424,25 @@ fn verify_artifact(path: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<
         ));
     }
     let video = videos[0];
-    if video.width != Some(spec.width) || video.height != Some(spec.height) {
+    if video.width != Some(domain.width) || video.height != Some(domain.height) {
         return Err(contract_error(
             path,
             &format!(
                 "expected {}x{}, found {:?}x{:?}",
-                spec.width, spec.height, video.width, video.height
+                domain.width, domain.height, video.width, video.height
             ),
         ));
     }
-    if video.pix_fmt.as_deref() != Some("yuv420p") {
+    if video.pix_fmt.as_deref() != Some(pixel_format) {
         return Err(contract_error(
             path,
-            &format!("expected yuv420p, found {:?}", video.pix_fmt),
+            &format!("expected {pixel_format}, found {:?}", video.pix_fmt),
         ));
     }
-    let expected_rate = format!("{}/{}", spec.fps.numerator, spec.fps.denominator);
+    let expected_rate = format!(
+        "{}/{}",
+        domain.frame_rate.numerator, domain.frame_rate.denominator
+    );
     if video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
         return Err(contract_error(
             path,
@@ -398,12 +456,12 @@ fn verify_artifact(path: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<
         .nb_read_frames
         .as_deref()
         .and_then(|value| value.parse::<u64>().ok());
-    if actual_frames != Some(frames.0) {
+    if actual_frames != Some(domain.frames.0) {
         return Err(contract_error(
             path,
             &format!(
                 "expected {} frames, FFprobe counted {:?}",
-                frames.0, actual_frames
+                domain.frames.0, actual_frames
             ),
         ));
     }
@@ -437,7 +495,7 @@ fn verify_artifact(path: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<
                 .and_then(|value| value.parse::<f64>().ok())
         })
         .collect::<Vec<_>>();
-    if u64::try_from(timestamps.len()) != Ok(frames.0)
+    if u64::try_from(timestamps.len()) != Ok(domain.frames.0)
         || timestamps.windows(2).any(|pair| pair[0] >= pair[1])
     {
         return Err(contract_error(
@@ -446,6 +504,31 @@ fn verify_artifact(path: &Path, spec: &VideoSpec, frames: FrameCount) -> Result<
         ));
     }
     Ok(())
+}
+
+fn temporary_sibling(path: &Path, role: &str, extension: &str) -> PathBuf {
+    let counter = TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut name = std::ffi::OsString::from(".");
+    name.push(path.file_name().unwrap_or_default());
+    name.push(format!(
+        ".{role}-{}-{counter}.{extension}",
+        std::process::id()
+    ));
+    path.parent().unwrap_or_else(|| Path::new(".")).join(name)
+}
+
+fn atomic_replace(source: &Path, destination: &Path, code: &'static str) -> Result<()> {
+    fs::rename(source, destination).map_err(|error| {
+        Diagnostic::new(
+            code,
+            format!(
+                "could not atomically replace `{}` from `{}`: {error}",
+                destination.display(),
+                source.display()
+            ),
+            SourceSpan::file_start(destination),
+        )
+    })
 }
 
 fn contract_error(path: &Path, message: &str) -> Diagnostic {
@@ -457,25 +540,6 @@ fn contract_error(path: &Path, message: &str) -> Diagnostic {
         ),
         SourceSpan::file_start(path),
     )
-}
-
-fn tool_version(tool: &str) -> Result<String> {
-    let mut command = Command::new(tool);
-    command.arg("-version");
-    let output = run_output(
-        command,
-        if tool == "ffmpeg" {
-            "E_FFMPEG"
-        } else {
-            "E_FFPROBE"
-        },
-        &SourceSpan::file_start(tool),
-    )?;
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_owned())
 }
 
 fn run_command(command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {
@@ -505,4 +569,64 @@ fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Re
         .note(debug));
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::FrameRate;
+
+    #[test]
+    fn failed_final_export_preserves_existing_destination() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let invalid_artifact = directory.path().join("invalid.mkv");
+        let output = directory.path().join("final.mp4");
+        fs::write(&invalid_artifact, b"not video").expect("invalid artifact");
+        fs::write(&output, b"existing valid output").expect("existing output");
+        let spec = VideoSpec {
+            width: 64,
+            height: 64,
+            fps: FrameRate::new(10, 1).expect("frame rate"),
+        };
+        let domain = VideoDomain {
+            frames: FrameCount(10),
+            width: 64,
+            height: 64,
+            frame_rate: spec.fps,
+        };
+        publish_export(
+            &invalid_artifact,
+            &output,
+            &spec,
+            &domain,
+            RenderMediaPolicy::default(),
+        )
+        .expect_err("export failure");
+        assert_eq!(
+            fs::read(&output).expect("preserved output"),
+            b"existing valid output"
+        );
+    }
+
+    #[test]
+    fn atomic_manifest_write_replaces_existing_destination() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let manifest = directory.path().join("final.mp4.manifest.json");
+        fs::write(&manifest, b"old").expect("old manifest");
+        write_atomically(
+            &manifest,
+            b"{\"new\":true}",
+            "manifest",
+            "json",
+            "E_MANIFEST",
+        )
+        .expect("atomic write");
+        assert_eq!(
+            fs::read(&manifest).expect("new manifest"),
+            b"{\"new\":true}"
+        );
+    }
 }

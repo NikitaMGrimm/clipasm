@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use rhythmcut::{compiler, render};
+use rhythmcut::{compiler, preflight, render};
 
 #[test]
 fn renders_and_reuses_verified_cache() {
@@ -20,16 +20,29 @@ fn renders_and_reuses_verified_cache() {
     let workflow_path = directory.path().join("workflow.yaml");
     fs::write(
         &workflow_path,
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  card:\n    - image: card.ppm\n      duration: 1s\n    - repeat: 2\ntimeline:\n  - $card\noutput: final.mp4\n",
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 20/2}\nclips:\n  card:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2\ntimeline:\n  - $card\noutput: final.mp4\n",
     )
     .expect("workflow");
-    let plan = compiler::compile_file(&workflow_path).expect("compile");
-    let first = render::render(&plan, &workflow_path).expect("first render");
+    let compiled = compiler::compile_file(&workflow_path).expect("compile");
+    assert_eq!(compiled.video().fps.numerator, 10);
+    assert_eq!(compiled.video().fps.denominator, 1);
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    fs::write(plan.output(), b"previous valid destination").expect("old output");
+    fs::write(plan.manifest(), b"previous manifest").expect("old manifest");
+    let first = render::render(&plan).expect("first render");
     assert!(first.output.is_file());
+    assert_ne!(
+        fs::read(&first.output).expect("new output"),
+        b"previous valid destination"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&first.manifest).expect("new manifest"))
+            .expect("manifest JSON");
+    assert_eq!(manifest["plan"]["video"]["fps"]["numerator"], 10);
     assert_eq!(first.cache_hits, 0);
-    assert_eq!(first.cache_misses, plan.nodes.len());
-    let second = render::render(&plan, &workflow_path).expect("cached render");
-    assert_eq!(second.cache_hits, plan.nodes.len());
+    assert_eq!(first.cache_misses, plan.nodes().len());
+    let second = render::render(&plan).expect("cached render");
+    assert_eq!(second.cache_hits, plan.nodes().len());
     assert_eq!(second.cache_misses, 0);
     assert!(second.manifest.is_file());
 }
@@ -51,12 +64,13 @@ fn renders_during_with_an_exact_duration_change() {
     let workflow_path = directory.path().join("workflow.yaml");
     fs::write(
         &workflow_path,
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: card.ppm\n    duration: 1s\n  - repeat: 2\n    during: 200ms..400ms\noutput: during.mp4\n",
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: card.ppm\n      duration: 1s\n  - repeat: 2\n    during: 200ms..400ms\noutput: during.mp4\n",
     )
     .expect("workflow");
-    let plan = compiler::compile_file(&workflow_path).expect("compile");
-    assert_eq!(plan.nodes[plan.root.0 as usize].frames.0, 12);
-    let report = render::render(&plan, &workflow_path).expect("render during");
+    let compiled = compiler::compile_file(&workflow_path).expect("compile");
+    assert_eq!(compiled.root_domain().frames.0, 12);
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let report = render::render(&plan).expect("render during");
     assert!(report.output.is_file());
-    assert_eq!(report.cache_misses, plan.nodes.len());
+    assert_eq!(report.cache_misses, plan.nodes().len());
 }

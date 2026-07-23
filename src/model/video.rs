@@ -12,9 +12,13 @@ pub struct FrameRate {
 impl FrameRate {
     #[must_use]
     pub fn new(numerator: u32, denominator: u32) -> Option<Self> {
-        (numerator > 0 && denominator > 0).then_some(Self {
-            numerator,
-            denominator,
+        if numerator == 0 || denominator == 0 {
+            return None;
+        }
+        let divisor = gcd(numerator, denominator);
+        Some(Self {
+            numerator: numerator / divisor,
+            denominator: denominator / divisor,
         })
     }
 
@@ -39,6 +43,15 @@ impl FrameRate {
     }
 }
 
+const fn gcd(mut left: u32, mut right: u32) -> u32 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left
+}
+
 fn parse_component(text: &str, span: &SourceSpan) -> Result<u32> {
     text.parse::<u32>().map_err(|_| {
         Diagnostic::new(
@@ -47,12 +60,6 @@ fn parse_component(text: &str, span: &SourceSpan) -> Result<u32> {
             span.clone(),
         )
     })
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PixelFormat {
-    Yuv420p,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -88,8 +95,6 @@ pub struct VideoSpec {
     pub width: u32,
     pub height: u32,
     pub fps: FrameRate,
-    pub pixel_format: PixelFormat,
-    pub square_pixels: bool,
 }
 
 impl Default for VideoSpec {
@@ -101,8 +106,6 @@ impl Default for VideoSpec {
                 numerator: 30,
                 denominator: 1,
             },
-            pixel_format: PixelFormat::Yuv420p,
-            square_pixels: true,
         }
     }
 }
@@ -110,5 +113,33 @@ impl Default for VideoSpec {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VideoDomain {
     pub frames: FrameCount,
-    pub spec: VideoSpec,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: FrameRate,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostic::SourceSpan;
+
+    #[test]
+    fn frame_rates_are_reduced_on_construction_and_parsing() {
+        assert_eq!(FrameRate::new(60, 2), FrameRate::new(30, 1));
+        assert_eq!(FrameRate::new(60_000, 2_002), FrameRate::new(30_000, 1_001));
+        assert_eq!(
+            FrameRate::parse("60/2", &SourceSpan::file_start("test.yaml")).expect("frame rate"),
+            FrameRate::new(30, 1).expect("frame rate")
+        );
+    }
+
+    #[test]
+    fn equivalent_frame_rates_serialize_identically() {
+        let reducible = FrameRate::new(60, 2).expect("frame rate");
+        let canonical = FrameRate::new(30, 1).expect("frame rate");
+        assert_eq!(
+            serde_json::to_string(&reducible).expect("serialize"),
+            serde_json::to_string(&canonical).expect("serialize")
+        );
+    }
 }

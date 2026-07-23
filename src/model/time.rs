@@ -23,21 +23,6 @@ impl FrameCount {
             )
         })
     }
-
-    /// Multiply a frame count without wrapping.
-    ///
-    /// # Errors
-    ///
-    /// Returns `E_FRAME_OVERFLOW` if the product exceeds `u64`.
-    pub fn checked_mul(self, count: u64, span: &SourceSpan) -> Result<Self> {
-        self.0.checked_mul(count).map(Self).ok_or_else(|| {
-            Diagnostic::new(
-                "E_FRAME_OVERFLOW",
-                "video duration exceeds the supported frame count",
-                span.clone(),
-            )
-        })
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]

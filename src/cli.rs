@@ -42,16 +42,16 @@ pub fn run() -> ExitCode {
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { workflow } => {
-            let plan = compiler::compile_file(&workflow)?;
-            let frames = plan.nodes[plan.root.0 as usize].frames.0;
+            let compiled = compiler::compile_file(&workflow)?;
+            let frames = compiled.root_domain().frames.0;
             println!(
-                "valid: {} primitive node(s), {frames} frame(s)",
-                plan.nodes.len()
+                "valid: {} semantic value(s), {frames} frame(s)",
+                compiled.nodes().len()
             );
         }
         Command::Compile { workflow, output } => {
-            let plan = compiler::compile_file(&workflow)?;
-            let json = plan.canonical_json()?;
+            let compiled = compiler::compile_file(&workflow)?;
+            let json = compiled.canonical_json()?;
             if let Some(output) = output {
                 fs::write(&output, json).map_err(|error| {
                     Diagnostic::new(
@@ -65,8 +65,9 @@ fn execute(cli: Cli) -> Result<()> {
             }
         }
         Command::Render { workflow } => {
-            let plan = compiler::compile_file(&workflow)?;
-            let report = crate::render::render(&plan, &workflow)?;
+            let compiled = compiler::compile_file(&workflow)?;
+            let prepared = crate::preflight::preflight(&compiled)?;
+            let report = crate::render::render(&prepared)?;
             println!(
                 "rendered {} (cache: {} hit(s), {} miss(es)); manifest: {}",
                 report.output.display(),
