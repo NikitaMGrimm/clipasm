@@ -4,12 +4,12 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use crate::compiler;
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use clipasm::diagnostic::{Diagnostic, Result, SourceSpan};
+use clipasm::{compiler, preflight, render};
 
 #[derive(Debug, Parser)]
-#[command(name = "rhythmcut", version, about)]
-pub struct Cli {
+#[command(name = "clipasm", version, about)]
+struct Cli {
     #[command(subcommand)]
     command: Command,
 }
@@ -17,19 +17,27 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Parse, type-check, and infer source-independent video domains.
-    Validate { workflow: PathBuf },
+    Validate {
+        /// Workflow YAML file.
+        workflow: PathBuf,
+    },
     /// Emit the canonical pure semantic compiled workflow.
     Compile {
+        /// Workflow YAML file.
         workflow: PathBuf,
+        /// Write compiled JSON to this path instead of stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
     /// Compile and render the workflow using `FFmpeg`.
-    Render { workflow: PathBuf },
+    Render {
+        /// Workflow YAML file. Relative media and output paths resolve from its directory.
+        workflow: PathBuf,
+    },
 }
 
 #[must_use]
-pub fn run() -> ExitCode {
+pub(crate) fn run() -> ExitCode {
     match execute(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -46,13 +54,13 @@ fn execute(cli: Cli) -> Result<()> {
             if let Some(domain) = compiled.root_domain() {
                 println!(
                     "valid: {} semantic value(s), {} frame(s)",
-                    compiled.nodes().len(),
+                    compiled.value_count(),
                     domain.frames.0
                 );
             } else {
                 println!(
                     "valid: {} semantic value(s), duration resolves during preflight",
-                    compiled.nodes().len()
+                    compiled.value_count()
                 );
             }
         }
@@ -73,8 +81,8 @@ fn execute(cli: Cli) -> Result<()> {
         }
         Command::Render { workflow } => {
             let compiled = compiler::compile_file(&workflow)?;
-            let prepared = crate::preflight::preflight(&compiled)?;
-            let report = crate::render::render(&prepared)?;
+            let prepared = preflight::preflight(&compiled)?;
+            let report = render::render(&prepared)?;
             println!(
                 "rendered {} (cache: {} hit(s), {} miss(es)); manifest: {}",
                 report.output.display(),

@@ -1,0 +1,16 @@
+[book]
+title = "ClipAsm"
+description = "The ClipAsm language and architecture guide"
+authors = ["ClipAsm contributors"]
+language = "en"
+src = "docs"
+
+[rust]
+edition = "2024"
+
+[build]
+build-dir = "target/book"
+create-missing = false
+
+[output.html.playground]
+runnable = false

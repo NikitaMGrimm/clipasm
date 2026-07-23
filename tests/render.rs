@@ -1,7 +1,9 @@
+#![allow(missing_docs)]
+
 use std::fs;
 use std::process::Command;
 
-use rhythmcut::{compiler, preflight, render};
+use clipasm::{compiler, preflight, render};
 
 #[test]
 fn renders_and_reuses_verified_cache() {

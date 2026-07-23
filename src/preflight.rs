@@ -1,3 +1,20 @@
+//! Media-aware preparation of compiled workflows for rendering.
+//!
+//! Preflight is the first pipeline phase that performs I/O. It resolves
+//! root-reachable assets, verifies source contracts and tool capabilities,
+//! derives exact media domains, and lowers semantic operations into a
+//! [`PreparedPlan`] containing renderer primitives.
+//!
+//! ```no_run
+//! use std::path::Path;
+//!
+//! let compiled = clipasm::compiler::compile_file(Path::new("workflow.yaml"))?;
+//! let plan = clipasm::preflight::preflight(&compiled)?;
+//! let root = &plan.nodes()[plan.root().get() as usize];
+//! println!("prepared {} frames", root.domain().frames.0);
+//! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
+//! ```
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{BufReader, Read};
@@ -7,11 +24,12 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::compiler::{CompiledWorkflow, SemanticNodeKind, SourceOrigin};
+use crate::compiler::CompiledWorkflow;
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{
     FrameCount, FrameRange, ImageFit, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec,
 };
+use crate::semantic::{SemanticNodeKind, SourceOrigin};
 
 const PREPARED_FORMAT_VERSION: u32 = 2;
 const CACHE_FORMAT_VERSION: u32 = 1;
@@ -44,6 +62,11 @@ struct CacheIdentity<'a> {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// An exact, media-verified plan consumed by [`crate::render::render`].
+///
+/// Every node has an exact [`VideoDomain`], every source asset has a recorded
+/// content hash, and tool/media policy has been incorporated into the private
+/// execution namespace.
 pub struct PreparedPlan {
     format_version: u32,
     engine_version: String,
@@ -64,36 +87,46 @@ pub struct PreparedPlan {
 
 impl PreparedPlan {
     #[must_use]
+    /// Return the identity of prepared semantics and resolved source content.
+    ///
+    /// Renderer/tool compatibility is tracked separately and does not alter
+    /// this hash.
     pub fn semantic_hash(&self) -> &str {
         &self.semantic_hash
     }
 
     #[must_use]
+    /// Return the common video properties of the prepared plan.
     pub fn video(&self) -> &VideoSpec {
         &self.video
     }
 
     #[must_use]
+    /// Return renderer nodes in stable topological order.
     pub fn nodes(&self) -> &[PreparedNode] {
         &self.nodes
     }
 
     #[must_use]
+    /// Return the node that produces the exported video.
     pub const fn root(&self) -> NodeId {
         self.root
     }
 
     #[must_use]
+    /// Return root-reachable user names and their prepared node IDs.
     pub fn named_values(&self) -> &BTreeMap<String, NodeId> {
         &self.named_values
     }
 
     #[must_use]
+    /// Return the absolute or workflow-relative-resolved MP4 destination.
     pub fn output(&self) -> &Path {
         &self.output
     }
 
     #[must_use]
+    /// Return the manifest path published beside the output.
     pub fn manifest(&self) -> &Path {
         &self.manifest
     }
@@ -120,6 +153,7 @@ impl PreparedPlan {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// One exact renderer primitive in a [`PreparedPlan`].
 pub struct PreparedNode {
     id: NodeId,
     kind: PreparedNodeKind,
@@ -130,26 +164,31 @@ pub struct PreparedNode {
 
 impl PreparedNode {
     #[must_use]
+    /// Return this node's engine-assigned prepared-plan identifier.
     pub const fn id(&self) -> NodeId {
         self.id
     }
 
     #[must_use]
+    /// Return the renderer primitive and its upstream references.
     pub const fn kind(&self) -> &PreparedNodeKind {
         &self.kind
     }
 
     #[must_use]
+    /// Return exact duration, dimensions, and frame rate.
     pub const fn domain(&self) -> &VideoDomain {
         &self.domain
     }
 
     #[must_use]
+    /// Return the authored construct and source location responsible for the node.
     pub const fn origin(&self) -> &SourceOrigin {
         &self.origin
     }
 
     #[must_use]
+    /// Return the content fingerprint used to address this node's artifact.
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
@@ -157,27 +196,42 @@ impl PreparedNode {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
+/// The closed set of exact primitives understood by the renderer.
 pub enum PreparedNodeKind {
+    /// A still image expanded to an exact frame count.
     ImageVideo {
+        /// Verified source image and its preflight content hash.
         asset: PreparedAsset,
+        /// Number of output frames.
         frames: FrameCount,
+        /// Source-to-project fitting policy.
         fit: ImageFit,
     },
+    /// A video-file source normalized to the project video domain.
     VideoSource {
+        /// Verified source video and its preflight content hash.
         asset: PreparedAsset,
+        /// Exact source duration converted to project frames.
         frames: FrameCount,
+        /// Source-to-project fitting policy.
         fit: ImageFit,
     },
+    /// A closed-open frame range selected from one upstream node.
     Slice {
+        /// Prepared node being sliced.
         input: NodeId,
+        /// Exact selected frame range.
         range: FrameRange,
     },
+    /// Ordered concatenation of prepared video nodes.
     Concat {
+        /// Upstream nodes in output order.
         inputs: Vec<NodeId>,
     },
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// A source file verified during preflight and bound to its content hash.
 pub struct PreparedAsset {
     source_path: PathBuf,
     content_hash: String,
@@ -185,11 +239,13 @@ pub struct PreparedAsset {
 
 impl PreparedAsset {
     #[must_use]
+    /// Return the resolved path that was inspected during preflight.
     pub fn source_path(&self) -> &Path {
         &self.source_path
     }
 
     #[must_use]
+    /// Return the SHA-256 hash recorded for later change detection.
     pub fn content_hash(&self) -> &str {
         &self.content_hash
     }
@@ -407,13 +463,13 @@ impl PreflightLowerer<'_> {
                     compiled_node.origin().clone(),
                 )?
             }
-            SemanticNodeKind::During {
+            SemanticNodeKind::ReplaceRange {
                 base,
-                processed,
+                replacement,
                 range,
             } => {
                 let base_node = self.lower(*base)?;
-                let processed_node = self.lower(*processed)?;
+                let replacement_node = self.lower(*replacement)?;
                 let base_domain = self.nodes[base_node.get() as usize].domain.clone();
                 validate_prepared_range(*range, &base_domain, &compiled_node.origin().span)?;
                 let mut pieces = Vec::new();
@@ -430,11 +486,11 @@ impl PreflightLowerer<'_> {
                             height: base_domain.height,
                             frame_rate: base_domain.frame_rate,
                         },
-                        1,
-                        compiled_node.origin().clone_with_construct("during prefix"),
+                        compiled_node.semantic_version(),
+                        compiled_node.origin().clone_with_construct("range prefix"),
                     )?);
                 }
-                pieces.push(processed_node);
+                pieces.push(replacement_node);
                 if range.end() < base_domain.frames.0 {
                     pieces.push(
                         self.add_node(
@@ -449,8 +505,8 @@ impl PreflightLowerer<'_> {
                                 height: base_domain.height,
                                 frame_rate: base_domain.frame_rate,
                             },
-                            1,
-                            compiled_node.origin().clone_with_construct("during suffix"),
+                            compiled_node.semantic_version(),
+                            compiled_node.origin().clone_with_construct("range suffix"),
                         )?,
                     );
                 }
@@ -521,7 +577,7 @@ fn validate_prepared_range(
 ) -> Result<()> {
     if range.end() > input.frames.0 {
         return Err(Diagnostic::new(
-            "E_INVALID_DURING_RANGE",
+            "E_INVALID_TIME_RANGE",
             format!(
                 "frame range {}..{} is outside the base Video domain of {} frames",
                 range.start(),
@@ -986,9 +1042,25 @@ struct VideoProbeDocument {
 struct VideoProbeStream {
     codec_type: Option<String>,
     nb_read_frames: Option<String>,
-    duration_ts: Option<String>,
+    duration_ts: Option<ProbeInteger>,
     time_base: Option<String>,
     avg_frame_rate: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ProbeInteger {
+    Number(u64),
+    String(String),
+}
+
+impl ProbeInteger {
+    fn get(&self) -> Option<u128> {
+        match self {
+            Self::Number(value) => Some(u128::from(*value)),
+            Self::String(value) => value.parse().ok(),
+        }
+    }
 }
 
 fn verify_video_decodable(
@@ -1162,8 +1234,8 @@ fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> 
 fn video_duration(stream: &VideoProbeStream) -> Option<(u128, u128)> {
     stream
         .duration_ts
-        .as_deref()
-        .and_then(|duration| duration.parse::<u128>().ok())
+        .as_ref()
+        .and_then(ProbeInteger::get)
         .zip(stream.time_base.as_deref().and_then(parse_positive_ratio))
         .and_then(|(duration, (time_numerator, time_denominator))| {
             duration

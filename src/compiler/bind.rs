@@ -1,0 +1,512 @@
+use std::collections::BTreeMap;
+
+use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueStack};
+use crate::program::{
+    BoundParameters, Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue,
+    ProgramDefinition, ResolvedCall,
+};
+use crate::semantic::{SourceOrigin, require_value_type};
+use crate::syntax::{Argument, Invocation};
+
+pub(super) fn bind_call(
+    definition: &'static ProgramDefinition,
+    invocation: &Invocation,
+    stack: &mut ValueStack,
+    requested_frames: Option<FrameCount>,
+    origin: SourceOrigin,
+    mut resolve_reference: impl FnMut(&str, &SourceSpan) -> Result<ValueRef>,
+) -> Result<ResolvedCall> {
+    let descriptor = &definition.descriptor;
+    for (name, argument) in &invocation.arguments {
+        if !descriptor.inputs.iter().any(|port| port.name == name)
+            && !descriptor
+                .parameters
+                .iter()
+                .any(|parameter| parameter.name == name)
+        {
+            return Err(Diagnostic::new(
+                "E_UNKNOWN_PROGRAM_ARGUMENT",
+                format!(
+                    "unknown argument `{name}` for program `{}`",
+                    descriptor.name
+                ),
+                argument.span().clone(),
+            ));
+        }
+    }
+
+    let mut slots = vec![None; descriptor.inputs.len()];
+    for (index, port) in descriptor.inputs.iter().enumerate() {
+        if let Some(argument) = invocation.arguments.get(port.name) {
+            slots[index] = Some(resolve_explicit_input(
+                descriptor.name,
+                argument,
+                port,
+                &mut resolve_reference,
+            )?);
+        }
+    }
+
+    bind_missing_fixed(
+        descriptor.name,
+        descriptor.inputs,
+        &mut slots,
+        stack,
+        &origin.span,
+    )?;
+    for (index, port) in descriptor.inputs.iter().enumerate() {
+        if slots[index].is_some() {
+            continue;
+        }
+        let Cardinality::Variadic { min } = port.cardinality else {
+            continue;
+        };
+        if stack.len() < min {
+            return Err(Diagnostic::new(
+                "E_MISSING_REQUIRED_INPUT",
+                format!(
+                    "`{}.{}` needs at least {min} {} value(s), but the local stack has {}",
+                    descriptor.name,
+                    port.name,
+                    port.value_type,
+                    stack.len()
+                ),
+                origin.span.clone(),
+            ));
+        }
+        let values = std::mem::take(stack);
+        for value in &values {
+            require_value_type(
+                *value,
+                port.value_type,
+                descriptor.name,
+                port.name,
+                &origin.span,
+            )?;
+        }
+        slots[index] = Some(values);
+    }
+
+    let inputs = descriptor
+        .inputs
+        .iter()
+        .zip(slots)
+        .map(|(port, values)| {
+            values.map(|values| (port.name, values)).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!(
+                        "program `{}` is missing input `{}`",
+                        descriptor.name, port.name
+                    ),
+                    origin.span.clone(),
+                )
+            })
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+
+    let parameters = bind_parameters(definition, invocation)?;
+    Ok(ResolvedCall::new(
+        definition,
+        inputs,
+        parameters,
+        requested_frames,
+        origin,
+    ))
+}
+
+fn bind_parameters(
+    definition: &'static ProgramDefinition,
+    invocation: &Invocation,
+) -> Result<BoundParameters> {
+    let mut parameters = BTreeMap::new();
+    for descriptor in definition.descriptor.parameters {
+        if let Some(argument) = invocation.arguments.get(descriptor.name) {
+            parameters.insert(
+                descriptor.name,
+                bind_parameter(definition.descriptor.name, descriptor, argument)?,
+            );
+        } else if descriptor.required {
+            return Err(Diagnostic::new(
+                "E_MISSING_ARGUMENT",
+                format!(
+                    "missing required parameter `{}.{}`",
+                    definition.descriptor.name, descriptor.name
+                ),
+                invocation.program.span.clone(),
+            ));
+        }
+    }
+    Ok(parameters)
+}
+
+fn bind_parameter(
+    program: &'static str,
+    descriptor: &ParameterDescriptor,
+    argument: &Argument,
+) -> Result<Spanned<ParameterValue>> {
+    let value = match (descriptor.parameter_type, argument) {
+        (ParameterType::Integer, Argument::Integer(value, _)) => ParameterValue::Integer(*value),
+        (ParameterType::File, Argument::String(value, _)) => ParameterValue::File(value.into()),
+        (ParameterType::Duration, Argument::String(value, span)) => {
+            ParameterValue::Duration(SourceTime::parse(value, span)?)
+        }
+        (ParameterType::TimeRange, Argument::String(value, span)) => {
+            ParameterValue::TimeRange(SourceTimeRange::parse(value, span)?)
+        }
+        (ParameterType::Keyword(allowed), Argument::String(value, span)) => {
+            let matched = allowed
+                .iter()
+                .copied()
+                .find(|candidate| *candidate == value)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_INVALID_ARGUMENT_VALUE",
+                        format!(
+                            "parameter `{program}.{}` must be one of: {}",
+                            descriptor.name,
+                            allowed.join(", ")
+                        ),
+                        span.clone(),
+                    )
+                })?;
+            ParameterValue::Keyword(matched)
+        }
+        _ => {
+            return Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                format!(
+                    "parameter `{}.{}` has the wrong value type",
+                    program, descriptor.name
+                ),
+                argument.span().clone(),
+            ));
+        }
+    };
+    Ok(Spanned::new(value, argument.span().clone()))
+}
+
+fn resolve_explicit_input(
+    program: &str,
+    argument: &Argument,
+    port: &InputPort,
+    resolve_reference: &mut impl FnMut(&str, &SourceSpan) -> Result<ValueRef>,
+) -> Result<Vec<ValueRef>> {
+    let references = match (port.cardinality, argument) {
+        (_, Argument::Reference(name, span)) => vec![(name.as_str(), span)],
+        (Cardinality::Variadic { .. }, Argument::List(values, _)) => values
+            .iter()
+            .map(|value| match value {
+                Argument::Reference(name, span) => Ok((name.as_str(), span)),
+                _ => Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    "explicit graph inputs must be `$name` references",
+                    value.span().clone(),
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        (Cardinality::One, Argument::List(_, _)) => {
+            return Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                format!(
+                    "input `{program}.{}` requires one `$name` reference",
+                    port.name
+                ),
+                argument.span().clone(),
+            ));
+        }
+        _ => {
+            return Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                "explicit graph inputs must be `$name` references",
+                argument.span().clone(),
+            ));
+        }
+    };
+
+    let mut values = Vec::with_capacity(references.len());
+    for (name, reference_span) in references {
+        let value = resolve_reference(name, reference_span)?;
+        require_value_type(value, port.value_type, program, port.name, reference_span)?;
+        values.push(value);
+    }
+    if let Cardinality::Variadic { min } = port.cardinality
+        && values.len() < min
+    {
+        return Err(Diagnostic::new(
+            "E_MISSING_REQUIRED_INPUT",
+            format!("input `{}` requires at least {min} values", port.name),
+            argument.span().clone(),
+        ));
+    }
+    Ok(values)
+}
+
+fn bind_missing_fixed(
+    program: &str,
+    ports: &[InputPort],
+    slots: &mut [Option<Vec<ValueRef>>],
+    stack: &mut ValueStack,
+    span: &SourceSpan,
+) -> Result<()> {
+    let missing = ports
+        .iter()
+        .enumerate()
+        .filter(|(index, port)| {
+            slots[*index].is_none() && matches!(port.cardinality, Cardinality::One)
+        })
+        .collect::<Vec<_>>();
+    if stack.len() < missing.len() {
+        return Err(stack_underflow(program, missing.len(), stack.len(), span));
+    }
+    let implicit = stack.split_off(stack.len() - missing.len());
+    for ((index, port), value) in missing.into_iter().zip(implicit) {
+        require_value_type(value, port.value_type, program, port.name, span)?;
+        slots[index] = Some(vec![value]);
+    }
+    Ok(())
+}
+
+fn stack_underflow(
+    program: &str,
+    required: usize,
+    available: usize,
+    span: &SourceSpan,
+) -> Diagnostic {
+    Diagnostic::new(
+        "E_STACK_UNDERFLOW",
+        format!(
+            "`{program}` needs {required} preceding value(s), but the local stack has {available}"
+        ),
+        span.clone(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ValueId, ValueType};
+    use crate::program::{ProgramDescriptor, ProgramImplementation};
+    use std::path::Path;
+
+    const PORTS: &[InputPort] = &[
+        InputPort {
+            name: "first",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+        InputPort {
+            name: "middle",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+        InputPort {
+            name: "last",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+    ];
+    const ALLOWED_FITS: &[&str] = &["cover", "contain", "stretch"];
+    const PARAMETERS: &[ParameterDescriptor] = &[
+        ParameterDescriptor {
+            name: "count",
+            parameter_type: ParameterType::Integer,
+            required: true,
+        },
+        ParameterDescriptor {
+            name: "path",
+            parameter_type: ParameterType::File,
+            required: true,
+        },
+        ParameterDescriptor {
+            name: "duration",
+            parameter_type: ParameterType::Duration,
+            required: true,
+        },
+        ParameterDescriptor {
+            name: "range",
+            parameter_type: ParameterType::TimeRange,
+            required: true,
+        },
+        ParameterDescriptor {
+            name: "fit",
+            parameter_type: ParameterType::Keyword(ALLOWED_FITS),
+            required: true,
+        },
+    ];
+
+    fn lower_stub(
+        _call: &ResolvedCall,
+        _builder: &mut crate::semantic::GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        unreachable!("binding tests do not lower programs")
+    }
+
+    const TYPED_PROGRAM: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "typed",
+            semantic_version: 1,
+            inputs: &[],
+            parameters: PARAMETERS,
+            primary_parameter: None,
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Direct(lower_stub),
+        postfix: None,
+    };
+
+    fn video(id: u32) -> ValueRef {
+        ValueRef::new(ValueId::new(id), ValueType::Video)
+    }
+
+    fn span() -> SourceSpan {
+        SourceSpan::file_start("test.yaml")
+    }
+
+    fn invocation(arguments: impl IntoIterator<Item = (&'static str, Argument)>) -> Invocation {
+        Invocation {
+            program: Spanned::new("typed".to_owned(), span()),
+            arguments: arguments
+                .into_iter()
+                .map(|(name, argument)| (name.to_owned(), argument))
+                .collect(),
+            body: None,
+        }
+    }
+
+    fn bind(invocation: &Invocation) -> Result<ResolvedCall> {
+        bind_call(
+            &TYPED_PROGRAM,
+            invocation,
+            &mut Vec::new(),
+            None,
+            SourceOrigin {
+                construct: "typed",
+                span: span(),
+            },
+            |_, _| unreachable!("typed program has no inputs"),
+        )
+    }
+
+    #[test]
+    fn fixed_suffix_preserves_descriptor_order() {
+        let mut slots = vec![None, Some(vec![video(9)]), None];
+        let mut stack = vec![video(1), video(3)];
+        bind_missing_fixed(
+            "combine",
+            PORTS,
+            &mut slots,
+            &mut stack,
+            &SourceSpan::file_start("test.yaml"),
+        )
+        .expect("bind");
+        assert_eq!(slots[0].as_ref().expect("first")[0].id().get(), 1);
+        assert_eq!(slots[2].as_ref().expect("last")[0].id().get(), 3);
+    }
+
+    #[test]
+    fn incompatible_top_value_is_not_skipped() {
+        let mut slots = vec![None];
+        let mut stack = vec![video(1), ValueRef::new(ValueId::new(2), ValueType::Test)];
+        let error = bind_missing_fixed(
+            "consume",
+            &PORTS[..1],
+            &mut slots,
+            &mut stack,
+            &SourceSpan::file_start("test.yaml"),
+        )
+        .expect_err("type mismatch");
+        assert_eq!(error.code, "E_TYPE_MISMATCH");
+    }
+
+    #[test]
+    fn fixed_explicit_input_rejects_reference_lists() {
+        let error = resolve_explicit_input(
+            "combine",
+            &Argument::List(
+                vec![
+                    Argument::Reference("first".to_owned(), span()),
+                    Argument::Reference("second".to_owned(), span()),
+                ],
+                span(),
+            ),
+            &PORTS[0],
+            &mut |_, _| Ok(video(1)),
+        )
+        .expect_err("fixed input list");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    }
+
+    #[test]
+    fn converts_every_declared_parameter_type() {
+        let call = bind(&invocation([
+            ("count", Argument::Integer(3, span())),
+            ("path", Argument::String("card.png".to_owned(), span())),
+            ("duration", Argument::String("500ms".to_owned(), span())),
+            ("range", Argument::String("1s..3s".to_owned(), span())),
+            ("fit", Argument::String("contain".to_owned(), span())),
+        ]))
+        .expect("bind");
+
+        assert_eq!(call.integer_parameter("count").expect("count").0, 3);
+        assert_eq!(
+            call.file_parameter("path").expect("path").0,
+            Path::new("card.png")
+        );
+        assert_eq!(
+            call.optional_duration_parameter("duration")
+                .expect("duration")
+                .expect("present")
+                .0,
+            SourceTime::parse("500ms", &span()).expect("expected duration")
+        );
+        assert_eq!(
+            call.time_range_parameter("range").expect("range").0,
+            SourceTimeRange::parse("1s..3s", &span()).expect("expected range")
+        );
+        let keyword = call
+            .optional_keyword_parameter("fit")
+            .expect("fit")
+            .expect("present")
+            .0;
+        assert_eq!(keyword, "contain");
+        assert!(std::ptr::eq(keyword, ALLOWED_FITS[1]));
+    }
+
+    #[test]
+    fn rejects_invalid_keyword() {
+        let error = bind_parameter(
+            "typed",
+            &PARAMETERS[4],
+            &Argument::String("crop".to_owned(), span()),
+        )
+        .expect_err("invalid keyword");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_VALUE");
+        assert!(error.message.contains("cover, contain, stretch"));
+    }
+
+    #[test]
+    fn rejects_wrong_parameter_representation() {
+        let error = bind_parameter("typed", &PARAMETERS[1], &Argument::Integer(3, span()))
+            .expect_err("wrong representation");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    }
+
+    #[test]
+    fn rejects_missing_required_parameter() {
+        let error = bind(&invocation([])).expect_err("missing parameter");
+        assert_eq!(error.code, "E_MISSING_ARGUMENT");
+        assert!(error.message.contains("typed.count"));
+    }
+
+    #[test]
+    fn rejects_unknown_argument() {
+        let error = bind(&invocation([(
+            "mystery",
+            Argument::String("value".to_owned(), span()),
+        )]))
+        .expect_err("unknown argument");
+        assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
+    }
+}

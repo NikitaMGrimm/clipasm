@@ -1,16 +1,16 @@
 [package]
-name = "rhythmcut"
+name = "clipasm"
 version = "0.1.0"
 edition = "2024"
 description = "A strict, typed, stack-based programmatic video compiler"
 license = "MIT"
 
 [lib]
-name = "rhythmcut"
+name = "clipasm"
 path = "src/lib.rs"
 
 [[bin]]
-name = "rhythmcut"
+name = "clipasm"
 path = "src/main.rs"
 
 [dependencies]
@@ -26,8 +26,8 @@ tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"
+missing_docs = "warn"
 
 [lints.clippy]
 all = "warn"
 pedantic = "warn"
-

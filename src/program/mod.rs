@@ -1,9 +1,13 @@
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+mod builtins;
 
-use crate::compiler::{GraphBuilder, ResolvedCall};
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
-use crate::model::{ImageFit, SourceTime, ValueRef, ValueType};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueStack, ValueType};
+use crate::semantic::{GraphBuilder, SourceOrigin};
+
+pub(crate) use builtins::BUILTIN_PROGRAMS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Cardinality {
@@ -23,8 +27,20 @@ pub(crate) enum ParameterType {
     Integer,
     File,
     Duration,
-    Enum(&'static [&'static str]),
+    TimeRange,
+    Keyword(&'static [&'static str]),
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ParameterValue {
+    Integer(i64),
+    File(PathBuf),
+    Duration(SourceTime),
+    TimeRange(SourceTimeRange),
+    Keyword(&'static str),
+}
+
+pub(crate) type BoundParameters = BTreeMap<&'static str, Spanned<ParameterValue>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterDescriptor {
@@ -36,118 +52,192 @@ pub(crate) struct ParameterDescriptor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ProgramDescriptor {
     pub(crate) name: &'static str,
-    pub(crate) version: u32,
+    pub(crate) semantic_version: u32,
     pub(crate) inputs: &'static [InputPort],
     pub(crate) parameters: &'static [ParameterDescriptor],
     pub(crate) primary_parameter: Option<&'static str>,
     pub(crate) output: ValueType,
 }
 
-pub(crate) type LowerFn =
-    for<'call, 'graph> fn(&ResolvedCall<'call>, &mut GraphBuilder<'graph>) -> Result<ValueRef>;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PostfixSyntax {
+    pub(crate) parameter: &'static str,
+}
+
+pub(crate) type DirectLowerFn =
+    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<ValueRef>;
+pub(crate) type BodyPrepareFn =
+    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<BodyPlan>;
+
+#[derive(Clone, Copy)]
+pub(crate) enum ProgramImplementation {
+    Direct(DirectLowerFn),
+    Body(BodyPrepareFn),
+}
+
+impl std::fmt::Debug for ProgramImplementation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Direct(_) => "Direct",
+            Self::Body(_) => "Body",
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProgramDefinition {
     pub(crate) descriptor: ProgramDescriptor,
-    pub(crate) lower: LowerFn,
+    pub(crate) implementation: ProgramImplementation,
+    pub(crate) postfix: Option<PostfixSyntax>,
 }
 
-const VIDEO: ValueType = ValueType::Video;
-const NO_INPUTS: &[InputPort] = &[];
-const ONE_VIDEO: &[InputPort] = &[InputPort {
-    name: "video",
-    value_type: VIDEO,
-    cardinality: Cardinality::One,
-}];
-const VIDEOS: &[InputPort] = &[InputPort {
-    name: "videos",
-    value_type: VIDEO,
-    cardinality: Cardinality::Variadic { min: 1 },
-}];
-const IMAGE_PARAMETERS: &[ParameterDescriptor] = &[
-    ParameterDescriptor {
-        name: "path",
-        parameter_type: ParameterType::File,
-        required: true,
-    },
-    ParameterDescriptor {
-        name: "duration",
-        parameter_type: ParameterType::Duration,
-        required: false,
-    },
-    ParameterDescriptor {
-        name: "fit",
-        parameter_type: ParameterType::Enum(&["cover", "contain", "stretch"]),
-        required: false,
-    },
-];
-const VIDEO_PARAMETERS: &[ParameterDescriptor] = &[
-    ParameterDescriptor {
-        name: "path",
-        parameter_type: ParameterType::File,
-        required: true,
-    },
-    ParameterDescriptor {
-        name: "fit",
-        parameter_type: ParameterType::Enum(&["cover", "contain", "stretch"]),
-        required: false,
-    },
-];
-const REPEAT_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "count",
-    parameter_type: ParameterType::Integer,
-    required: true,
-}];
+pub(crate) struct BodyPlan {
+    pub(crate) initial_stack: ValueStack,
+    pub(crate) requested_frames: Option<FrameCount>,
+    pub(crate) finalizer: Box<dyn BodyFinalizer>,
+}
 
-pub(crate) const IMAGE: ProgramDefinition = ProgramDefinition {
-    descriptor: ProgramDescriptor {
-        name: "image",
-        version: 1,
-        inputs: NO_INPUTS,
-        parameters: IMAGE_PARAMETERS,
-        primary_parameter: Some("path"),
-        output: VIDEO,
-    },
-    lower: lower_image,
-};
-pub(crate) const VIDEO_SOURCE: ProgramDefinition = ProgramDefinition {
-    descriptor: ProgramDescriptor {
-        name: "video",
-        version: 1,
-        inputs: NO_INPUTS,
-        parameters: VIDEO_PARAMETERS,
-        primary_parameter: Some("path"),
-        output: VIDEO,
-    },
-    lower: lower_video,
-};
-pub(crate) const CONCAT: ProgramDefinition = ProgramDefinition {
-    descriptor: ProgramDescriptor {
-        name: "concat",
-        version: 1,
-        inputs: VIDEOS,
-        parameters: &[],
-        primary_parameter: None,
-        output: VIDEO,
-    },
-    lower: lower_concat,
-};
-pub(crate) const REPEAT: ProgramDefinition = ProgramDefinition {
-    descriptor: ProgramDescriptor {
-        name: "repeat",
-        version: 1,
-        inputs: ONE_VIDEO,
-        parameters: REPEAT_PARAMETERS,
-        primary_parameter: Some("count"),
-        output: VIDEO,
-    },
-    lower: lower_repeat,
-};
+pub(crate) trait BodyFinalizer {
+    fn finish(
+        self: Box<Self>,
+        stack: ValueStack,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef>;
+}
 
-pub(crate) static BUILTIN_PROGRAMS: [ProgramDefinition; 4] = [IMAGE, VIDEO_SOURCE, CONCAT, REPEAT];
+#[derive(Debug)]
+pub(crate) struct ResolvedCall {
+    definition: &'static ProgramDefinition,
+    inputs: BTreeMap<&'static str, Vec<ValueRef>>,
+    parameters: BoundParameters,
+    requested_frames: Option<FrameCount>,
+    origin: SourceOrigin,
+}
 
-const RESERVED_PROGRAM_NAMES: &[&str] =
-    &["then", "during", "join", "timeline", "ref", "id", "clip"];
+impl ResolvedCall {
+    pub(crate) fn new(
+        definition: &'static ProgramDefinition,
+        inputs: BTreeMap<&'static str, Vec<ValueRef>>,
+        parameters: BoundParameters,
+        requested_frames: Option<FrameCount>,
+        origin: SourceOrigin,
+    ) -> Self {
+        Self {
+            definition,
+            inputs,
+            parameters,
+            requested_frames,
+            origin,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn definition(&self) -> &'static ProgramDefinition {
+        self.definition
+    }
+
+    #[must_use]
+    pub(crate) const fn requested_frames(&self) -> Option<FrameCount> {
+        self.requested_frames
+    }
+
+    #[must_use]
+    pub(crate) const fn origin(&self) -> &SourceOrigin {
+        &self.origin
+    }
+
+    pub(crate) fn one_input(&self, name: &str) -> Result<ValueRef> {
+        self.inputs
+            .get(name)
+            .and_then(|values| match values.as_slice() {
+                [value] => Some(*value),
+                _ => None,
+            })
+            .ok_or_else(|| self.binding_error(name))
+    }
+
+    pub(crate) fn variadic_input(&self, name: &str) -> Result<&[ValueRef]> {
+        self.inputs
+            .get(name)
+            .map(Vec::as_slice)
+            .ok_or_else(|| self.binding_error(name))
+    }
+
+    pub(crate) fn integer_parameter(&self, name: &str) -> Result<(i64, &SourceSpan)> {
+        let parameter = self.parameter(name)?;
+        match &parameter.value {
+            ParameterValue::Integer(value) => Ok((*value, &parameter.span)),
+            _ => Err(self.parameter_type_error(name, "integer")),
+        }
+    }
+
+    pub(crate) fn file_parameter(&self, name: &str) -> Result<(&Path, &SourceSpan)> {
+        let parameter = self.parameter(name)?;
+        match &parameter.value {
+            ParameterValue::File(value) => Ok((value.as_path(), &parameter.span)),
+            _ => Err(self.parameter_type_error(name, "file")),
+        }
+    }
+
+    pub(crate) fn optional_duration_parameter(
+        &self,
+        name: &str,
+    ) -> Result<Option<(SourceTime, &SourceSpan)>> {
+        let Some(parameter) = self.parameters.get(name) else {
+            return Ok(None);
+        };
+        match &parameter.value {
+            ParameterValue::Duration(value) => Ok(Some((*value, &parameter.span))),
+            _ => Err(self.parameter_type_error(name, "duration")),
+        }
+    }
+
+    pub(crate) fn time_range_parameter(
+        &self,
+        name: &str,
+    ) -> Result<(SourceTimeRange, &SourceSpan)> {
+        let parameter = self.parameter(name)?;
+        match &parameter.value {
+            ParameterValue::TimeRange(value) => Ok((*value, &parameter.span)),
+            _ => Err(self.parameter_type_error(name, "time range")),
+        }
+    }
+
+    pub(crate) fn optional_keyword_parameter(
+        &self,
+        name: &str,
+    ) -> Result<Option<(&'static str, &SourceSpan)>> {
+        let Some(parameter) = self.parameters.get(name) else {
+            return Ok(None);
+        };
+        match &parameter.value {
+            ParameterValue::Keyword(value) => Ok(Some((*value, &parameter.span))),
+            _ => Err(self.parameter_type_error(name, "keyword")),
+        }
+    }
+
+    fn parameter(&self, name: &str) -> Result<&Spanned<ParameterValue>> {
+        self.parameters
+            .get(name)
+            .ok_or_else(|| self.binding_error(name))
+    }
+
+    fn binding_error(&self, name: &str) -> Diagnostic {
+        Diagnostic::new(
+            "E_INTERNAL_BINDING",
+            format!("resolved call has an invalid or missing binding for `{name}`"),
+            self.origin.span.clone(),
+        )
+    }
+
+    fn parameter_type_error(&self, name: &str, expected: &str) -> Diagnostic {
+        Diagnostic::new(
+            "E_INTERNAL_BINDING",
+            format!("resolved parameter `{name}` is not a {expected}"),
+            self.origin.span.clone(),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProgramRegistry {
@@ -156,7 +246,7 @@ pub(crate) struct ProgramRegistry {
 
 impl Default for ProgramRegistry {
     fn default() -> Self {
-        Self::from_definitions(&BUILTIN_PROGRAMS).expect("built-in program definitions are valid")
+        Self::from_definitions(BUILTIN_PROGRAMS).expect("built-in program definitions are valid")
     }
 }
 
@@ -172,6 +262,11 @@ impl ProgramRegistry {
             .iter()
             .find(|definition| definition.descriptor.name == name)
     }
+
+    #[must_use]
+    pub(crate) const fn definitions(self) -> &'static [ProgramDefinition] {
+        self.definitions
+    }
 }
 
 fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
@@ -179,12 +274,6 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
     for definition in definitions {
         let descriptor = &definition.descriptor;
         validate_definition_name("program", descriptor.name)?;
-        if RESERVED_PROGRAM_NAMES.contains(&descriptor.name) {
-            return Err(definition_error(format!(
-                "program name `{}` is reserved by the language",
-                descriptor.name
-            )));
-        }
         if !programs.insert(descriptor.name) {
             return Err(definition_error(format!(
                 "duplicate program name `{}`",
@@ -193,31 +282,41 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
         }
 
         let mut arguments = BTreeSet::new();
-        let mut variadic_index = None;
-        for (index, port) in descriptor.inputs.iter().enumerate() {
+        let mut fixed = false;
+        let mut variadic = false;
+        for port in descriptor.inputs {
             validate_definition_name("input port", port.name)?;
             if !arguments.insert(port.name) {
-                return Err(definition_error(format!(
-                    "program `{}` has duplicate or colliding argument name `{}`",
-                    descriptor.name, port.name
-                )));
+                return Err(collision_error(descriptor.name, port.name));
             }
-            if matches!(port.cardinality, Cardinality::Variadic { .. })
-                && variadic_index.replace(index).is_some()
-            {
-                return Err(definition_error(format!(
-                    "program `{}` has more than one variadic input port",
-                    descriptor.name
-                )));
+            match port.cardinality {
+                Cardinality::One => fixed = true,
+                Cardinality::Variadic { min: 0 } => {
+                    return Err(definition_error(format!(
+                        "program `{}` has a variadic input with minimum zero",
+                        descriptor.name
+                    )));
+                }
+                Cardinality::Variadic { .. } if variadic => {
+                    return Err(definition_error(format!(
+                        "program `{}` has more than one variadic input port",
+                        descriptor.name
+                    )));
+                }
+                Cardinality::Variadic { .. } => variadic = true,
             }
         }
+        if fixed && variadic {
+            return Err(definition_error(format!(
+                "program `{}` combines fixed and variadic input ports",
+                descriptor.name
+            )));
+        }
+
         for parameter in descriptor.parameters {
             validate_definition_name("parameter", parameter.name)?;
             if !arguments.insert(parameter.name) {
-                return Err(definition_error(format!(
-                    "program `{}` has duplicate or colliding argument name `{}`",
-                    descriptor.name, parameter.name
-                )));
+                return Err(collision_error(descriptor.name, parameter.name));
             }
         }
         if let Some(primary) = descriptor.primary_parameter
@@ -231,17 +330,36 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 descriptor.name
             )));
         }
-        if let Some(index) = variadic_index
-            && index != 0
-            && descriptor.inputs.len() > 1
-        {
-            return Err(definition_error(format!(
-                "program `{}` must place its variadic input before fixed inputs",
-                descriptor.name
-            )));
+
+        match (definition.implementation, definition.postfix) {
+            (ProgramImplementation::Direct(_), Some(_)) => {
+                return Err(definition_error(format!(
+                    "direct program `{}` cannot declare postfix syntax",
+                    descriptor.name
+                )));
+            }
+            (ProgramImplementation::Body(_), Some(postfix)) => {
+                let Some(_) = descriptor
+                    .parameters
+                    .iter()
+                    .find(|parameter| parameter.name == postfix.parameter)
+                else {
+                    return Err(definition_error(format!(
+                        "program `{}` names nonexistent postfix parameter `{}`",
+                        descriptor.name, postfix.parameter
+                    )));
+                };
+            }
+            _ => {}
         }
     }
     Ok(())
+}
+
+fn collision_error(program: &str, name: &str) -> Diagnostic {
+    definition_error(format!(
+        "program `{program}` has duplicate or colliding argument name `{name}`"
+    ))
 }
 
 fn validate_definition_name(role: &str, name: &str) -> Result<()> {
@@ -260,7 +378,7 @@ fn validate_definition_name(role: &str, name: &str) -> Result<()> {
     }
 }
 
-fn definition_error(message: String) -> Diagnostic {
+pub(crate) fn definition_error(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(
         "E_INVALID_PROGRAM_DEFINITION",
         message,
@@ -268,170 +386,37 @@ fn definition_error(message: String) -> Diagnostic {
     )
 }
 
-fn lower_image(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-    let (path, _) = call.string_parameter("path")?;
-    let frames = if let Some((duration, span)) = call.optional_string_parameter("duration")? {
-        SourceTime::parse(duration, span)?.to_frames(builder.video_spec().fps, span)?
-    } else {
-        call.requested_frames().ok_or_else(|| {
-            Diagnostic::new(
-                "E_MISSING_IMAGE_DURATION",
-                "`image.duration` is required outside a context with a requested duration",
-                call.origin().span.clone(),
-            )
-        })?
-    };
-    if frames == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_DURATION",
-            "image duration must contain at least one frame",
-            call.origin().span.clone(),
-        ));
-    }
-    let fit = if let Some((fit, span)) = call.optional_string_parameter("fit")? {
-        ImageFit::parse(fit, span)?
-    } else {
-        ImageFit::Cover
-    };
-    builder.image_video(
-        PathBuf::from(path),
-        crate::model::FrameCount(frames),
-        fit,
-        call.definition().descriptor.version,
-        call.origin().clone(),
-    )
-}
-
-fn lower_video(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-    let (path, _) = call.string_parameter("path")?;
-    let fit = if let Some((fit, span)) = call.optional_string_parameter("fit")? {
-        ImageFit::parse(fit, span)?
-    } else {
-        ImageFit::Cover
-    };
-    builder.video_source(
-        PathBuf::from(path),
-        fit,
-        call.definition().descriptor.version,
-        call.origin().clone(),
-    )
-}
-
-fn lower_concat(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-    builder.concat(
-        call.variadic_input("videos")?.to_vec(),
-        call.definition().descriptor.version,
-        call.origin().clone(),
-    )
-}
-
-fn lower_repeat(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-    let video = call.one_input("video")?;
-    let (count, span) = call.integer_parameter("count")?;
-    if count < 1 {
-        return Err(Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` must be an integer greater than or equal to one",
-            span.clone(),
-        ));
-    }
-    let count = usize::try_from(count).map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` is too large",
-            span.clone(),
-        )
-    })?;
-    let mut inputs = Vec::new();
-    inputs.try_reserve_exact(count).map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` is too large to compile",
-            span.clone(),
-        )
-    })?;
-    inputs.resize(count, video);
-    builder.concat(
-        inputs,
-        call.definition().descriptor.version,
-        call.origin().clone_with_construct("repeat"),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const DUPLICATE_PORTS: &[InputPort] = &[
-        InputPort {
-            name: "video",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::One,
-        },
-        InputPort {
-            name: "video",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::One,
-        },
-    ];
-    const COLLIDING_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
-        name: "video",
-        parameter_type: ParameterType::File,
-        required: false,
-    }];
-    const DUPLICATE_PARAMETERS: &[ParameterDescriptor] = &[
-        ParameterDescriptor {
-            name: "path",
-            parameter_type: ParameterType::File,
-            required: true,
-        },
-        ParameterDescriptor {
-            name: "path",
-            parameter_type: ParameterType::Duration,
-            required: false,
-        },
-    ];
-    const MULTIPLE_VARIADICS: &[InputPort] = &[
-        InputPort {
-            name: "left",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::Variadic { min: 1 },
-        },
-        InputPort {
-            name: "right",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::Variadic { min: 1 },
-        },
-    ];
-    const BAD_VARIADIC_ORDER: &[InputPort] = &[
-        InputPort {
-            name: "head",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::One,
-        },
-        InputPort {
-            name: "tail",
-            value_type: ValueType::Video,
-            cardinality: Cardinality::Variadic { min: 1 },
-        },
-    ];
+    fn direct_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+        unreachable!("validation does not execute programs")
+    }
+
+    fn body_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
+        unreachable!("validation does not execute programs")
+    }
 
     fn definition(
         name: &'static str,
         inputs: &'static [InputPort],
         parameters: &'static [ParameterDescriptor],
         primary_parameter: Option<&'static str>,
+        implementation: ProgramImplementation,
+        postfix: Option<PostfixSyntax>,
     ) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
                 name,
-                version: 1,
+                semantic_version: 1,
                 inputs,
                 parameters,
                 primary_parameter,
                 output: ValueType::Video,
             },
-            lower: lower_image,
+            implementation,
+            postfix,
         }
     }
 
@@ -439,46 +424,104 @@ mod tests {
     fn rejects_duplicate_program_names() {
         let definitions = Box::leak(
             vec![
-                definition("duplicate", &[], &[], None),
-                definition("duplicate", &[], &[], None),
+                definition(
+                    "duplicate",
+                    &[],
+                    &[],
+                    None,
+                    ProgramImplementation::Direct(direct_stub),
+                    None,
+                ),
+                definition(
+                    "duplicate",
+                    &[],
+                    &[],
+                    None,
+                    ProgramImplementation::Direct(direct_stub),
+                    None,
+                ),
             ]
             .into_boxed_slice(),
         );
-        let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate program");
+        let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate");
         assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
-        assert!(error.message.contains("duplicate program"));
     }
 
     #[test]
-    fn rejects_every_reserved_program_name() {
-        for name in ["then", "during", "join", "timeline", "ref", "id", "clip"] {
-            let definitions = Box::leak(vec![definition(name, &[], &[], None)].into_boxed_slice());
-            let error =
-                ProgramRegistry::from_definitions(definitions).expect_err("reserved program");
-            assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
-            assert!(error.message.contains(name));
+    fn allows_ref_and_clip_program_names() {
+        for name in ["ref", "clip"] {
+            let definitions = Box::leak(
+                vec![definition(
+                    name,
+                    &[],
+                    &[],
+                    None,
+                    ProgramImplementation::Direct(direct_stub),
+                    None,
+                )]
+                .into_boxed_slice(),
+            );
+            ProgramRegistry::from_definitions(definitions).expect("ordinary program name");
         }
     }
 
     #[test]
-    fn rejects_invalid_descriptor_argument_layouts() {
-        for invalid in [
-            definition("duplicate_ports", DUPLICATE_PORTS, &[], None),
-            definition(
-                "collision",
-                &DUPLICATE_PORTS[..1],
-                COLLIDING_PARAMETER,
+    fn rejects_mixed_fixed_and_variadic_inputs() {
+        let ports = Box::leak(
+            vec![
+                InputPort {
+                    name: "head",
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::One,
+                },
+                InputPort {
+                    name: "tail",
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::Variadic { min: 1 },
+                },
+            ]
+            .into_boxed_slice(),
+        );
+        let definitions = Box::leak(
+            vec![definition(
+                "mixed",
+                ports,
+                &[],
                 None,
-            ),
-            definition("duplicate_parameters", &[], DUPLICATE_PARAMETERS, None),
-            definition("missing_primary", &[], &[], Some("path")),
-            definition("multiple_variadics", MULTIPLE_VARIADICS, &[], None),
-            definition("bad_variadic", BAD_VARIADIC_ORDER, &[], None),
-        ] {
-            let definitions = Box::leak(vec![invalid].into_boxed_slice());
-            let error =
-                ProgramRegistry::from_definitions(definitions).expect_err("invalid descriptor");
-            assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
-        }
+                ProgramImplementation::Direct(direct_stub),
+                None,
+            )]
+            .into_boxed_slice(),
+        );
+        ProgramRegistry::from_definitions(definitions).expect_err("mixed cardinalities");
+    }
+
+    #[test]
+    fn validates_primary_and_postfix_targets() {
+        let definitions = Box::leak(
+            vec![definition(
+                "missing_primary",
+                &[],
+                &[],
+                Some("value"),
+                ProgramImplementation::Direct(direct_stub),
+                None,
+            )]
+            .into_boxed_slice(),
+        );
+        ProgramRegistry::from_definitions(definitions).expect_err("missing primary target");
+
+        let definitions = Box::leak(
+            vec![definition(
+                "bad_postfix",
+                &[],
+                &[],
+                None,
+                ProgramImplementation::Body(body_stub),
+                Some(PostfixSyntax { parameter: "range" }),
+            )]
+            .into_boxed_slice(),
+        );
+        ProgramRegistry::from_definitions(definitions).expect_err("missing postfix target");
     }
 }

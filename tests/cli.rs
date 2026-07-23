@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::fs;
 use std::process::Command;
 
@@ -20,10 +22,10 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
 #[test]
 fn compile_prints_machine_readable_plan() {
     let (_directory, workflow) = fixture();
-    let output = Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["compile", workflow.to_str().expect("UTF-8 path")])
         .output()
-        .expect("run rhythmcut");
+        .expect("run clipasm");
     assert!(output.status.success());
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
     assert!(plan["structure_hash"].as_str().is_some());
@@ -34,7 +36,7 @@ fn compile_prints_machine_readable_plan() {
 fn compile_writes_an_explicit_plan_path() {
     let (directory, workflow) = fixture();
     let plan_path = directory.path().join("plan.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args([
             "compile",
             workflow.to_str().expect("UTF-8 path"),
@@ -42,7 +44,7 @@ fn compile_writes_an_explicit_plan_path() {
             plan_path.to_str().expect("UTF-8 path"),
         ])
         .output()
-        .expect("run rhythmcut");
+        .expect("run clipasm");
     assert!(output.status.success());
     assert!(plan_path.is_file());
 }
@@ -51,10 +53,10 @@ fn compile_writes_an_explicit_plan_path() {
 fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
     fs::write(&workflow, "version: 1\ntimeline:\n  - repeat: 2\n").expect("invalid workflow");
-    let output = Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])
         .output()
-        .expect("run rhythmcut");
+        .expect("run clipasm");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("[E_STACK_UNDERFLOW]"));
     drop(directory);
@@ -66,10 +68,10 @@ fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(&workflow, "version: 1\ntimeline:\n  - video: missing.mp4\n").expect("workflow");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])
         .output()
-        .expect("run rhythmcut");
+        .expect("run clipasm");
     assert!(
         output.status.success(),
         "validation failed: {}",

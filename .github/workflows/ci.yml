@@ -16,4 +16,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-targets
-
+      - run: cargo test --doc
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+      - run: cargo install mdbook --version 0.5.4 --locked
+      - run: mdbook build

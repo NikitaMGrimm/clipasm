@@ -1,0 +1,11 @@
+version: 1
+
+project:
+  video: {width: 320, height: 180, fps: 30}
+
+timeline:
+  - image: {path: assets/red.ppm, duration: 1s, fit: contain}
+  - image: {path: assets/green.ppm, duration: 1s, fit: contain}
+  - image: {path: assets/blue.ppm, duration: 1s, fit: contain}
+
+output: generated/image-sequence.mp4

@@ -6,6 +6,10 @@ use crate::model::FrameRate;
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
 )]
+/// An exact number of project frames.
+///
+/// Frame counts are integral and are never silently rounded from authored
+/// times.
 pub struct FrameCount(pub u64);
 
 impl FrameCount {
@@ -14,7 +18,7 @@ impl FrameCount {
     /// # Errors
     ///
     /// Returns `E_FRAME_OVERFLOW` if the sum exceeds `u64`.
-    pub fn checked_add(self, other: Self, span: &SourceSpan) -> Result<Self> {
+    pub(crate) fn checked_add(self, other: Self, span: &SourceSpan) -> Result<Self> {
         self.0.checked_add(other.0).map(Self).ok_or_else(|| {
             Diagnostic::new(
                 "E_FRAME_OVERFLOW",
@@ -29,7 +33,7 @@ impl FrameCount {
 /// A nonempty closed-open range of frame indexes.
 ///
 /// ```compile_fail
-/// use rhythmcut::model::FrameRange;
+/// use clipasm::model::FrameRange;
 ///
 /// let invalid = FrameRange { start: 10, end: 5 };
 /// ```
@@ -39,6 +43,9 @@ pub struct FrameRange {
 }
 
 impl FrameRange {
+    /// Construct a nonempty closed-open frame range.
+    ///
+    /// Returns `None` when `start` is not earlier than `end`.
     #[must_use]
     pub const fn new(start: u64, end: u64) -> Option<Self> {
         if start < end {
@@ -49,23 +56,26 @@ impl FrameRange {
     }
 
     #[must_use]
+    /// Return the inclusive starting frame index.
     pub const fn start(self) -> u64 {
         self.start
     }
 
     #[must_use]
+    /// Return the exclusive ending frame index.
     pub const fn end(self) -> u64 {
         self.end
     }
 
     #[must_use]
+    /// Return the exact number of frames in the range.
     pub const fn frames(self) -> FrameCount {
         FrameCount(self.end - self.start)
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SourceTime {
+pub(crate) struct SourceTime {
     nanoseconds: u64,
 }
 
@@ -75,7 +85,7 @@ impl SourceTime {
     /// # Errors
     ///
     /// Returns a diagnostic for negative, malformed, or overflowing durations.
-    pub fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
+    pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         if text.starts_with('-') {
             return Err(Diagnostic::new(
                 "E_INVALID_DURATION",
@@ -124,7 +134,7 @@ impl SourceTime {
     ///
     /// Returns a diagnostic if the duration is not exactly frame-aligned or
     /// exceeds the supported frame count.
-    pub fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<u64> {
+    pub(crate) fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<u64> {
         let numerator = u128::from(self.nanoseconds) * u128::from(fps.numerator());
         let denominator = 1_000_000_000_u128 * u128::from(fps.denominator());
         if numerator % denominator != 0 {
@@ -149,29 +159,19 @@ impl SourceTime {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SourceTimeRange {
+pub(crate) struct SourceTimeRange {
     start: SourceTime,
     end: SourceTime,
 }
 
 impl SourceTimeRange {
     #[must_use]
-    pub const fn new(start: SourceTime, end: SourceTime) -> Option<Self> {
+    pub(crate) const fn new(start: SourceTime, end: SourceTime) -> Option<Self> {
         if start.nanoseconds < end.nanoseconds {
             Some(Self { start, end })
         } else {
             None
         }
-    }
-
-    #[must_use]
-    pub const fn start(self) -> SourceTime {
-        self.start
-    }
-
-    #[must_use]
-    pub const fn end(self) -> SourceTime {
-        self.end
     }
 
     /// Parse a closed-open duration range such as `2s..4s`.
@@ -180,18 +180,18 @@ impl SourceTimeRange {
     ///
     /// Returns a diagnostic for missing, malformed, negative, or reversed
     /// endpoints.
-    pub fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
+    pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         let Some((start, end)) = text.split_once("..") else {
             return Err(Diagnostic::new(
-                "E_INVALID_DURING_RANGE",
-                "a `during` range requires both endpoints, for example `2s..4s`",
+                "E_INVALID_TIME_RANGE",
+                "a time range requires both endpoints, for example `2s..4s`",
                 span.clone(),
             ));
         };
         if start.is_empty() || end.is_empty() || end.contains("..") {
             return Err(Diagnostic::new(
-                "E_INVALID_DURING_RANGE",
-                "a `during` range requires exactly two endpoints",
+                "E_INVALID_TIME_RANGE",
+                "a time range requires exactly two endpoints",
                 span.clone(),
             ));
         }
@@ -201,8 +201,8 @@ impl SourceTimeRange {
         )
         .ok_or_else(|| {
             Diagnostic::new(
-                "E_INVALID_DURING_RANGE",
-                "`during` range start must be earlier than its end",
+                "E_INVALID_TIME_RANGE",
+                "time-range start must be earlier than its end",
                 span.clone(),
             )
         })
@@ -213,15 +213,15 @@ impl SourceTimeRange {
     /// # Errors
     ///
     /// Returns a diagnostic when either endpoint is not frame-aligned.
-    pub fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<FrameRange> {
+    pub(crate) fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<FrameRange> {
         FrameRange::new(
             self.start.to_frames(fps, span)?,
             self.end.to_frames(fps, span)?,
         )
         .ok_or_else(|| {
             Diagnostic::new(
-                "E_INVALID_DURING_RANGE",
-                "`during` range must contain at least one frame",
+                "E_INVALID_TIME_RANGE",
+                "time range must contain at least one frame",
                 span.clone(),
             )
         })
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn rejects_reversed_range() {
         let error = SourceTimeRange::parse("4s..2s", &span()).expect_err("reversed");
-        assert_eq!(error.code, "E_INVALID_DURING_RANGE");
+        assert_eq!(error.code, "E_INVALID_TIME_RANGE");
     }
 
     #[test]

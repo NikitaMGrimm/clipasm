@@ -1,0 +1,9 @@
+version: 1
+
+project:
+  video: {width: 320, height: 180, fps: 30}
+
+timeline:
+  - video: {path: generated/sample.mp4, fit: contain}
+
+output: generated/video-source.mp4

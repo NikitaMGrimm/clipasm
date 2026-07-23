@@ -4,11 +4,14 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists—it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`**—read ADRs that touch the area being changed.
+1. **`AGENTS.md`** for mandatory task routing and project guardrails.
+2. **`docs/agents/repository-guide.md`** for source and change-impact maps.
+3. **`CONTEXT.md`** at the repo root, or **`CONTEXT-MAP.md`** if it exists
+   and points to multiple contexts.
+4. Relevant records under **`docs/adr/`** before revisiting durable decisions.
 
-If any of these files do not exist, proceed silently. The producer workflow creates them lazily when terms or decisions are resolved.
+If a context or ADR path does not exist, proceed silently. Producer workflows
+create them lazily when terms or decisions are resolved.
 
 ## File structure
 

@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiler::{CompiledNode, CompiledWorkflow, Evaluation, ExplainEntry, SemanticNodeKind};
+use crate::compiler::evaluate::{Evaluation, Symbol};
+use crate::compiler::{CompiledWorkflow, ExplainEntry};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
+use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind};
 use crate::syntax::Workflow;
 
 pub(super) fn finalize(
@@ -21,13 +23,12 @@ pub(super) fn finalize(
         .nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| CompiledNode {
-            id: ValueId::new(u32::try_from(index).expect("draft node IDs already fit in u32")),
-            kind: node.kind.clone(),
-            value_type: node.value_type,
-            domain: domains[index].clone(),
-            semantic_version: node.semantic_version,
-            origin: node.origin.clone(),
+        .map(|(index, node)| {
+            CompiledNode::from_draft(
+                ValueId::new(u32::try_from(index).expect("draft node IDs already fit in u32")),
+                node,
+                domains[index].clone(),
+            )
         })
         .collect();
     let named_values = evaluation
@@ -42,7 +43,7 @@ pub(super) fn finalize(
             )
         })
         .collect();
-    let mut explain = evaluation
+    let explain = evaluation
         .surface
         .into_iter()
         .map(|record| ExplainEntry {
@@ -52,13 +53,6 @@ pub(super) fn finalize(
             span: record.span,
         })
         .collect::<Vec<_>>();
-    explain.push(ExplainEntry {
-        construct: "root timeline".to_owned(),
-        output: evaluation.root,
-        id: None,
-        span: crate::diagnostic::SourceSpan::file_start(workflow.source_path()),
-    });
-
     Ok(CompiledWorkflow {
         format_version,
         workflow_version: workflow.version(),
@@ -76,32 +70,33 @@ pub(super) fn finalize(
 
 fn validate_references(evaluation: &Evaluation) -> Result<()> {
     for node in &evaluation.nodes {
-        if let SemanticNodeKind::Reference { name } = &node.kind {
+        if let SemanticNodeKind::Reference { name } = node.kind() {
             let Some(symbol) = evaluation.symbols.get(name) else {
                 return Err(Diagnostic::new(
                     "E_MISSING_REFERENCE",
                     format!("reference `${name}` does not name any clip or invocation id"),
-                    node.origin.span.clone(),
+                    node.origin().span.clone(),
                 ));
             };
             if symbol.value.is_none() {
                 return Err(Diagnostic::new(
                     "E_MISSING_REFERENCE",
                     format!("name `{name}` has no compiled value"),
-                    node.origin.span.clone(),
+                    node.origin().span.clone(),
                 ));
             }
             let symbol_type = symbol
                 .value_type
                 .expect("symbol types are resolved before evaluation");
-            if symbol_type != node.value_type {
+            if symbol_type != node.value_type() {
                 return Err(Diagnostic::new(
                     "E_TYPE_MISMATCH",
                     format!(
                         "reference `${name}` has type {}, but its expression was recorded as {}",
-                        symbol_type, node.value_type
+                        symbol_type,
+                        node.value_type()
                     ),
-                    node.origin.span.clone(),
+                    node.origin().span.clone(),
                 ));
             }
         }
@@ -134,14 +129,14 @@ fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
 
 fn collect_direct_references(
     value: ValueRef,
-    nodes: &[super::DraftNode],
+    nodes: &[DraftNode],
     output: &mut BTreeSet<String>,
     visited: &mut BTreeSet<ValueId>,
 ) {
     if !visited.insert(value.id()) {
         return;
     }
-    match &nodes[value.id().get() as usize].kind {
+    match nodes[value.id().get() as usize].kind() {
         SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {}
         SemanticNodeKind::Reference { name } => {
             output.insert(name.clone());
@@ -154,11 +149,11 @@ fn collect_direct_references(
         SemanticNodeKind::Slice { input, .. } => {
             collect_direct_references(*input, nodes, output, visited);
         }
-        SemanticNodeKind::During {
-            base, processed, ..
+        SemanticNodeKind::ReplaceRange {
+            base, replacement, ..
         } => {
             collect_direct_references(*base, nodes, output, visited);
-            collect_direct_references(*processed, nodes, output, visited);
+            collect_direct_references(*replacement, nodes, output, visited);
         }
     }
 }
@@ -168,7 +163,7 @@ fn detect_symbol_cycle(
     edges: &BTreeMap<String, BTreeSet<String>>,
     states: &mut BTreeMap<String, u8>,
     path: &mut Vec<String>,
-    symbols: &BTreeMap<String, super::Symbol>,
+    symbols: &BTreeMap<String, Symbol>,
 ) -> Result<()> {
     match states.get(name).copied().unwrap_or(0) {
         2 => return Ok(()),
@@ -233,13 +228,13 @@ fn infer_value(
             "E_DEPENDENCY_CYCLE",
             "dependency cycle encountered while inferring video duration",
             evaluation.nodes[value.id().get() as usize]
-                .origin
+                .origin()
                 .span
                 .clone(),
         ));
     }
     let node = &evaluation.nodes[value.id().get() as usize];
-    let frames = match &node.kind {
+    let frames = match node.kind() {
         SemanticNodeKind::ImageVideo { frames, .. } => Some(*frames),
         SemanticNodeKind::VideoSource { .. } => None,
         SemanticNodeKind::Reference { name } => {
@@ -255,7 +250,7 @@ fn infer_value(
                 if let Some(input_domain) =
                     infer_value(*input, evaluation, video, domains, visiting)?
                 {
-                    total = total.checked_add(input_domain.frames, &node.origin.span)?;
+                    total = total.checked_add(input_domain.frames, &node.origin().span)?;
                 } else {
                     known = false;
                 }
@@ -264,24 +259,25 @@ fn infer_value(
         }
         SemanticNodeKind::Slice { input, range } => {
             if let Some(input_domain) = infer_value(*input, evaluation, video, domains, visiting)? {
-                validate_range(*range, input_domain.frames, &node.origin.span)?;
+                validate_range(*range, input_domain.frames, &node.origin().span)?;
             }
             Some(range.frames())
         }
-        SemanticNodeKind::During {
+        SemanticNodeKind::ReplaceRange {
             base,
-            processed,
+            replacement,
             range,
         } => {
             let base_domain = infer_value(*base, evaluation, video, domains, visiting)?;
             if let Some(base_domain) = &base_domain {
-                validate_range(*range, base_domain.frames, &node.origin.span)?;
+                validate_range(*range, base_domain.frames, &node.origin().span)?;
             }
-            let processed_domain = infer_value(*processed, evaluation, video, domains, visiting)?;
-            match (base_domain, processed_domain) {
-                (Some(base_domain), Some(processed_domain)) => Some(
+            let replacement_domain =
+                infer_value(*replacement, evaluation, video, domains, visiting)?;
+            match (base_domain, replacement_domain) {
+                (Some(base_domain), Some(replacement_domain)) => Some(
                     FrameCount(base_domain.frames.0 - range.frames().0)
-                        .checked_add(processed_domain.frames, &node.origin.span)?,
+                        .checked_add(replacement_domain.frames, &node.origin().span)?,
                 ),
                 _ => None,
             }
@@ -305,7 +301,7 @@ fn validate_range(
 ) -> Result<()> {
     if range.end() > input.0 {
         return Err(Diagnostic::new(
-            "E_INVALID_DURING_RANGE",
+            "E_INVALID_TIME_RANGE",
             format!(
                 "frame range {}..{} is outside the base Video domain of {} frames",
                 range.start(),

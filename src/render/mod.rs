@@ -1,3 +1,9 @@
+//! Verified execution, caching, and atomic publication of prepared plans.
+//!
+//! Rendering accepts only [`PreparedPlan`],
+//! re-verifies source content, reuses compatible cached artifacts, executes
+//! `FFmpeg` primitives, and publishes the MP4 and manifest atomically.
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,10 +21,15 @@ use crate::preflight::{
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize)]
+/// Paths and cache statistics from a completed render.
 pub struct RenderReport {
+    /// Published MP4 output path.
     pub output: PathBuf,
+    /// Published JSON manifest path.
     pub manifest: PathBuf,
+    /// Number of prepared-node artifacts reused from verified cache entries.
     pub cache_hits: usize,
+    /// Number of prepared-node artifacts rendered during this execution.
     pub cache_misses: usize,
 }
 
@@ -67,7 +78,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         .parent()
         .unwrap_or_else(|| Path::new("."));
     let cache_directory = workflow_directory
-        .join(".rhythmcut")
+        .join(".clipasm")
         .join("cache")
         .join(plan.execution_namespace());
     fs::create_dir_all(&cache_directory).map_err(|error| {

@@ -1,5 +1,5 @@
 /target/
-/.rhythmcut/
+**/.clipasm/
 /local/
 *.mp4
 *.manifest.json

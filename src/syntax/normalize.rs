@@ -1,0 +1,748 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use yaml_rust2::scanner::TScalarStyle;
+
+use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::language::{BODY_FIELD, ID_FIELD, Language, ROOT_PROGRAM};
+use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry};
+use crate::syntax::ast::{
+    Argument, Invocation, Item, ItemKind, NamedClip, ProgramBody, Reference, VideoSettings,
+    Workflow,
+};
+use crate::syntax::raw::{RawKind, RawNode};
+
+/// Parse and normalize a restricted `ClipAsm` YAML document.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic when the file cannot be read or violates
+/// the restricted YAML or workflow grammar.
+pub fn parse_file(path: &Path) -> Result<Workflow> {
+    let source =
+        fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
+    let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    parse_str_with_language(&source_path, &source, Language::default())
+}
+
+/// Parse workflow source supplied by tests or an embedding application.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic for invalid YAML or workflow syntax.
+pub fn parse_str(path: &Path, source: &str) -> Result<Workflow> {
+    parse_str_with_language(path, source, Language::default())
+}
+
+/// Parse workflow source with an explicit static language.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic for invalid YAML or workflow syntax.
+pub(crate) fn parse_str_with_language(
+    path: &Path,
+    source: &str,
+    language: Language,
+) -> Result<Workflow> {
+    parse_workflow(
+        path.to_path_buf(),
+        super::raw::parse(path, source)?,
+        language,
+    )
+}
+
+fn parse_workflow(source_path: PathBuf, root: RawNode, language: Language) -> Result<Workflow> {
+    let root_span = root.span.clone();
+    let entries = into_mapping(root, "the workflow root")?;
+    let mut version = None;
+    let mut video = VideoSettings::default();
+    let mut clips = Vec::new();
+    let mut timeline = None;
+    let mut output = None;
+
+    for (key, key_span, value) in entries {
+        if key == ROOT_PROGRAM {
+            let body = parse_body(value, "the root program body", language)?;
+            timeline = Some((key_span, body));
+            continue;
+        }
+        match key.as_str() {
+            "version" => {
+                let (text, _) = scalar(&value, "`version`")?;
+                version = Some(text.parse::<u64>().map_err(|_| {
+                    Diagnostic::new(
+                        "E_UNSUPPORTED_VERSION",
+                        "`version` must be the integer 1",
+                        value.span.clone(),
+                    )
+                })?);
+            }
+            "project" => video = parse_project(value)?,
+            "clips" => clips = parse_clips(value, language)?,
+            "output" => {
+                let (text, _) = scalar(&value, "`output`")?;
+                output = Some(Spanned::new(PathBuf::from(text), value.span));
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    "E_UNKNOWN_TOP_LEVEL_FIELD",
+                    format!("unknown top-level field `{key}`"),
+                    key_span,
+                ));
+            }
+        }
+    }
+
+    let version = version.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_VERSION",
+            "missing required top-level field `version`",
+            root_span.clone(),
+        )
+    })?;
+    if version != 1 {
+        return Err(Diagnostic::new(
+            "E_UNSUPPORTED_VERSION",
+            format!("unsupported workflow version {version}; this engine supports version 1"),
+            root_span.clone(),
+        ));
+    }
+    let (timeline_span, timeline) = timeline.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_TIMELINE",
+            format!("missing required top-level field `{ROOT_PROGRAM}`"),
+            root_span,
+        )
+    })?;
+
+    let root = Item {
+        kind: ItemKind::Invocation(Invocation {
+            program: Spanned::new(ROOT_PROGRAM.to_owned(), timeline_span.clone()),
+            arguments: BTreeMap::new(),
+            body: Some(timeline),
+        }),
+        id: None,
+        span: timeline_span,
+    };
+
+    Ok(Workflow {
+        source_path,
+        version,
+        video,
+        clips,
+        root,
+        output,
+    })
+}
+
+fn parse_project(node: RawNode) -> Result<VideoSettings> {
+    let entries = into_mapping(node, "`project`")?;
+    let mut video = VideoSettings::default();
+    for (key, key_span, value) in entries {
+        if key != "video" {
+            return Err(Diagnostic::new(
+                "E_UNKNOWN_PROJECT_FIELD",
+                format!("unknown project field `{key}`"),
+                key_span,
+            ));
+        }
+        for (setting, setting_span, value) in into_mapping(value, "`project.video`")? {
+            let (text, _) = scalar(&value, "a video setting")?;
+            match setting.as_str() {
+                "width" => {
+                    video.width = Some(Spanned::new(
+                        parse_u32(text, &value.span, "width")?,
+                        value.span,
+                    ));
+                }
+                "height" => {
+                    video.height = Some(Spanned::new(
+                        parse_u32(text, &value.span, "height")?,
+                        value.span,
+                    ));
+                }
+                "fps" => {
+                    video.fps = Some(Spanned::new(text.to_owned(), value.span));
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_VIDEO_FIELD",
+                        format!("unknown project video field `{setting}`"),
+                        setting_span,
+                    ));
+                }
+            }
+        }
+    }
+    Ok(video)
+}
+
+fn parse_u32(text: &str, span: &SourceSpan, field: &str) -> Result<u32> {
+    let value = text.parse::<u32>().map_err(|_| {
+        Diagnostic::new(
+            "E_INVALID_VIDEO_SPEC",
+            format!("`{field}` must be a positive integer"),
+            span.clone(),
+        )
+    })?;
+    if value == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_VIDEO_SPEC",
+            format!("`{field}` must be greater than zero"),
+            span.clone(),
+        ));
+    }
+    Ok(value)
+}
+
+fn parse_clips(node: RawNode, language: Language) -> Result<Vec<NamedClip>> {
+    let mut clips = Vec::new();
+    for (name, span, value) in into_mapping(node, "`clips`")? {
+        validate_name(&name, &span)?;
+        let body = match value.kind {
+            RawKind::Sequence(_) => parse_body(value, "a clip body", language)?,
+            RawKind::Mapping(_) | RawKind::Scalar { .. } => ProgramBody {
+                items: vec![parse_item(value, language)?],
+            },
+        };
+        clips.push(NamedClip { name, body, span });
+    }
+    Ok(clips)
+}
+
+fn parse_body(node: RawNode, owner: &str, language: Language) -> Result<ProgramBody> {
+    let span = node.span.clone();
+    let RawKind::Sequence(values) = node.kind else {
+        return Err(Diagnostic::new(
+            "E_EXPECTED_SEQUENCE",
+            format!("{owner} must be a YAML sequence"),
+            span,
+        ));
+    };
+    let items = values
+        .into_iter()
+        .map(|value| parse_item(value, language))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ProgramBody { items })
+}
+
+fn parse_item(node: RawNode, language: Language) -> Result<Item> {
+    let item_span = node.span.clone();
+    match node.kind {
+        RawKind::Scalar { value, style } => {
+            if style == TScalarStyle::Plain && value.starts_with('$') {
+                let reference = parse_reference(&value, &item_span)?;
+                Ok(Item {
+                    kind: ItemKind::Reference(Reference {
+                        name: Spanned::new(reference, item_span.clone()),
+                    }),
+                    id: None,
+                    span: item_span,
+                })
+            } else if style == TScalarStyle::Plain {
+                let definition = language.programs.get(&value).ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_UNKNOWN_PROGRAM",
+                        format!("unknown program `{value}`"),
+                        item_span.clone(),
+                    )
+                })?;
+                Ok(Item {
+                    kind: ItemKind::Invocation(Invocation {
+                        program: Spanned::new(
+                            definition.descriptor.name.to_owned(),
+                            item_span.clone(),
+                        ),
+                        arguments: BTreeMap::new(),
+                        body: None,
+                    }),
+                    id: None,
+                    span: item_span,
+                })
+            } else {
+                Err(Diagnostic::new(
+                    "E_INVALID_SEQUENCE_ITEM",
+                    "a scalar sequence item must be a plain `$reference` or no-argument program name",
+                    item_span,
+                ))
+            }
+        }
+        RawKind::Mapping(entries) => parse_invocation(entries, item_span, language),
+        RawKind::Sequence(_) => Err(Diagnostic::new(
+            "E_INVALID_SEQUENCE_ITEM",
+            "a sequence item must be a program invocation or reference",
+            item_span,
+        )),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn parse_invocation(
+    entries: Vec<(String, SourceSpan, RawNode)>,
+    span: SourceSpan,
+    language: Language,
+) -> Result<Item> {
+    let mut id = None;
+    let mut program_entries = Vec::new();
+    for (key, key_span, value) in entries {
+        if key == ID_FIELD {
+            let (name, _) = scalar(&value, "`id`")?;
+            validate_name(name, &value.span)?;
+            id = Some(Spanned::new(name.to_owned(), value.span));
+        } else {
+            program_entries.push((key, key_span, value));
+        }
+    }
+    if program_entries.is_empty() {
+        return Err(Diagnostic::new(
+            "E_MISSING_PROGRAM_KEY",
+            "an invocation mapping must contain one program key",
+            span,
+        ));
+    }
+
+    if program_entries.len() == 1 {
+        let (program, program_span, value) = program_entries.remove(0);
+        let definition = require_program(language.programs, &program, &program_span)?;
+        if definition.postfix.is_some()
+            && !is_empty_scalar(&value)
+            && matches!(value.kind, RawKind::Scalar { .. })
+        {
+            return Err(Diagnostic::new(
+                "E_POSTFIX_REQUIRES_EXPRESSION",
+                format!("postfix program `{program}` requires an expression to wrap"),
+                program_span,
+            ));
+        }
+        let invocation = normalize_invocation(definition, program_span, value, language)?;
+        return Ok(Item {
+            kind: ItemKind::Invocation(invocation),
+            id,
+            span,
+        });
+    }
+
+    let postfix_indices = program_entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (name, _, value))| {
+            language
+                .programs
+                .get(name)
+                .filter(|definition| {
+                    definition.postfix.is_some()
+                        && matches!(value.kind, RawKind::Scalar { .. })
+                        && !is_empty_scalar(value)
+                })
+                .map(|_| index)
+        })
+        .collect::<Vec<_>>();
+    if program_entries.len() != 2 || postfix_indices.len() != 1 {
+        let offending = program_entries
+            .get(1)
+            .unwrap_or_else(|| program_entries.first().expect("nonempty entries"));
+        return Err(Diagnostic::new(
+            "E_UNKNOWN_INVOCATION_FIELD",
+            "program parameters must be nested inside the program mapping; only `id` may annotate an item",
+            offending.1.clone(),
+        ));
+    }
+
+    let wrapper_index = postfix_indices[0];
+    let (wrapper_name, wrapper_span, wrapper_value) = program_entries.remove(wrapper_index);
+    let (head_name, head_span, head_value) = program_entries.remove(0);
+    let head_definition = require_program(language.programs, &head_name, &head_span)?;
+    let head_invocation =
+        normalize_invocation(head_definition, head_span.clone(), head_value, language)?;
+    let inner = Item {
+        kind: ItemKind::Invocation(head_invocation),
+        id: None,
+        span: head_span,
+    };
+
+    let wrapper_definition = require_program(language.programs, &wrapper_name, &wrapper_span)?;
+    let postfix = wrapper_definition
+        .postfix
+        .expect("postfix candidate has postfix metadata");
+    let mut arguments = BTreeMap::new();
+    arguments.insert(postfix.parameter.to_owned(), parse_argument(wrapper_value)?);
+    Ok(Item {
+        kind: ItemKind::Invocation(Invocation {
+            program: Spanned::new(wrapper_name, wrapper_span),
+            arguments,
+            body: Some(ProgramBody { items: vec![inner] }),
+        }),
+        id,
+        span,
+    })
+}
+
+fn require_program(
+    registry: ProgramRegistry,
+    program: &str,
+    span: &SourceSpan,
+) -> Result<&'static ProgramDefinition> {
+    registry.get(program).ok_or_else(|| {
+        Diagnostic::new(
+            "E_UNKNOWN_PROGRAM",
+            format!("unknown program `{program}`"),
+            span.clone(),
+        )
+    })
+}
+
+fn normalize_invocation(
+    definition: &'static ProgramDefinition,
+    program_span: SourceSpan,
+    value: RawNode,
+    language: Language,
+) -> Result<Invocation> {
+    let program = definition.descriptor.name;
+    let mut arguments = BTreeMap::new();
+    let mut body = None;
+    if is_empty_scalar(&value) {
+        // Missing inputs are bound from the local stack.
+    } else if matches!(value.kind, RawKind::Mapping(_)) {
+        for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
+            if matches!(definition.implementation, ProgramImplementation::Body(_))
+                && name == BODY_FIELD
+            {
+                body = Some(parse_body(value, &format!("`{program}` body"), language)?);
+            } else if arguments
+                .insert(name.clone(), parse_argument(value)?)
+                .is_some()
+            {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_ARGUMENT",
+                    format!("duplicate argument `{name}`"),
+                    name_span,
+                ));
+            }
+        }
+    } else if matches!(definition.implementation, ProgramImplementation::Body(_))
+        && matches!(value.kind, RawKind::Sequence(_))
+    {
+        body = Some(parse_body(value, &format!("`{program}` body"), language)?);
+    } else {
+        let Some(primary) = definition.descriptor.primary_parameter else {
+            return Err(Diagnostic::new(
+                "E_INVALID_PRIMARY_ARGUMENT",
+                format!("program `{program}` has no primary shorthand parameter"),
+                value.span,
+            ));
+        };
+        arguments.insert(primary.to_owned(), parse_argument(value)?);
+    }
+    Ok(Invocation {
+        program: Spanned::new(program.to_owned(), program_span),
+        arguments,
+        body,
+    })
+}
+
+fn parse_argument(node: RawNode) -> Result<Argument> {
+    let span = node.span.clone();
+    match node.kind {
+        RawKind::Scalar { value, style } => {
+            if style == TScalarStyle::Plain && value.starts_with('$') {
+                Ok(Argument::Reference(parse_reference(&value, &span)?, span))
+            } else if style == TScalarStyle::Plain {
+                if let Ok(value) = value.parse::<i64>() {
+                    Ok(Argument::Integer(value, span))
+                } else {
+                    Ok(Argument::String(value, span))
+                }
+            } else {
+                Ok(Argument::String(value, span))
+            }
+        }
+        RawKind::Sequence(values) => Ok(Argument::List(
+            values
+                .into_iter()
+                .map(parse_argument)
+                .collect::<Result<Vec<_>>>()?,
+            span,
+        )),
+        RawKind::Mapping(_) => Err(Diagnostic::new(
+            "E_INVALID_ARGUMENT",
+            "nested argument mappings are not supported",
+            span,
+        )),
+    }
+}
+
+fn parse_reference(text: &str, span: &SourceSpan) -> Result<String> {
+    let Some(name) = text.strip_prefix('$') else {
+        return Err(Diagnostic::new(
+            "E_INVALID_REFERENCE",
+            "a reference must begin with `$`",
+            span.clone(),
+        ));
+    };
+    validate_name(name, span)?;
+    Ok(name.to_owned())
+}
+
+/// Validate a user-visible clip or invocation name.
+///
+/// # Errors
+///
+/// Returns `E_INVALID_NAME` when `name` does not match the public identifier
+/// grammar.
+fn validate_name(name: &str, span: &SourceSpan) -> Result<()> {
+    let mut chars = name.chars();
+    let valid_start = chars
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
+    let valid_rest =
+        chars.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+    if !valid_start || !valid_rest {
+        return Err(Diagnostic::new(
+            "E_INVALID_NAME",
+            format!("`{name}` is not a valid name; use [A-Za-z_][A-Za-z0-9_-]*"),
+            span.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_empty_scalar(node: &RawNode) -> bool {
+    matches!(
+        &node.kind,
+        RawKind::Scalar {
+            value,
+            style: TScalarStyle::Plain
+        } if value.is_empty()
+    )
+}
+
+fn scalar<'a>(node: &'a RawNode, owner: &str) -> Result<(&'a str, TScalarStyle)> {
+    let RawKind::Scalar { value, style } = &node.kind else {
+        return Err(Diagnostic::new(
+            "E_EXPECTED_SCALAR",
+            format!("{owner} must be a scalar value"),
+            node.span.clone(),
+        ));
+    };
+    Ok((value, *style))
+}
+
+fn into_mapping(node: RawNode, owner: &str) -> Result<Vec<(String, SourceSpan, RawNode)>> {
+    let span = node.span.clone();
+    let RawKind::Mapping(entries) = node.kind else {
+        return Err(Diagnostic::new(
+            "E_EXPECTED_MAPPING",
+            format!("{owner} must be a mapping"),
+            span,
+        ));
+    };
+    Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{FrameCount, ImageFit, ValueRef, ValueStack, ValueType};
+    use crate::program::{
+        BodyFinalizer, BodyPlan, ParameterDescriptor, ParameterType, PostfixSyntax,
+        ProgramDescriptor, ResolvedCall,
+    };
+    use crate::semantic::GraphBuilder;
+
+    fn parse(source: &str) -> Result<Workflow> {
+        parse_str(Path::new("workflow.yaml"), source)
+    }
+
+    #[test]
+    fn normalizes_reference_and_full_arguments() {
+        let workflow = parse(
+            "version: 1\nclips:\n  a:\n    image:\n      path: a.png\n      duration: 1s\ntimeline:\n  - $a\n",
+        )
+        .expect("workflow");
+        let ItemKind::Invocation(root) = &workflow.root.kind else {
+            panic!("root invocation");
+        };
+        assert_eq!(root.program.value, "timeline");
+        assert!(matches!(
+            root.body.as_ref().expect("root body").items[0].kind,
+            ItemKind::Reference(Reference { .. })
+        ));
+        assert_eq!(workflow.clips[0].body.items.len(), 1);
+    }
+
+    #[test]
+    fn rejects_duplicate_keys() {
+        let error = parse("version: 1\nversion: 1\ntimeline: []\n").expect_err("duplicate");
+        assert_eq!(error.code, "E_DUPLICATE_YAML_KEY");
+    }
+
+    #[test]
+    fn rejects_aliases() {
+        let error = parse("version: 1\nclips: &clips {}\ntimeline: *clips\n").expect_err("aliases");
+        assert!(matches!(error.code, "E_YAML_ANCHOR" | "E_YAML_ALIAS"));
+    }
+
+    #[test]
+    fn postfix_program_normalizes_to_an_outer_invocation() {
+        let workflow = parse(
+            "version: 1\ntimeline:\n  - image:\n      path: a.png\n      duration: 2s\n    during: 0s..1s\n",
+        )
+        .expect("workflow");
+        let ItemKind::Invocation(root) = &workflow.root.kind else {
+            panic!("root invocation");
+        };
+        let outer = &root.body.as_ref().expect("root body").items[0];
+        let ItemKind::Invocation(during) = &outer.kind else {
+            panic!("during invocation");
+        };
+        assert_eq!(during.program.value, "during");
+        assert_eq!(during.body.as_ref().expect("during body").items.len(), 1);
+    }
+
+    #[test]
+    fn expanded_references_are_not_syntax() {
+        let error = parse("version: 1\ntimeline:\n  - ref: $a\n").expect_err("expanded ref");
+        assert_eq!(error.code, "E_UNKNOWN_PROGRAM");
+    }
+
+    #[test]
+    fn body_full_form_classifies_inputs_parameters_and_body() {
+        parse(
+            "version: 1\nclips:\n  base: {image: {path: a.png, duration: 2s}}\ntimeline:\n  - during:\n      base: $base\n      range: 0s..1s\n      body:\n        - repeat: 2\n",
+        )
+        .expect("full body form");
+    }
+
+    #[test]
+    fn semantic_parameter_errors_belong_to_compilation() {
+        let workflow = parse(
+            "version: 1\ntimeline:\n  - image:\n      path: a.png\n      duration: 1s\n  - repeat: wrong\n",
+        )
+        .expect("syntax normalization");
+        let error = crate::compiler::compile(&workflow).expect_err("parameter type");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+
+        let workflow = parse("version: 1\ntimeline:\n  - image:\n      duration: 1s\n")
+            .expect("syntax normalization");
+        let error = crate::compiler::compile(&workflow).expect_err("missing path");
+        assert_eq!(error.code, "E_MISSING_ARGUMENT");
+    }
+
+    const SOURCE_PARAMETERS: &[crate::program::ParameterDescriptor] = &[ParameterDescriptor {
+        name: "path",
+        parameter_type: ParameterType::File,
+        required: true,
+    }];
+    const POSTFIX_PARAMETERS: &[crate::program::ParameterDescriptor] = &[ParameterDescriptor {
+        name: "range",
+        parameter_type: ParameterType::TimeRange,
+        required: true,
+    }];
+
+    fn lower_synthetic_source(
+        call: &ResolvedCall,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        let (path, _) = call.file_parameter("path")?;
+        builder.image_video(path.to_path_buf(), FrameCount(1), ImageFit::Cover)
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    fn prepare_synthetic_root(
+        call: &ResolvedCall,
+        _builder: &mut GraphBuilder<'_>,
+    ) -> Result<BodyPlan> {
+        Ok(BodyPlan {
+            initial_stack: Vec::new(),
+            requested_frames: call.requested_frames(),
+            finalizer: Box::new(OneValue),
+        })
+    }
+
+    fn prepare_synthetic_postfix(
+        call: &ResolvedCall,
+        _builder: &mut GraphBuilder<'_>,
+    ) -> Result<BodyPlan> {
+        let _ = call.time_range_parameter("range")?;
+        Ok(BodyPlan {
+            initial_stack: Vec::new(),
+            requested_frames: call.requested_frames(),
+            finalizer: Box::new(OneValue),
+        })
+    }
+
+    struct OneValue;
+
+    impl BodyFinalizer for OneValue {
+        fn finish(
+            self: Box<Self>,
+            stack: ValueStack,
+            _builder: &mut GraphBuilder<'_>,
+        ) -> Result<ValueRef> {
+            let [value] = stack.as_slice() else {
+                return Err(Diagnostic::new(
+                    "E_TEST_OUTPUT",
+                    "synthetic body requires one value",
+                    SourceSpan::file_start("workflow.yaml"),
+                ));
+            };
+            Ok(*value)
+        }
+    }
+
+    const SYNTHETIC_DIRECT: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "synthetic_direct",
+            semantic_version: 1,
+            inputs: &[],
+            parameters: SOURCE_PARAMETERS,
+            primary_parameter: Some("path"),
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Direct(lower_synthetic_source),
+        postfix: None,
+    };
+    const SYNTHETIC_BODY: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: ROOT_PROGRAM,
+            semantic_version: 1,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Body(prepare_synthetic_root),
+        postfix: None,
+    };
+    const SYNTHETIC_POSTFIX: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "synthetic_postfix",
+            semantic_version: 1,
+            inputs: &[],
+            parameters: POSTFIX_PARAMETERS,
+            primary_parameter: Some("range"),
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
+        postfix: Some(PostfixSyntax { parameter: "range" }),
+    };
+    static SYNTHETIC_PROGRAMS: &[ProgramDefinition] =
+        &[SYNTHETIC_DIRECT, SYNTHETIC_BODY, SYNTHETIC_POSTFIX];
+
+    #[test]
+    fn registry_metadata_extends_parser_and_evaluator() {
+        let registry =
+            ProgramRegistry::from_definitions(SYNTHETIC_PROGRAMS).expect("synthetic registry");
+        let language = Language::new(registry).expect("synthetic language");
+        let workflow = parse_str_with_language(
+            Path::new("workflow.yaml"),
+            "version: 1\ntimeline:\n  - synthetic_direct: asset.any\n    synthetic_postfix: 0s..1s\n",
+            language,
+        )
+        .expect("generic parse");
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("generic evaluate");
+        assert_eq!(compiled.root_domain().expect("known domain").frames.0, 1);
+    }
+}

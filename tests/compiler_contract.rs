@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -8,10 +10,10 @@ fn write_image(directory: &Path, name: &str, color: &str) {
 }
 
 fn run(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+    Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(arguments)
         .output()
-        .expect("run rhythmcut")
+        .expect("run clipasm")
 }
 
 fn compile_json(workflow: &Path) -> serde_json::Value {
@@ -40,8 +42,8 @@ fn pure_compile_does_not_require_assets_to_exist() {
         "pure compile unexpectedly accessed the asset: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let compiled = rhythmcut::compiler::compile_file(&workflow).expect("pure compile");
-    let error = rhythmcut::preflight::preflight(&compiled).expect_err("missing asset preflight");
+    let compiled = clipasm::compiler::compile_file(&workflow).expect("pure compile");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("missing asset preflight");
     assert_eq!(error.code, "E_MISSING_IMAGE_FILE");
 }
 
@@ -128,7 +130,7 @@ fn unused_definitions_are_still_compiled_and_validated() {
         "version: 1\nclips:\n  invalid:\n    image: unused.png\ntimeline:\n  - image:\n      path: used.png\n      duration: 1s\n",
     )
     .expect("workflow");
-    let error = rhythmcut::compiler::compile_file(&workflow).expect_err("unused invalid clip");
+    let error = clipasm::compiler::compile_file(&workflow).expect_err("unused invalid clip");
     assert_eq!(error.code, "E_MISSING_IMAGE_DURATION");
 }
 
@@ -142,7 +144,7 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
     )
     .expect("workflow");
 
-    let compiled = rhythmcut::compiler::compile_file(&workflow).expect("pure compile");
+    let compiled = clipasm::compiler::compile_file(&workflow).expect("pure compile");
     assert!(compiled.root_domain().is_none());
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
@@ -161,6 +163,6 @@ fn video_sources_do_not_accept_an_authored_duration() {
     )
     .expect("workflow");
 
-    let error = rhythmcut::compiler::compile_file(&workflow).expect_err("duration argument");
+    let error = clipasm::compiler::compile_file(&workflow).expect_err("duration argument");
     assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
 }

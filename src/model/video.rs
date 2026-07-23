@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::FrameCount;
 
+/// A positive rational project frame rate in canonical reduced form.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct FrameRate {
     numerator: u32,
@@ -10,6 +11,9 @@ pub struct FrameRate {
 }
 
 impl FrameRate {
+    /// Construct and reduce a positive rational frame rate.
+    ///
+    /// Returns `None` when either component is zero.
     #[must_use]
     pub const fn new(numerator: u32, denominator: u32) -> Option<Self> {
         if numerator == 0 || denominator == 0 {
@@ -23,11 +27,13 @@ impl FrameRate {
     }
 
     #[must_use]
+    /// Return the reduced numerator.
     pub const fn numerator(self) -> u32 {
         self.numerator
     }
 
     #[must_use]
+    /// Return the reduced denominator.
     pub const fn denominator(self) -> u32 {
         self.denominator
     }
@@ -37,7 +43,7 @@ impl FrameRate {
     /// # Errors
     ///
     /// Returns a diagnostic for malformed or zero components.
-    pub fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
+    pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         let (numerator, denominator) = if let Some((n, d)) = text.split_once('/') {
             (parse_component(n, span)?, parse_component(d, span)?)
         } else {
@@ -74,36 +80,24 @@ fn parse_component(text: &str, span: &SourceSpan) -> Result<u32> {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// Policy for fitting a source into the project video dimensions.
 pub enum ImageFit {
+    /// Scale to fill the frame and crop overflow without distortion.
     Cover,
+    /// Scale to fit entirely within the frame and pad the remainder.
     Contain,
+    /// Scale independently in each dimension to fill the frame.
     Stretch,
 }
 
-impl ImageFit {
-    /// Parse a supported image fitting policy.
-    ///
-    /// # Errors
-    ///
-    /// Returns `E_INVALID_IMAGE_FIT` for unknown policies.
-    pub fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
-        match text {
-            "cover" => Ok(Self::Cover),
-            "contain" => Ok(Self::Contain),
-            "stretch" => Ok(Self::Stretch),
-            _ => Err(Diagnostic::new(
-                "E_INVALID_IMAGE_FIT",
-                format!("unknown image fit `{text}`; expected cover, contain, or stretch"),
-                span.clone(),
-            )),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+/// Project-wide output dimensions and frame rate.
 pub struct VideoSpec {
+    /// Output width in pixels.
     pub width: u32,
+    /// Output height in pixels.
     pub height: u32,
+    /// Canonical project frame rate.
     pub fps: FrameRate,
 }
 
@@ -121,10 +115,15 @@ impl Default for VideoSpec {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// Exact video properties for a compiled or prepared value.
 pub struct VideoDomain {
+    /// Exact duration in project frames.
     pub frames: FrameCount,
+    /// Frame width in pixels.
     pub width: u32,
+    /// Frame height in pixels.
     pub height: u32,
+    /// Project frame rate used by the value.
     pub frame_rate: FrameRate,
 }
 
