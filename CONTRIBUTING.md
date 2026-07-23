@@ -16,6 +16,8 @@ requires FFmpeg, FFprobe, and mdBook on `PATH`.
 
 ## Contribution workflow
 
+Use Conventional Commits for commit messages, for example `feat: add trim program`.
+
 1. Inspect the existing worktree and preserve unrelated changes.
 2. Identify the canonical document and affected phases through the change
    guide.
