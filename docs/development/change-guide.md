@@ -19,7 +19,7 @@ Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | `src/program` | Definitions, typed calls, lowerers, and body lifecycles |
 | `src/semantic.rs` | Semantic operations and constrained graph builder |
 | `src/compiler` | Binding, stack evaluation, references, domains, and hashes |
-| `src/preflight.rs` | Assets, tools, exact domains, and prepared primitives |
+| `src/preflight` | Assets, tools, exact domains, and prepared primitives |
 | `src/render` | Cache execution, FFmpeg, verification, and publication |
 | `src/model` | Invariant-protected value, time, and video types |
 | `tests` | Public compiler, preflight, CLI, and render contracts |
@@ -36,7 +36,7 @@ Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Change call or stack binding | `src/compiler/bind.rs` | direct/body contracts, explicit inputs, variadics, stack diagnostics |
 | Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
-| Change preflight behavior | `src/preflight.rs` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
+| Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
 | Change prepared primitive or rendering | preflight, `src/render` | cache format, FFmpeg requirements, render integration |
 | Change CLI behavior | `src/cli.rs`, library boundary | CLI tests, `README.md`, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |

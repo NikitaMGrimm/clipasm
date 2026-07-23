@@ -146,3 +146,364 @@ fn renders_and_normalizes_a_video_source() {
     assert_eq!(second.cache_hits, plan.nodes().len());
     assert_eq!(second.cache_misses, 0);
 }
+
+#[test]
+fn video_source_duration_is_quantized_by_coverage() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=25:d=1",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 30000/1001}\ntimeline:\n  - video: source.mkv\noutput: final.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(
+        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        30
+    );
+    let report = render::render(&plan).expect("render");
+    assert!(report.output.is_file());
+}
+
+#[test]
+fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping short-source render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=120:d=0.1",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create one-frame source");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 5}\ntimeline:\n  - video: source.mkv\noutput: final.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(
+        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        1
+    );
+    let report = render::render(&plan).expect("render");
+    let probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=nb_read_frames",
+            "-of",
+            "default=nw=1:nk=1",
+        ])
+        .arg(&report.output)
+        .output()
+        .expect("probe output");
+    assert!(probe.status.success());
+    assert_eq!(String::from_utf8_lossy(&probe.stdout).trim(), "1");
+}
+
+#[test]
+fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping zoom render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+
+    for (frames, duration) in [(1_u64, "100ms"), (4, "400ms")] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        fs::write(
+            directory.path().join("card.ppm"),
+            b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+        )
+        .expect("image");
+        let workflow = directory.path().join("workflow.yaml");
+        fs::write(
+            &workflow,
+            format!(
+                "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\ntimeline:\n  - image: {{path: card.ppm, duration: {duration}, fit: stretch}}\n  - zoom: 20\noutput: zoom.mp4\n"
+            ),
+        )
+        .expect("workflow");
+
+        let compiled = compiler::compile_file(&workflow).expect("compile");
+        let plan = preflight::preflight(&compiled).expect("preflight");
+        let report = render::render(&plan).expect("render zoom");
+        let output = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-count_frames",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,r_frame_rate,nb_read_frames",
+                "-of",
+                "json",
+            ])
+            .arg(&report.output)
+            .output()
+            .expect("probe zoom");
+        assert!(
+            output.status.success(),
+            "FFprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let probe: serde_json::Value = serde_json::from_slice(&output.stdout).expect("probe JSON");
+        let stream = &probe["streams"][0];
+        assert_eq!(stream["width"], 64);
+        assert_eq!(stream["height"], 48);
+        assert_eq!(stream["r_frame_rate"], "10/1");
+        assert_eq!(stream["nb_read_frames"], frames.to_string());
+    }
+}
+
+#[test]
+fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
+    const WIDTH: usize = 64;
+    const HEIGHT: usize = 48;
+    const FRAME_BYTES: usize = WIDTH * HEIGHT * 3;
+
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping zoom centering test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let mut image = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+    let mut pixels = vec![0_u8; FRAME_BYTES];
+    for y in HEIGHT / 2 - 2..=HEIGHT / 2 + 2 {
+        for x in WIDTH / 2 - 2..=WIDTH / 2 + 2 {
+            let offset = (y * WIDTH + x) * 3;
+            pixels[offset..offset + 3].fill(255);
+        }
+    }
+    image.extend_from_slice(&pixels);
+    fs::write(directory.path().join("center.ppm"), image).expect("center marker image");
+
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: center.ppm, duration: 1s, fit: stretch}\n  - zoom: 100\noutput: zoom.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let report = render::render(&plan).expect("render zoom");
+    let decoded = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&report.output)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .expect("decode zoom");
+    assert!(
+        decoded.status.success(),
+        "FFmpeg decode failed: {}",
+        String::from_utf8_lossy(&decoded.stderr)
+    );
+    assert_eq!(decoded.stdout.len(), FRAME_BYTES * 10);
+
+    let final_frame = &decoded.stdout[FRAME_BYTES * 9..FRAME_BYTES * 10];
+    let center = ((HEIGHT / 2) * WIDTH + WIDTH / 2) * 3;
+    assert!(
+        final_frame[center..center + 3]
+            .iter()
+            .all(|channel| *channel > 200),
+        "the centered marker moved away from the frame center"
+    );
+}
+
+#[test]
+fn wobble_renders_exact_domain_without_exposing_borders() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping wobble render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("white.ppm"),
+        b"P3\n2 2\n255\n255 255 255  255 255 255\n255 255 255  255 255 255\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: white.ppm, duration: 1s, fit: stretch}\n  - wobble: 4\noutput: wobble.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let report = render::render(&plan).expect("render wobble");
+    let probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,r_frame_rate,nb_read_frames",
+            "-of",
+            "json",
+        ])
+        .arg(&report.output)
+        .output()
+        .expect("probe wobble");
+    assert!(
+        probe.status.success(),
+        "FFprobe failed: {}",
+        String::from_utf8_lossy(&probe.stderr)
+    );
+    let probe: serde_json::Value = serde_json::from_slice(&probe.stdout).expect("probe JSON");
+    let stream = &probe["streams"][0];
+    assert_eq!(stream["width"], 64);
+    assert_eq!(stream["height"], 48);
+    assert_eq!(stream["r_frame_rate"], "10/1");
+    assert_eq!(stream["nb_read_frames"], "10");
+
+    let decoded = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&report.output)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .expect("decode wobble");
+    assert!(
+        decoded.status.success(),
+        "FFmpeg decode failed: {}",
+        String::from_utf8_lossy(&decoded.stderr)
+    );
+    assert_eq!(decoded.stdout.len(), 64 * 48 * 3 * 10);
+    assert!(
+        decoded.stdout.iter().all(|sample| *sample >= 240),
+        "wobble exposed a dark border; darkest decoded sample was {}",
+        decoded.stdout.iter().min().copied().unwrap_or_default()
+    );
+}
+
+#[test]
+fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
+    const FRAME_BYTES: usize = 64 * 48 * 3;
+
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping flash render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("before.ppm"),
+        b"P3\n2 2\n255\n0 0 0  0 0 0\n0 0 0  0 0 0\n",
+    )
+    .expect("before image");
+    fs::write(
+        directory.path().join("after.ppm"),
+        b"P3\n2 2\n255\n255 0 0  255 0 0\n255 0 0  255 0 0\n",
+    )
+    .expect("after image");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: before.ppm, duration: 1s, fit: stretch}\n  - image: {path: after.ppm, duration: 1s, fit: stretch}\n  - join:\n      - flash: 4\noutput: flash.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(
+        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        20
+    );
+    let report = render::render(&plan).expect("render flash");
+    let decoded = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&report.output)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .expect("decode flash");
+    assert!(
+        decoded.status.success(),
+        "FFmpeg decode failed: {}",
+        String::from_utf8_lossy(&decoded.stderr)
+    );
+
+    assert_eq!(decoded.stdout.len(), FRAME_BYTES * 20);
+    let brightness = |frame: usize| {
+        let pixels = &decoded.stdout[frame * FRAME_BYTES..(frame + 1) * FRAME_BYTES];
+        pixels.iter().map(|sample| u64::from(*sample)).sum::<u64>()
+            / u64::try_from(pixels.len()).expect("frame byte count fits u64")
+    };
+    let before = brightness(9);
+    let first_after = brightness(10);
+    let transition_end = brightness(13);
+    let normal_after = brightness(19);
+    assert!(before < 15, "before-cut frame was not black: {before}");
+    assert!(
+        first_after > 225,
+        "first post-cut frame was not white: {first_after}"
+    );
+    assert!(
+        transition_end + 50 < first_after,
+        "flash did not visibly clear: first={first_after}, end={transition_end}"
+    );
+    assert!(
+        transition_end.abs_diff(normal_after) < 80,
+        "transition end did not approach normal: end={transition_end}, normal={normal_after}"
+    );
+}

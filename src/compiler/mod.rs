@@ -8,6 +8,7 @@ mod bind;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod resolve;
+pub(crate) mod traversal;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ use crate::syntax::Workflow;
 
 pub use crate::semantic::SourceOrigin;
 
-const COMPILED_FORMAT_VERSION: u32 = 4;
+const COMPILED_FORMAT_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Serialize)]
 /// A pure compiled workflow whose media-dependent facts may remain deferred.

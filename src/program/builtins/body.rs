@@ -34,7 +34,6 @@ const DURING_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
     parameter_type: ParameterType::TimeRange,
     required: true,
 }];
-
 pub(crate) const THEN: ProgramDefinition = body(
     ProgramDescriptor {
         name: "then",
@@ -120,9 +119,7 @@ fn prepare_timeline(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Res
     Ok(BodyPlan {
         initial_stack: Vec::new(),
         requested_frames: call.requested_frames(),
-        finalizer: Box::new(FinalizeTimeline {
-            span: call.origin().span.clone(),
-        }),
+        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_TIMELINE")),
     })
 }
 
@@ -166,11 +163,23 @@ impl BodyFinalizer for RequireOneVideo {
     }
 }
 
-struct FinalizeTimeline {
+struct FinalizeConcatBody {
+    owner: &'static str,
+    empty_code: &'static str,
     span: SourceSpan,
 }
 
-impl BodyFinalizer for FinalizeTimeline {
+impl FinalizeConcatBody {
+    fn for_call(call: &ResolvedCall, empty_code: &'static str) -> Self {
+        Self {
+            owner: call.definition().descriptor.name,
+            empty_code,
+            span: call.origin().span.clone(),
+        }
+    }
+}
+
+impl BodyFinalizer for FinalizeConcatBody {
     fn finish(
         self: Box<Self>,
         stack: ValueStack,
@@ -178,8 +187,8 @@ impl BodyFinalizer for FinalizeTimeline {
     ) -> Result<ValueRef> {
         if stack.is_empty() {
             return Err(Diagnostic::new(
-                "E_EMPTY_TIMELINE",
-                "timeline must produce at least one Video",
+                self.empty_code,
+                format!("{} must produce at least one Video", self.owner),
                 self.span,
             ));
         }

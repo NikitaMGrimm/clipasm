@@ -8,11 +8,9 @@ Current features:
 - still-image and video-file sources
 - references and named clips
 - concatenation and repetition
+- trimming, centered zoom, deterministic wobble, and white-flash cuts
 - `then`, `during`, `join`, and nested `timeline`
 - content-addressed render caching
-
-Audio output, transitions, effects, plugins, and user-defined programs are not
-supported.
 
 ## Requirements
 

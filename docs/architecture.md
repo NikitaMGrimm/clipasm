@@ -47,9 +47,10 @@ Direct programs lower immediately. Body programs prepare one initial local
 stack and requested-duration context, the evaluator executes their body once,
 and a program-owned finalizer reduces the resulting stack to one value.
 
-Foundation programs are:
+Registered programs are:
 
-- direct: `image`, `video`, `concat`, `repeat`
+- direct: `image`, `video`, `concat`, `repeat`, `trim`, `zoom`, `wobble`,
+  `flash`
 - body: `then`, `join`, `timeline`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
@@ -71,8 +72,8 @@ implementations.
 - validates image and video contracts
 - resolves video-source durations
 - verifies FFmpeg and FFprobe capabilities
-- lowers reachable semantic nodes, including `replace_range`, to
-  `image_video`, `video_source`, `slice`, and `concat`
+- lowers reachable semantic nodes, including `replace_range`, to compact
+  renderer primitives
 - assigns content fingerprints and an execution namespace
 
 The prepared plan has exact domains for every node.
@@ -83,8 +84,8 @@ The prepared plan has exact domains for every node.
 renders missing FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
 
 The cache lives under `.clipasm/cache/` beside the workflow. Output and
-manifest files are written to temporary siblings and atomically replaced after
-verification.
+manifest files are staged as temporary siblings and committed through one
+rollback-capable in-process publication transaction after verification.
 
 ## Ownership rules
 

@@ -171,6 +171,19 @@ impl ResolvedCall {
         }
     }
 
+    pub(crate) fn optional_integer_parameter(
+        &self,
+        name: &str,
+    ) -> Result<Option<(i64, &SourceSpan)>> {
+        let Some(parameter) = self.parameters.get(name) else {
+            return Ok(None);
+        };
+        match &parameter.value {
+            ParameterValue::Integer(value) => Ok(Some((*value, &parameter.span))),
+            _ => Err(self.parameter_type_error(name, "integer")),
+        }
+    }
+
     pub(crate) fn file_parameter(&self, name: &str) -> Result<(&Path, &SourceSpan)> {
         let parameter = self.parameter(name)?;
         match &parameter.value {

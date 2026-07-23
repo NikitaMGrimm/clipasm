@@ -1,8 +1,11 @@
-//! Verified execution, caching, and atomic publication of prepared plans.
+//! Verified execution, caching, and rollback-capable publication of prepared plans.
 //!
 //! Rendering accepts only [`PreparedPlan`],
 //! re-verifies source content, reuses compatible cached artifacts, executes
-//! `FFmpeg` primitives, and publishes the MP4 and manifest atomically.
+//! `FFmpeg` primitives, and publishes the MP4 and manifest as one in-process
+//! transaction.
+
+mod publication;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -17,8 +20,11 @@ use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::preflight::{
     PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
+use publication::PublicationTransaction;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
+const WOBBLE_FREQUENCY_NUMERATOR: u32 = 13;
+const WOBBLE_FREQUENCY_DENOMINATOR: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
 /// Paths and cache statistics from a completed render.
@@ -60,17 +66,21 @@ struct ProbeStream {
     sample_aspect_ratio: Option<String>,
 }
 
-/// Render an invariant-protected prepared plan and atomically publish its MP4
-/// and manifest.
+/// Render an invariant-protected prepared plan and publish its MP4 and manifest.
 ///
 /// Working intermediates use lossless FFV1 with non-subsampled `yuv444p`.
 /// The only delivery profile is H.264 MP4 with `yuv420p`, square pixels, and
 /// no audio. This is the renderer's initial fixed color/media policy.
 ///
+/// Both files are staged before either destination is changed. If publication
+/// fails, `ClipAsm` attempts to restore both previously published files. Each
+/// final rename is atomic, but the pair is not crash-atomic across process
+/// termination or power loss.
+///
 /// # Errors
 ///
 /// Returns a diagnostic for changed assets, rendering/cache failures, contract
-/// violations, or atomic publication failures.
+/// violations, or publication failures.
 #[allow(clippy::too_many_lines)]
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     let workflow_directory = plan
@@ -109,7 +119,12 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             | PreparedNodeKind::VideoSource { asset, .. } => {
                 verify_prepared_asset(asset, &node.origin().span)?;
             }
-            PreparedNodeKind::Slice { .. } | PreparedNodeKind::Concat { .. } => {}
+            PreparedNodeKind::Slice { .. }
+            | PreparedNodeKind::Repeat { .. }
+            | PreparedNodeKind::Zoom { .. }
+            | PreparedNodeKind::Wobble { .. }
+            | PreparedNodeKind::FlashJoin { .. }
+            | PreparedNodeKind::Concat { .. } => {}
         }
         let hit = artifact.is_file()
             && verify_artifact(
@@ -174,9 +189,10 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         })?;
     }
 
-    publish_export(
+    let publication = PublicationTransaction::new(plan.output(), plan.manifest());
+    stage_export(
         root_artifact,
-        plan.output(),
+        publication.staged_output(),
         plan.video(),
         root_node.domain(),
         plan.media_policy(),
@@ -199,13 +215,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             SourceSpan::file_start(plan.workflow_path()),
         )
     })?;
-    write_atomically(
-        plan.manifest(),
-        &manifest_json,
-        "manifest",
-        "json",
-        "E_MANIFEST",
-    )?;
+    publication.stage_manifest(&manifest_json)?;
+    publication.commit()?;
 
     Ok(RenderReport {
         output: plan.output().to_path_buf(),
@@ -215,59 +226,24 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     })
 }
 
-fn publish_export(
+fn stage_export(
     artifact: &Path,
-    output: &Path,
+    staged: &Path,
     spec: &VideoSpec,
     domain: &VideoDomain,
     media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
     ffprobe: &Path,
 ) -> Result<()> {
-    let temporary = temporary_sibling(output, "export", "mp4");
-    let result = export_mp4(
-        artifact,
-        &temporary,
-        spec,
-        domain.frames,
-        media_policy,
-        ffmpeg,
-    )
-    .and_then(|()| {
-        verify_artifact(
-            ffprobe,
-            &temporary,
-            domain,
-            media_policy.export_pixel_format(),
-        )
-    });
+    let result =
+        export_mp4(artifact, staged, spec, domain.frames, media_policy, ffmpeg).and_then(|()| {
+            verify_artifact(ffprobe, staged, domain, media_policy.export_pixel_format())
+        });
     if let Err(error) = result {
-        let _ = fs::remove_file(&temporary);
+        let _ = fs::remove_file(staged);
         return Err(error);
     }
-    atomic_replace(&temporary, output, "E_OUTPUT_IO")
-}
-
-fn write_atomically(
-    destination: &Path,
-    contents: &[u8],
-    role: &str,
-    extension: &str,
-    code: &'static str,
-) -> Result<()> {
-    let temporary = temporary_sibling(destination, role, extension);
-    if let Err(error) = fs::write(&temporary, contents) {
-        let _ = fs::remove_file(&temporary);
-        return Err(Diagnostic::new(
-            code,
-            format!(
-                "could not write temporary file `{}`: {error}",
-                temporary.display()
-            ),
-            SourceSpan::file_start(destination),
-        ));
-    }
-    atomic_replace(&temporary, destination, code)
+    Ok(())
 }
 
 fn render_node(
@@ -293,7 +269,7 @@ fn render_node(
                 "-map",
                 "0:v:0",
                 "-vf",
-                &video_filter(*fit, spec, media_policy),
+                &video_filter(*fit, *frames, spec, media_policy),
             ]);
             append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
         }
@@ -311,6 +287,49 @@ fn render_node(
             ]);
             append_lossless_output(&mut command, range.frames(), spec, media_policy, &temporary);
         }
+        PreparedNodeKind::Repeat {
+            input,
+            count,
+            frames,
+        } => {
+            command
+                .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
+            command.args(["-vf", "setpts=PTS-STARTPTS"]);
+            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
+        }
+        PreparedNodeKind::Zoom { input, percent } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
+            command.args(["-vf", &zoom_filter(*percent, node.domain().frames)]);
+            append_node_output(&mut command, node, spec, media_policy, &temporary);
+        }
+        PreparedNodeKind::Wobble { input, pixels } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
+            command.args(["-vf", &wobble_filter(*pixels, spec)]);
+            append_node_output(&mut command, node, spec, media_policy, &temporary);
+        }
+        PreparedNodeKind::FlashJoin {
+            before,
+            after,
+            frames,
+        } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *before, &node.origin().span)?);
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *after, &node.origin().span)?);
+            let filter = format!(
+                "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:v][after]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS[v]",
+                frames.0
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]"]);
+            append_node_output(&mut command, node, spec, media_policy, &temporary);
+        }
         PreparedNodeKind::Concat { inputs } => {
             for input in inputs {
                 command
@@ -326,13 +345,7 @@ fn render_node(
                 inputs.len()
             );
             command.args(["-filter_complex", &filter, "-map", "[v]"]);
-            append_lossless_output(
-                &mut command,
-                node.domain().frames,
-                spec,
-                media_policy,
-                &temporary,
-            );
+            append_node_output(&mut command, node, spec, media_policy, &temporary);
         }
     }
     if let Err(error) = run_command(command, "E_FFMPEG", &node.origin().span) {
@@ -340,6 +353,22 @@ fn render_node(
         return Err(error);
     }
     atomic_replace(&temporary, destination, "E_CACHE_IO")
+}
+
+fn append_node_output(
+    command: &mut Command,
+    node: &PreparedNode,
+    spec: &VideoSpec,
+    media_policy: RenderMediaPolicy,
+    destination: &Path,
+) {
+    append_lossless_output(
+        command,
+        node.domain().frames,
+        spec,
+        media_policy,
+        destination,
+    );
 }
 
 fn append_lossless_output(
@@ -418,10 +447,49 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy
     )
 }
 
-fn video_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy) -> String {
+fn video_filter(
+    fit: ImageFit,
+    frames: FrameCount,
+    spec: &VideoSpec,
+    media_policy: RenderMediaPolicy,
+) -> String {
     format!(
-        "setpts=PTS-STARTPTS,{}",
-        image_filter(fit, spec, media_policy)
+        "setpts=PTS-STARTPTS,{},tpad=stop_mode=clone:stop=1,trim=end_frame={},setpts=PTS-STARTPTS",
+        image_filter(fit, spec, media_policy),
+        frames.0
+    )
+}
+
+fn zoom_filter(percent: u32, frames: FrameCount) -> String {
+    let last_frame = frames.0.saturating_sub(1).max(1);
+    let zoom = format!("(1+{percent}*(in-1)/(100*{last_frame}))");
+    let x_margin = format!("W*(1-1/{zoom})/2");
+    let y_margin = format!("H*(1-1/{zoom})/2");
+    format!(
+        "perspective=x0='{x_margin}':y0='{y_margin}':x1='W-{x_margin}':y1='{y_margin}':x2='{x_margin}':y2='H-{y_margin}':x3='W-{x_margin}':y3='H-{y_margin}':sense=source:eval=frame:interpolation=cubic,setpts=PTS-STARTPTS"
+    )
+}
+
+fn wobble_filter(pixels: u32, spec: &VideoSpec) -> String {
+    let padding = pixels * 2;
+    let scaled_width = spec
+        .width
+        .checked_add(padding)
+        .expect("wobble dimensions were validated during compilation");
+    let scaled_height = spec
+        .height
+        .checked_add(padding)
+        .expect("wobble dimensions were validated during compilation");
+    let phase = format!(
+        "2*PI*{}*n*{}/({}*{})",
+        WOBBLE_FREQUENCY_NUMERATOR,
+        spec.fps.denominator(),
+        WOBBLE_FREQUENCY_DENOMINATOR,
+        spec.fps.numerator()
+    );
+    format!(
+        "scale={scaled_width}:{scaled_height},setsar=1,crop={}:{}:x='{pixels}*(1+sin({phase}))':y='{pixels}*(1+sin({phase}+PI/2))',setpts=PTS-STARTPTS",
+        spec.width, spec.height
     )
 }
 
@@ -507,7 +575,7 @@ fn verify_artifact(
         domain.frame_rate.numerator(),
         domain.frame_rate.denominator()
     );
-    if video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
+    if domain.frames.0 > 1 && video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
         return Err(contract_error(
             path,
             &format!(
@@ -623,15 +691,17 @@ mod tests {
     use crate::model::FrameRate;
 
     #[test]
-    fn failed_final_export_preserves_existing_destination() {
+    fn failed_final_export_preserves_existing_pair() {
         if Command::new("ffmpeg").arg("-version").output().is_err() {
             return;
         }
         let directory = tempfile::tempdir().expect("temporary directory");
         let invalid_artifact = directory.path().join("invalid.mkv");
         let output = directory.path().join("final.mp4");
+        let manifest = directory.path().join("final.mp4.manifest.json");
         fs::write(&invalid_artifact, b"not video").expect("invalid artifact");
         fs::write(&output, b"existing valid output").expect("existing output");
+        fs::write(&manifest, b"existing manifest").expect("existing manifest");
         let spec = VideoSpec {
             width: 64,
             height: 64,
@@ -643,9 +713,10 @@ mod tests {
             height: 64,
             frame_rate: spec.fps,
         };
-        publish_export(
+        let publication = PublicationTransaction::new(&output, &manifest);
+        stage_export(
             &invalid_artifact,
-            &output,
+            publication.staged_output(),
             &spec,
             &domain,
             RenderMediaPolicy::default(),
@@ -657,24 +728,9 @@ mod tests {
             fs::read(&output).expect("preserved output"),
             b"existing valid output"
         );
-    }
-
-    #[test]
-    fn atomic_manifest_write_replaces_existing_destination() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let manifest = directory.path().join("final.mp4.manifest.json");
-        fs::write(&manifest, b"old").expect("old manifest");
-        write_atomically(
-            &manifest,
-            b"{\"new\":true}",
-            "manifest",
-            "json",
-            "E_MANIFEST",
-        )
-        .expect("atomic write");
         assert_eq!(
-            fs::read(&manifest).expect("new manifest"),
-            b"{\"new\":true}"
+            fs::read(&manifest).expect("preserved manifest"),
+            b"existing manifest"
         );
     }
 }

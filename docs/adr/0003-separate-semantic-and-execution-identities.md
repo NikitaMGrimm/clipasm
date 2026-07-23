@@ -16,7 +16,14 @@ This separation avoids two opposite errors: invalidating meaningful results for
 an unrelated release-number change, and reusing artifacts produced under an
 incompatible toolchain or media policy. Source spans, comments, YAML mapping
 order, project location, and internal numeric node IDs therefore do not define
-semantic identity. References hash as aliases of their targets.
+semantic identity. Authored source selection does: the pure authored image or
+video path belongs to compiled identity, while project relocation does not.
+References hash as aliases of their targets.
+
+Execution identity uses complete FFmpeg and FFprobe build fingerprints derived
+from canonical executable bytes and normalized full `-version` output,
+including configuration and linked-library versions. Executable location is
+reported for diagnostics but does not define cache compatibility.
 
 When a program's lowering semantics change, increment that program's semantic
 version. Increment compiled or prepared format versions when their canonical

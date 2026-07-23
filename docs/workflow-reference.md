@@ -48,6 +48,10 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `video` | none | `path`, optional `fit` | none |
 | `repeat` | `video: Video` | `count` | none |
 | `concat` | `videos: Video...` | none | none |
+| `trim` | `video: Video` | `range` | none |
+| `zoom` | `video: Video` | optional `percent` | none |
+| `wobble` | `video: Video` | optional `pixels` | none |
+| `flash` | `before: Video`, `after: Video` | optional `frames` | none |
 | `then` | `input: Video` | none | required |
 | `join` | `before: Video`, `after: Video` | none | required |
 | `timeline` | none | none | required |
@@ -90,6 +94,11 @@ video stream. Source audio is ignored.
 
 `video` does not accept an authored duration.
 
+The prepared duration is the smallest whole number of project frames whose
+duration covers the complete source interval. An aligned duration is unchanged;
+otherwise rendering may hold the final decoded image for less than one project
+frame so the source is never shortened.
+
 ### Repeat
 
 ```yaml
@@ -116,6 +125,69 @@ Explicit inputs read references without consuming stack values:
 - concat:
     videos: [$first, $second]
 ```
+
+### Trim
+
+```yaml
+- trim: 1s..7s
+```
+
+`trim` consumes one Video and selects the closed-open range locally within that
+Video. The authored endpoints must align exactly to project frames. It uses the
+same range validation as `during`, including deferred validation during
+preflight for video-file inputs.
+
+### Zoom
+
+```yaml
+- zoom
+- zoom: 12
+```
+
+`zoom` consumes one Video and applies a centered linear zoom-in over the full
+clip, from 100% to `100 + percent` percent. The crop remains centered on every
+frame, so the image approaches the middle equally from all directions.
+`percent` defaults to 8 and must be a positive integer representable as `u32`.
+Frame count, dimensions, and frame rate are unchanged.
+
+### Wobble
+
+```yaml
+- wobble
+- wobble: 4
+```
+
+`wobble` consumes one Video and applies deterministic phase-shifted horizontal
+and vertical motion at a fixed `13/2` Hz. `pixels` defaults to 3 and must be
+positive. Twice the requested movement must fit within both project dimensions
+without integer overflow; this is the geometric padding required to keep a
+project-sized moving crop inside the scaled frame. The effect exposes no
+outside border, and the exact Video domain is unchanged.
+
+### Flash
+
+Typical use joins the top two Videos:
+
+```yaml
+- join:
+    - flash
+```
+
+An explicit transition length uses integer shorthand:
+
+```yaml
+- join:
+    - flash: 4
+```
+
+`flash` binds `before` and `after` in ordinary signature order. It returns the
+complete `before` followed by the complete `after`, with the first `after`
+frame white and a linear fade to normal over `frames`. It never overlaps,
+shortens, or extends either input. When `frames` is omitted, the default is a
+160-millisecond design choice converted to the smallest project-frame count
+that covers that time, with a minimum of one frame. For example, it becomes 1
+frame at 5 fps, 5 frames at 30 fps, and 20 frames at 120 fps. An explicit value
+must be positive and no longer than `after`.
 
 ## Named values
 
@@ -193,7 +265,9 @@ and requires exactly one Video at the end.
 
 ### Timeline
 
-A nested `timeline` starts empty and concatenates all Videos left by its body.
+A nested `timeline` has no inputs, consumes nothing from the surrounding local
+stack, starts its body with an empty local stack, and concatenates all Videos
+left by that body. Its single result is then pushed onto the surrounding stack.
 
 ```yaml
 - timeline:
@@ -273,5 +347,7 @@ includes the renderer contract, FFmpeg and FFprobe identities, media policy,
 graph semantics, and source content hashes. Cached artifacts are verified
 before reuse.
 
-The output and manifest are published through temporary sibling files and
-atomic replacement. A failed export does not overwrite an existing output.
+The output and manifest are staged and published through one rollback-capable
+in-process transaction. Each final rename is atomic. If `render` returns an
+error, ClipAsm attempts to preserve both previously published files. The pair
+is not crash-atomic across process termination or power loss.

@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
@@ -13,6 +15,18 @@ const ONE_VIDEO: &[InputPort] = &[InputPort {
     value_type: VIDEO,
     cardinality: Cardinality::One,
 }];
+const TWO_VIDEOS: &[InputPort] = &[
+    InputPort {
+        name: "before",
+        value_type: VIDEO,
+        cardinality: Cardinality::One,
+    },
+    InputPort {
+        name: "after",
+        value_type: VIDEO,
+        cardinality: Cardinality::One,
+    },
+];
 const VIDEOS: &[InputPort] = &[InputPort {
     name: "videos",
     value_type: VIDEO,
@@ -52,6 +66,29 @@ const REPEAT_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
     parameter_type: ParameterType::Integer,
     required: true,
 }];
+const TRIM_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
+    name: "range",
+    parameter_type: ParameterType::TimeRange,
+    required: true,
+}];
+const ZOOM_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
+    name: "percent",
+    parameter_type: ParameterType::Integer,
+    required: false,
+}];
+const WOBBLE_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
+    name: "pixels",
+    parameter_type: ParameterType::Integer,
+    required: false,
+}];
+const FLASH_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
+    name: "frames",
+    parameter_type: ParameterType::Integer,
+    required: false,
+}];
+const DEFAULT_ZOOM_PERCENT: u16 = 8;
+const DEFAULT_WOBBLE_PIXELS: u16 = 3;
+const DEFAULT_FLASH_MILLISECONDS: u64 = 160;
 
 pub(crate) const IMAGE: ProgramDefinition = direct(
     ProgramDescriptor {
@@ -68,7 +105,7 @@ pub(crate) const IMAGE: ProgramDefinition = direct(
 pub(crate) const VIDEO_SOURCE: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "video",
-        semantic_version: 1,
+        semantic_version: 2,
         inputs: NO_INPUTS,
         parameters: VIDEO_PARAMETERS,
         primary_parameter: Some("path"),
@@ -92,13 +129,61 @@ pub(crate) const CONCAT: ProgramDefinition = direct(
 pub(crate) const REPEAT: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "repeat",
-        semantic_version: 1,
+        semantic_version: 2,
         inputs: ONE_VIDEO,
         parameters: REPEAT_PARAMETERS,
         primary_parameter: Some("count"),
         output: VIDEO,
     },
     lower_repeat,
+);
+
+pub(crate) const TRIM: ProgramDefinition = direct(
+    ProgramDescriptor {
+        name: "trim",
+        semantic_version: 1,
+        inputs: ONE_VIDEO,
+        parameters: TRIM_PARAMETERS,
+        primary_parameter: Some("range"),
+        output: VIDEO,
+    },
+    lower_trim,
+);
+
+pub(crate) const ZOOM: ProgramDefinition = direct(
+    ProgramDescriptor {
+        name: "zoom",
+        semantic_version: 2,
+        inputs: ONE_VIDEO,
+        parameters: ZOOM_PARAMETERS,
+        primary_parameter: Some("percent"),
+        output: VIDEO,
+    },
+    lower_zoom,
+);
+
+pub(crate) const WOBBLE: ProgramDefinition = direct(
+    ProgramDescriptor {
+        name: "wobble",
+        semantic_version: 1,
+        inputs: ONE_VIDEO,
+        parameters: WOBBLE_PARAMETERS,
+        primary_parameter: Some("pixels"),
+        output: VIDEO,
+    },
+    lower_wobble,
+);
+
+pub(crate) const FLASH: ProgramDefinition = direct(
+    ProgramDescriptor {
+        name: "flash",
+        semantic_version: 1,
+        inputs: TWO_VIDEOS,
+        parameters: FLASH_PARAMETERS,
+        primary_parameter: Some("frames"),
+        output: VIDEO,
+    },
+    lower_flash,
 );
 
 const fn direct(
@@ -157,28 +242,142 @@ fn lower_concat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<V
 fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
     let video = call.one_input("video")?;
     let (count, span) = call.integer_parameter("count")?;
-    if count < 1 {
-        return Err(Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` must be an integer greater than or equal to one",
-            span.clone(),
+    let count = u64::try_from(count)
+        .ok()
+        .and_then(NonZeroU64::new)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_REPEAT_COUNT",
+                "`repeat.count` must be an integer greater than or equal to one",
+                span.clone(),
+            )
+        })?;
+    builder.repeat(video, count)
+}
+
+fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    let video = call.one_input("video")?;
+    let (range, span) = call.time_range_parameter("range")?;
+    let range = range.to_frames(builder.video_spec().fps, span)?;
+    builder.at_span(span.clone()).slice(video, range)
+}
+
+fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    let video = call.one_input("video")?;
+    let percent = match call.optional_integer_parameter("percent")? {
+        Some((percent, span)) => u32::try_from(percent)
+            .ok()
+            .filter(|percent| *percent > 0)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INVALID_ZOOM_PERCENT",
+                    "`zoom.percent` must be a positive integer representable as `u32`",
+                    span.clone(),
+                )
+            })?,
+        None => u32::from(DEFAULT_ZOOM_PERCENT),
+    };
+    builder.zoom(video, percent)
+}
+
+fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    let video = call.one_input("video")?;
+    let (pixels, span) = match call.optional_integer_parameter("pixels")? {
+        Some((pixels, span)) => (pixels, span.clone()),
+        None => (i64::from(DEFAULT_WOBBLE_PIXELS), call.origin().span.clone()),
+    };
+    let pixels = u32::try_from(pixels)
+        .ok()
+        .filter(|pixels| *pixels > 0)
+        .filter(|pixels| {
+            let Some(padding) = pixels.checked_mul(2) else {
+                return false;
+            };
+            padding < builder.video_spec().width
+                && padding < builder.video_spec().height
+                && builder.video_spec().width.checked_add(padding).is_some()
+                && builder.video_spec().height.checked_add(padding).is_some()
+        })
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_WOBBLE_PIXELS",
+                "`wobble.pixels` must be positive and small enough to fit twice within both project dimensions without overflow",
+                span,
+            )
+        })?;
+    builder.wobble(video, pixels)
+}
+
+fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    let before = call.one_input("before")?;
+    let after = call.one_input("after")?;
+    let frames = match call.optional_integer_parameter("frames")? {
+        Some((frames, span)) => FrameCount(
+            u64::try_from(frames)
+                .ok()
+                .filter(|frames| *frames > 0)
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_INVALID_FLASH_FRAMES",
+                        "`flash.frames` must be an integer greater than or equal to one",
+                        span.clone(),
+                    )
+                })?,
+        ),
+        None => FrameCount::covering_duration(
+            u128::from(DEFAULT_FLASH_MILLISECONDS),
+            1_000,
+            builder.video_spec().fps,
+            &call.origin().span,
+        )?,
+    };
+    builder.flash_join(before, after, frames)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::semantic::SemanticNodeKind;
+
+    fn compile_repeat(count: u64) -> crate::compiler::CompiledWorkflow {
+        let workflow = crate::syntax::parse_str(
+            Path::new("repeat.yaml"),
+            &format!(
+                "version: 1\nproject:\n  video: {{fps: 10}}\ntimeline:\n  - image: {{path: card.png, duration: 1s}}\n  - repeat: {count}\n"
+            ),
+        )
+        .expect("workflow");
+        crate::compiler::compile(&workflow).expect("compile")
+    }
+
+    #[test]
+    fn repeat_one_aliases_while_two_emits_one_compact_node() {
+        let once = compile_repeat(1);
+        assert_eq!(once.value_count(), 1);
+
+        let twice = compile_repeat(2);
+        assert_eq!(twice.value_count(), 2);
+        assert!(matches!(
+            twice.nodes()[1].kind(),
+            SemanticNodeKind::Repeat { count, .. } if count.get() == 2
         ));
     }
-    let count = usize::try_from(count).map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` is too large",
-            span.clone(),
-        )
-    })?;
-    let mut inputs = Vec::new();
-    inputs.try_reserve_exact(count).map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_REPEAT_COUNT",
-            "`repeat.count` is too large to compile",
-            span.clone(),
-        )
-    })?;
-    inputs.resize(count, video);
-    builder.concat(inputs)
+
+    #[test]
+    fn a_million_repeats_have_bounded_graph_and_json_size() {
+        let compiled = compile_repeat(1_000_000);
+        let json = compiled.canonical_json().expect("compiled JSON");
+
+        assert_eq!(compiled.value_count(), 2);
+        assert!(json.len() < 10_000, "compact plan was {} bytes", json.len());
+    }
+
+    #[test]
+    fn source_program_versions_cover_duration_and_repeat_semantics() {
+        assert_eq!(VIDEO_SOURCE.descriptor.semantic_version, 2);
+        assert_eq!(REPEAT.descriptor.semantic_version, 2);
+        assert_eq!(ZOOM.descriptor.semantic_version, 2);
+    }
 }

@@ -382,52 +382,56 @@ fn resolve_symbol_types(
     symbols: &mut BTreeMap<String, Symbol>,
     symbol_order: &[String],
 ) -> Result<()> {
-    let mut states = BTreeMap::<String, u8>::new();
-    let mut path = Vec::new();
     for name in symbol_order {
-        resolve_symbol_type(name, symbols, &mut states, &mut path)?;
+        resolve_symbol_type(name, symbols)?;
     }
     Ok(())
 }
 
-fn resolve_symbol_type(
-    name: &str,
-    symbols: &mut BTreeMap<String, Symbol>,
-    states: &mut BTreeMap<String, u8>,
-    path: &mut Vec<String>,
-) -> Result<ValueType> {
+fn resolve_symbol_type(name: &str, symbols: &mut BTreeMap<String, Symbol>) -> Result<ValueType> {
     if let Some(value_type) = symbols.get(name).and_then(|symbol| symbol.value_type) {
         return Ok(value_type);
     }
-    if states.get(name) == Some(&1) {
-        let start = path.iter().position(|entry| entry == name).unwrap_or(0);
-        let mut cycle = path[start..].to_vec();
-        cycle.push(name.to_owned());
-        return Err(Diagnostic::new(
-            "E_DEPENDENCY_CYCLE",
-            format!("named-value dependency cycle: {}", cycle.join(" -> ")),
-            symbols[name].declared_at.clone(),
-        ));
-    }
 
-    states.insert(name.to_owned(), 1);
-    path.push(name.to_owned());
-    let value_type = match symbols[name].declared_type.clone() {
-        DeclaredValueType::Known(value_type) => value_type,
-        DeclaredValueType::Alias(target) => {
-            if !symbols.contains_key(&target) {
-                return Err(Diagnostic::new(
-                    "E_MISSING_REFERENCE",
-                    format!("reference `${target}` does not name any clip or invocation id"),
-                    symbols[name].declared_at.clone(),
-                ));
+    let mut path = Vec::<String>::new();
+    let mut positions = BTreeMap::<String, usize>::new();
+    let mut current = name.to_owned();
+    let value_type = loop {
+        if let Some(value_type) = symbols[&current].value_type {
+            break value_type;
+        }
+        if let Some(start) = positions.get(&current).copied() {
+            let mut cycle = path[start..].to_vec();
+            cycle.push(current.clone());
+            return Err(Diagnostic::new(
+                "E_DEPENDENCY_CYCLE",
+                format!("named-value dependency cycle: {}", cycle.join(" -> ")),
+                symbols[&current].declared_at.clone(),
+            ));
+        }
+        positions.insert(current.clone(), path.len());
+        path.push(current.clone());
+        match symbols[&current].declared_type.clone() {
+            DeclaredValueType::Known(value_type) => break value_type,
+            DeclaredValueType::Alias(target) => {
+                if !symbols.contains_key(&target) {
+                    return Err(Diagnostic::new(
+                        "E_MISSING_REFERENCE",
+                        format!("reference `${target}` does not name any clip or invocation id"),
+                        symbols[&current].declared_at.clone(),
+                    ));
+                }
+                current = target;
             }
-            resolve_symbol_type(&target, symbols, states, path)?
         }
     };
-    path.pop();
-    states.insert(name.to_owned(), 2);
-    symbols.get_mut(name).expect("collected symbol").value_type = Some(value_type);
+
+    for entry in path {
+        symbols
+            .get_mut(&entry)
+            .expect("alias path contains collected symbols")
+            .value_type = Some(value_type);
+    }
     Ok(value_type)
 }
 
@@ -663,5 +667,39 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(body_nodes.len(), 2);
         assert!(body_nodes.iter().all(|node| node.semantic_version() == 17));
+    }
+
+    #[test]
+    fn resolves_a_deep_alias_chain_iteratively_with_path_compression() {
+        const ALIASES: usize = 20_001;
+        let span = SourceSpan::file_start("aliases.yaml");
+        let mut symbols = BTreeMap::new();
+        let mut order = Vec::with_capacity(ALIASES);
+        for index in 0..ALIASES {
+            let name = format!("alias_{index:05}");
+            let declared_type = if index + 1 == ALIASES {
+                DeclaredValueType::Known(ValueType::Video)
+            } else {
+                DeclaredValueType::Alias(format!("alias_{:05}", index + 1))
+            };
+            order.push(name.clone());
+            symbols.insert(
+                name,
+                Symbol {
+                    declared_at: span.clone(),
+                    value: None,
+                    declared_type,
+                    value_type: None,
+                },
+            );
+        }
+
+        resolve_symbol_types(&mut symbols, &order).expect("deep aliases resolve");
+
+        assert!(
+            symbols
+                .values()
+                .all(|symbol| symbol.value_type == Some(ValueType::Video))
+        );
     }
 }

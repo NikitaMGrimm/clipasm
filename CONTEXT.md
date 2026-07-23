@@ -46,6 +46,9 @@ consume nothing.
 - `during` starts its body with only the selected range, requires one processed
   Video, and splices that result between the untouched prefix and suffix.
 
+A full-duration video source is quantized to the smallest integral project
+frame count that covers its complete source interval.
+
 There is no hidden replacement, fallback input, or automatic reduction inside
 named-clip or body-program bodies.
 
@@ -55,9 +58,3 @@ Clip names and invocation `id` values share one namespace. Forward references
 affect dependency resolution, not list execution order. References create
 semantic graph dependencies and never move, remove, or duplicate stack
 occurrences. Cycles, missing names, and duplicate names are compile errors.
-
-## Current non-goals
-
-The foundation does not support audio output, transitions, decorative effects,
-user-defined programs, plugins, runtime plan loading, a GUI, distributed
-rendering, or multiple export profiles.

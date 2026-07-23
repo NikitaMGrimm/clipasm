@@ -36,10 +36,256 @@ fn repeat_reuses_one_upstream_value() {
         .expect("nodes")
         .iter()
         .find(|node| node["origin"]["construct"] == "repeat")
-        .expect("repeat concat");
-    let inputs = repeat["kind"]["inputs"].as_array().expect("inputs");
-    assert_eq!(inputs.len(), 3);
-    assert!(inputs.iter().all(|input| input == &inputs[0]));
+        .expect("repeat node");
+    assert_eq!(repeat["kind"]["operation"], "repeat");
+    assert_eq!(repeat["kind"]["count"], 3);
+    assert!(repeat["kind"]["input"].is_object());
+}
+
+#[test]
+fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - zoom\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
+
+    let json = compiled_json(&compiled);
+    let zoom = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["origin"]["construct"] == "zoom")
+        .expect("zoom node");
+    assert_eq!(zoom["kind"]["operation"], "zoom");
+    assert_eq!(zoom["kind"]["percent"], 8);
+    assert_eq!(zoom["domain"]["frames"], 10);
+    assert_eq!(zoom["domain"]["width"], 64);
+    assert_eq!(zoom["domain"]["height"], 64);
+}
+
+#[test]
+fn omitted_and_explicit_default_zoom_have_equal_identity() {
+    let source = |zoom: &str| {
+        format!(
+            "version: 1\nproject:\n  video: {{width: 64, height: 64, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - {zoom}\n"
+        )
+    };
+    let (_omitted_directory, omitted) = project(&source("zoom"));
+    let (_explicit_directory, explicit) = project(&source("zoom: 8"));
+    let (_changed_directory, changed) = project(&source("zoom: 9"));
+
+    let omitted = compiler::compile(&omitted).expect("omitted default");
+    let explicit = compiler::compile(&explicit).expect("explicit default");
+    let changed = compiler::compile(&changed).expect("changed percent");
+    assert_eq!(omitted.structure_hash(), explicit.structure_hash());
+    assert_ne!(omitted.structure_hash(), changed.structure_hash());
+}
+
+#[test]
+fn zoom_rejects_nonpositive_or_unrepresentable_percentages() {
+    for percent in [-1, 0, i64::from(u32::MAX) + 1] {
+        let (_directory, workflow) = project(&format!(
+            "version: 1\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - zoom: {percent}\n"
+        ));
+        let error = compiler::compile(&workflow).expect_err("invalid zoom percent");
+        assert_eq!(error.code, "E_INVALID_ZOOM_PERCENT");
+        assert!(error.message.contains("positive integer"));
+    }
+}
+
+#[test]
+fn zoom_consumes_only_the_top_video() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - zoom: 12\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
+
+    let json = compiled_json(&compiled);
+    let nodes = json["nodes"].as_array().expect("nodes");
+    let zoom = nodes
+        .iter()
+        .find(|node| node["kind"]["operation"] == "zoom")
+        .expect("zoom");
+    assert_eq!(zoom["kind"]["input"]["id"], 1);
+    assert_eq!(zoom["kind"]["percent"], 12);
+    assert_eq!(nodes.last().expect("root")["kind"]["operation"], "concat");
+}
+
+#[test]
+fn wobble_defaults_to_three_pixels_and_preserves_the_video_domain() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - wobble\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    let domain = compiled.root_domain().expect("known domain");
+    assert_eq!(domain.frames.0, 10);
+    assert_eq!(domain.width, 64);
+    assert_eq!(domain.height, 48);
+
+    let json = compiled_json(&compiled);
+    let wobble = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["origin"]["construct"] == "wobble")
+        .expect("wobble node");
+    assert_eq!(wobble["kind"]["operation"], "wobble");
+    assert_eq!(wobble["kind"]["pixels"], 3);
+}
+
+#[test]
+fn wobble_default_normalizes_identity_and_changed_pixels_change_it() {
+    let source = |wobble: &str| {
+        format!(
+            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - {wobble}\n"
+        )
+    };
+    let (_omitted_directory, omitted) = project(&source("wobble"));
+    let (_explicit_directory, explicit) = project(&source("wobble: 3"));
+    let (_changed_directory, changed) = project(&source("wobble: 4"));
+
+    let omitted = compiler::compile(&omitted).expect("omitted default");
+    let explicit = compiler::compile(&explicit).expect("explicit default");
+    let changed = compiler::compile(&changed).expect("changed pixels");
+    assert_eq!(omitted.structure_hash(), explicit.structure_hash());
+    assert_ne!(omitted.structure_hash(), changed.structure_hash());
+}
+
+#[test]
+fn wobble_rejects_invalid_or_dimension_unsafe_amplitudes() {
+    for (width, height, pixels) in [
+        (1280, 720, -1),
+        (1280, 720, 0),
+        (8, 48, 4),
+        (64, 6, 3),
+        (u32::MAX, u32::MAX, 1),
+    ] {
+        let (_directory, workflow) = project(&format!(
+            "version: 1\nproject:\n  video: {{width: {width}, height: {height}, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - wobble: {pixels}\n"
+        ));
+        let error = compiler::compile(&workflow).expect_err("invalid wobble pixels");
+        assert_eq!(error.code, "E_INVALID_WOBBLE_PIXELS");
+        assert!(error.message.contains("both project dimensions"));
+    }
+}
+
+#[test]
+fn zoom_and_wobble_accept_values_above_the_old_policy_ceilings() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 1024, height: 768, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - zoom: 101\n  - wobble: 65\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
+}
+
+#[test]
+fn wobble_consumes_only_the_top_video() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - wobble: 4\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
+
+    let json = compiled_json(&compiled);
+    let nodes = json["nodes"].as_array().expect("nodes");
+    let wobble = nodes
+        .iter()
+        .find(|node| node["kind"]["operation"] == "wobble")
+        .expect("wobble");
+    assert_eq!(wobble["kind"]["input"]["id"], 1);
+    assert_eq!(wobble["kind"]["pixels"], 4);
+    assert_eq!(nodes.last().expect("root")["kind"]["operation"], "concat");
+}
+
+#[test]
+fn flash_inside_join_binds_in_order_and_preserves_the_summed_domain() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - join:\n      - flash\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
+
+    let json = compiled_json(&compiled);
+    let flash = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "flash_join")
+        .expect("flash");
+    assert_eq!(flash["kind"]["before"]["id"], 0);
+    assert_eq!(flash["kind"]["after"]["id"], 1);
+    assert_eq!(flash["kind"]["frames"], 2);
+    assert_eq!(flash["domain"]["frames"], 20);
+}
+
+#[test]
+fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\nclips:\n  x: {image: {path: x.ppm, duration: 1s}}\n  y: {image: {path: y.ppm, duration: 1s}}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - flash:\n      before: $x\n      after: $y\n      frames: 2\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 40);
+
+    let json = compiled_json(&compiled);
+    let root = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .last()
+        .expect("root");
+    assert_eq!(root["kind"]["operation"], "concat");
+    assert_eq!(root["kind"]["inputs"].as_array().expect("inputs").len(), 3);
+}
+
+#[test]
+fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
+    let source = |before: &str, after: &str, frames: &str| {
+        format!(
+            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\nclips:\n  a: {{image: {{path: a.ppm, duration: 1s}}}}\n  b: {{image: {{path: b.ppm, duration: 1s}}}}\ntimeline:\n  - flash:\n      before: ${before}\n      after: ${after}\n{frames}"
+        )
+    };
+    let (_omitted_directory, omitted) = project(&source("a", "b", ""));
+    let (_explicit_directory, explicit) = project(&source("a", "b", "      frames: 2\n"));
+    let (_changed_directory, changed) = project(&source("a", "b", "      frames: 3\n"));
+    let (_reversed_directory, reversed) = project(&source("b", "a", "      frames: 2\n"));
+
+    let omitted = compiler::compile(&omitted).expect("omitted default");
+    let explicit = compiler::compile(&explicit).expect("explicit default");
+    let changed = compiler::compile(&changed).expect("changed frames");
+    let reversed = compiler::compile(&reversed).expect("reversed inputs");
+    assert_eq!(omitted.structure_hash(), explicit.structure_hash());
+    assert_ne!(omitted.structure_hash(), changed.structure_hash());
+    assert_ne!(omitted.structure_hash(), reversed.structure_hash());
+}
+
+#[test]
+fn flash_rejects_nonpositive_or_known_excessive_frame_counts() {
+    for frames in [-1, 0, 11] {
+        let (_directory, workflow) = project(&format!(
+            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - image: {{path: b.ppm, duration: 1s}}\n  - flash: {frames}\n"
+        ));
+        let error = compiler::compile(&workflow).expect_err("invalid flash frames");
+        assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
+    }
+}
+
+#[test]
+fn default_flash_frames_are_the_smallest_count_covering_160_milliseconds() {
+    for (fps, expected) in [("1", 1_u64), ("30000/1001", 5)] {
+        let (_directory, workflow) = project(&format!(
+            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: {fps}}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1001s}}\n  - image: {{path: b.ppm, duration: 1001s}}\n  - flash\n"
+        ));
+        let compiled = compiler::compile(&workflow).expect("compile");
+        let json = compiled_json(&compiled);
+        let flash = json["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["kind"]["operation"] == "flash_join")
+            .expect("flash");
+        assert_eq!(flash["kind"]["frames"], expected);
+    }
 }
 
 #[test]
@@ -66,6 +312,43 @@ fn during_changes_duration() {
             .iter()
             .any(|node| node["kind"]["operation"] == "replace_range")
     );
+}
+
+#[test]
+fn trim_selects_an_authored_time_range() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 3s\n  - trim: 1s..2s\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
+
+    let json = compiled_json(&compiled);
+    let trim = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["origin"]["construct"] == "trim")
+        .expect("trim slice");
+    assert_eq!(trim["kind"]["operation"], "slice");
+    assert_eq!(trim["kind"]["range"]["start"], 10);
+    assert_eq!(trim["kind"]["range"]["end"], 20);
+}
+
+#[test]
+fn empty_concat_bodies_report_their_owner() {
+    let (_directory, workflow) = project("version: 1\ntimeline: []\n");
+    let error = compiler::compile(&workflow).expect_err("empty timeline");
+    assert_eq!(error.code, "E_EMPTY_TIMELINE");
+    assert!(error.message.contains("timeline"));
+}
+
+#[test]
+fn nested_timeline_starts_empty_and_does_not_consume_outer_values() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - timeline:\n      - image: {path: b.ppm, duration: 1s}\n      - image: {path: c.ppm, duration: 1s}\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
 }
 
 #[test]
@@ -250,4 +533,24 @@ fn comments_do_not_change_structure_hash() {
         compiler::compile(&first).expect("first").structure_hash(),
         compiler::compile(&second).expect("second").structure_hash()
     );
+}
+
+#[test]
+fn authored_source_paths_change_compiled_identity() {
+    let path = Path::new("workflow.yaml");
+    for (program, first_path, second_path, suffix) in [
+        ("image", "a.png", "b.png", ", duration: 1s"),
+        ("video", "a.mp4", "b.mp4", ""),
+    ] {
+        let source = |asset: &str| {
+            format!("version: 1\ntimeline:\n  - {program}: {{path: {asset}{suffix}}}\n")
+        };
+        let first = clipasm::syntax::parse_str(path, &source(first_path)).expect("first");
+        let second = clipasm::syntax::parse_str(path, &source(second_path)).expect("second");
+        assert_ne!(
+            compiler::compile(&first).expect("first").structure_hash(),
+            compiler::compile(&second).expect("second").structure_hash(),
+            "{program} path must contribute to compiled identity"
+        );
+    }
 }

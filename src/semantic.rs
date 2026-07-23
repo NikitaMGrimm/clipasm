@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -60,6 +61,23 @@ pub(crate) enum SemanticNodeKind {
     },
     Reference {
         name: String,
+    },
+    Repeat {
+        input: ValueRef,
+        count: NonZeroU64,
+    },
+    Zoom {
+        input: ValueRef,
+        percent: u32,
+    },
+    Wobble {
+        input: ValueRef,
+        pixels: u32,
+    },
+    FlashJoin {
+        before: ValueRef,
+        after: ValueRef,
+        frames: FrameCount,
     },
     Concat {
         inputs: Vec<ValueRef>,
@@ -199,6 +217,62 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn slice(&mut self, input: ValueRef, range: FrameRange) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "input")?;
         self.push(SemanticNodeKind::Slice { input, range }, ValueType::Video)
+    }
+
+    /// Add a checked compact semantic repetition, aliasing a count of one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type or graph-size diagnostic.
+    pub(crate) fn repeat(&mut self, input: ValueRef, count: NonZeroU64) -> Result<ValueRef> {
+        self.require_type(input, ValueType::Video, "video")?;
+        if count.get() == 1 {
+            return Ok(input);
+        }
+        self.push(SemanticNodeKind::Repeat { input, count }, ValueType::Video)
+    }
+
+    /// Add a centered full-clip linear zoom that preserves the input domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type or graph-size diagnostic.
+    pub(crate) fn zoom(&mut self, input: ValueRef, percent: u32) -> Result<ValueRef> {
+        self.require_type(input, ValueType::Video, "video")?;
+        self.push(SemanticNodeKind::Zoom { input, percent }, ValueType::Video)
+    }
+
+    /// Add deterministic full-clip two-axis motion that preserves the input domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type or graph-size diagnostic.
+    pub(crate) fn wobble(&mut self, input: ValueRef, pixels: u32) -> Result<ValueRef> {
+        self.require_type(input, ValueType::Video, "video")?;
+        self.push(SemanticNodeKind::Wobble { input, pixels }, ValueType::Video)
+    }
+
+    /// Join two Videos without overlap while fading the start of the latter from white.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type or graph-size diagnostic.
+    pub(crate) fn flash_join(
+        &mut self,
+        before: ValueRef,
+        after: ValueRef,
+        frames: FrameCount,
+    ) -> Result<ValueRef> {
+        self.require_type(before, ValueType::Video, "before")?;
+        self.require_type(after, ValueType::Video, "after")?;
+        self.push(
+            SemanticNodeKind::FlashJoin {
+                before,
+                after,
+                frames,
+            },
+            ValueType::Video,
+        )
     }
 
     /// Add a checked semantic concatenation, aliasing one input.
@@ -365,6 +439,30 @@ mod tests {
 
         assert_eq!(alias, source);
         assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn repeat_one_aliases_and_larger_counts_stay_compact() {
+        let video = VideoSpec::default();
+        let mut nodes = Vec::new();
+        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 2, origin("repeat", 1));
+        let source = builder
+            .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
+            .expect("source");
+        let alias = builder
+            .repeat(source, NonZeroU64::new(1).expect("nonzero"))
+            .expect("repeat one");
+        let repeated = builder
+            .repeat(source, NonZeroU64::new(1_000_000).expect("nonzero"))
+            .expect("compact repeat");
+
+        assert_eq!(alias, source);
+        assert_eq!(nodes.len(), 2);
+        assert!(matches!(
+            nodes[repeated.id().get() as usize].kind(),
+            SemanticNodeKind::Repeat { input, count }
+                if *input == source && count.get() == 1_000_000
+        ));
     }
 
     #[test]

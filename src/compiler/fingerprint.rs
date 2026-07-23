@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
-use crate::model::{ValueId, ValueRef, VideoDomain, VideoSpec};
+use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::SemanticNodeKind;
 
 #[derive(Serialize)]
@@ -30,9 +30,12 @@ pub(super) fn compiled_structure_hash(
     domains: &[Option<VideoDomain>],
     video: &VideoSpec,
     format_version: u32,
+    order: &[ValueRef],
 ) -> Result<String> {
-    let mut memo = BTreeMap::<ValueId, String>::new();
-    let root = value_hash(evaluation.root, evaluation, domains, &mut memo)?;
+    let hashes = value_hashes(evaluation, domains, order)?;
+    let root = hashes[evaluation.root.id().get() as usize]
+        .as_deref()
+        .expect("topological order includes the root");
     let names = evaluation
         .symbol_order
         .iter()
@@ -40,88 +43,127 @@ pub(super) fn compiled_structure_hash(
             let value = evaluation.symbols[name]
                 .value
                 .expect("every collected symbol is evaluated");
-            Ok((
+            (
                 name.as_str(),
-                value_hash(value, evaluation, domains, &mut memo)?,
-            ))
+                hashes[value.id().get() as usize]
+                    .as_ref()
+                    .expect("topological order includes named values")
+                    .clone(),
+            )
         })
-        .collect::<Result<BTreeMap<_, _>>>()?;
+        .collect::<BTreeMap<_, _>>();
 
     hash_serializable(&CompiledIdentity {
         format_version,
         video,
-        root: &root,
+        root,
         names: &names,
     })
 }
 
-fn value_hash(
-    value: ValueRef,
+fn value_hashes(
     evaluation: &Evaluation,
     domains: &[Option<VideoDomain>],
-    memo: &mut BTreeMap<ValueId, String>,
-) -> Result<String> {
-    if let Some(hash) = memo.get(&value.id()) {
-        return Ok(hash.clone());
-    }
-    let node = &evaluation.nodes[value.id().get() as usize];
-    if let SemanticNodeKind::Reference { name } = node.kind() {
-        let target = evaluation.symbols[name]
-            .value
-            .expect("references are resolved before fingerprinting");
-        let hash = value_hash(target, evaluation, domains, memo)?;
-        memo.insert(value.id(), hash.clone());
-        return Ok(hash);
-    }
-    let upstream = match node.kind() {
-        SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => Vec::new(),
-        SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
-        SemanticNodeKind::Concat { inputs } => inputs
-            .iter()
-            .map(|input| value_hash(*input, evaluation, domains, memo))
-            .collect::<Result<Vec<_>>>()?,
-        SemanticNodeKind::Slice { input, .. } => {
-            vec![value_hash(*input, evaluation, domains, memo)?]
+    order: &[ValueRef],
+) -> Result<Vec<Option<String>>> {
+    let mut hashes = vec![None::<String>; evaluation.nodes.len()];
+    for value in order {
+        let index = value.id().get() as usize;
+        let node = &evaluation.nodes[index];
+        if let SemanticNodeKind::Reference { name } = node.kind() {
+            let target = evaluation.symbols[name]
+                .value
+                .expect("references are resolved before fingerprinting");
+            hashes[index] = Some(
+                hashes[target.id().get() as usize]
+                    .as_ref()
+                    .expect("reference target precedes its alias")
+                    .clone(),
+            );
+            continue;
         }
-        SemanticNodeKind::ReplaceRange {
-            base, replacement, ..
-        } => vec![
-            value_hash(*base, evaluation, domains, memo)?,
-            value_hash(*replacement, evaluation, domains, memo)?,
-        ],
-    };
-    let operation = match node.kind() {
-        SemanticNodeKind::ImageVideo { frames, fit, .. } => serde_json::json!({
-            "operation": "image_video",
-            "frames": frames,
-            "fit": fit,
-        }),
-        SemanticNodeKind::VideoSource { fit, .. } => serde_json::json!({
-            "operation": "video_source",
-            "fit": fit,
-        }),
-        SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
-        SemanticNodeKind::Concat { .. } => serde_json::json!({
-            "operation": "concat",
-        }),
-        SemanticNodeKind::Slice { range, .. } => serde_json::json!({
-            "operation": "slice",
-            "range": range,
-        }),
-        SemanticNodeKind::ReplaceRange { range, .. } => serde_json::json!({
-            "operation": "replace_range",
-            "range": range,
-        }),
-    };
-    let hash = hash_serializable(&ValueIdentity {
-        semantic_version: node.semantic_version(),
-        value_type: node.value_type(),
-        domain: &domains[value.id().get() as usize],
-        operation,
-        upstream,
-    })?;
-    memo.insert(value.id(), hash.clone());
-    Ok(hash)
+        let upstream = match node.kind() {
+            SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {
+                Vec::new()
+            }
+            SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
+            SemanticNodeKind::Repeat { input, .. }
+            | SemanticNodeKind::Zoom { input, .. }
+            | SemanticNodeKind::Wobble { input, .. }
+            | SemanticNodeKind::Slice { input, .. } => {
+                vec![node_hash(*input, &hashes).to_owned()]
+            }
+            SemanticNodeKind::Concat { inputs } => inputs
+                .iter()
+                .map(|input| node_hash(*input, &hashes).to_owned())
+                .collect(),
+            SemanticNodeKind::FlashJoin { before, after, .. } => vec![
+                node_hash(*before, &hashes).to_owned(),
+                node_hash(*after, &hashes).to_owned(),
+            ],
+            SemanticNodeKind::ReplaceRange {
+                base, replacement, ..
+            } => vec![
+                node_hash(*base, &hashes).to_owned(),
+                node_hash(*replacement, &hashes).to_owned(),
+            ],
+        };
+        let operation = match node.kind() {
+            SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
+                "operation": "image_video",
+                "path": path,
+                "frames": frames,
+                "fit": fit,
+            }),
+            SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
+                "operation": "video_source",
+                "path": path,
+                "fit": fit,
+            }),
+            SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
+            SemanticNodeKind::Repeat { count, .. } => serde_json::json!({
+                "operation": "repeat",
+                "count": count,
+            }),
+            SemanticNodeKind::Zoom { percent, .. } => serde_json::json!({
+                "operation": "zoom",
+                "percent": percent,
+            }),
+            SemanticNodeKind::Wobble { pixels, .. } => serde_json::json!({
+                "operation": "wobble",
+                "pixels": pixels,
+            }),
+            SemanticNodeKind::FlashJoin { frames, .. } => serde_json::json!({
+                "operation": "flash_join",
+                "frames": frames,
+            }),
+            SemanticNodeKind::Concat { .. } => serde_json::json!({
+                "operation": "concat",
+            }),
+            SemanticNodeKind::Slice { range, .. } => serde_json::json!({
+                "operation": "slice",
+                "range": range,
+            }),
+            SemanticNodeKind::ReplaceRange { range, .. } => serde_json::json!({
+                "operation": "replace_range",
+                "range": range,
+            }),
+        };
+        hashes[index] = Some(hash_serializable(&ValueIdentity {
+            semantic_version: node.semantic_version(),
+            value_type: node.value_type(),
+            domain: &domains[index],
+            operation,
+            upstream,
+        })?);
+    }
+    Ok(hashes)
+}
+
+fn node_hash(value: ValueRef, hashes: &[Option<String>]) -> &str {
+    hashes[value.id().get() as usize]
+        .as_deref()
+        .expect("semantic dependency precedes its consumer")
 }
 
 pub(crate) fn hash_serializable(value: &impl Serialize) -> Result<String> {
@@ -137,10 +179,12 @@ pub(crate) fn hash_serializable(value: &impl Serialize) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+
     use super::*;
     use crate::compiler::evaluate::{DeclaredValueType, Evaluation, Symbol};
     use crate::diagnostic::SourceSpan;
-    use crate::model::{FrameCount, ImageFit, ValueType, VideoDomain, VideoSpec};
+    use crate::model::{FrameCount, ImageFit, ValueId, ValueType, VideoDomain, VideoSpec};
     use crate::semantic::{GraphBuilder, SourceOrigin};
 
     #[test]
@@ -195,10 +239,125 @@ mod tests {
             root: reference,
         };
         let domains = vec![Some(domain.clone()), Some(domain)];
-        let mut memo = BTreeMap::new();
-        let target_hash = value_hash(target, &evaluation, &domains, &mut memo).expect("target");
-        let reference_hash =
-            value_hash(reference, &evaluation, &domains, &mut memo).expect("reference");
+        let hashes =
+            value_hashes(&evaluation, &domains, &[target, reference]).expect("value hashes");
+        let target_hash = hashes[target.id().get() as usize].as_ref().expect("target");
+        let reference_hash = hashes[reference.id().get() as usize]
+            .as_ref()
+            .expect("reference");
         assert_eq!(target_hash, reference_hash);
+    }
+
+    #[test]
+    fn hashes_a_deep_reference_chain_iteratively() {
+        const ALIASES: usize = 20_001;
+        let span = SourceSpan::file_start("workflow.yaml");
+        let video = VideoSpec::default();
+        let domain = VideoDomain {
+            frames: FrameCount(1),
+            width: video.width,
+            height: video.height,
+            frame_rate: video.fps,
+        };
+        let mut nodes = Vec::with_capacity(ALIASES + 1);
+        let mut symbols = BTreeMap::new();
+        let mut symbol_order = Vec::with_capacity(ALIASES);
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            1,
+            SourceOrigin {
+                construct: "test",
+                span: span.clone(),
+            },
+        );
+        let source = builder
+            .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
+            .expect("source");
+        let mut root = source;
+        let mut order = vec![source];
+        for index in 0..ALIASES {
+            let name = format!("alias_{index:05}");
+            symbols.insert(
+                name.clone(),
+                Symbol {
+                    declared_at: span.clone(),
+                    value: Some(root),
+                    declared_type: DeclaredValueType::Known(ValueType::Video),
+                    value_type: Some(ValueType::Video),
+                },
+            );
+            symbol_order.push(name.clone());
+            root = builder
+                .reference(name, ValueType::Video)
+                .expect("reference");
+            order.push(root);
+        }
+        let evaluation = Evaluation {
+            nodes,
+            symbols,
+            symbol_order,
+            surface: Vec::new(),
+            root,
+        };
+        let domains = vec![Some(domain); ALIASES + 1];
+
+        let hashes = value_hashes(&evaluation, &domains, &order).expect("hashes");
+
+        assert_eq!(
+            hashes[source.id().get() as usize],
+            hashes[root.id().get() as usize]
+        );
+    }
+
+    #[test]
+    fn repeat_fingerprints_include_the_count() {
+        fn repeat_hash(count: u64) -> String {
+            let span = SourceSpan::file_start("workflow.yaml");
+            let video = VideoSpec::default();
+            let mut nodes = Vec::new();
+            let mut builder = GraphBuilder::for_program(
+                &mut nodes,
+                &video,
+                2,
+                SourceOrigin {
+                    construct: "repeat",
+                    span,
+                },
+            );
+            let source = builder
+                .image_video("source.png".into(), FrameCount(5), ImageFit::Cover)
+                .expect("source");
+            let root = builder
+                .repeat(source, NonZeroU64::new(count).expect("nonzero"))
+                .expect("repeat");
+            let evaluation = Evaluation {
+                nodes,
+                symbols: BTreeMap::new(),
+                symbol_order: Vec::new(),
+                surface: Vec::new(),
+                root,
+            };
+            let domains = vec![
+                Some(VideoDomain {
+                    frames: FrameCount(5),
+                    width: video.width,
+                    height: video.height,
+                    frame_rate: video.fps,
+                }),
+                Some(VideoDomain {
+                    frames: FrameCount(5 * count),
+                    width: video.width,
+                    height: video.height,
+                    frame_rate: video.fps,
+                }),
+            ];
+            value_hashes(&evaluation, &domains, &[source, root]).expect("hashes")
+                [root.id().get() as usize]
+                .clone()
+                .expect("root hash")
+        }
+
+        assert_ne!(repeat_hash(2), repeat_hash(3));
     }
 }

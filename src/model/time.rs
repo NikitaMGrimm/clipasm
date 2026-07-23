@@ -27,6 +27,58 @@ impl FrameCount {
             )
         })
     }
+
+    /// Multiply a frame count without wrapping.
+    ///
+    /// # Errors
+    ///
+    /// Returns `E_FRAME_OVERFLOW` if the product exceeds `u64`.
+    pub(crate) fn checked_mul(self, multiplier: u64, span: &SourceSpan) -> Result<Self> {
+        self.0.checked_mul(multiplier).map(Self).ok_or_else(|| {
+            Diagnostic::new(
+                "E_FRAME_OVERFLOW",
+                "video duration exceeds the supported frame count",
+                span.clone(),
+            )
+        })
+    }
+
+    /// Return the smallest frame count covering an exact rational duration.
+    ///
+    /// `duration_numerator / duration_denominator` is measured in seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns `E_FRAME_OVERFLOW` if the rational conversion cannot be
+    /// represented with checked `u128` intermediates or as a `u64` frame count.
+    pub(crate) fn covering_duration(
+        duration_numerator: u128,
+        duration_denominator: u128,
+        fps: FrameRate,
+        span: &SourceSpan,
+    ) -> Result<Self> {
+        let overflow = || {
+            Diagnostic::new(
+                "E_FRAME_OVERFLOW",
+                "duration exceeds the supported frame count",
+                span.clone(),
+            )
+        };
+        let numerator = duration_numerator
+            .checked_mul(u128::from(fps.numerator()))
+            .ok_or_else(&overflow)?;
+        let denominator = duration_denominator
+            .checked_mul(u128::from(fps.denominator()))
+            .filter(|denominator| *denominator != 0)
+            .ok_or_else(&overflow)?;
+        let quotient = numerator / denominator;
+        let frames = if numerator % denominator == 0 {
+            quotient
+        } else {
+            quotient.checked_add(1).ok_or_else(overflow)?
+        };
+        u64::try_from(frames).map(Self).map_err(|_| overflow())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -264,6 +316,41 @@ mod tests {
             .to_frames(fps, &span())
             .expect_err("not frame aligned");
         assert_eq!(error.code, "E_TIME_NOT_FRAME_ALIGNED");
+    }
+
+    #[test]
+    fn covering_duration_uses_checked_ceiling_division() {
+        let ntsc = FrameRate::new(30_000, 1_001).expect("valid fps");
+        assert_eq!(
+            FrameCount::covering_duration(1, 1, ntsc, &span()).expect("covering frames"),
+            FrameCount(30)
+        );
+        assert_eq!(
+            FrameCount::covering_duration(1_001, 30_000, ntsc, &span()).expect("aligned frame"),
+            FrameCount(1)
+        );
+        assert_eq!(
+            FrameCount::covering_duration(
+                1,
+                1_000,
+                FrameRate::new(30, 1).expect("valid fps"),
+                &span()
+            )
+            .expect("covering frames"),
+            FrameCount(1)
+        );
+    }
+
+    #[test]
+    fn covering_duration_reports_checked_arithmetic_overflow() {
+        let error = FrameCount::covering_duration(
+            u128::MAX,
+            1,
+            FrameRate::new(2, 1).expect("valid fps"),
+            &span(),
+        )
+        .expect_err("overflow");
+        assert_eq!(error.code, "E_FRAME_OVERFLOW");
     }
 
     #[test]
