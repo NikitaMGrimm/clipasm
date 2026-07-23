@@ -14,6 +14,9 @@ use crate::model::{
 };
 
 const PREPARED_FORMAT_VERSION: u32 = 1;
+const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
+    "scale", "crop", "pad", "fps", "setsar", "format", "trim", "setpts", "concat",
+];
 
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
@@ -655,6 +658,16 @@ fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
             ));
         }
     }
+    let filters = tool_output(&tool, &["-hide_banner", "-filters"], "E_FFMPEG")?;
+    for filter in REQUIRED_FFMPEG_FILTERS {
+        if capability_missing(&filters, filter) {
+            return Err(Diagnostic::new(
+                "E_FFMPEG_CAPABILITY",
+                format!("installed FFmpeg does not provide the required `{filter}` filter"),
+                SourceSpan::file_start(&tool),
+            ));
+        }
+    }
     Ok(ToolIdentity {
         executable: tool,
         version,
@@ -940,6 +953,17 @@ mod tests {
         let container_error = inspect_ffmpeg_at(&no_matroska).expect_err("missing Matroska");
         assert_eq!(container_error.code, "E_FFMPEG_CAPABILITY");
         assert!(container_error.message.contains("Matroska"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ffmpeg_preflight_requires_every_render_filter() {
+        let (_directory, no_filters) = executable_script(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; else echo none; fi\n",
+        );
+        let error = inspect_ffmpeg_at(&no_filters).expect_err("missing filters");
+        assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
+        assert!(error.message.contains("scale"));
     }
 
     #[cfg(unix)]

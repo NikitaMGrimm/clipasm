@@ -218,7 +218,7 @@ pub(super) struct Evaluation {
     root: ValueRef,
 }
 
-pub struct ResolvedCall<'a> {
+pub(crate) struct ResolvedCall<'a> {
     definition: &'static ProgramDefinition,
     inputs: BTreeMap<&'static str, Vec<ValueRef>>,
     parameters: &'a BTreeMap<String, Argument>,
@@ -228,12 +228,12 @@ pub struct ResolvedCall<'a> {
 
 impl ResolvedCall<'_> {
     #[must_use]
-    pub const fn definition(&self) -> &'static ProgramDefinition {
+    pub(crate) const fn definition(&self) -> &'static ProgramDefinition {
         self.definition
     }
 
     #[must_use]
-    pub const fn requested_frames(&self) -> Option<u64> {
+    pub(crate) const fn requested_frames(&self) -> Option<u64> {
         match self.requested_frames {
             Some(frames) => Some(frames.0),
             None => None,
@@ -241,7 +241,7 @@ impl ResolvedCall<'_> {
     }
 
     #[must_use]
-    pub const fn origin(&self) -> &SourceOrigin {
+    pub(crate) const fn origin(&self) -> &SourceOrigin {
         &self.origin
     }
 
@@ -250,7 +250,7 @@ impl ResolvedCall<'_> {
     /// # Errors
     ///
     /// Returns an internal binding diagnostic if the named port is absent.
-    pub fn one_input(&self, name: &str) -> Result<ValueRef> {
+    pub(crate) fn one_input(&self, name: &str) -> Result<ValueRef> {
         self.inputs
             .get(name)
             .and_then(|values| values.first())
@@ -269,7 +269,7 @@ impl ResolvedCall<'_> {
     /// # Errors
     ///
     /// Returns an internal binding diagnostic if the named port is absent.
-    pub fn variadic_input(&self, name: &str) -> Result<&[ValueRef]> {
+    pub(crate) fn variadic_input(&self, name: &str) -> Result<&[ValueRef]> {
         self.inputs.get(name).map(Vec::as_slice).ok_or_else(|| {
             Diagnostic::new(
                 "E_INTERNAL_BINDING",
@@ -284,7 +284,7 @@ impl ResolvedCall<'_> {
     /// # Errors
     ///
     /// Returns a parameter diagnostic when missing or mistyped.
-    pub fn string_parameter(&self, name: &str) -> Result<(&str, &SourceSpan)> {
+    pub(crate) fn string_parameter(&self, name: &str) -> Result<(&str, &SourceSpan)> {
         let argument = self.parameters.get(name).ok_or_else(|| {
             Diagnostic::new(
                 "E_MISSING_ARGUMENT",
@@ -303,7 +303,10 @@ impl ResolvedCall<'_> {
     /// # Errors
     ///
     /// Returns a parameter diagnostic when present with the wrong type.
-    pub fn optional_string_parameter(&self, name: &str) -> Result<Option<(&str, &SourceSpan)>> {
+    pub(crate) fn optional_string_parameter(
+        &self,
+        name: &str,
+    ) -> Result<Option<(&str, &SourceSpan)>> {
         self.parameters
             .get(name)
             .map(|argument| match argument {
@@ -318,7 +321,7 @@ impl ResolvedCall<'_> {
     /// # Errors
     ///
     /// Returns a parameter diagnostic when missing or mistyped.
-    pub fn integer_parameter(&self, name: &str) -> Result<(i64, &SourceSpan)> {
+    pub(crate) fn integer_parameter(&self, name: &str) -> Result<(i64, &SourceSpan)> {
         let argument = self.parameters.get(name).ok_or_else(|| {
             Diagnostic::new(
                 "E_MISSING_ARGUMENT",
@@ -341,7 +344,7 @@ fn parameter_type_error(name: &str, expected: &str, argument: &Argument) -> Diag
     )
 }
 
-pub struct GraphBuilder<'a> {
+pub(crate) struct GraphBuilder<'a> {
     nodes: &'a mut Vec<DraftNode>,
     video: &'a VideoSpec,
 }
@@ -352,7 +355,7 @@ impl<'a> GraphBuilder<'a> {
     }
 
     #[must_use]
-    pub const fn video_spec(&self) -> &VideoSpec {
+    pub(crate) const fn video_spec(&self) -> &VideoSpec {
         self.video
     }
 
@@ -361,7 +364,7 @@ impl<'a> GraphBuilder<'a> {
     /// # Errors
     ///
     /// Returns a graph-size diagnostic.
-    pub fn image_video(
+    pub(crate) fn image_video(
         &mut self,
         path: PathBuf,
         frames: FrameCount,
@@ -382,7 +385,7 @@ impl<'a> GraphBuilder<'a> {
     /// # Errors
     ///
     /// Returns a type or graph-size diagnostic.
-    pub fn slice(
+    pub(crate) fn slice(
         &mut self,
         input: ValueRef,
         range: FrameRange,
@@ -402,7 +405,7 @@ impl<'a> GraphBuilder<'a> {
     /// # Errors
     ///
     /// Returns a diagnostic for empty, mistyped, or oversized graphs.
-    pub fn concat(
+    pub(crate) fn concat(
         &mut self,
         inputs: Vec<ValueRef>,
         semantic_version: u32,

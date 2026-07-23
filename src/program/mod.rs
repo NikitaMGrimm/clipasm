@@ -6,20 +6,21 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{ImageFit, SourceTime, ValueRef, ValueType};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Cardinality {
+pub(crate) enum Cardinality {
     One,
     Variadic { min: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InputPort {
-    pub name: &'static str,
-    pub value_type: ValueType,
-    pub cardinality: Cardinality,
+pub(crate) struct InputPort {
+    pub(crate) name: &'static str,
+    pub(crate) value_type: ValueType,
+    pub(crate) cardinality: Cardinality,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ParameterType {
+pub(crate) enum ParameterType {
+    #[allow(dead_code)]
     String,
     Integer,
     File,
@@ -28,29 +29,29 @@ pub enum ParameterType {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ParameterDescriptor {
-    pub name: &'static str,
-    pub parameter_type: ParameterType,
-    pub required: bool,
+pub(crate) struct ParameterDescriptor {
+    pub(crate) name: &'static str,
+    pub(crate) parameter_type: ParameterType,
+    pub(crate) required: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ProgramDescriptor {
-    pub name: &'static str,
-    pub version: u32,
-    pub inputs: &'static [InputPort],
-    pub parameters: &'static [ParameterDescriptor],
-    pub primary_parameter: Option<&'static str>,
-    pub output: ValueType,
+pub(crate) struct ProgramDescriptor {
+    pub(crate) name: &'static str,
+    pub(crate) version: u32,
+    pub(crate) inputs: &'static [InputPort],
+    pub(crate) parameters: &'static [ParameterDescriptor],
+    pub(crate) primary_parameter: Option<&'static str>,
+    pub(crate) output: ValueType,
 }
 
-pub type LowerFn =
+pub(crate) type LowerFn =
     for<'call, 'graph> fn(&ResolvedCall<'call>, &mut GraphBuilder<'graph>) -> Result<ValueRef>;
 
 #[derive(Clone, Copy, Debug)]
-pub struct ProgramDefinition {
-    pub descriptor: ProgramDescriptor,
-    pub lower: LowerFn,
+pub(crate) struct ProgramDefinition {
+    pub(crate) descriptor: ProgramDescriptor,
+    pub(crate) lower: LowerFn,
 }
 
 const VIDEO: ValueType = ValueType::Video;
@@ -88,7 +89,7 @@ const REPEAT_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
     required: true,
 }];
 
-pub const IMAGE: ProgramDefinition = ProgramDefinition {
+pub(crate) const IMAGE: ProgramDefinition = ProgramDefinition {
     descriptor: ProgramDescriptor {
         name: "image",
         version: 1,
@@ -99,7 +100,7 @@ pub const IMAGE: ProgramDefinition = ProgramDefinition {
     },
     lower: lower_image,
 };
-pub const CONCAT: ProgramDefinition = ProgramDefinition {
+pub(crate) const CONCAT: ProgramDefinition = ProgramDefinition {
     descriptor: ProgramDescriptor {
         name: "concat",
         version: 1,
@@ -110,7 +111,7 @@ pub const CONCAT: ProgramDefinition = ProgramDefinition {
     },
     lower: lower_concat,
 };
-pub const REPEAT: ProgramDefinition = ProgramDefinition {
+pub(crate) const REPEAT: ProgramDefinition = ProgramDefinition {
     descriptor: ProgramDescriptor {
         name: "repeat",
         version: 1,
@@ -122,7 +123,10 @@ pub const REPEAT: ProgramDefinition = ProgramDefinition {
     lower: lower_repeat,
 };
 
-pub static BUILTIN_PROGRAMS: [ProgramDefinition; 3] = [IMAGE, CONCAT, REPEAT];
+pub(crate) static BUILTIN_PROGRAMS: [ProgramDefinition; 3] = [IMAGE, CONCAT, REPEAT];
+
+const RESERVED_PROGRAM_NAMES: &[&str] =
+    &["then", "during", "join", "timeline", "ref", "id", "clip"];
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProgramRegistry {
@@ -154,6 +158,12 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
     for definition in definitions {
         let descriptor = &definition.descriptor;
         validate_definition_name("program", descriptor.name)?;
+        if RESERVED_PROGRAM_NAMES.contains(&descriptor.name) {
+            return Err(definition_error(format!(
+                "program name `{}` is reserved by the language",
+                descriptor.name
+            )));
+        }
         if !programs.insert(descriptor.name) {
             return Err(definition_error(format!(
                 "duplicate program name `{}`",
@@ -401,6 +411,17 @@ mod tests {
         let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate program");
         assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
         assert!(error.message.contains("duplicate program"));
+    }
+
+    #[test]
+    fn rejects_every_reserved_program_name() {
+        for name in ["then", "during", "join", "timeline", "ref", "id", "clip"] {
+            let definitions = Box::leak(vec![definition(name, &[], &[], None)].into_boxed_slice());
+            let error =
+                ProgramRegistry::from_definitions(definitions).expect_err("reserved program");
+            assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+            assert!(error.message.contains(name));
+        }
     }
 
     #[test]

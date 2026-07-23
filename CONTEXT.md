@@ -9,8 +9,8 @@ code and future design work should preserve the distinctions below.
 - A **workflow** is one parsed versioned YAML document.
 - An **item** is one executable entry in a sequence body.
 - A **program** is a typed operation such as `image`, `repeat`, or `concat`.
-- A **clip** is a named Video value defined under `clips`. `clip` is a value
-  role, not a program or invocation keyword.
+- A **clip** is any finite Video value. A **named clip** is a clip bound to a
+  name under `clips`. `clip` is not a program or invocation keyword.
 - A **value** is an immutable typed graph result. A stack may contain multiple
   occurrences of the same value.
 - A **reference expression** is `$name` (or its expanded `ref: $name` form). It
@@ -73,7 +73,7 @@ nothing.
 - The root timeline starts empty and concatenates all leftover Videos in order.
 
 There is no hidden replacement, fallback input, or automatic reduction inside
-clip and compound bodies.
+named-clip and compound bodies.
 
 ## Names, references, and dependencies
 

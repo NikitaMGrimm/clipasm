@@ -259,6 +259,7 @@ impl Evaluator<'_> {
             }
             ItemKind::Then(body) => {
                 let input = pop_one(outer_stack, "then", span)?;
+                require_value_type(input, ValueType::Video, "then", "input", span)?;
                 let mut local = vec![input];
                 self.evaluate_body(body, &mut local, requested_frames)?;
                 if local.len() != 1 {
@@ -269,6 +270,7 @@ impl Evaluator<'_> {
                         span,
                     ));
                 }
+                require_value_type(local[0], ValueType::Video, "then", "output", span)?;
                 Ok(local[0])
             }
             ItemKind::Join(body) => {
@@ -596,8 +598,42 @@ fn item_construct(kind: &ItemKind) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::model::ValueId;
+    use crate::program::{IMAGE, ProgramDescriptor, ProgramRegistry};
+
+    const TEST_INPUTS: &[InputPort] = &[InputPort {
+        name: "video",
+        value_type: ValueType::Video,
+        cardinality: Cardinality::One,
+    }];
+
+    fn lower_test_value(
+        call: &ResolvedCall<'_>,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<ValueRef> {
+        let _ = call.one_input("video")?;
+        builder.reference(
+            "test_value".to_owned(),
+            ValueType::Test,
+            call.origin().clone(),
+        )
+    }
+
+    const TEST_VALUE: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "test_value",
+            version: 1,
+            inputs: TEST_INPUTS,
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Test,
+        },
+        lower: lower_test_value,
+    };
+    static TEST_PROGRAMS: [ProgramDefinition; 2] = [IMAGE, TEST_VALUE];
 
     const VIDEO_PORTS_2: [InputPort; 2] = [
         InputPort {
@@ -704,5 +740,45 @@ mod tests {
         assert_eq!(error.code, "E_TYPE_MISMATCH");
         assert!(error.message.contains("expected Video"));
         assert!(error.message.contains("Test"));
+    }
+
+    #[test]
+    fn then_rejects_a_non_video_input() {
+        let workflow =
+            crate::syntax::parse_str(Path::new("test.yaml"), "version: 1\ntimeline: []\n")
+                .expect("workflow");
+        let video = VideoSpec::default();
+        let mut evaluator = Evaluator {
+            workflow: &workflow,
+            video: &video,
+            registry: ProgramRegistry::default(),
+            nodes: Vec::new(),
+            symbols: BTreeMap::new(),
+            symbol_order: Vec::new(),
+            surface: Vec::new(),
+        };
+        let mut stack = vec![ValueRef::new(ValueId(0), ValueType::Test)];
+
+        let error = evaluator
+            .evaluate_item_kind(&ItemKind::Then(Vec::new()), &span(), &mut stack, None)
+            .expect_err("then input type");
+        assert_eq!(error.code, "E_TYPE_MISMATCH");
+        assert!(error.message.contains("program `then` port `input`"));
+    }
+
+    #[test]
+    fn then_rejects_a_non_video_output() {
+        let registry = ProgramRegistry::from_definitions(&TEST_PROGRAMS).expect("registry");
+        let workflow = crate::syntax::parse_str_with_registry(
+            Path::new("test.yaml"),
+            "version: 1\ntimeline:\n  - image: {path: a.png, duration: 1s}\n  - then: [test_value]\n",
+            registry,
+        )
+        .expect("workflow");
+
+        let error = crate::compiler::compile_with_registry(&workflow, registry)
+            .expect_err("then output type");
+        assert_eq!(error.code, "E_TYPE_MISMATCH");
+        assert!(error.message.contains("program `then` port `output`"));
     }
 }
