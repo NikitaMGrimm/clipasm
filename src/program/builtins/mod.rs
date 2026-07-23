@@ -12,7 +12,6 @@ pub(crate) static BUILTIN_PROGRAMS: &[ProgramDefinition] = &[
     direct::ZOOM,
     direct::WOBBLE,
     direct::FLASH,
-    body::THEN,
     body::JOIN,
     body::TIMELINE,
     body::DURING,

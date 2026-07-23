@@ -13,8 +13,8 @@ semantic versions, and constrained semantic graph builder.
 
 This preserves the literal language model without pretending that a program
 which owns an unevaluated body is identical to one that lowers immediately.
-`then`, `join`, `timeline`, and `during` therefore do not receive parser or
-evaluator branches based on their names. Body programs instead use the common
+`join`, `timeline`, and `during` therefore do not receive parser or evaluator
+branches based on their names. Body programs instead use the common
 prepare, evaluate once, and finalize lifecycle. Surface forms such as postfix
 `during` normalize into ordinary invocations before compilation.
 

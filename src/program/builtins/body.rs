@@ -7,11 +7,6 @@ use crate::program::{
 use crate::semantic::{GraphBuilder, require_value_type};
 
 const VIDEO: ValueType = ValueType::Video;
-const THEN_INPUTS: &[InputPort] = &[InputPort {
-    name: "input",
-    value_type: VIDEO,
-    cardinality: Cardinality::One,
-}];
 const JOIN_INPUTS: &[InputPort] = &[
     InputPort {
         name: "before",
@@ -34,19 +29,6 @@ const DURING_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
     parameter_type: ParameterType::TimeRange,
     required: true,
 }];
-pub(crate) const THEN: ProgramDefinition = body(
-    ProgramDescriptor {
-        name: "then",
-        semantic_version: 1,
-        inputs: THEN_INPUTS,
-        parameters: &[],
-        primary_parameter: None,
-        output: VIDEO,
-    },
-    prepare_then,
-    None,
-);
-
 pub(crate) const JOIN: ProgramDefinition = body(
     ProgramDescriptor {
         name: "join",
@@ -96,14 +78,6 @@ const fn body(
         implementation: ProgramImplementation::Body(prepare),
         postfix,
     }
-}
-
-fn prepare_then(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
-    Ok(BodyPlan {
-        initial_stack: vec![call.one_input("input")?],
-        requested_frames: call.requested_frames(),
-        finalizer: Box::new(RequireOneVideo::for_call(call)),
-    })
 }
 
 fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {

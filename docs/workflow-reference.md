@@ -52,7 +52,6 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `zoom` | `video: Video` | optional `percent` | none |
 | `wobble` | `video: Video` | optional `pixels` | none |
 | `flash` | `before: Video`, `after: Video` | optional `frames` | none |
-| `then` | `input: Video` | none | required |
 | `join` | `before: Video`, `after: Video` | none | required |
 | `timeline` | none | none | required |
 | `during` | `base: Video` | `range` | required |
@@ -240,17 +239,6 @@ References cannot carry `id`; named clips are the explicit alias mechanism.
 Body programs use the same registered descriptors and input binding rules as
 direct programs. They evaluate one nested body exactly once.
 
-### Then
-
-`then` consumes one preceding Video, starts its body with that Video, and
-requires exactly one Video at the end.
-
-```yaml
-- video: footage.mp4
-- then:
-    - repeat: 2
-```
-
 ### Join
 
 `join` consumes the two preceding Videos, starts its body with both in order,
@@ -315,7 +303,6 @@ Missing inputs consume values from the top of the current local stack. Explicit
 | Scope | Initial stack | Required result |
 |---|---|---|
 | named clip | empty | exactly one Video |
-| `then` | one preceding Video | exactly one Video |
 | `join` | two preceding Videos | exactly one Video |
 | nested `timeline` | empty | leftovers concatenated in order |
 | `during` | selected range | exactly one Video, then splice |

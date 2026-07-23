@@ -6,8 +6,8 @@ prepares reachable media and tools, and renders an MP4 through verified cached
 artifacts.
 
 The current language supports still-image and video-file sources, named clips,
-references, concatenation, repetition, and the `then`, `join`, `timeline`, and
-`during` body programs. Audio output, transitions, effects, plugins, and
+references, concatenation, repetition, and the `join`, `timeline`, and `during`
+body programs. Audio output, transitions, effects, plugins, and
 user-defined programs are outside the current foundation.
 
 Start with:

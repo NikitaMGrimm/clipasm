@@ -51,7 +51,7 @@ Registered programs are:
 
 - direct: `image`, `video`, `concat`, `repeat`, `trim`, `zoom`, `wobble`,
   `flash`
-- body: `then`, `join`, `timeline`, `during`
+- body: `join`, `timeline`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
 inherits the active program's semantic version and origin. Adding a program

@@ -84,6 +84,22 @@ fn clip_is_not_a_public_program() {
 }
 
 #[test]
+fn then_is_not_a_public_program() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\ntimeline:\n  - image: {path: card.ppm, duration: 1s}\n  - then:\n      - repeat: 2\n",
+    )
+    .expect("workflow");
+
+    let output = run(&["validate", workflow.to_str().expect("UTF-8 fixture path")]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_PROGRAM]"));
+}
+
+#[test]
 fn references_are_explained_as_references() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");

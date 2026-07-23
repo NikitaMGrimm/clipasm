@@ -9,7 +9,7 @@ Current features:
 - references and named clips
 - concatenation and repetition
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
-- `then`, `during`, `join`, and nested `timeline`
+- `during`, `join`, and nested `timeline`
 - content-addressed render caching
 
 ## Requirements

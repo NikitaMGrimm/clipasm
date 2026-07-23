@@ -289,15 +289,6 @@ fn default_flash_frames_are_the_smallest_count_covering_160_milliseconds() {
 }
 
 #[test]
-fn then_keeps_its_input_physically_present() {
-    let (_directory, workflow) = project(
-        "version: 1\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - then:\n      - image:\n          path: b.ppm\n          duration: 1s\n",
-    );
-    let error = compiler::compile(&workflow).expect_err("two outputs");
-    assert_eq!(error.code, "E_BODY_OUTPUT_COUNT");
-}
-
-#[test]
 fn during_changes_duration() {
     let (_directory, workflow) = project(
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n  - repeat: 2\n    during: 4s..6s\n",
