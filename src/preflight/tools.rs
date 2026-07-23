@@ -580,7 +580,17 @@ fn tool_command_output(tool: &Path, arguments: &[&str], code: &'static str) -> R
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, MutexGuard};
+
     use super::*;
+
+    static FAKE_TOOL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn fake_tool_test_lock() -> MutexGuard<'static, ()> {
+        FAKE_TOOL_TEST_LOCK
+            .lock()
+            .expect("fake tool test lock was poisoned")
+    }
 
     #[cfg(unix)]
     fn executable_script(contents: &str) -> (tempfile::TempDir, PathBuf) {
@@ -598,6 +608,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ffmpeg_preflight_requires_all_render_encoders_and_muxers() {
+        let _guard = fake_tool_test_lock();
         let (_directory, no_encoder) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; else echo none; fi\n",
         );
@@ -626,6 +637,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ffmpeg_preflight_requires_every_render_filter() {
+        let _guard = fake_tool_test_lock();
         let (_directory, no_filters) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; else echo none; fi\n",
         );
@@ -637,6 +649,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ffmpeg_preflight_requires_the_flash_fade_filter() {
+        let _guard = fake_tool_test_lock();
         let (_directory, no_fade) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts tpad concat perspective'; else echo none; fi\n",
         );
@@ -648,6 +661,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn tool_build_identity_uses_full_version_output_not_location() {
+        let _guard = fake_tool_test_lock();
         let (_first_directory, first) =
             executable_script("#!/bin/sh\nprintf 'tool 1\\nconfiguration alpha  \\r\\n'\n");
         let (_second_directory, second) =
