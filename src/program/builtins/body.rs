@@ -32,7 +32,7 @@ const DURING_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
 pub(crate) const JOIN: ProgramDefinition = body(
     ProgramDescriptor {
         name: "join",
-        semantic_version: 1,
+        semantic_version: 2,
         inputs: JOIN_INPUTS,
         parameters: &[],
         primary_parameter: None,
@@ -84,7 +84,7 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
     Ok(BodyPlan {
         initial_stack: vec![call.one_input("before")?, call.one_input("after")?],
         requested_frames: call.requested_frames(),
-        finalizer: Box::new(RequireOneVideo::for_call(call)),
+        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_JOIN")),
     })
 }
 

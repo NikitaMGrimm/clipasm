@@ -391,6 +391,29 @@ fn during_does_not_hide_selected_input_from_a_source() {
 }
 
 #[test]
+fn join_concatenates_leftover_body_videos_in_order() {
+    let (_directory, workflow) = project(
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - join:\n      - wobble\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("compile");
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
+
+    let json = compiled_json(&compiled);
+    let nodes = json["nodes"].as_array().expect("nodes");
+    let join_concat = nodes
+        .iter()
+        .find(|node| node["origin"]["construct"] == "join" && node["kind"]["operation"] == "concat")
+        .expect("join finalization concat");
+    assert_eq!(
+        join_concat["kind"]["inputs"]
+            .as_array()
+            .expect("concat inputs")
+            .len(),
+        2
+    );
+}
+
+#[test]
 fn join_reduces_only_the_top_two_outer_values() {
     let (_directory, workflow) = project(
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - image:\n      path: b.ppm\n      duration: 1s\n  - image:\n      path: c.ppm\n      duration: 1s\n  - join:\n      - concat\n",

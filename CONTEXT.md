@@ -38,8 +38,8 @@ consume nothing.
 
 - A named clip starts with an empty local stack and must leave exactly one
   Video. It does not receive timeline finalization.
-- `join` starts its body with two preceding Videos in order and requires one
-  Video.
+- `join` starts its body with two preceding Videos in order and concatenates
+  all Videos left by the body.
 - A nested or root `timeline` starts empty and concatenates leftover Videos in
   order.
 - `during` starts its body with only the selected range, requires one processed

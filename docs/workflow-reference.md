@@ -242,7 +242,8 @@ direct programs. They evaluate one nested body exactly once.
 ### Join
 
 `join` consumes the two preceding Videos, starts its body with both in order,
-and requires exactly one Video at the end.
+and concatenates all Videos left by the body. The single joined result is pushed
+onto the surrounding stack.
 
 ```yaml
 - $first
@@ -303,7 +304,7 @@ Missing inputs consume values from the top of the current local stack. Explicit
 | Scope | Initial stack | Required result |
 |---|---|---|
 | named clip | empty | exactly one Video |
-| `join` | two preceding Videos | exactly one Video |
+| `join` | two preceding Videos | leftovers concatenated in order |
 | nested `timeline` | empty | leftovers concatenated in order |
 | `during` | selected range | exactly one Video, then splice |
 | root `timeline` | empty | leftovers concatenated in order |
