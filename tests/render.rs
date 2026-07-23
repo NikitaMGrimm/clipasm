@@ -24,8 +24,8 @@ fn renders_and_reuses_verified_cache() {
     )
     .expect("workflow");
     let compiled = compiler::compile_file(&workflow_path).expect("compile");
-    assert_eq!(compiled.video().fps.numerator, 10);
-    assert_eq!(compiled.video().fps.denominator, 1);
+    assert_eq!(compiled.video().fps.numerator(), 10);
+    assert_eq!(compiled.video().fps.denominator(), 1);
     let plan = preflight::preflight(&compiled).expect("preflight");
     fs::write(plan.output(), b"previous valid destination").expect("old output");
     fs::write(plan.manifest(), b"previous manifest").expect("old manifest");

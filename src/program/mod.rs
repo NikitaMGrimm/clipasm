@@ -1,7 +1,8 @@
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::compiler::{GraphBuilder, ResolvedCall};
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{ImageFit, SourceTime, ValueRef, ValueType};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,7 +47,7 @@ pub struct ProgramDescriptor {
 pub type LowerFn =
     for<'call, 'graph> fn(&ResolvedCall<'call>, &mut GraphBuilder<'graph>) -> Result<ValueRef>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProgramDefinition {
     pub descriptor: ProgramDescriptor,
     pub lower: LowerFn,
@@ -123,36 +124,117 @@ pub const REPEAT: ProgramDefinition = ProgramDefinition {
 
 pub static BUILTIN_PROGRAMS: [ProgramDefinition; 3] = [IMAGE, CONCAT, REPEAT];
 
-#[derive(Clone, Copy)]
-pub struct ProgramRegistry {
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ProgramRegistry {
     definitions: &'static [ProgramDefinition],
 }
 
 impl Default for ProgramRegistry {
     fn default() -> Self {
-        Self {
-            definitions: &BUILTIN_PROGRAMS,
-        }
+        Self::from_definitions(&BUILTIN_PROGRAMS).expect("built-in program definitions are valid")
     }
 }
 
 impl ProgramRegistry {
-    #[must_use]
-    pub const fn from_definitions(definitions: &'static [ProgramDefinition]) -> Self {
-        Self { definitions }
+    pub(crate) fn from_definitions(definitions: &'static [ProgramDefinition]) -> Result<Self> {
+        validate_definitions(definitions)?;
+        Ok(Self { definitions })
     }
 
     #[must_use]
-    pub fn get(self, name: &str) -> Option<&'static ProgramDefinition> {
+    pub(crate) fn get(self, name: &str) -> Option<&'static ProgramDefinition> {
         self.definitions
             .iter()
             .find(|definition| definition.descriptor.name == name)
     }
+}
 
-    #[must_use]
-    pub const fn definitions(self) -> &'static [ProgramDefinition] {
-        self.definitions
+fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
+    let mut programs = BTreeSet::new();
+    for definition in definitions {
+        let descriptor = &definition.descriptor;
+        validate_definition_name("program", descriptor.name)?;
+        if !programs.insert(descriptor.name) {
+            return Err(definition_error(format!(
+                "duplicate program name `{}`",
+                descriptor.name
+            )));
+        }
+
+        let mut arguments = BTreeSet::new();
+        let mut variadic_index = None;
+        for (index, port) in descriptor.inputs.iter().enumerate() {
+            validate_definition_name("input port", port.name)?;
+            if !arguments.insert(port.name) {
+                return Err(definition_error(format!(
+                    "program `{}` has duplicate or colliding argument name `{}`",
+                    descriptor.name, port.name
+                )));
+            }
+            if matches!(port.cardinality, Cardinality::Variadic { .. })
+                && variadic_index.replace(index).is_some()
+            {
+                return Err(definition_error(format!(
+                    "program `{}` has more than one variadic input port",
+                    descriptor.name
+                )));
+            }
+        }
+        for parameter in descriptor.parameters {
+            validate_definition_name("parameter", parameter.name)?;
+            if !arguments.insert(parameter.name) {
+                return Err(definition_error(format!(
+                    "program `{}` has duplicate or colliding argument name `{}`",
+                    descriptor.name, parameter.name
+                )));
+            }
+        }
+        if let Some(primary) = descriptor.primary_parameter
+            && !descriptor
+                .parameters
+                .iter()
+                .any(|parameter| parameter.name == primary)
+        {
+            return Err(definition_error(format!(
+                "program `{}` names nonexistent primary parameter `{primary}`",
+                descriptor.name
+            )));
+        }
+        if let Some(index) = variadic_index
+            && index != 0
+            && descriptor.inputs.len() > 1
+        {
+            return Err(definition_error(format!(
+                "program `{}` must place its variadic input before fixed inputs",
+                descriptor.name
+            )));
+        }
     }
+    Ok(())
+}
+
+fn validate_definition_name(role: &str, name: &str) -> Result<()> {
+    let mut characters = name.chars();
+    let valid_start = characters
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
+    let valid_rest = characters
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
+    if valid_start && valid_rest {
+        Ok(())
+    } else {
+        Err(definition_error(format!(
+            "{role} name `{name}` must match [A-Za-z_][A-Za-z0-9_-]*"
+        )))
+    }
+}
+
+fn definition_error(message: String) -> Diagnostic {
+    Diagnostic::new(
+        "E_INVALID_PROGRAM_DEFINITION",
+        message,
+        SourceSpan::file_start("<program-registry>"),
+    )
 }
 
 fn lower_image(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
@@ -228,4 +310,118 @@ fn lower_repeat(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Resu
         call.definition().descriptor.version,
         call.origin().clone_with_construct("repeat"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DUPLICATE_PORTS: &[InputPort] = &[
+        InputPort {
+            name: "video",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+        InputPort {
+            name: "video",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+    ];
+    const COLLIDING_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
+        name: "video",
+        parameter_type: ParameterType::String,
+        required: false,
+    }];
+    const DUPLICATE_PARAMETERS: &[ParameterDescriptor] = &[
+        ParameterDescriptor {
+            name: "path",
+            parameter_type: ParameterType::File,
+            required: true,
+        },
+        ParameterDescriptor {
+            name: "path",
+            parameter_type: ParameterType::String,
+            required: false,
+        },
+    ];
+    const MULTIPLE_VARIADICS: &[InputPort] = &[
+        InputPort {
+            name: "left",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::Variadic { min: 1 },
+        },
+        InputPort {
+            name: "right",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::Variadic { min: 1 },
+        },
+    ];
+    const BAD_VARIADIC_ORDER: &[InputPort] = &[
+        InputPort {
+            name: "head",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::One,
+        },
+        InputPort {
+            name: "tail",
+            value_type: ValueType::Video,
+            cardinality: Cardinality::Variadic { min: 1 },
+        },
+    ];
+
+    fn definition(
+        name: &'static str,
+        inputs: &'static [InputPort],
+        parameters: &'static [ParameterDescriptor],
+        primary_parameter: Option<&'static str>,
+    ) -> ProgramDefinition {
+        ProgramDefinition {
+            descriptor: ProgramDescriptor {
+                name,
+                version: 1,
+                inputs,
+                parameters,
+                primary_parameter,
+                output: ValueType::Video,
+            },
+            lower: lower_image,
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_program_names() {
+        let definitions = Box::leak(
+            vec![
+                definition("duplicate", &[], &[], None),
+                definition("duplicate", &[], &[], None),
+            ]
+            .into_boxed_slice(),
+        );
+        let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate program");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        assert!(error.message.contains("duplicate program"));
+    }
+
+    #[test]
+    fn rejects_invalid_descriptor_argument_layouts() {
+        for invalid in [
+            definition("duplicate_ports", DUPLICATE_PORTS, &[], None),
+            definition(
+                "collision",
+                &DUPLICATE_PORTS[..1],
+                COLLIDING_PARAMETER,
+                None,
+            ),
+            definition("duplicate_parameters", &[], DUPLICATE_PARAMETERS, None),
+            definition("missing_primary", &[], &[], Some("path")),
+            definition("multiple_variadics", MULTIPLE_VARIADICS, &[], None),
+            definition("bad_variadic", BAD_VARIADIC_ORDER, &[], None),
+        ] {
+            let definitions = Box::leak(vec![invalid].into_boxed_slice());
+            let error =
+                ProgramRegistry::from_definitions(definitions).expect_err("invalid descriptor");
+            assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        }
+    }
 }

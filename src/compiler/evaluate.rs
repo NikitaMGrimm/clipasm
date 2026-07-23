@@ -5,9 +5,7 @@ use crate::compiler::{
 };
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueStack, ValueType, VideoSpec};
-use crate::program::{
-    Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition, ProgramRegistry,
-};
+use crate::program::{Cardinality, InputPort, ProgramDefinition, ProgramRegistry};
 use crate::syntax::{Argument, Item, ItemKind, Reference, Workflow};
 
 pub(super) fn evaluate(
@@ -47,13 +45,13 @@ struct Evaluator<'a> {
 
 impl Evaluator<'_> {
     fn collect_names(&mut self) -> Result<()> {
-        for clip in &self.workflow.clips {
+        for clip in self.workflow.clips() {
             self.add_symbol(&clip.name, &clip.span, ValueType::Video)?;
         }
-        for clip in &self.workflow.clips {
+        for clip in self.workflow.clips() {
             self.collect_item_names(&clip.body)?;
         }
-        self.collect_item_names(&self.workflow.timeline)?;
+        self.collect_item_names(self.workflow.timeline())?;
         self.symbol_order.sort();
         Ok(())
     }
@@ -120,7 +118,7 @@ impl Evaluator<'_> {
     }
 
     fn evaluate_all(&mut self) -> Result<ValueRef> {
-        let mut clips = self.workflow.clips.iter().collect::<Vec<_>>();
+        let mut clips = self.workflow.clips().iter().collect::<Vec<_>>();
         clips.sort_by(|left, right| left.name.cmp(&right.name));
         for clip in clips {
             let mut stack = ValueStack::new();
@@ -150,10 +148,10 @@ impl Evaluator<'_> {
         }
 
         let mut root_stack = ValueStack::new();
-        self.evaluate_body(&self.workflow.timeline, &mut root_stack, None)?;
+        self.evaluate_body(self.workflow.timeline(), &mut root_stack, None)?;
         self.finalize_timeline(
             root_stack,
-            SourceSpan::file_start(&self.workflow.source_path),
+            SourceSpan::file_start(self.workflow.source_path()),
             "root timeline",
         )
     }
@@ -331,7 +329,7 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
     ) -> Result<ValueRef> {
-        validate_parameters(definition, arguments, span)?;
+        crate::syntax::validate_arguments(definition, arguments, span)?;
         let inputs = self.bind_inputs(definition, arguments, stack, span)?;
         let call = ResolvedCall {
             definition,
@@ -550,77 +548,6 @@ fn bind_missing_fixed(
         slots[index] = Some(vec![value]);
     }
     Ok(())
-}
-
-fn validate_parameters(
-    definition: &ProgramDefinition,
-    arguments: &BTreeMap<String, Argument>,
-    span: &SourceSpan,
-) -> Result<()> {
-    let descriptor = &definition.descriptor;
-    for (name, argument) in arguments {
-        if descriptor.inputs.iter().any(|port| port.name == name) {
-            continue;
-        }
-        let Some(parameter) = descriptor
-            .parameters
-            .iter()
-            .find(|parameter| parameter.name == name)
-        else {
-            return Err(Diagnostic::new(
-                "E_UNKNOWN_PROGRAM_ARGUMENT",
-                format!(
-                    "unknown argument `{name}` for program `{}`",
-                    descriptor.name
-                ),
-                argument.span().clone(),
-            ));
-        };
-        validate_parameter_type(descriptor.name, parameter, argument)?;
-    }
-    for parameter in descriptor
-        .parameters
-        .iter()
-        .filter(|parameter| parameter.required)
-    {
-        if !arguments.contains_key(parameter.name) {
-            return Err(Diagnostic::new(
-                "E_MISSING_ARGUMENT",
-                format!(
-                    "missing required parameter `{}.{}`",
-                    descriptor.name, parameter.name
-                ),
-                span.clone(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_parameter_type(
-    program: &str,
-    parameter: &ParameterDescriptor,
-    argument: &Argument,
-) -> Result<()> {
-    let valid = match parameter.parameter_type {
-        ParameterType::Integer => matches!(argument, Argument::Integer(..)),
-        ParameterType::String
-        | ParameterType::File
-        | ParameterType::Duration
-        | ParameterType::Enum(_) => matches!(argument, Argument::String(..)),
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT_TYPE",
-            format!(
-                "parameter `{}.{}` has the wrong value type",
-                program, parameter.name
-            ),
-            argument.span().clone(),
-        ))
-    }
 }
 
 fn pop_one(stack: &mut ValueStack, program: &str, span: &SourceSpan) -> Result<ValueRef> {

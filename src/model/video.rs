@@ -3,15 +3,15 @@ use serde::{Deserialize, Serialize};
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::FrameCount;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct FrameRate {
-    pub numerator: u32,
-    pub denominator: u32,
+    numerator: u32,
+    denominator: u32,
 }
 
 impl FrameRate {
     #[must_use]
-    pub fn new(numerator: u32, denominator: u32) -> Option<Self> {
+    pub const fn new(numerator: u32, denominator: u32) -> Option<Self> {
         if numerator == 0 || denominator == 0 {
             return None;
         }
@@ -20,6 +20,16 @@ impl FrameRate {
             numerator: numerator / divisor,
             denominator: denominator / divisor,
         })
+    }
+
+    #[must_use]
+    pub const fn numerator(self) -> u32 {
+        self.numerator
+    }
+
+    #[must_use]
+    pub const fn denominator(self) -> u32 {
+        self.denominator
     }
 
     /// Parse an integer or rational frame rate.
@@ -90,7 +100,7 @@ impl ImageFit {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct VideoSpec {
     pub width: u32,
     pub height: u32,
@@ -110,7 +120,7 @@ impl Default for VideoSpec {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct VideoDomain {
     pub frames: FrameCount,
     pub width: u32,
@@ -141,5 +151,12 @@ mod tests {
             serde_json::to_string(&reducible).expect("serialize"),
             serde_json::to_string(&canonical).expect("serialize")
         );
+    }
+
+    #[test]
+    fn frame_rate_accessors_expose_the_canonical_components() {
+        let rate = FrameRate::new(60, 2).expect("frame rate");
+        assert_eq!(rate.numerator(), 30);
+        assert_eq!(rate.denominator(), 1);
     }
 }

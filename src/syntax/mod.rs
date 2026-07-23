@@ -9,14 +9,59 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
 use crate::model::SourceTimeRange;
 use crate::program::{ParameterType, ProgramDefinition, ProgramRegistry};
 
+/// A parser-owned, syntax-valid workflow.
+///
+/// Fields are intentionally private so compilation cannot receive a workflow
+/// that bypassed syntax validation.
+///
+/// ```compile_fail
+/// use rhythmcut::syntax::Workflow;
+///
+/// let invalid = Workflow {
+///     version: 999,
+///     ..todo!()
+/// };
+/// ```
 #[derive(Clone, Debug)]
 pub struct Workflow {
-    pub source_path: PathBuf,
-    pub version: u64,
-    pub video: VideoSettings,
-    pub clips: Vec<NamedClip>,
-    pub timeline: Vec<Item>,
-    pub output: Option<Spanned<PathBuf>>,
+    source_path: PathBuf,
+    version: u64,
+    video: VideoSettings,
+    clips: Vec<NamedClip>,
+    timeline: Vec<Item>,
+    output: Option<Spanned<PathBuf>>,
+}
+
+impl Workflow {
+    #[must_use]
+    pub fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    #[must_use]
+    pub const fn version(&self) -> u64 {
+        self.version
+    }
+
+    #[must_use]
+    pub const fn video(&self) -> &VideoSettings {
+        &self.video
+    }
+
+    #[must_use]
+    pub fn clips(&self) -> &[NamedClip] {
+        &self.clips
+    }
+
+    #[must_use]
+    pub fn timeline(&self) -> &[Item] {
+        &self.timeline
+    }
+
+    #[must_use]
+    pub const fn output(&self) -> Option<&Spanned<PathBuf>> {
+        self.output.as_ref()
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -131,7 +176,7 @@ pub fn parse_str(path: &Path, source: &str) -> Result<Workflow> {
 /// # Errors
 ///
 /// Returns a source-located diagnostic for invalid YAML or workflow syntax.
-pub fn parse_str_with_registry(
+pub(crate) fn parse_str_with_registry(
     path: &Path,
     source: &str,
     registry: ProgramRegistry,
@@ -608,7 +653,7 @@ fn parse_invocation(
     })
 }
 
-fn validate_arguments(
+pub(crate) fn validate_arguments(
     definition: &ProgramDefinition,
     arguments: &BTreeMap<String, Argument>,
     invocation_span: &SourceSpan,
@@ -943,7 +988,7 @@ mod tests {
 
     #[test]
     fn one_test_definition_drives_lookup_shorthand_validation_and_lowering() {
-        let registry = ProgramRegistry::from_definitions(&TEST_PROGRAMS);
+        let registry = ProgramRegistry::from_definitions(&TEST_PROGRAMS).expect("valid registry");
         let workflow = parse_str_with_registry(
             Path::new("workflow.yaml"),
             "version: 1\ntimeline:\n  - test_source: asset.any\n",
@@ -965,7 +1010,7 @@ mod tests {
 
     #[test]
     fn declared_output_type_is_checked_against_lowerer_result() {
-        let registry = ProgramRegistry::from_definitions(&WRONG_PROGRAMS);
+        let registry = ProgramRegistry::from_definitions(&WRONG_PROGRAMS).expect("valid registry");
         let workflow = parse_str_with_registry(
             Path::new("workflow.yaml"),
             "version: 1\ntimeline:\n  - wrong_output: asset.any\n",
@@ -975,5 +1020,30 @@ mod tests {
         let error = crate::compiler::compile_with_registry(&workflow, registry)
             .expect_err("output type mismatch");
         assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
+    }
+
+    #[test]
+    fn compiler_rejects_a_list_for_a_fixed_input_port() {
+        let mut workflow = parse(
+            "version: 1\nclips:\n  a: {image: {path: a.png, duration: 1s}}\n  b: {image: {path: b.png, duration: 1s}}\ntimeline:\n  - repeat:\n      video: $a\n      count: 2\n",
+        )
+        .expect("initially valid workflow");
+        let ItemKind::Invocation(invocation) = &mut workflow.timeline[0].kind else {
+            panic!("repeat invocation");
+        };
+        let span = invocation.arguments["video"].span().clone();
+        invocation.arguments.insert(
+            "video".to_owned(),
+            Argument::List(
+                vec![
+                    Argument::Reference("a".to_owned(), span.clone()),
+                    Argument::Reference("b".to_owned(), span.clone()),
+                ],
+                span,
+            ),
+        );
+
+        let error = crate::compiler::compile(&workflow).expect_err("fixed input list");
+        assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
     }
 }

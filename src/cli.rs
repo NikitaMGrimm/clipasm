@@ -18,7 +18,7 @@ pub struct Cli {
 enum Command {
     /// Parse, type-check, and infer every video domain.
     Validate { workflow: PathBuf },
-    /// Emit the canonical, fully lowered primitive plan.
+    /// Emit the canonical pure semantic compiled workflow.
     Compile {
         workflow: PathBuf,
         #[arg(short, long)]

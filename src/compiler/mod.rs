@@ -541,13 +541,13 @@ pub(crate) fn compile_with_registry(
 
 fn resolve_video_spec(workflow: &Workflow) -> Result<VideoSpec> {
     let mut spec = VideoSpec::default();
-    if let Some(width) = &workflow.video.width {
+    if let Some(width) = &workflow.video().width {
         spec.width = width.value;
     }
-    if let Some(height) = &workflow.video.height {
+    if let Some(height) = &workflow.video().height {
         spec.height = height.value;
     }
-    if let Some(fps) = &workflow.video.fps {
+    if let Some(fps) = &workflow.video().fps {
         spec.fps = crate::model::FrameRate::parse(&fps.value, &fps.span)?;
     }
     Ok(spec)

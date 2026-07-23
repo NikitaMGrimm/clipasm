@@ -4,7 +4,7 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::compiler::{CompiledWorkflow, SemanticNodeKind, SourceOrigin};
@@ -222,11 +222,15 @@ enum ExportPixelFormat {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ToolIdentity {
-    executable: String,
+    executable: PathBuf,
     version: String,
 }
 
 impl ToolIdentity {
+    pub(crate) fn executable(&self) -> &Path {
+        &self.executable
+    }
+
     pub(crate) fn version(&self) -> &str {
         &self.version
     }
@@ -257,11 +261,16 @@ pub fn preflight(compiled: &CompiledWorkflow) -> Result<PreparedPlan> {
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
     let execution_namespace = hex::encode(Sha256::digest(format!(
-        "{}\n{}\nprepared-v1",
-        ffmpeg.version, ffprobe.version
+        "{}\n{}\n{}\n{}\nprepared-v1",
+        ffmpeg.executable.display(),
+        ffmpeg.version,
+        ffprobe.executable.display(),
+        ffprobe.version
     )));
     let mut lowerer = PreflightLowerer {
         compiled,
+        ffmpeg: &ffmpeg,
+        ffprobe: &ffprobe,
         nodes: Vec::new(),
         lowered: HashMap::new(),
     };
@@ -299,6 +308,8 @@ pub fn preflight(compiled: &CompiledWorkflow) -> Result<PreparedPlan> {
 
 struct PreflightLowerer<'a> {
     compiled: &'a CompiledWorkflow,
+    ffmpeg: &'a ToolIdentity,
+    ffprobe: &'a ToolIdentity,
     nodes: Vec<PreparedNode>,
     lowered: HashMap<ValueId, NodeId>,
 }
@@ -312,8 +323,13 @@ impl PreflightLowerer<'_> {
         let compiled_node = &self.compiled.nodes()[value.id().0 as usize];
         let result = match compiled_node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
-                let asset =
-                    prepare_asset(self.compiled.source_path(), path, compiled_node.origin())?;
+                let asset = prepare_asset(
+                    self.compiled.source_path(),
+                    path,
+                    compiled_node.origin(),
+                    self.ffmpeg,
+                    self.ffprobe,
+                )?;
                 self.add_node(
                     PreparedNodeKind::ImageVideo {
                         asset,
@@ -468,7 +484,13 @@ fn prepare_output_path(compiled: &CompiledWorkflow) -> Result<PathBuf> {
     Ok(resolve_path(compiled.source_path(), &output.value))
 }
 
-fn prepare_asset(workflow: &Path, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset> {
+fn prepare_asset(
+    workflow: &Path,
+    authored: &Path,
+    origin: &SourceOrigin,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<PreparedAsset> {
     let source_path = resolve_path(workflow, authored);
     let metadata = fs::metadata(&source_path).map_err(|error| {
         Diagnostic::new(
@@ -489,30 +511,27 @@ fn prepare_asset(workflow: &Path, authored: &Path, origin: &SourceOrigin) -> Res
     }
     let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
     let content_hash = hash_file(&source_path, &origin.span)?;
-    verify_image_decodable(&source_path, &origin.span)?;
+    verify_image_decodable(&source_path, &origin.span, ffmpeg, ffprobe)?;
     Ok(PreparedAsset {
         source_path,
         content_hash,
     })
 }
 
-pub(crate) fn verify_prepared_assets(plan: &PreparedPlan) -> Result<()> {
-    for node in plan.nodes() {
-        if let PreparedNodeKind::ImageVideo { asset, .. } = node.kind() {
-            let actual = hash_file(asset.source_path(), &node.origin().span)?;
-            if actual != asset.content_hash() {
-                return Err(Diagnostic::new(
-                    "E_ASSET_CHANGED",
-                    format!(
-                        "asset `{}` changed after preflight",
-                        asset.source_path().display()
-                    ),
-                    node.origin().span.clone(),
-                ));
-            }
-        }
+pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) -> Result<()> {
+    let actual = hash_file(asset.source_path(), span)?;
+    if actual == asset.content_hash() {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "E_ASSET_CHANGED",
+            format!(
+                "asset `{}` changed after preflight",
+                asset.source_path().display()
+            ),
+            span.clone(),
+        ))
     }
-    Ok(())
 }
 
 fn hash_file(path: &Path, span: &SourceSpan) -> Result<String> {
@@ -601,38 +620,232 @@ fn prepared_semantic_hash(
 }
 
 fn inspect_ffmpeg() -> Result<ToolIdentity> {
-    inspect_ffmpeg_at(Path::new("ffmpeg"))
+    inspect_ffmpeg_at(&resolve_executable("ffmpeg", "E_FFMPEG")?)
 }
 
 fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
-    let version = tool_version(tool, "E_FFMPEG")?;
-    let encoders = tool_output(tool, &["-hide_banner", "-encoders"], "E_FFMPEG")?;
-    if !encoders.contains("libx264") {
-        return Err(Diagnostic::new(
-            "E_FFMPEG_CAPABILITY",
-            "installed FFmpeg does not provide the required `libx264` encoder",
+    let tool = fs::canonicalize(tool).map_err(|error| {
+        Diagnostic::new(
+            "E_FFMPEG",
+            format!(
+                "could not resolve FFmpeg executable `{}`: {error}",
+                tool.display()
+            ),
             SourceSpan::file_start(tool),
-        ));
+        )
+    })?;
+    let version = tool_version(&tool, "E_FFMPEG")?;
+    let encoders = tool_output(&tool, &["-hide_banner", "-encoders"], "E_FFMPEG")?;
+    for encoder in ["libx264", "ffv1"] {
+        if capability_missing(&encoders, encoder) {
+            return Err(Diagnostic::new(
+                "E_FFMPEG_CAPABILITY",
+                format!("installed FFmpeg does not provide the required `{encoder}` encoder"),
+                SourceSpan::file_start(&tool),
+            ));
+        }
     }
-    let muxers = tool_output(tool, &["-hide_banner", "-muxers"], "E_FFMPEG")?;
-    if !muxers.lines().any(|line| line.contains(" mp4 ")) {
-        return Err(Diagnostic::new(
-            "E_FFMPEG_CAPABILITY",
-            "installed FFmpeg does not provide the required MP4 muxer",
-            SourceSpan::file_start(tool),
-        ));
+    let muxers = tool_output(&tool, &["-hide_banner", "-muxers"], "E_FFMPEG")?;
+    for (muxer, display) in [("mp4", "MP4"), ("matroska", "Matroska")] {
+        if capability_missing(&muxers, muxer) {
+            return Err(Diagnostic::new(
+                "E_FFMPEG_CAPABILITY",
+                format!("installed FFmpeg does not provide the required {display} muxer"),
+                SourceSpan::file_start(&tool),
+            ));
+        }
     }
     Ok(ToolIdentity {
-        executable: tool.to_string_lossy().into_owned(),
+        executable: tool,
         version,
     })
 }
 
+fn capability_missing(output: &str, capability: &str) -> bool {
+    !output
+        .lines()
+        .any(|line| line.split_whitespace().any(|token| token == capability))
+}
+
 fn inspect_ffprobe() -> Result<ToolIdentity> {
+    let executable = resolve_executable("ffprobe", "E_FFPROBE")?;
     Ok(ToolIdentity {
-        executable: "ffprobe".to_owned(),
-        version: tool_version(Path::new("ffprobe"), "E_FFPROBE")?,
+        version: tool_version(&executable, "E_FFPROBE")?,
+        executable,
     })
+}
+
+fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
+    let authored = Path::new(name);
+    let candidates = if authored.components().count() > 1 {
+        vec![authored.to_path_buf()]
+    } else {
+        let path = std::env::var_os("PATH").ok_or_else(|| {
+            Diagnostic::new(
+                code,
+                format!("could not resolve `{name}` because PATH is not set"),
+                SourceSpan::file_start(authored),
+            )
+        })?;
+        std::env::split_paths(&path)
+            .flat_map(|directory| executable_candidates(&directory, name))
+            .collect()
+    };
+    candidates
+        .into_iter()
+        .find(|candidate| is_executable_file(candidate))
+        .and_then(|candidate| fs::canonicalize(candidate).ok())
+        .ok_or_else(|| {
+            Diagnostic::new(
+                code,
+                format!("could not resolve executable `{name}` on PATH"),
+                SourceSpan::file_start(authored),
+            )
+        })
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn executable_candidates(directory: &Path, name: &str) -> Vec<PathBuf> {
+    let candidate = directory.join(name);
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![candidate.clone()];
+        if candidate.extension().is_none() {
+            candidates.push(candidate.with_extension("exe"));
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    {
+        vec![candidate]
+    }
+}
+
+#[derive(Deserialize)]
+struct ImageProbeDocument {
+    #[serde(default)]
+    streams: Vec<ImageProbeStream>,
+}
+
+#[derive(Deserialize)]
+struct ImageProbeStream {
+    codec_type: Option<String>,
+    nb_read_frames: Option<String>,
+}
+
+fn verify_image_decodable(
+    path: &Path,
+    span: &SourceSpan,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<()> {
+    let output = Command::new(ffprobe.executable())
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            "stream=codec_type,nb_read_frames",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFPROBE",
+                format!("could not inspect image `{}`: {error}", path.display()),
+                span.clone(),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "image `{}` is not decodable by FFprobe\n{}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    let document: ImageProbeDocument = serde_json::from_slice(&output.stdout).map_err(|error| {
+        Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "FFprobe returned invalid image metadata for `{}`: {error}",
+                path.display()
+            ),
+            span.clone(),
+        )
+    })?;
+    let videos = document
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("video"))
+        .collect::<Vec<_>>();
+    let audio_count = document
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
+        .count();
+    let frame_count = videos
+        .first()
+        .and_then(|stream| stream.nb_read_frames.as_deref())
+        .and_then(|frames| frames.parse::<u64>().ok());
+    if videos.len() != 1 || audio_count != 0 || frame_count != Some(1) {
+        return Err(Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "image `{}` must contain exactly one video stream, no audio, and one decoded frame; found {} video stream(s), {audio_count} audio stream(s), and {frame_count:?} decoded frame(s)",
+                path.display(),
+                videos.len()
+            ),
+            span.clone(),
+        ));
+    }
+    let decode = Command::new(ffmpeg.executable())
+        .args(["-v", "error", "-loop", "1", "-i"])
+        .arg(path)
+        .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-f", "null", "-"])
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFMPEG",
+                format!("could not decode image `{}`: {error}", path.display()),
+                span.clone(),
+            )
+        })?;
+    if !decode.status.success() {
+        return Err(Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "image `{}` is not compatible with the renderer's still-image input mode\n{}",
+                path.display(),
+                String::from_utf8_lossy(&decode.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    Ok(())
 }
 
 fn tool_version(tool: &Path, code: &'static str) -> Result<String> {
@@ -668,41 +881,6 @@ fn tool_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<St
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned()
         + &String::from_utf8_lossy(&output.stderr))
-}
-
-fn verify_image_decodable(path: &Path, span: &SourceSpan) -> Result<()> {
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=codec_type",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-        ])
-        .arg(path)
-        .output()
-        .map_err(|error| {
-            Diagnostic::new(
-                "E_FFPROBE",
-                format!("could not inspect image `{}`: {error}", path.display()),
-                span.clone(),
-            )
-        })?;
-    if !output.status.success() || String::from_utf8_lossy(&output.stdout).trim() != "video" {
-        return Err(Diagnostic::new(
-            "E_SOURCE_DECODABILITY",
-            format!(
-                "image `{}` is not decodable by FFprobe\n{}",
-                path.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            span.clone(),
-        ));
-    }
-    Ok(())
 }
 
 fn resolve_path(workflow: &Path, value: &Path) -> PathBuf {
@@ -741,7 +919,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn ffmpeg_preflight_reports_missing_encoder_and_container() {
+    fn ffmpeg_preflight_requires_all_render_encoders_and_muxers() {
         let (_directory, no_encoder) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; else echo none; fi\n",
         );
@@ -749,12 +927,19 @@ mod tests {
         assert_eq!(encoder_error.code, "E_FFMPEG_CAPABILITY");
         assert!(encoder_error.message.contains("libx264"));
 
-        let (_directory, no_container) = executable_script(
+        let (_directory, no_ffv1) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo libx264; else echo none; fi\n",
         );
-        let container_error = inspect_ffmpeg_at(&no_container).expect_err("missing muxer");
+        let encoder_error = inspect_ffmpeg_at(&no_ffv1).expect_err("missing FFV1");
+        assert_eq!(encoder_error.code, "E_FFMPEG_CAPABILITY");
+        assert!(encoder_error.message.contains("ffv1"));
+
+        let (_directory, no_matroska) = executable_script(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; else echo mp4; fi\n",
+        );
+        let container_error = inspect_ffmpeg_at(&no_matroska).expect_err("missing Matroska");
         assert_eq!(container_error.code, "E_FFMPEG_CAPABILITY");
-        assert!(container_error.message.contains("MP4"));
+        assert!(container_error.message.contains("Matroska"));
     }
 
     #[cfg(unix)]
@@ -769,5 +954,82 @@ mod tests {
             manifest.as_os_str().as_bytes(),
             b"video-\xFF.mp4.manifest.json"
         );
+    }
+
+    #[test]
+    fn image_contract_rejects_video_and_animated_sources() {
+        if Command::new("ffmpeg").arg("-version").output().is_err()
+            || Command::new("ffprobe").arg("-version").output().is_err()
+        {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let video = directory.path().join("video.mp4");
+        let animated = directory.path().join("animated.gif");
+        let png = directory.path().join("still.png");
+        let jpeg = directory.path().join("still.jpg");
+        let ppm = directory.path().join("still.ppm");
+        let span = SourceSpan::file_start("workflow.yaml");
+        let ffmpeg = inspect_ffmpeg().expect("FFmpeg");
+        let ffprobe = inspect_ffprobe().expect("FFprobe");
+        assert!(ffmpeg.executable().is_absolute());
+        assert!(ffprobe.executable().is_absolute());
+
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=red:size=16x16:rate=2:duration=1",
+                "-c:v",
+                "libx264",
+            ])
+            .arg(&video)
+            .status()
+            .expect("create video");
+        assert!(status.success());
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=red:size=16x16:rate=2:duration=1",
+            ])
+            .arg(&animated)
+            .status()
+            .expect("create animation");
+        assert!(status.success());
+
+        assert!(verify_image_decodable(&video, &span, &ffmpeg, &ffprobe).is_err());
+        assert!(verify_image_decodable(&animated, &span, &ffmpeg, &ffprobe).is_err());
+
+        for still in [&png, &jpeg] {
+            let status = Command::new(ffmpeg.executable())
+                .args([
+                    "-y",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=red:size=16x16",
+                    "-frames:v",
+                    "1",
+                ])
+                .arg(still)
+                .status()
+                .expect("create still image");
+            assert!(status.success());
+        }
+        fs::write(&ppm, b"P3\n1 1\n255\n255 0 0\n").expect("PPM");
+        for still in [&png, &jpeg, &ppm] {
+            verify_image_decodable(still, &span, &ffmpeg, &ffprobe).expect("supported still image");
+        }
     }
 }

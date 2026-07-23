@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::preflight::{
-    PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_assets,
+    PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -69,7 +69,6 @@ struct ProbeFrame {
 /// violations, or atomic publication failures.
 #[allow(clippy::too_many_lines)]
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
-    verify_prepared_assets(plan)?;
     let workflow_directory = plan
         .workflow_path()
         .parent()
@@ -101,8 +100,12 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             ));
         }
         let artifact = cache_directory.join(format!("{}.mkv", node.fingerprint()));
+        if let PreparedNodeKind::ImageVideo { asset, .. } = node.kind() {
+            verify_prepared_asset(asset, &node.origin().span)?;
+        }
         let hit = artifact.is_file()
             && verify_artifact(
+                plan.ffprobe().executable(),
                 &artifact,
                 node.domain(),
                 plan.media_policy().working_pixel_format(),
@@ -130,8 +133,10 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 &artifact,
                 plan.video(),
                 plan.media_policy(),
+                plan.ffmpeg().executable(),
             )?;
             verify_artifact(
+                plan.ffprobe().executable(),
                 &artifact,
                 node.domain(),
                 plan.media_policy().working_pixel_format(),
@@ -167,6 +172,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         plan.video(),
         root_node.domain(),
         plan.media_policy(),
+        plan.ffmpeg().executable(),
+        plan.ffprobe().executable(),
     )?;
 
     let manifest = Manifest {
@@ -206,10 +213,26 @@ fn publish_export(
     spec: &VideoSpec,
     domain: &VideoDomain,
     media_policy: RenderMediaPolicy,
+    ffmpeg: &Path,
+    ffprobe: &Path,
 ) -> Result<()> {
     let temporary = temporary_sibling(output, "export", "mp4");
-    let result = export_mp4(artifact, &temporary, spec, domain.frames, media_policy)
-        .and_then(|()| verify_artifact(&temporary, domain, media_policy.export_pixel_format()));
+    let result = export_mp4(
+        artifact,
+        &temporary,
+        spec,
+        domain.frames,
+        media_policy,
+        ffmpeg,
+    )
+    .and_then(|()| {
+        verify_artifact(
+            ffprobe,
+            &temporary,
+            domain,
+            media_policy.export_pixel_format(),
+        )
+    });
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary);
         return Err(error);
@@ -245,9 +268,10 @@ fn render_node(
     destination: &Path,
     spec: &VideoSpec,
     media_policy: RenderMediaPolicy,
+    ffmpeg: &Path,
 ) -> Result<()> {
     let temporary = temporary_sibling(destination, "cache", "mkv");
-    let mut command = Command::new("ffmpeg");
+    let mut command = Command::new(ffmpeg);
     command.args(["-y", "-v", "error"]);
     match node.kind() {
         PreparedNodeKind::ImageVideo { asset, fit, frames } => {
@@ -315,7 +339,11 @@ fn append_lossless_output(
             media_policy.working_pixel_format(),
             "-r",
         ])
-        .arg(format!("{}/{}", spec.fps.numerator, spec.fps.denominator))
+        .arg(format!(
+            "{}/{}",
+            spec.fps.numerator(),
+            spec.fps.denominator()
+        ))
         .arg(destination);
 }
 
@@ -325,15 +353,20 @@ fn export_mp4(
     spec: &VideoSpec,
     frames: FrameCount,
     media_policy: RenderMediaPolicy,
+    ffmpeg: &Path,
 ) -> Result<()> {
-    let mut command = Command::new("ffmpeg");
+    let mut command = Command::new(ffmpeg);
     command
         .args(["-y", "-v", "error", "-i"])
         .arg(artifact)
         .args(["-an", "-c:v", "libx264", "-pix_fmt"])
         .arg(media_policy.export_pixel_format())
         .arg("-r")
-        .arg(format!("{}/{}", spec.fps.numerator, spec.fps.denominator))
+        .arg(format!(
+            "{}/{}",
+            spec.fps.numerator(),
+            spec.fps.denominator()
+        ))
         .args([
             "-frames:v",
             &frames.0.to_string(),
@@ -360,8 +393,8 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy
     };
     format!(
         "{geometry},fps={}/{},setsar=1,format={}",
-        spec.fps.numerator,
-        spec.fps.denominator,
+        spec.fps.numerator(),
+        spec.fps.denominator(),
         media_policy.working_pixel_format()
     )
 }
@@ -380,8 +413,13 @@ fn artifact<'a>(artifacts: &'a [PathBuf], id: NodeId, span: &SourceSpan) -> Resu
 }
 
 #[allow(clippy::too_many_lines)]
-fn verify_artifact(path: &Path, domain: &VideoDomain, pixel_format: &str) -> Result<()> {
-    let mut command = Command::new("ffprobe");
+fn verify_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    domain: &VideoDomain,
+    pixel_format: &str,
+) -> Result<()> {
+    let mut command = Command::new(ffprobe);
     command
         .args([
             "-v",
@@ -441,7 +479,8 @@ fn verify_artifact(path: &Path, domain: &VideoDomain, pixel_format: &str) -> Res
     }
     let expected_rate = format!(
         "{}/{}",
-        domain.frame_rate.numerator, domain.frame_rate.denominator
+        domain.frame_rate.numerator(),
+        domain.frame_rate.denominator()
     );
     if video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
         return Err(contract_error(
@@ -603,6 +642,8 @@ mod tests {
             &spec,
             &domain,
             RenderMediaPolicy::default(),
+            Path::new("ffmpeg"),
+            Path::new("ffprobe"),
         )
         .expect_err("export failure");
         assert_eq!(

@@ -56,12 +56,12 @@ pub(super) fn finalize(
         construct: "root timeline".to_owned(),
         output: evaluation.root,
         id: None,
-        span: crate::diagnostic::SourceSpan::file_start(&workflow.source_path),
+        span: crate::diagnostic::SourceSpan::file_start(workflow.source_path()),
     });
 
     Ok(CompiledWorkflow {
         format_version,
-        workflow_version: workflow.version,
+        workflow_version: workflow.version(),
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         structure_hash,
         video,
@@ -69,8 +69,8 @@ pub(super) fn finalize(
         root: evaluation.root,
         named_values,
         explain,
-        output: workflow.output.clone(),
-        source_path: workflow.source_path.clone(),
+        output: workflow.output().cloned(),
+        source_path: workflow.source_path().to_path_buf(),
     })
 }
 

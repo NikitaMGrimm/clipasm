@@ -100,14 +100,15 @@ impl SourceTime {
     /// Returns a diagnostic if the duration is not exactly frame-aligned or
     /// exceeds the supported frame count.
     pub fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<u64> {
-        let numerator = u128::from(self.nanoseconds) * u128::from(fps.numerator);
-        let denominator = 1_000_000_000_u128 * u128::from(fps.denominator);
+        let numerator = u128::from(self.nanoseconds) * u128::from(fps.numerator());
+        let denominator = 1_000_000_000_u128 * u128::from(fps.denominator());
         if numerator % denominator != 0 {
             return Err(Diagnostic::new(
                 "E_TIME_NOT_FRAME_ALIGNED",
                 format!(
                     "time is not exactly representable at {}/{} fps",
-                    fps.numerator, fps.denominator
+                    fps.numerator(),
+                    fps.denominator()
                 ),
                 span.clone(),
             ));
