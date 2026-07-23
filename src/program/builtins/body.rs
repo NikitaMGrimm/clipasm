@@ -113,30 +113,6 @@ fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result
     })
 }
 
-struct RequireOneVideo {
-    owner: &'static str,
-    span: SourceSpan,
-}
-
-impl RequireOneVideo {
-    fn for_call(call: &ResolvedCall) -> Self {
-        Self {
-            owner: call.definition().descriptor.name,
-            span: call.origin().span.clone(),
-        }
-    }
-}
-
-impl BodyFinalizer for RequireOneVideo {
-    fn finish(
-        self: Box<Self>,
-        stack: ValueStack,
-        _builder: &mut GraphBuilder<'_>,
-    ) -> Result<ValueRef> {
-        take_one_video(self.owner, stack, &self.span)
-    }
-}
-
 struct FinalizeConcatBody {
     owner: &'static str,
     empty_code: &'static str,

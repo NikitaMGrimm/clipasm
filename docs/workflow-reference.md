@@ -309,8 +309,9 @@ Missing inputs consume values from the top of the current local stack. Explicit
 | `during` | selected range | exactly one Video, then splice |
 | root `timeline` | empty | leftovers concatenated in order |
 
-There is no hidden replacement, fallback input, or automatic reduction inside
-clip and body-program bodies.
+There is no hidden replacement or fallback input. Named clips and `during`
+require exactly one Video; `join` and `timeline` explicitly concatenate their
+leftover local Videos.
 
 ## Rendering
 
