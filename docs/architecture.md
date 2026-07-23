@@ -56,6 +56,12 @@ Lowering is restricted to a scoped `GraphBuilder`; every generated operation
 inherits the active program's semantic version and origin. Adding a program
 does not require parser or evaluator program-name control flow.
 
+Exhaustive matches over the closed semantic-operation and prepared-primitive
+enums are healthy: each owner must handle every supported operation. Branching
+on registered program names in parser or evaluator logic is unhealthy; program
+behavior belongs in registry definitions and their direct or body
+implementations.
+
 ## Preflight
 
 `preflight` is the first phase allowed to inspect assets or external tools. It:
@@ -94,11 +100,3 @@ verification.
 
 Do not move media I/O into compilation or backend policy into semantic Video
 domains.
-
-## Documentation boundaries
-
-Rustdoc owns Rust embedding API contracts. mdBook renders the canonical
-language, architecture, examples, decisions, and repository guide directly
-from `docs/`. Program descriptors enforce machine-readable signatures but do
-not generate explanatory prose. Agent navigation links to these owners instead
-of duplicating them.

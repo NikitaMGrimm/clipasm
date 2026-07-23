@@ -15,8 +15,8 @@ Start with:
 - the [workflow reference](workflow-reference.md) to write ClipAsm YAML;
 - the [examples](examples.md) to run representative workflows;
 - the [architecture](architecture.md) to understand compiler phases;
-- the [repository guide](agents/repository-guide.md) to locate implementation
-  and test ownership.
+- the [change guide](development/change-guide.md) to locate implementation,
+  tests, documentation, and identity impact.
 
 Rust applications embedding ClipAsm should use the separately generated
 rustdoc API reference.

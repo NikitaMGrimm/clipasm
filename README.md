@@ -55,23 +55,12 @@ beside the workflow.
 - [Architecture](docs/architecture.md)
 - [Architecture decisions](docs/adr/)
 - [Domain language and settled semantics](CONTEXT.md)
+- [Development change guide](docs/development/change-guide.md)
 - [Contributing](CONTRIBUTING.md)
 - [Runnable examples](examples/README.md)
-
-Build or browse the two local documentation surfaces:
-
-```console
-cargo doc --no-deps --open
-mdbook serve --open
-```
 
 ## Development
 
 ```console
-cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo test --doc
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
-mdbook build
+./scripts/check.sh
 ```

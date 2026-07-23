@@ -16,4 +16,4 @@
 
 # Development
 
-- [Repository guide](agents/repository-guide.md)
+- [Change guide](development/change-guide.md)
