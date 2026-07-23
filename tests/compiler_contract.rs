@@ -131,3 +131,36 @@ fn unused_definitions_are_still_compiled_and_validated() {
     let error = rhythmcut::compiler::compile_file(&workflow).expect_err("unused invalid clip");
     assert_eq!(error.code, "E_MISSING_IMAGE_DURATION");
 }
+
+#[test]
+fn video_sources_compile_purely_with_a_deferred_media_domain() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - video: missing.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = rhythmcut::compiler::compile_file(&workflow).expect("pure compile");
+    assert!(compiled.root_domain().is_none());
+    let document: serde_json::Value =
+        serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
+    assert_eq!(document["nodes"][0]["kind"]["operation"], "video_source");
+    assert_eq!(document["nodes"][0]["kind"]["fit"], "cover");
+    assert!(document["nodes"][0]["domain"].is_null());
+}
+
+#[test]
+fn video_sources_do_not_accept_an_authored_duration() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\ntimeline:\n  - video:\n      path: source.mp4\n      duration: 1s\n",
+    )
+    .expect("workflow");
+
+    let error = rhythmcut::compiler::compile_file(&workflow).expect_err("duration argument");
+    assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
+}

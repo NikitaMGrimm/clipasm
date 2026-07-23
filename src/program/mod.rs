@@ -81,6 +81,18 @@ const IMAGE_PARAMETERS: &[ParameterDescriptor] = &[
         required: false,
     },
 ];
+const VIDEO_PARAMETERS: &[ParameterDescriptor] = &[
+    ParameterDescriptor {
+        name: "path",
+        parameter_type: ParameterType::File,
+        required: true,
+    },
+    ParameterDescriptor {
+        name: "fit",
+        parameter_type: ParameterType::Enum(&["cover", "contain", "stretch"]),
+        required: false,
+    },
+];
 const REPEAT_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
     name: "count",
     parameter_type: ParameterType::Integer,
@@ -97,6 +109,17 @@ pub(crate) const IMAGE: ProgramDefinition = ProgramDefinition {
         output: VIDEO,
     },
     lower: lower_image,
+};
+pub(crate) const VIDEO_SOURCE: ProgramDefinition = ProgramDefinition {
+    descriptor: ProgramDescriptor {
+        name: "video",
+        version: 1,
+        inputs: NO_INPUTS,
+        parameters: VIDEO_PARAMETERS,
+        primary_parameter: Some("path"),
+        output: VIDEO,
+    },
+    lower: lower_video,
 };
 pub(crate) const CONCAT: ProgramDefinition = ProgramDefinition {
     descriptor: ProgramDescriptor {
@@ -121,7 +144,7 @@ pub(crate) const REPEAT: ProgramDefinition = ProgramDefinition {
     lower: lower_repeat,
 };
 
-pub(crate) static BUILTIN_PROGRAMS: [ProgramDefinition; 3] = [IMAGE, CONCAT, REPEAT];
+pub(crate) static BUILTIN_PROGRAMS: [ProgramDefinition; 4] = [IMAGE, VIDEO_SOURCE, CONCAT, REPEAT];
 
 const RESERVED_PROGRAM_NAMES: &[&str] =
     &["then", "during", "join", "timeline", "ref", "id", "clip"];
@@ -273,6 +296,21 @@ fn lower_image(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Resul
     builder.image_video(
         PathBuf::from(path),
         crate::model::FrameCount(frames),
+        fit,
+        call.definition().descriptor.version,
+        call.origin().clone(),
+    )
+}
+
+fn lower_video(call: &ResolvedCall<'_>, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    let (path, _) = call.string_parameter("path")?;
+    let fit = if let Some((fit, span)) = call.optional_string_parameter("fit")? {
+        ImageFit::parse(fit, span)?
+    } else {
+        ImageFit::Cover
+    };
+    builder.video_source(
+        PathBuf::from(path),
         fit,
         call.definition().descriptor.version,
         call.origin().clone(),

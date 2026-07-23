@@ -16,7 +16,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Parse, type-check, and infer every video domain.
+    /// Parse, type-check, and infer source-independent video domains.
     Validate { workflow: PathBuf },
     /// Emit the canonical pure semantic compiled workflow.
     Compile {
@@ -43,11 +43,18 @@ fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { workflow } => {
             let compiled = compiler::compile_file(&workflow)?;
-            let frames = compiled.root_domain().frames.0;
-            println!(
-                "valid: {} semantic value(s), {frames} frame(s)",
-                compiled.nodes().len()
-            );
+            if let Some(domain) = compiled.root_domain() {
+                println!(
+                    "valid: {} semantic value(s), {} frame(s)",
+                    compiled.nodes().len(),
+                    domain.frames.0
+                );
+            } else {
+                println!(
+                    "valid: {} semantic value(s), duration resolves during preflight",
+                    compiled.nodes().len()
+                );
+            }
         }
         Command::Compile { workflow, output } => {
             let compiled = compiler::compile_file(&workflow)?;

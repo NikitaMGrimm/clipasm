@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use rhythmcut::preflight::PreparedNodeKind;
 
@@ -109,4 +110,57 @@ fn output_extension_is_strictly_mp4() {
     let compiled = rhythmcut::compiler::compile_file(&workflow).expect("compile");
     let error = rhythmcut::preflight::preflight(&compiled).expect_err("extension");
     assert_eq!(error.code, "E_INVALID_OUTPUT_EXTENSION");
+}
+
+#[test]
+fn video_preflight_reports_missing_files_by_source_kind() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\ntimeline:\n  - video: missing.mp4\noutput: final.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = rhythmcut::compiler::compile_file(&workflow).expect("compile");
+    let error = rhythmcut::preflight::preflight(&compiled).expect_err("missing video");
+    assert_eq!(error.code, "E_MISSING_VIDEO_FILE");
+}
+
+#[test]
+fn video_preflight_derives_the_full_source_duration() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping video preflight test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=1",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - video: source.mkv\noutput: final.mp4\n",
+    )
+    .expect("workflow");
+
+    let compiled = rhythmcut::compiler::compile_file(&workflow).expect("compile");
+    let plan = rhythmcut::preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes()[0].domain().frames.0, 10);
 }

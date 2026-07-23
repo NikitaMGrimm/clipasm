@@ -14,7 +14,7 @@ use crate::model::{
 use crate::program::{ProgramDefinition, ProgramRegistry};
 use crate::syntax::{Argument, Workflow};
 
-const COMPILED_FORMAT_VERSION: u32 = 2;
+const COMPILED_FORMAT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct CompiledWorkflow {
@@ -59,17 +59,11 @@ impl CompiledWorkflow {
     }
 
     #[must_use]
-    /// Return the inferred root Video domain.
+    /// Return the root Video domain when it is knowable without reading media.
     ///
-    /// # Panics
-    ///
-    /// Cannot panic for values produced by the compiler; construction records
-    /// and checks the root domain before returning `CompiledWorkflow`.
-    pub fn root_domain(&self) -> &VideoDomain {
-        self.nodes[self.root.id().get() as usize]
-            .domain
-            .as_ref()
-            .expect("the compiler gives every Video value a domain")
+    /// Video-file source durations remain deferred until preflight.
+    pub fn root_domain(&self) -> Option<&VideoDomain> {
+        self.nodes[self.root.id().get() as usize].domain.as_ref()
     }
 
     #[must_use]
@@ -152,6 +146,10 @@ pub(crate) enum SemanticNodeKind {
     ImageVideo {
         path: PathBuf,
         frames: FrameCount,
+        fit: ImageFit,
+    },
+    VideoSource {
+        path: PathBuf,
         fit: ImageFit,
     },
     Reference {
@@ -381,6 +379,26 @@ impl<'a> GraphBuilder<'a> {
     ) -> Result<ValueRef> {
         self.push(
             SemanticNodeKind::ImageVideo { path, frames, fit },
+            ValueType::Video,
+            semantic_version,
+            origin,
+        )
+    }
+
+    /// Add a pure semantic video-file source with an authored frame domain.
+    ///
+    /// # Errors
+    ///
+    /// Returns a graph-size diagnostic.
+    pub(crate) fn video_source(
+        &mut self,
+        path: PathBuf,
+        fit: ImageFit,
+        semantic_version: u32,
+        origin: SourceOrigin,
+    ) -> Result<ValueRef> {
+        self.push(
+            SemanticNodeKind::VideoSource { path, fit },
             ValueType::Video,
             semantic_version,
             origin,

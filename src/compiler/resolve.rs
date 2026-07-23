@@ -142,7 +142,7 @@ fn collect_direct_references(
         return;
     }
     match &nodes[value.id().get() as usize].kind {
-        SemanticNodeKind::ImageVideo { .. } => {}
+        SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {}
         SemanticNodeKind::Reference { name } => {
             output.insert(name.clone());
         }
@@ -240,53 +240,62 @@ fn infer_value(
     }
     let node = &evaluation.nodes[value.id().get() as usize];
     let frames = match &node.kind {
-        SemanticNodeKind::ImageVideo { frames, .. } => *frames,
+        SemanticNodeKind::ImageVideo { frames, .. } => Some(*frames),
+        SemanticNodeKind::VideoSource { .. } => None,
         SemanticNodeKind::Reference { name } => {
             let target = evaluation.symbols[name]
                 .value
                 .expect("references were resolved before domain inference");
-            infer_value(target, evaluation, video, domains, visiting)?
-                .expect("Video references have Video domains")
-                .frames
+            infer_value(target, evaluation, video, domains, visiting)?.map(|domain| domain.frames)
         }
         SemanticNodeKind::Concat { inputs } => {
             let mut total = FrameCount(0);
+            let mut known = true;
             for input in inputs {
-                let input_domain = infer_value(*input, evaluation, video, domains, visiting)?
-                    .expect("concat inputs are type-checked as Video");
-                total = total.checked_add(input_domain.frames, &node.origin.span)?;
+                if let Some(input_domain) =
+                    infer_value(*input, evaluation, video, domains, visiting)?
+                {
+                    total = total.checked_add(input_domain.frames, &node.origin.span)?;
+                } else {
+                    known = false;
+                }
             }
-            total
+            known.then_some(total)
         }
         SemanticNodeKind::Slice { input, range } => {
-            let input_domain = infer_value(*input, evaluation, video, domains, visiting)?
-                .expect("slice input is type-checked as Video");
-            validate_range(*range, input_domain.frames, &node.origin.span)?;
-            range.frames()
+            if let Some(input_domain) = infer_value(*input, evaluation, video, domains, visiting)? {
+                validate_range(*range, input_domain.frames, &node.origin.span)?;
+            }
+            Some(range.frames())
         }
         SemanticNodeKind::During {
             base,
             processed,
             range,
         } => {
-            let base_domain = infer_value(*base, evaluation, video, domains, visiting)?
-                .expect("during base is type-checked as Video");
-            validate_range(*range, base_domain.frames, &node.origin.span)?;
-            let processed_domain = infer_value(*processed, evaluation, video, domains, visiting)?
-                .expect("during output is type-checked as Video");
-            FrameCount(base_domain.frames.0 - range.frames().0)
-                .checked_add(processed_domain.frames, &node.origin.span)?
+            let base_domain = infer_value(*base, evaluation, video, domains, visiting)?;
+            if let Some(base_domain) = &base_domain {
+                validate_range(*range, base_domain.frames, &node.origin.span)?;
+            }
+            let processed_domain = infer_value(*processed, evaluation, video, domains, visiting)?;
+            match (base_domain, processed_domain) {
+                (Some(base_domain), Some(processed_domain)) => Some(
+                    FrameCount(base_domain.frames.0 - range.frames().0)
+                        .checked_add(processed_domain.frames, &node.origin.span)?,
+                ),
+                _ => None,
+            }
         }
     };
     visiting.remove(&value.id());
-    let domain = VideoDomain {
+    let domain = frames.map(|frames| VideoDomain {
         frames,
         width: video.width,
         height: video.height,
         frame_rate: video.fps,
-    };
-    domains[value.id().get() as usize] = Some(domain.clone());
-    Ok(Some(domain))
+    });
+    domains[value.id().get() as usize].clone_from(&domain);
+    Ok(domain)
 }
 
 fn validate_range(

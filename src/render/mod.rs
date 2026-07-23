@@ -93,8 +93,12 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             ));
         }
         let artifact = cache_directory.join(format!("{}.mkv", node.fingerprint()));
-        if let PreparedNodeKind::ImageVideo { asset, .. } = node.kind() {
-            verify_prepared_asset(asset, &node.origin().span)?;
+        match node.kind() {
+            PreparedNodeKind::ImageVideo { asset, .. }
+            | PreparedNodeKind::VideoSource { asset, .. } => {
+                verify_prepared_asset(asset, &node.origin().span)?;
+            }
+            PreparedNodeKind::Slice { .. } | PreparedNodeKind::Concat { .. } => {}
         }
         let hit = artifact.is_file()
             && verify_artifact(
@@ -272,6 +276,16 @@ fn render_node(
             command.args(["-vf", &image_filter(*fit, spec, media_policy)]);
             append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
         }
+        PreparedNodeKind::VideoSource { asset, fit, frames } => {
+            command.arg("-i").arg(asset.source_path());
+            command.args([
+                "-map",
+                "0:v:0",
+                "-vf",
+                &video_filter(*fit, spec, media_policy),
+            ]);
+            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
+        }
         PreparedNodeKind::Slice { input, range } => {
             command
                 .arg("-i")
@@ -390,6 +404,13 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy
         spec.fps.numerator(),
         spec.fps.denominator(),
         media_policy.working_pixel_format()
+    )
+}
+
+fn video_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy) -> String {
+    format!(
+        "setpts=PTS-STARTPTS,{}",
+        image_filter(fit, spec, media_policy)
     )
 }
 

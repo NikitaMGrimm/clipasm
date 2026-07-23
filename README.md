@@ -2,14 +2,14 @@
 
 RhythmCut is a strict programmatic-video foundation written in Rust. It
 compiles a restricted YAML authoring format into an inspectable plan containing
-only three rendering primitives—`image_video`, `slice`, and `concat`—then
+only four rendering primitives—`image_video`, `video_source`, `slice`, and `concat`—then
 executes that plan through FFmpeg.
 
-The current scope intentionally supports only still-image video sources,
-first-class references, concatenation, repetition, and the structural compounds
-`then`, `during`, `join`, and `timeline`. It does not support video inputs,
-audio, transitions, decorative effects, user programs, plugins, a GUI, or
-distributed execution.
+The current scope supports still-image and video-file sources, first-class
+references, concatenation, repetition, and the structural compounds `then`,
+`during`, `join`, and `timeline`. It does not support audio output,
+transitions, decorative effects, user programs, plugins, a GUI, or distributed
+execution.
 
 ## Quick start
 
@@ -45,12 +45,13 @@ cargo run -- compile workflow.yaml --output plan.json
 cargo run -- render workflow.yaml
 ```
 
-`compile` is pure: it emits the typed semantic graph, exact frame domains,
-named-value targets, explain data, and a formatting-independent structure hash
-without opening media files or invoking external tools. `render` first
-preflights reachable assets and FFmpeg capabilities, builds primitive IR with
-content-based semantic fingerprints, then uses lossless FFV1 intermediates and
-one final H.264/yuv420p MP4 export.
+`compile` is pure: it emits the typed semantic graph, source-independent frame
+domains, named-value targets, explain data, and a formatting-independent
+structure hash without opening media files or invoking external tools. Video
+file durations remain deferred until `render` preflights reachable assets and
+FFmpeg capabilities. Preflight then builds exact primitive IR with
+content-based semantic fingerprints before rendering lossless FFV1
+intermediates and one final H.264/yuv420p MP4 export.
 
 References are syntax rather than programs. Use `$card` directly, or the
 expanded form when an annotation is needed:
@@ -63,6 +64,18 @@ expanded form when an annotation is needed:
 Only `id` and `during` may be sibling fields. Non-primary parameters belong
 inside the program mapping; `image: card.png` may use the primary shorthand,
 but its duration must use the full mapping shown above.
+
+Video files use their full intrinsic duration, resolved during preflight:
+
+```yaml
+- video:
+    path: moving-block.mp4
+    fit: contain
+```
+
+`fit` accepts `cover` (the default), `contain`, or `stretch`. A video source
+must contain exactly one decodable video stream. Input audio streams are
+accepted but intentionally discarded by the current video-only renderer.
 
 ## Stack rules
 
@@ -87,10 +100,12 @@ operation reduces them.
 ## Time and media contract
 
 Durations use exact project-frame boundaries (`3s`, `500ms`, and ranges such as
-`2s..4s`). Non-frame-aligned times are rejected instead of rounded. Every
-semantic Video has exact dimensions, frame rate, and frame count. Lossless
-working artifacts use square-pixel, non-subsampled yuv444p video; only the final
-MP4 export converts to yuv420p. Defaults are 1280×720 at 30 fps.
+`2s..4s`). Non-frame-aligned authored times are rejected instead of rounded.
+Every prepared Video has exact dimensions, frame rate, and frame count.
+Lossless working artifacts use square-pixel, non-subsampled yuv444p video; only
+the final MP4 export converts to yuv420p. Video sources are scaled,
+frame-rate-normalized, and timestamp-reset across their full intrinsic
+duration. Defaults are 1280×720 at 30 fps.
 
 ## Development
 

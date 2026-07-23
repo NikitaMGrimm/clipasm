@@ -996,7 +996,7 @@ mod tests {
         .expect("parse test program");
         let compiled =
             crate::compiler::compile_with_registry(&workflow, registry).expect("compile program");
-        assert_eq!(compiled.root_domain().frames.0, 1);
+        assert_eq!(compiled.root_domain().expect("known domain").frames.0, 1);
 
         let error = parse_str_with_registry(
             Path::new("workflow.yaml"),

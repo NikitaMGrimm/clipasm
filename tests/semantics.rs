@@ -27,7 +27,7 @@ fn repeat_reuses_one_upstream_value() {
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  doubled:\n    - $later\n    - repeat: 3\n  later:\n    image:\n      path: a.ppm\n      duration: 1s\ntimeline:\n  - $doubled\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.root_domain().frames.0, 30);
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
     let json = compiled_json(&compiled);
     let repeat = json["nodes"]
         .as_array()
@@ -55,7 +55,7 @@ fn during_changes_duration() {
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n  - repeat: 2\n    during: 4s..6s\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.root_domain().frames.0, 120);
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 120);
     let json = compiled_json(&compiled);
     assert!(
         json["nodes"]
@@ -81,7 +81,7 @@ fn join_reduces_only_the_top_two_outer_values() {
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - image:\n      path: b.ppm\n      duration: 1s\n  - image:\n      path: c.ppm\n      duration: 1s\n  - join:\n      - concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.root_domain().frames.0, 30);
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
     let json = compiled_json(&compiled);
     assert_eq!(
         json["nodes"]
@@ -100,7 +100,7 @@ fn explicit_inputs_do_not_consume_join_stack_occurrences() {
         "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  x: {image: {path: x.ppm, duration: 1s}}\n  y: {image: {path: y.ppm, duration: 1s}}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - image:\n      path: b.ppm\n      duration: 1s\n  - join:\n      - concat:\n          videos: [$x, $y]\n      - concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.root_domain().frames.0, 40);
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 40);
 }
 
 #[test]

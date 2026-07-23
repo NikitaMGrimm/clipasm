@@ -8,7 +8,8 @@ code and future design work should preserve the distinctions below.
 
 - A **workflow** is one parsed versioned YAML document.
 - An **item** is one executable entry in a sequence body.
-- A **program** is a typed operation such as `image`, `repeat`, or `concat`.
+- A **program** is a typed operation such as `image`, `video`, `repeat`, or
+  `concat`.
 - A **clip** is any finite Video value. A **named clip** is a clip bound to a
   name under `clips`. `clip` is not a program or invocation keyword.
 - A **value** is an immutable typed graph result. A stack may contain multiple
@@ -18,10 +19,11 @@ code and future design work should preserve the distinctions below.
 - A **local stack** is the ordered sequence of value occurrences visible while
   executing one body.
 - The **semantic graph** is the pure result of compilation. It retains semantic
-  operations, references, exact frame domains, origins, and explain data.
+  operations, references, source-independent frame domains, origins, and
+  explain data. Video-file source durations remain deferred.
 - The **prepared plan** is the preflight result. It binds assets and tools,
-  lowers root-reachable semantic operations to renderer primitives, and assigns
-  content fingerprints.
+  resolves video-file durations, lowers root-reachable semantic operations to
+  exact renderer primitives, and assigns content fingerprints.
 
 Compiled structure and prepared semantic hashes identify language and graph
 semantics, not the Cargo package release. Engine release versions remain plan
@@ -58,6 +60,14 @@ semantically compound but deliberately uses postfix same-item notation:
 
 A standalone `- during: ...` item is not supported.
 
+`image` and `video` are zero-input Video source programs. An image requires an
+authored duration. A video accepts its path and optional fit policy, while its
+full intrinsic duration remains deferred so compilation stays media-pure.
+Preflight requires exactly one decodable video stream and converts its duration
+to the project frame rate. Source audio streams are ignored; prepared artifacts
+and exports remain video-only. Both source programs support `cover`, `contain`,
+and `stretch` fitting.
+
 ## Stack and compound semantics
 
 List order is executable stack order. Items run from first to last. Missing
@@ -90,8 +100,8 @@ duplicate stack occurrences. Cycles and missing names are compile errors.
 
 ## Explicit non-goals
 
-The foundation does not support video-file sources, audio, transitions,
-decorative effects, user-defined programs, plugins, runtime plan loading, a
-GUI, distributed rendering, or multiple export profiles. Still-image sources
-must decode as exactly one video frame with no audio. Rendering currently uses
-lossless FFV1/Matroska intermediates and a final H.264/yuv420p MP4 export.
+The foundation does not support audio output, transitions, decorative effects,
+user-defined programs, plugins, runtime plan loading, a GUI, distributed
+rendering, or multiple export profiles. Still-image sources must decode as
+exactly one video frame with no audio. Rendering currently uses lossless
+FFV1/Matroska intermediates and a final H.264/yuv420p MP4 export.

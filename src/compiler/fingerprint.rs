@@ -65,7 +65,7 @@ fn value_hash(
     }
     let node = &evaluation.nodes[value.id().get() as usize];
     let upstream = match &node.kind {
-        SemanticNodeKind::ImageVideo { .. } => Vec::new(),
+        SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => Vec::new(),
         SemanticNodeKind::Reference { name } => {
             let target = evaluation.symbols[name]
                 .value
@@ -90,6 +90,10 @@ fn value_hash(
         SemanticNodeKind::ImageVideo { frames, fit, .. } => serde_json::json!({
             "operation": "image_video",
             "frames": frames,
+            "fit": fit,
+        }),
+        SemanticNodeKind::VideoSource { fit, .. } => serde_json::json!({
+            "operation": "video_source",
             "fit": fit,
         }),
         SemanticNodeKind::Reference { .. } => serde_json::json!({

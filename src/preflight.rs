@@ -13,7 +13,7 @@ use crate::model::{
     FrameCount, FrameRange, ImageFit, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec,
 };
 
-const PREPARED_FORMAT_VERSION: u32 = 1;
+const PREPARED_FORMAT_VERSION: u32 = 2;
 const CACHE_FORMAT_VERSION: u32 = 1;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale", "crop", "pad", "fps", "setsar", "format", "trim", "setpts", "concat",
@@ -159,6 +159,11 @@ impl PreparedNode {
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum PreparedNodeKind {
     ImageVideo {
+        asset: PreparedAsset,
+        frames: FrameCount,
+        fit: ImageFit,
+    },
+    VideoSource {
         asset: PreparedAsset,
         frames: FrameCount,
         fit: ImageFit,
@@ -333,7 +338,7 @@ impl PreflightLowerer<'_> {
         let compiled_node = &self.compiled.nodes()[value.id().get() as usize];
         let result = match compiled_node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
-                let asset = prepare_asset(
+                let asset = prepare_image_asset(
                     self.compiled.source_path(),
                     path,
                     compiled_node.origin(),
@@ -351,6 +356,26 @@ impl PreflightLowerer<'_> {
                     compiled_node.origin().clone(),
                 )?
             }
+            SemanticNodeKind::VideoSource { path, fit } => {
+                let (asset, frames) = prepare_video_asset(
+                    self.compiled.source_path(),
+                    path,
+                    self.compiled.video(),
+                    compiled_node.origin(),
+                    self.ffmpeg,
+                    self.ffprobe,
+                )?;
+                self.add_node(
+                    PreparedNodeKind::VideoSource {
+                        asset,
+                        frames,
+                        fit: *fit,
+                    },
+                    project_domain(self.compiled.video(), frames),
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
             SemanticNodeKind::Reference { name } => {
                 let target = self.compiled.named_values()[name];
                 self.lower(target)?
@@ -360,21 +385,24 @@ impl PreflightLowerer<'_> {
                     .iter()
                     .map(|input| self.lower(*input))
                     .collect::<Result<Vec<_>>>()?;
+                let domain = self.concat_domain(&inputs, &compiled_node.origin().span)?;
                 self.add_node(
                     PreparedNodeKind::Concat { inputs },
-                    compiled_node.domain().expect("Video node domain").clone(),
+                    domain,
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
             }
             SemanticNodeKind::Slice { input, range } => {
                 let input = self.lower(*input)?;
+                let input_domain = &self.nodes[input.get() as usize].domain;
+                validate_prepared_range(*range, input_domain, &compiled_node.origin().span)?;
                 self.add_node(
                     PreparedNodeKind::Slice {
                         input,
                         range: *range,
                     },
-                    compiled_node.domain().expect("Video node domain").clone(),
+                    project_domain(self.compiled.video(), range.frames()),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
@@ -386,9 +414,8 @@ impl PreflightLowerer<'_> {
             } => {
                 let base_node = self.lower(*base)?;
                 let processed_node = self.lower(*processed)?;
-                let base_domain = self.compiled.nodes()[base.id().get() as usize]
-                    .domain()
-                    .expect("during base domain");
+                let base_domain = self.nodes[base_node.get() as usize].domain.clone();
+                validate_prepared_range(*range, &base_domain, &compiled_node.origin().span)?;
                 let mut pieces = Vec::new();
                 if range.start() > 0 {
                     pieces.push(self.add_node(
@@ -430,9 +457,10 @@ impl PreflightLowerer<'_> {
                 if pieces.len() == 1 {
                     pieces[0]
                 } else {
+                    let domain = self.concat_domain(&pieces, &compiled_node.origin().span)?;
                     self.add_node(
                         PreparedNodeKind::Concat { inputs: pieces },
-                        compiled_node.domain().expect("during domain").clone(),
+                        domain,
                         compiled_node.semantic_version(),
                         compiled_node.origin().clone(),
                     )?
@@ -441,6 +469,14 @@ impl PreflightLowerer<'_> {
         };
         self.lowered.insert(value.id(), result);
         Ok(result)
+    }
+
+    fn concat_domain(&self, inputs: &[NodeId], span: &SourceSpan) -> Result<VideoDomain> {
+        let mut frames = FrameCount(0);
+        for input in inputs {
+            frames = frames.checked_add(self.nodes[input.get() as usize].domain.frames, span)?;
+        }
+        Ok(project_domain(self.compiled.video(), frames))
     }
 
     fn add_node(
@@ -469,6 +505,35 @@ impl PreflightLowerer<'_> {
     }
 }
 
+fn project_domain(video: &VideoSpec, frames: FrameCount) -> VideoDomain {
+    VideoDomain {
+        frames,
+        width: video.width,
+        height: video.height,
+        frame_rate: video.fps,
+    }
+}
+
+fn validate_prepared_range(
+    range: FrameRange,
+    input: &VideoDomain,
+    span: &SourceSpan,
+) -> Result<()> {
+    if range.end() > input.frames.0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_DURING_RANGE",
+            format!(
+                "frame range {}..{} is outside the base Video domain of {} frames",
+                range.start(),
+                range.end(),
+                input.frames.0
+            ),
+            span.clone(),
+        ));
+    }
+    Ok(())
+}
+
 fn prepare_output_path(compiled: &CompiledWorkflow) -> Result<PathBuf> {
     let output = compiled.output().ok_or_else(|| {
         Diagnostic::new(
@@ -492,19 +557,44 @@ fn prepare_output_path(compiled: &CompiledWorkflow) -> Result<PathBuf> {
     Ok(resolve_path(compiled.source_path(), &output.value))
 }
 
-fn prepare_asset(
+fn prepare_image_asset(
     workflow: &Path,
     authored: &Path,
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<PreparedAsset> {
+    let asset = prepare_file_asset(workflow, authored, origin, "image", "E_MISSING_IMAGE_FILE")?;
+    verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
+    Ok(asset)
+}
+
+fn prepare_video_asset(
+    workflow: &Path,
+    authored: &Path,
+    video: &VideoSpec,
+    origin: &SourceOrigin,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<(PreparedAsset, FrameCount)> {
+    let asset = prepare_file_asset(workflow, authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
+    let frames = verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
+    Ok((asset, frames))
+}
+
+fn prepare_file_asset(
+    workflow: &Path,
+    authored: &Path,
+    origin: &SourceOrigin,
+    role: &str,
+    missing_code: &'static str,
+) -> Result<PreparedAsset> {
     let source_path = resolve_path(workflow, authored);
     let metadata = fs::metadata(&source_path).map_err(|error| {
         Diagnostic::new(
-            "E_MISSING_IMAGE_FILE",
+            missing_code,
             format!(
-                "image file `{}` is not accessible: {error}",
+                "{role} file `{}` is not accessible: {error}",
                 source_path.display()
             ),
             origin.span.clone(),
@@ -512,14 +602,13 @@ fn prepare_asset(
     })?;
     if !metadata.is_file() {
         return Err(Diagnostic::new(
-            "E_MISSING_IMAGE_FILE",
-            format!("image path `{}` is not a file", source_path.display()),
+            missing_code,
+            format!("{role} path `{}` is not a file", source_path.display()),
             origin.span.clone(),
         ));
     }
     let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
     let content_hash = hash_file(&source_path, &origin.span)?;
-    verify_image_decodable(&source_path, &origin.span, ffmpeg, ffprobe)?;
     Ok(PreparedAsset {
         source_path,
         content_hash,
@@ -579,6 +668,15 @@ fn node_fingerprint(
         PreparedNodeKind::ImageVideo { asset, frames, fit } => (
             serde_json::json!({
                 "operation": "image_video",
+                "content_hash": asset.content_hash,
+                "frames": frames,
+                "fit": fit,
+            }),
+            Vec::new(),
+        ),
+        PreparedNodeKind::VideoSource { asset, frames, fit } => (
+            serde_json::json!({
+                "operation": "video_source",
                 "content_hash": asset.content_hash,
                 "frames": frames,
                 "fit": fit,
@@ -876,6 +974,217 @@ fn verify_image_decodable(
         ));
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct VideoProbeDocument {
+    #[serde(default)]
+    streams: Vec<VideoProbeStream>,
+}
+
+#[derive(Deserialize)]
+struct VideoProbeStream {
+    codec_type: Option<String>,
+    nb_read_frames: Option<String>,
+    duration_ts: Option<String>,
+    time_base: Option<String>,
+    avg_frame_rate: Option<String>,
+}
+
+fn verify_video_decodable(
+    path: &Path,
+    video: &VideoSpec,
+    span: &SourceSpan,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<FrameCount> {
+    let document = probe_video(path, span, ffprobe)?;
+    let frames = validate_video_contract(path, video, span, &document)?;
+    decode_video_frame(path, span, ffmpeg)?;
+    Ok(frames)
+}
+
+fn probe_video(
+    path: &Path,
+    span: &SourceSpan,
+    ffprobe: &ToolIdentity,
+) -> Result<VideoProbeDocument> {
+    let output = Command::new(ffprobe.executable())
+        .args([
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFPROBE",
+                format!("could not inspect video `{}`: {error}", path.display()),
+                span.clone(),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "video `{}` is not decodable by FFprobe\n{}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| {
+        Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "FFprobe returned invalid video metadata for `{}`: {error}",
+                path.display()
+            ),
+            span.clone(),
+        )
+    })
+}
+
+fn validate_video_contract(
+    path: &Path,
+    video: &VideoSpec,
+    span: &SourceSpan,
+    document: &VideoProbeDocument,
+) -> Result<FrameCount> {
+    let videos = document
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("video"))
+        .collect::<Vec<_>>();
+    if videos.len() != 1 {
+        return Err(Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "video `{}` must contain exactly one video stream; found {}",
+                path.display(),
+                videos.len()
+            ),
+            span.clone(),
+        ));
+    }
+    let stream = videos[0];
+    let decoded_frames = stream
+        .nb_read_frames
+        .as_deref()
+        .and_then(|frames| frames.parse::<u64>().ok());
+    if decoded_frames.is_none_or(|frames| frames == 0) {
+        return Err(Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "video `{}` must contain at least one decodable frame; FFprobe counted {decoded_frames:?}",
+                path.display()
+            ),
+            span.clone(),
+        ));
+    }
+    let Some((available_numerator, available_denominator)) = video_duration(stream) else {
+        return Err(Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "video `{}` does not expose a usable stream duration",
+                path.display()
+            ),
+            span.clone(),
+        ));
+    };
+    let frame_numerator = available_numerator
+        .checked_mul(u128::from(video.fps.numerator()))
+        .ok_or_else(|| video_duration_error(path, span))?;
+    let frame_denominator = available_denominator
+        .checked_mul(u128::from(video.fps.denominator()))
+        .ok_or_else(|| video_duration_error(path, span))?;
+    let frames = u64::try_from(frame_numerator / frame_denominator)
+        .map_err(|_| video_duration_error(path, span))?;
+    if frames == 0 {
+        return Err(Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "video `{}` is shorter than one project frame at {}/{} fps",
+                path.display(),
+                video.fps.numerator(),
+                video.fps.denominator()
+            ),
+            span.clone(),
+        ));
+    }
+    Ok(FrameCount(frames))
+}
+
+fn video_duration_error(path: &Path, span: &SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_SOURCE_CONTRACT",
+        format!(
+            "video `{}` duration exceeds the supported frame count",
+            path.display()
+        ),
+        span.clone(),
+    )
+}
+
+fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
+    let decode = Command::new(ffmpeg.executable())
+        .args(["-v", "error", "-xerror", "-i"])
+        .arg(path)
+        .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-f", "null", "-"])
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFMPEG",
+                format!("could not decode video `{}`: {error}", path.display()),
+                span.clone(),
+            )
+        })?;
+    if !decode.status.success() {
+        return Err(Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "video `{}` is not compatible with the renderer's video input mode\n{}",
+                path.display(),
+                String::from_utf8_lossy(&decode.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn video_duration(stream: &VideoProbeStream) -> Option<(u128, u128)> {
+    stream
+        .duration_ts
+        .as_deref()
+        .and_then(|duration| duration.parse::<u128>().ok())
+        .zip(stream.time_base.as_deref().and_then(parse_positive_ratio))
+        .and_then(|(duration, (time_numerator, time_denominator))| {
+            duration
+                .checked_mul(time_numerator)
+                .map(|numerator| (numerator, time_denominator))
+        })
+        .or_else(|| {
+            let frames = stream.nb_read_frames.as_deref()?.parse::<u128>().ok()?;
+            let (rate_numerator, rate_denominator) =
+                parse_positive_ratio(stream.avg_frame_rate.as_deref()?)?;
+            frames
+                .checked_mul(rate_denominator)
+                .map(|numerator| (numerator, rate_numerator))
+        })
+}
+
+fn parse_positive_ratio(value: &str) -> Option<(u128, u128)> {
+    let (numerator, denominator) = value.split_once('/')?;
+    let numerator = numerator.parse::<u128>().ok()?;
+    let denominator = denominator.parse::<u128>().ok()?;
+    (numerator > 0 && denominator > 0).then_some((numerator, denominator))
 }
 
 fn tool_version(tool: &Path, code: &'static str) -> Result<String> {

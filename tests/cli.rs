@@ -59,3 +59,21 @@ fn diagnostics_produce_a_failure_exit_code() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("[E_STACK_UNDERFLOW]"));
     drop(directory);
 }
+
+#[test]
+fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(&workflow, "version: 1\ntimeline:\n  - video: missing.mp4\n").expect("workflow");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rhythmcut"))
+        .args(["validate", workflow.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run rhythmcut");
+    assert!(
+        output.status.success(),
+        "validation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("duration resolves during preflight"));
+}
