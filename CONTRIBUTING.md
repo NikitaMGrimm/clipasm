@@ -17,9 +17,13 @@ Keep these rules visible when changing the language or compiler:
 13. Programs lower through trusted primitive builder operations.
 14. Surface macros remain visible in origins but disappear from executable IR.
 15. Deferred features do not belong in the public schema.
+16. References are syntax expressions, never identity programs.
+17. Pure compilation performs no asset or external-tool I/O.
+18. Preflight hashes reachable assets and constructs renderer-only plans.
+19. Semantic Video domains do not contain backend pixel formats.
+20. Final output and manifest publication use temporary siblings and atomic rename.
 
-An ordinary program belongs in the static registry and needs a fixed descriptor,
-argument validation, lowering through the compiler’s trusted graph operations,
-and semantic tests. Structural compounds remain an explicit closed enum owned
-by the stack evaluator.
-
+An ordinary program belongs in one static registry definition containing its
+fixed descriptor, parameter schema, and lowering function. Lowering uses the
+compiler’s constrained `GraphBuilder`. Structural compounds remain an explicit
+closed enum owned by the typed stack evaluator.
