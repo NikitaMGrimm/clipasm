@@ -1,5 +1,5 @@
 /target/
 /.rhythmcut/
+/local/
 *.mp4
 *.manifest.json
-
