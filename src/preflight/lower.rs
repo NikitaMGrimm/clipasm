@@ -28,7 +28,6 @@ impl PreflightLowerer<'_> {
         let result = match compiled_node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
                 let asset = prepare_image_asset(
-                    self.compiled.source_path(),
                     path,
                     compiled_node.origin(),
                     self.ffmpeg,
@@ -47,7 +46,6 @@ impl PreflightLowerer<'_> {
             }
             SemanticNodeKind::VideoSource { path, fit } => {
                 let (asset, frames) = prepare_video_asset(
-                    self.compiled.source_path(),
                     path,
                     self.compiled.video(),
                     compiled_node.origin(),

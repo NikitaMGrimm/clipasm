@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
 use crate::model::{FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
 
@@ -17,7 +17,7 @@ pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf>
         Diagnostic::new(
             "E_MISSING_OUTPUT",
             "`render` requires `program.output`",
-            SourceSpan::file_start(compiled.source_path()),
+            SourceSpan::source_start(compiled.entrypoint_source().clone()),
         )
     })?;
     if output
@@ -32,7 +32,7 @@ pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf>
             output.span.clone(),
         ));
     }
-    Ok(resolve_path(compiled.source_path(), &output.value))
+    resolve_authored_path(&output.value, &output.span)
 }
 
 pub(super) fn validate_destination(path: &Path, role: &str, code: &'static str) -> Result<()> {
@@ -188,38 +188,35 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 pub(super) fn prepare_image_asset(
-    workflow: &Path,
     authored: &Path,
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<PreparedAsset> {
-    let asset = prepare_file_asset(workflow, authored, origin, "image", "E_MISSING_IMAGE_FILE")?;
+    let asset = prepare_file_asset(authored, origin, "image", "E_MISSING_IMAGE_FILE")?;
     verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
     Ok(asset)
 }
 
 pub(super) fn prepare_video_asset(
-    workflow: &Path,
     authored: &Path,
     video: &VideoSpec,
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<(PreparedAsset, FrameCount)> {
-    let asset = prepare_file_asset(workflow, authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
+    let asset = prepare_file_asset(authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
     let frames = verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
     Ok((asset, frames))
 }
 
 fn prepare_file_asset(
-    workflow: &Path,
     authored: &Path,
     origin: &SourceOrigin,
     role: &str,
     missing_code: &'static str,
 ) -> Result<PreparedAsset> {
-    let source_path = resolve_path(workflow, authored);
+    let source_path = resolve_authored_path(authored, &origin.span)?;
     let metadata = fs::metadata(&source_path).map_err(|error| {
         Diagnostic::new(
             missing_code,
@@ -288,15 +285,31 @@ fn hash_file(path: &Path, span: &SourceSpan) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-pub(super) fn resolve_path(workflow: &Path, value: &Path) -> PathBuf {
+pub(super) fn resolve_authored_path(value: &Path, span: &SourceSpan) -> Result<PathBuf> {
     if value.is_absolute() {
-        value.to_path_buf()
-    } else {
-        workflow
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(value)
+        return Ok(value.to_path_buf());
     }
+    let base = span.source().base_directory().ok_or_else(|| {
+        Diagnostic::new(
+            "E_RELATIVE_PATH_WITHOUT_BASE",
+            format!(
+                "relative authored path `{}` has no source directory",
+                value.display()
+            ),
+            span.clone(),
+        )
+    })?;
+    Ok(base.join(value))
+}
+
+pub(super) fn entrypoint_directory(source: &SourceFile) -> Result<&Path> {
+    source.base_directory().ok_or_else(|| {
+        Diagnostic::new(
+            "E_SOURCE_WITHOUT_BASE",
+            "rendering requires the entrypoint source to have a base directory",
+            SourceSpan::source_start(source.clone()),
+        )
+    })
 }
 
 pub(super) fn manifest_path(output: &Path) -> PathBuf {
@@ -308,6 +321,49 @@ pub(super) fn manifest_path(output: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relative_paths_resolve_from_their_own_source_units() {
+        let main = SourceFile::with_base(
+            "main.yaml",
+            Some(PathBuf::from("/project")),
+            "",
+        );
+        let imported = SourceFile::with_base(
+            "effects/intro.yaml",
+            Some(PathBuf::from("/project/effects")),
+            "",
+        );
+
+        assert_eq!(
+            resolve_authored_path(
+                Path::new("card.png"),
+                &SourceSpan::source_start(main),
+            )
+            .expect("main path"),
+            PathBuf::from("/project/card.png")
+        );
+        assert_eq!(
+            resolve_authored_path(
+                Path::new("card.png"),
+                &SourceSpan::source_start(imported),
+            )
+            .expect("imported path"),
+            PathBuf::from("/project/effects/card.png")
+        );
+    }
+
+    #[test]
+    fn relative_paths_require_a_source_base() {
+        let source = SourceFile::with_base("<memory>", None, "");
+        let error = resolve_authored_path(
+            Path::new("card.png"),
+            &SourceSpan::source_start(source),
+        )
+        .expect_err("missing base");
+
+        assert_eq!(error.code, "E_RELATIVE_PATH_WITHOUT_BASE");
+    }
 
     #[cfg(unix)]
     #[test]

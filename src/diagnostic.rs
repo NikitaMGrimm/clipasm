@@ -37,6 +37,7 @@ pub struct SourceFile(Arc<SourceFileData>);
 #[derive(Debug, Eq, PartialEq)]
 struct SourceFileData {
     display_path: PathBuf,
+    filesystem_path: Option<PathBuf>,
     base_directory: Option<PathBuf>,
     text: Arc<str>,
 }
@@ -48,6 +49,7 @@ impl SourceFile {
         let display_path = path.into();
         let base_directory = display_path.parent().map(Path::to_path_buf);
         Self(Arc::new(SourceFileData {
+            filesystem_path: Some(display_path.clone()),
             display_path,
             base_directory,
             text: text.into(),
@@ -63,6 +65,7 @@ impl SourceFile {
     ) -> Self {
         Self(Arc::new(SourceFileData {
             display_path: display_path.into(),
+            filesystem_path: None,
             base_directory,
             text: text.into(),
         }))
@@ -72,6 +75,12 @@ impl SourceFile {
     /// Return the path or virtual name displayed in diagnostics.
     pub fn display_path(&self) -> &Path {
         &self.0.display_path
+    }
+
+    #[must_use]
+    /// Return the backing filesystem path when this source came from a file.
+    pub fn filesystem_path(&self) -> Option<&Path> {
+        self.0.filesystem_path.as_deref()
     }
 
     #[must_use]
@@ -262,6 +271,7 @@ mod tests {
         let span = SourceSpan::at(source, 1, 3);
 
         assert_eq!(span.file(), Path::new("<editor-buffer>"));
+        assert_eq!(span.source().filesystem_path(), None);
         assert_eq!(
             span.source().base_directory(),
             Some(Path::new("/project/effects"))

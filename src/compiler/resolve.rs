@@ -94,7 +94,7 @@ pub(super) fn finalize(
         named_values,
         explain,
         output: entrypoint.output().cloned(),
-        source_path: entrypoint.source().display_path().to_path_buf(),
+        entrypoint_source: entrypoint.source().clone(),
     })
 }
 

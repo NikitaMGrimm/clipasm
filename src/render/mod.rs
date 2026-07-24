@@ -85,9 +85,9 @@ struct ProbeStream {
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
     let source_directory = plan
-        .source_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+        .entrypoint_source()
+        .base_directory()
+        .expect("preflight requires an entrypoint base directory");
     let cache_directory = source_directory
         .join(".clipasm")
         .join("cache")
@@ -99,7 +99,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 "could not create cache directory `{}`: {error}",
                 cache_directory.display()
             ),
-            SourceSpan::file_start(plan.source_path()),
+            SourceSpan::source_start(plan.entrypoint_source().clone()),
         )
     })?;
 
@@ -174,7 +174,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         Diagnostic::new(
             "E_INVALID_PLAN",
             "prepared result does not identify a primitive artifact",
-            SourceSpan::file_start(plan.source_path()),
+            SourceSpan::source_start(plan.entrypoint_source().clone()),
         )
     })?;
     if let Some(parent) = plan.output().parent() {
@@ -213,7 +213,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         Diagnostic::new(
             "E_MANIFEST",
             format!("could not serialize render manifest: {error}"),
-            SourceSpan::file_start(plan.source_path()),
+            SourceSpan::source_start(plan.entrypoint_source().clone()),
         )
     })?;
     publication.stage_manifest(&manifest_json)?;

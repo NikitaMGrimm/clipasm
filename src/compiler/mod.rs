@@ -12,11 +12,11 @@ mod stack;
 pub(crate) mod traversal;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
 use crate::semantic::CompiledNode;
@@ -43,7 +43,7 @@ pub struct CompiledProgram {
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     #[serde(skip)]
-    source_path: PathBuf,
+    entrypoint_source: SourceFile,
 }
 
 impl CompiledProgram {
@@ -133,7 +133,7 @@ impl CompiledProgram {
                     self.outputs.len()
                 ),
                 self.output.as_ref().map_or_else(
-                    || SourceSpan::file_start(&self.source_path),
+                    || SourceSpan::source_start(self.entrypoint_source.clone()),
                     |output| output.span.clone(),
                 ),
             ));
@@ -146,7 +146,7 @@ impl CompiledProgram {
                     output.value_type()
                 ),
                 self.output.as_ref().map_or_else(
-                    || SourceSpan::file_start(&self.source_path),
+                    || SourceSpan::source_start(self.entrypoint_source.clone()),
                     |output| output.span.clone(),
                 ),
             ));
@@ -162,8 +162,8 @@ impl CompiledProgram {
         self.output.as_ref()
     }
 
-    pub(crate) fn source_path(&self) -> &Path {
-        &self.source_path
+    pub(crate) const fn entrypoint_source(&self) -> &SourceFile {
+        &self.entrypoint_source
     }
 }
 
@@ -301,6 +301,7 @@ fn resolve_video_spec(entrypoint: &SourceEntryPoint) -> Result<VideoSpec> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::path::Path;
 
     use super::*;
     use crate::diagnostic::{SourceFile, SourceSpan, Spanned};

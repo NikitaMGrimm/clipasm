@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
 use crate::model::{FrameCount, FrameRange, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::semantic::SourceOrigin;
 
@@ -34,8 +34,8 @@ mod tools;
 
 pub(crate) use assets::verify_prepared_asset;
 use assets::{
-    manifest_path, prepare_output_path, reject_asset_collisions, reject_path_collision,
-    validate_destination,
+    entrypoint_directory, manifest_path, prepare_output_path, reject_asset_collisions,
+    reject_path_collision, validate_destination,
 };
 use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
@@ -79,7 +79,7 @@ pub struct PreparedPlan {
     ffprobe: ToolIdentity,
     execution_namespace: String,
     #[serde(skip)]
-    source_path: PathBuf,
+    entrypoint_source: SourceFile,
 }
 
 impl PreparedPlan {
@@ -149,8 +149,8 @@ impl PreparedPlan {
         tools::verify_tool_identity(&self.ffprobe, "FFprobe")
     }
 
-    pub(crate) fn source_path(&self) -> &Path {
-        &self.source_path
+    pub(crate) const fn entrypoint_source(&self) -> &SourceFile {
+        &self.entrypoint_source
     }
 }
 
@@ -339,31 +339,34 @@ enum ExportPixelFormat {
 /// capabilities, inaccessible/undecodable assets, or preparation failures.
 pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let render_output = compiled.render_output()?;
+    entrypoint_directory(compiled.entrypoint_source())?;
     let output = prepare_output_path(compiled)?;
     let manifest = manifest_path(&output);
     validate_destination(&output, "output", "E_INVALID_OUTPUT_DESTINATION")?;
     validate_destination(&manifest, "manifest", "E_INVALID_MANIFEST_DESTINATION")?;
-    reject_path_collision(
-        &output,
-        "output",
-        compiled.source_path(),
-        "source program",
-        "E_OUTPUT_COLLISION",
-    )?;
-    reject_path_collision(
-        &manifest,
-        "manifest",
-        compiled.source_path(),
-        "source program",
-        "E_MANIFEST_COLLISION",
-    )?;
+    if let Some(source_path) = compiled.entrypoint_source().filesystem_path() {
+        reject_path_collision(
+            &output,
+            "output",
+            source_path,
+            "source program",
+            "E_OUTPUT_COLLISION",
+        )?;
+        reject_path_collision(
+            &manifest,
+            "manifest",
+            source_path,
+            "source program",
+            "E_MANIFEST_COLLISION",
+        )?;
+    }
     let video = compiled.video().clone();
     if !video.width.is_multiple_of(2) || !video.height.is_multiple_of(2) {
         return Err(Diagnostic::new(
             "E_EXPORT_DIMENSIONS",
             "the MP4/H.264/yuv420p export profile requires even width and height",
             compiled.output().map_or_else(
-                || SourceSpan::file_start(compiled.source_path()),
+                || SourceSpan::source_start(compiled.entrypoint_source().clone()),
                 |output| output.span.clone(),
             ),
         ));
@@ -417,6 +420,6 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         ffmpeg,
         ffprobe,
         execution_namespace,
-        source_path: compiled.source_path().to_path_buf(),
+        entrypoint_source: compiled.entrypoint_source().clone(),
     })
 }
