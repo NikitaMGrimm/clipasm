@@ -199,6 +199,7 @@ pub(super) fn bind_literal_value(
     let value = match (parameter_type, argument) {
         (ParameterType::Integer, Literal::Integer(value, _)) => ParameterValue::Integer(*value),
         (ParameterType::File, Literal::String(value, _)) => ParameterValue::File(value.into()),
+        (ParameterType::File, Literal::File(value, _)) => ParameterValue::File(value.clone()),
         (ParameterType::Duration, Literal::String(value, span)) => {
             ParameterValue::Duration(SourceTime::parse(value, span)?)
         }

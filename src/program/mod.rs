@@ -318,6 +318,7 @@ struct ProgramCatalogData {
     definitions: Vec<ProgramDefinition>,
     names: BTreeMap<String, ProgramId>,
     namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
+    source_programs: BTreeMap<SourceUnitId, ProgramId>,
 }
 
 #[derive(Clone, Debug)]
@@ -349,6 +350,7 @@ impl ProgramRegistry {
                 definitions,
                 names,
                 namespaces: BTreeMap::new(),
+                source_programs: BTreeMap::new(),
             }),
         })
     }
@@ -357,6 +359,7 @@ impl ProgramRegistry {
         definitions: Vec<ProgramDefinition>,
         builtin_count: usize,
         namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
+        source_programs: BTreeMap<SourceUnitId, ProgramId>,
     ) -> Result<Self> {
         validate_definitions(&definitions)?;
         let names = definitions[..builtin_count]
@@ -374,6 +377,7 @@ impl ProgramRegistry {
                 definitions,
                 names,
                 namespaces,
+                source_programs,
             }),
         })
     }
@@ -407,6 +411,14 @@ impl ProgramRegistry {
                 .and_then(|namespace| namespace.get(name))
                 .map(|id| self.definition(*id))
         })
+    }
+
+    #[must_use]
+    pub(crate) fn source_program(&self, unit: SourceUnitId) -> Option<&ProgramDefinition> {
+        self.data
+            .source_programs
+            .get(&unit)
+            .map(|id| self.definition(*id))
     }
 }
 

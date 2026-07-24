@@ -102,7 +102,7 @@ pub(super) fn build_catalog(package: &SourcePackage) -> Result<ProgramRegistry> 
         namespaces.insert(unit_id, namespace);
     }
 
-    ProgramRegistry::from_linked(definitions, builtin_count, namespaces)
+    ProgramRegistry::from_linked(definitions, builtin_count, namespaces, unit_programs)
 }
 
 fn infer_outputs(
@@ -846,6 +846,7 @@ fn literal_matches(parameter_type: &ParameterType, literal: &Literal) -> bool {
     matches!(
         (parameter_type, literal),
         (ParameterType::Integer, Literal::Integer(_, _))
+            | (ParameterType::File, Literal::File(_, _))
             | (
                 ParameterType::File
                     | ParameterType::Duration
