@@ -44,7 +44,12 @@ namespace and checks every authored program in import dependency order,
 including programs the root never invokes. This pass resolves program IDs,
 effective stack access, argument and body contracts, named-value types, and
 ordered output types into compiler-owned checked-source metadata paired with
-the immutable canonical source. Imported definitions and built-ins then share
+the immutable canonical source. Named outputs whose generic type is not yet
+known are represented as deferred declarations. A recursive declaration resolver
+follows aliases and source-level reference dependencies, respects body-port
+shadowing, detects cycles, and infers self-contained producers through the same
+body checker used by ordinary compilation. Imported definitions and built-ins
+then share
 one runtime catalog and one call binder.
 
 `compiler` evaluates the source body and every nested body as a typed postfix
@@ -58,8 +63,9 @@ evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
 missing inputs by exact concrete type from the invocation's accessible values,
 and converts authored parameters to their declared Rust types. Before binding, the checker resolves the single closed type parameter used by
 type-preserving built-ins and stores the resulting concrete signature in checked
-source. A body-inferred program such as bare `glue` may defer only that resolution
-until its checked body has produced one homogeneous timeline type. The evaluator
+source. A body-inferred program such as bare `glue` may defer that resolution
+until its checked body has produced one homogeneous timeline type, including
+when the result is named or referenced before its declaration. The evaluator
 does not repeat type inference. Program implementations therefore
 receive a fully resolved call rather than frontend-layer arguments, generic
 types, or stack-frame metadata.

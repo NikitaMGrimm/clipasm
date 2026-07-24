@@ -50,9 +50,17 @@ type is accessible; a mixed Audio/Video stack is an ambiguity error. Explicit
 `drop` returns no values. Its implicit form removes the nearest accessible
 value; its selector can target the nearest Video or Audio specifically.
 
-A named generic result may infer its declaration type from an explicit reference
-input. Otherwise it requires the type selector so forward references have a
-concrete declared type before execution.
+Named generic outputs are registered as deferred declarations when their type is
+not immediately known. Declaration resolution follows aliases and referenced
+named values recursively, detects dependency cycles, and then uses the ordinary
+type checker to resolve the producer from an explicit input or a self-contained
+body. Body-port references obey normal lexical shadowing during dependency
+collection.
+
+A generic output that depends on caller stack state rather than its own explicit
+inputs or body still requires an explicit input or type selector. This keeps
+forward-reference types deterministic without requiring annotations for
+self-contained producers.
 
 `join` resolves `T` from homogeneous explicit inputs, a selector, or a stack
 view that can satisfy both fixed ports. It seeds the body with both values and
@@ -60,10 +68,10 @@ requires every owned body output to have that same type. When both Video and
 Audio can satisfy the missing inputs, bare `join` is ambiguous.
 
 `glue` has no graph inputs. An explicit selector fixes `T`; otherwise the checker
-defers only its signature resolution until the body finishes, then infers `T`
-from one or more homogeneous outputs. Mixed outputs are rejected before
-evaluation. A named `glue` result requires the selector because declaration
-collection needs a concrete output type before body execution.
+defers its signature until the body produces one or more homogeneous outputs.
+The same body inference resolves named `glue` declarations, including forward
+references and chains of named generic bodies. Mixed outputs are rejected, and
+cycles remain dependency errors rather than annotation requests.
 
 Both finalizers use the same type-preserving graph concatenation as `concat`.
 The checker owns the homogeneous-body guarantee; finalizer validation remains a

@@ -589,6 +589,21 @@ when a `glue` result is named before body inference can establish its type.
 `glue` is an ordinary nested body program. A source program receives no
 implicit glue finalization.
 
+A named `glue` normally infers its type from its homogeneous body, including
+through forward references to other named values:
+
+```yaml
+- glue:
+    - audio: first.wav
+    - audio: second.wav
+  id: soundtrack
+```
+
+`type: Video` or `type: Audio` remains an optional constraint and readability
+aid. It is required only when a named generic producer depends on caller stack
+state rather than on explicit inputs or a self-contained body. Dependency cycles
+are reported as cycles; a type annotation does not make a cyclic graph valid.
+
 A child invocation that consumes an enclosing value must independently use
 `stack_access: visible`:
 

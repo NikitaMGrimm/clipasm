@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
@@ -20,6 +20,15 @@ enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
     Alias(String),
+    Deferred(DeferredLocalType),
+}
+
+#[derive(Clone, Debug)]
+struct DeferredLocalType {
+    program: ProgramId,
+    invocation: crate::source::Invocation,
+    output_index: usize,
+    span: crate::source::SourceSpan,
 }
 
 #[derive(Clone, Debug)]
@@ -227,7 +236,7 @@ fn check_program(
         builtins,
         namespace,
     )?;
-    resolve_local_types(&mut locals)?;
+    resolve_local_types(&mut locals, unit, definitions, builtins, namespace)?;
 
     let mut checked_clips = Vec::with_capacity(program.clips().len());
     for clip in program.clips() {
@@ -350,8 +359,8 @@ fn collect_body_names(
 
 fn item_output_types(
     item: &Item,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    _locals: &BTreeMap<String, LocalType>,
+    _unit: SourceUnitId,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
@@ -359,87 +368,66 @@ fn item_output_types(
     match &item.kind {
         ItemKind::Reference(reference) => Ok(vec![LocalType::Alias(reference.name.value.clone())]),
         ItemKind::Invocation(invocation) => {
-            let definition = definition_for(
-                unit,
+            let program = program_id_for(
                 &invocation.program.value,
-                definitions,
                 builtins,
                 namespace,
                 &invocation.program.span,
             )?;
-            let generic = if let Some(type_parameter) = &definition.descriptor.type_parameter {
-                if let Some(argument) = invocation.arguments.get(&type_parameter.selector) {
-                    Some(match argument {
-                        ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
-                            ValueType::Video
-                        }
-                        ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
-                            ValueType::Audio
-                        }
-                        _ => {
-                            return Err(Diagnostic::new(
-                                "E_INVALID_ARGUMENT_VALUE",
-                                format!(
-                                    "parameter `{}.{}` must be `Video` or `Audio`",
-                                    invocation.program.value, type_parameter.selector
-                                ),
-                                argument.span().clone(),
-                            ));
-                        }
-                    })
-                } else {
-                    let generic_port = definition
-                        .descriptor
-                        .inputs
-                        .iter()
-                        .find(|port| matches!(port.value_type, ValueTypeSpec::Generic));
-                    let inferred = generic_port.and_then(|generic_port| {
-                        invocation
-                            .arguments
-                            .get(&generic_port.name)
-                            .and_then(|argument| match argument {
-                                ArgumentValue::Reference(reference) => {
-                                    value_local(locals, &reference.value, &reference.span).ok()
-                                }
-                                ArgumentValue::References(references, _) => {
-                                    let mut inferred = None;
-                                    for reference in references {
-                                        let value_type =
-                                            value_local(locals, &reference.value, &reference.span)
-                                                .ok()?;
-                                        if inferred.is_some_and(|current| current != value_type) {
-                                            return None;
-                                        }
-                                        inferred = Some(value_type);
-                                    }
-                                    inferred
-                                }
-                                ArgumentValue::Literal(_) | ArgumentValue::Body(_) => None,
-                            })
-                    });
-                    Some(inferred.ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_GENERIC_OUTPUT_TYPE_REQUIRED",
-                            format!(
-                                "named output from generic program `{}` requires an explicit generic input or `{}: Video|Audio`",
-                                invocation.program.value, type_parameter.selector
-                            ),
-                            invocation.program.span.clone(),
-                        )
-                    })?)
-                }
-            } else {
-                None
-            };
+            let definition = &definitions[program.index()];
+            let selected = selected_generic_type(definition, invocation)?;
             Ok(definition
                 .descriptor
-                .resolve_signature(generic)
                 .outputs
-                .into_iter()
-                .map(LocalType::Value)
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(output_index, output)| match output {
+                    ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
+                    ValueTypeSpec::Generic => selected.map_or_else(
+                        || {
+                            LocalType::Deferred(DeferredLocalType {
+                                program,
+                                invocation: invocation.clone(),
+                                output_index,
+                                span: item.span.clone(),
+                            })
+                        },
+                        LocalType::Value,
+                    ),
+                })
                 .collect())
         }
     }
+}
+
+fn selected_generic_type(
+    definition: &ProgramDefinition,
+    invocation: &crate::source::Invocation,
+) -> Result<Option<ValueType>> {
+    let Some(type_parameter) = &definition.descriptor.type_parameter else {
+        return Ok(None);
+    };
+    invocation
+        .arguments
+        .get(&type_parameter.selector)
+        .map(|argument| match argument {
+            ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
+                Ok(ValueType::Video)
+            }
+            ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
+                Ok(ValueType::Audio)
+            }
+            _ => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_VALUE",
+                format!(
+                    "parameter `{}.{}` must be `Video` or `Audio`",
+                    definition.descriptor.name, type_parameter.selector
+                ),
+                argument.span().clone(),
+            )),
+        })
+        .transpose()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -459,26 +447,7 @@ fn resolve_invocation_signature(
         return Ok(Some(signature));
     };
 
-    let selected = invocation
-        .arguments
-        .get(&type_parameter.selector)
-        .map(|argument| match argument {
-            ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
-                Ok(ValueType::Video)
-            }
-            ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
-                Ok(ValueType::Audio)
-            }
-            _ => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_VALUE",
-                format!(
-                    "parameter `{}.{}` must be `Video` or `Audio`",
-                    descriptor.name, type_parameter.selector
-                ),
-                argument.span().clone(),
-            )),
-        })
-        .transpose()?;
+    let selected = selected_generic_type(definition, invocation)?;
 
     let mut explicit = Vec::new();
     for port in &descriptor.inputs {
@@ -1167,7 +1136,7 @@ fn validate_parameter_argument(
                 ),
                 reference.span.clone(),
             )),
-            Some(LocalType::Value(_)) => Err(Diagnostic::new(
+            Some(LocalType::Value(_) | LocalType::Deferred(_)) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
                     "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
@@ -1189,17 +1158,6 @@ fn validate_parameter_argument(
             argument.span().clone(),
         )),
     }
-}
-
-fn definition_for<'a>(
-    _unit: SourceUnitId,
-    name: &str,
-    definitions: &'a [ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    span: &crate::source::SourceSpan,
-) -> Result<&'a ProgramDefinition> {
-    program_id_for(name, builtins, namespace, span).map(|id| &definitions[id.index()])
 }
 
 fn program_id_for(
@@ -1237,51 +1195,376 @@ fn insert_local(
     Ok(())
 }
 
-fn resolve_local_types(locals: &mut BTreeMap<String, LocalType>) -> Result<()> {
+fn resolve_local_types(
+    locals: &mut BTreeMap<String, LocalType>,
+    unit: SourceUnitId,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+) -> Result<()> {
     let names = locals.keys().cloned().collect::<Vec<_>>();
+    let mut path = Vec::new();
     for name in names {
-        if matches!(
-            locals.get(&name),
-            Some(LocalType::Value(_) | LocalType::Parameter(_))
-        ) {
-            continue;
+        resolve_local_type(
+            &name,
+            locals,
+            unit,
+            definitions,
+            builtins,
+            namespace,
+            &mut path,
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_local_type(
+    name: &str,
+    locals: &mut BTreeMap<String, LocalType>,
+    unit: SourceUnitId,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+    path: &mut Vec<String>,
+) -> Result<LocalType> {
+    if let Some(start) = path.iter().position(|entry| entry == name) {
+        let mut cycle = path[start..].to_vec();
+        cycle.push(name.to_owned());
+        return Err(Diagnostic::new(
+            "E_DEPENDENCY_CYCLE",
+            format!("named-value dependency cycle: {}", cycle.join(" -> ")),
+            local_inference_span(locals.get(name)),
+        ));
+    }
+
+    let local = locals.get(name).cloned().ok_or_else(|| {
+        missing_reference(
+            name,
+            &crate::source::SourceSpan::file_start("<source-inference>"),
+        )
+    })?;
+    match local {
+        LocalType::Value(_) | LocalType::Parameter(_) => Ok(local),
+        LocalType::Alias(target) => {
+            path.push(name.to_owned());
+            let resolved = resolve_local_type(
+                &target,
+                locals,
+                unit,
+                definitions,
+                builtins,
+                namespace,
+                path,
+            )?;
+            path.pop();
+            locals.insert(name.to_owned(), resolved.clone());
+            Ok(resolved)
         }
-        let mut path = Vec::new();
-        let mut positions = BTreeMap::new();
-        let mut current = name.clone();
-        let resolved = loop {
-            match locals.get(&current).cloned() {
-                Some(LocalType::Value(value_type)) => break LocalType::Value(value_type),
-                Some(LocalType::Parameter(parameter_type)) => {
-                    break LocalType::Parameter(parameter_type);
+        LocalType::Deferred(deferred) => {
+            path.push(name.to_owned());
+            for dependency in deferred_dependencies(&deferred, definitions, builtins, namespace)? {
+                if !locals.contains_key(&dependency) {
+                    return Err(missing_reference(&dependency, &deferred.span));
                 }
-                Some(LocalType::Alias(target)) => {
-                    if let Some(start) = positions.get(&current).copied() {
-                        let mut cycle = path[start..].to_vec();
-                        cycle.push(current.clone());
-                        return Err(Diagnostic::new(
-                            "E_DEPENDENCY_CYCLE",
-                            format!("named-value dependency cycle: {}", cycle.join(" -> ")),
-                            crate::source::SourceSpan::file_start("<source-inference>"),
-                        ));
-                    }
-                    positions.insert(current.clone(), path.len());
-                    path.push(current);
-                    current = target;
-                }
-                None => {
-                    return Err(missing_reference(
-                        &current,
-                        &crate::source::SourceSpan::file_start("<source-inference>"),
-                    ));
+                resolve_local_type(
+                    &dependency,
+                    locals,
+                    unit,
+                    definitions,
+                    builtins,
+                    namespace,
+                    path,
+                )?;
+            }
+            let value_type = infer_deferred_local_type(
+                &deferred,
+                locals,
+                unit,
+                definitions,
+                builtins,
+                namespace,
+            )?;
+            path.pop();
+            let resolved = LocalType::Value(value_type);
+            locals.insert(name.to_owned(), resolved.clone());
+            Ok(resolved)
+        }
+    }
+}
+
+fn local_inference_span(local: Option<&LocalType>) -> crate::source::SourceSpan {
+    match local {
+        Some(LocalType::Deferred(deferred)) => deferred.span.clone(),
+        _ => crate::source::SourceSpan::file_start("<source-inference>"),
+    }
+}
+
+fn deferred_dependencies(
+    deferred: &DeferredLocalType,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+) -> Result<BTreeSet<String>> {
+    let mut dependencies = BTreeSet::new();
+    collect_invocation_dependencies(
+        &deferred.invocation,
+        definitions,
+        builtins,
+        namespace,
+        &BTreeSet::new(),
+        &mut dependencies,
+    )?;
+    Ok(dependencies)
+}
+
+fn collect_body_dependencies(
+    body: &ProgramBody,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+    shadows: &BTreeSet<String>,
+    dependencies: &mut BTreeSet<String>,
+) -> Result<()> {
+    for item in &body.items {
+        match &item.kind {
+            ItemKind::Reference(reference) => {
+                if !shadows.contains(&reference.name.value) {
+                    dependencies.insert(reference.name.value.clone());
                 }
             }
-        };
-        for entry in path {
-            locals.insert(entry, resolved.clone());
+            ItemKind::Invocation(invocation) => collect_invocation_dependencies(
+                invocation,
+                definitions,
+                builtins,
+                namespace,
+                shadows,
+                dependencies,
+            )?,
         }
     }
     Ok(())
+}
+
+fn collect_invocation_dependencies(
+    invocation: &crate::source::Invocation,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+    shadows: &BTreeSet<String>,
+    dependencies: &mut BTreeSet<String>,
+) -> Result<()> {
+    for argument in invocation.arguments.values() {
+        match argument {
+            ArgumentValue::Literal(_) => {}
+            ArgumentValue::Reference(reference) => {
+                if !shadows.contains(&reference.value) {
+                    dependencies.insert(reference.value.clone());
+                }
+            }
+            ArgumentValue::References(references, _) => {
+                for reference in references {
+                    if !shadows.contains(&reference.value) {
+                        dependencies.insert(reference.value.clone());
+                    }
+                }
+            }
+            ArgumentValue::Body(body) => collect_body_dependencies(
+                body,
+                definitions,
+                builtins,
+                namespace,
+                shadows,
+                dependencies,
+            )?,
+        }
+    }
+
+    if let Some(body) = &invocation.body {
+        let program = program_id_for(
+            &invocation.program.value,
+            builtins,
+            namespace,
+            &invocation.program.span,
+        )?;
+        let definition = &definitions[program.index()];
+        let mut body_shadows = shadows.clone();
+        for input in &definition.descriptor.inputs {
+            if matches!(input.cardinality, Cardinality::One) {
+                body_shadows.insert(input.name.clone());
+            }
+        }
+        collect_body_dependencies(
+            body,
+            definitions,
+            builtins,
+            namespace,
+            &body_shadows,
+            dependencies,
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn infer_deferred_local_type(
+    deferred: &DeferredLocalType,
+    locals: &BTreeMap<String, LocalType>,
+    unit: SourceUnitId,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+) -> Result<ValueType> {
+    let definition = &definitions[deferred.program.index()];
+    let invocation = &deferred.invocation;
+    let validated = validate_explicit_arguments(
+        invocation,
+        definition,
+        locals,
+        unit,
+        definitions,
+        builtins,
+        namespace,
+    )?;
+    let access = invocation
+        .stack_access
+        .as_ref()
+        .map_or(definition.descriptor.default_stack_access, |access| {
+            access.value
+        });
+    let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
+        format!("named output from `{}` inference", invocation.program.value),
+        deferred.span.clone(),
+    );
+    let signature = match resolve_invocation_signature(
+        definition,
+        invocation,
+        &validated,
+        &stack,
+        &frame,
+        access,
+        &deferred.span,
+    ) {
+        Ok(signature) => signature,
+        Err(error) if error.code == "E_STACK_UNDERFLOW" => {
+            return Err(generic_output_type_required(definition, invocation));
+        }
+        Err(error) => return Err(error),
+    };
+
+    let signature = if let Some(signature) = signature {
+        signature
+    } else {
+        infer_deferred_body_signature(
+            definition,
+            invocation,
+            locals,
+            unit,
+            definitions,
+            builtins,
+            namespace,
+            &mut stack,
+            &mut frame,
+        )?
+    };
+
+    signature
+        .outputs
+        .get(deferred.output_index)
+        .copied()
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INTERNAL_OUTPUT_SIGNATURE",
+                "named output index is outside the resolved program signature",
+                deferred.span.clone(),
+            )
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn infer_deferred_body_signature(
+    definition: &ProgramDefinition,
+    invocation: &crate::source::Invocation,
+    locals: &BTreeMap<String, LocalType>,
+    unit: SourceUnitId,
+    definitions: &[ProgramDefinition],
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+    stack: &mut EvaluationStack<ValueType>,
+    frame: &mut super::stack::StackFrame,
+) -> Result<ResolvedSignature> {
+    let body = invocation.body.as_ref().ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_PROGRAM_BODY",
+            format!(
+                "body program `{}` requires a `body`",
+                invocation.program.value
+            ),
+            invocation.program.span.clone(),
+        )
+    })?;
+    let contract = definition
+        .body_contract
+        .as_ref()
+        .expect("validated body program contract");
+    stack.extend(
+        frame,
+        contract
+            .exact_initial_values()
+            .expect("body-inferred generic contracts cannot require generic initial values"),
+    );
+    let mut body_locals = locals.clone();
+    for input in &definition.descriptor.inputs {
+        if let Some(value_type) = input.value_type.exact()
+            && matches!(input.cardinality, Cardinality::One)
+        {
+            body_locals.insert(input.name.clone(), LocalType::Value(value_type));
+        }
+    }
+    infer_body(
+        body,
+        &body_locals,
+        unit,
+        definitions,
+        builtins,
+        namespace,
+        stack,
+        frame,
+    )?;
+    let outputs = stack.values().to_vec();
+    let type_parameter = definition
+        .descriptor
+        .type_parameter
+        .as_ref()
+        .expect("deferred body signature is generic");
+    let value_type = infer_body_generic_type(
+        &invocation.program.value,
+        &outputs,
+        type_parameter.constraint,
+        contract.count_error_code,
+        &body.span,
+    )?;
+    Ok(definition.descriptor.resolve_signature(Some(value_type)))
+}
+
+fn generic_output_type_required(
+    definition: &ProgramDefinition,
+    invocation: &crate::source::Invocation,
+) -> Diagnostic {
+    let selector = &definition
+        .descriptor
+        .type_parameter
+        .as_ref()
+        .expect("generic output belongs to a generic descriptor")
+        .selector;
+    Diagnostic::new(
+        "E_GENERIC_OUTPUT_TYPE_REQUIRED",
+        format!(
+            "named output from generic program `{}` depends on caller stack state; provide an explicit generic input or `{selector}: Video|Audio`",
+            invocation.program.value
+        ),
+        invocation.program.span.clone(),
+    )
 }
 
 fn value_local(
@@ -1296,7 +1579,11 @@ fn value_local(
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        Some(LocalType::Alias(_)) => unreachable!("local aliases are resolved before validation"),
+        Some(LocalType::Alias(_) | LocalType::Deferred(_)) => Err(Diagnostic::new(
+            "E_UNRESOLVED_LOCAL_TYPE",
+            format!("named value `${name}` has not finished type inference"),
+            span.clone(),
+        )),
         None => Err(missing_reference(name, span)),
     }
 }

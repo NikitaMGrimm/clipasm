@@ -1053,23 +1053,90 @@ fn join_selector_chooses_one_homogeneous_stack_view() {
 }
 
 #[test]
-fn named_glue_requires_or_uses_a_type_selector() {
-    let (_directory, untyped) = project(
-        "- program:\n    version: 1\n\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n  id: combined\n",
+fn named_glue_infers_its_type_from_the_body() {
+    let (_directory, inferred) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n  id: combined\n- $combined\n",
     );
-    let error = compiler::compile(&untyped).expect_err("named generic body output needs type");
-    assert_eq!(error.code, "E_GENERIC_OUTPUT_TYPE_REQUIRED");
-
-    let (_directory, typed) = project(
-        "- program:\n    version: 1\n\n- glue:\n    type: Audio\n    body:\n      - audio: first.wav\n      - audio: second.wav\n  id: combined\n- $combined\n",
-    );
-    let compiled = compiler::compile(&typed).expect("typed named glue");
+    let inferred = compiler::compile(&inferred).expect("inferred named Audio glue");
     assert_eq!(
-        compiled
+        inferred
             .outputs()
             .last()
             .expect("reference output")
             .value_type(),
         clipasm::model::ValueType::Audio
     );
+
+    let (_directory, annotated) = project(
+        "- program:\n    version: 1\n\n- glue:\n    type: Audio\n    body:\n      - audio: first.wav\n      - audio: second.wav\n  id: combined\n- $combined\n",
+    );
+    let annotated = compiler::compile(&annotated).expect("annotated named Audio glue");
+    assert_eq!(inferred.structure_hash(), annotated.structure_hash());
+}
+
+#[test]
+fn named_glue_type_inference_follows_forward_references() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- $combined\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n  id: combined\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("forward inferred named glue");
+    assert_eq!(compiled.outputs().len(), 2);
+    assert!(
+        compiled
+            .outputs()
+            .iter()
+            .all(|output| output.value_type() == clipasm::model::ValueType::Audio)
+    );
+}
+
+#[test]
+fn named_glue_type_inference_resolves_dependency_chains() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - $later\n  id: earlier\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n  id: later\n- $earlier\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("inferred named glue chain");
+    assert_eq!(
+        compiled
+            .outputs()
+            .last()
+            .expect("earlier reference")
+            .value_type(),
+        clipasm::model::ValueType::Audio
+    );
+}
+
+#[test]
+fn named_glue_type_inference_reports_dependency_cycles() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - $second\n  id: first\n- glue:\n    - $first\n  id: second\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("named glue type cycle");
+    assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
+    assert!(error.message.contains("first -> second -> first"));
+}
+
+#[test]
+fn named_glue_type_inference_respects_body_port_shadowing() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - drop\n        - drop\n        - $before\n  id: combined\n- $combined\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("body-local port shadowing");
+    assert_eq!(
+        compiled
+            .outputs()
+            .last()
+            .expect("combined reference")
+            .value_type(),
+        clipasm::model::ValueType::Video
+    );
+}
+
+#[test]
+fn stack_dependent_named_generic_outputs_still_need_evidence() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- repeat: 2\n  id: doubled\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("stack-dependent named generic output");
+    assert_eq!(error.code, "E_GENERIC_OUTPUT_TYPE_REQUIRED");
+    assert!(error.message.contains("caller stack state"));
 }
