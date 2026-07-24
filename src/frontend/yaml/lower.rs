@@ -4,17 +4,18 @@ use std::path::{Path, PathBuf};
 
 use yaml_rust2::scanner::TScalarStyle;
 
-use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
 use super::language::{
     BODY_FIELD, ID_FIELD, IDS_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD,
 };
+use super::raw::{RawKind, RawNode};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess};
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceEntryPoint,
     SourceProgram, VideoSettings,
 };
-use super::raw::{RawKind, RawNode};
+use crate::source::{SourceFile, SourceSpan, Spanned};
 
 /// Parse and normalize a restricted `ClipAsm` YAML document.
 ///
@@ -52,7 +53,10 @@ pub(crate) fn parse_str_with_language(
     source: &str,
     language: Language,
 ) -> Result<SourceEntryPoint> {
-    parse_source_with_language(SourceFile::new(path.to_path_buf(), source.to_owned()), language)
+    parse_source_with_language(
+        SourceFile::new(path.to_path_buf(), source.to_owned()),
+        language,
+    )
 }
 
 fn parse_source_with_language(source: SourceFile, language: Language) -> Result<SourceEntryPoint> {
@@ -521,10 +525,7 @@ fn normalize_invocation(
                 value.span,
             ));
         };
-        arguments.insert(
-            primary.to_owned(),
-            parse_argument_value(value, language)?,
-        );
+        arguments.insert(primary.to_owned(), parse_argument_value(value, language)?);
     }
     Ok(Invocation {
         program: Spanned::new(program.to_owned(), program_span),
@@ -741,7 +742,10 @@ mod tests {
     fn source_stack_access_defaults_explicitly_to_owned() {
         let program = parse("- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n")
             .expect("source program");
-        assert_eq!(program.program.stack_access, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS);
+        assert_eq!(
+            program.program.stack_access,
+            SOURCE_PROGRAM_DEFAULT_STACK_ACCESS
+        );
         assert_eq!(program.program.stack_access, StackAccess::Owned);
     }
 

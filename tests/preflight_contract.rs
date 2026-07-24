@@ -52,10 +52,8 @@ fn relocated_identical_projects_have_equal_semantic_hashes() {
         .expect("workflow");
     }
 
-    let first_compiled =
-        compile_yaml(&first.path().join("workflow.yaml")).expect("compile");
-    let second_compiled =
-        compile_yaml(&second.path().join("workflow.yaml")).expect("compile");
+    let first_compiled = compile_yaml(&first.path().join("workflow.yaml")).expect("compile");
+    let second_compiled = compile_yaml(&second.path().join("workflow.yaml")).expect("compile");
     let first_prepared = clipasm::preflight::preflight(&first_compiled).expect("preflight");
     let second_prepared = clipasm::preflight::preflight(&second_compiled).expect("preflight");
     assert_eq!(

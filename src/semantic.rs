@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
     FrameCount, FrameRange, ImageFit, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec,
 };
+use crate::source::SourceSpan;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledNode {

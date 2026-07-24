@@ -780,7 +780,8 @@ fn authored_source_paths_change_compiled_identity() {
             )
         };
         let first = clipasm::frontend::yaml::parse_str(path, &source(first_path)).expect("first");
-        let second = clipasm::frontend::yaml::parse_str(path, &source(second_path)).expect("second");
+        let second =
+            clipasm::frontend::yaml::parse_str(path, &source(second_path)).expect("second");
         assert_ne!(
             compiler::compile(&first).expect("first").structure_hash(),
             compiler::compile(&second).expect("second").structure_hash(),

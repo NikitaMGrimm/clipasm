@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::compiler::{CompiledProgram, ExplainEntry};
-use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, SemanticNodeKind, SourceOrigin};
+use crate::source::{SourceSpan, Spanned};
 
 #[derive(Serialize)]
 struct CompiledDocument<'a> {

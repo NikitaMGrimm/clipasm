@@ -1,6 +1,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
-//! Embed the `ClipAsm` typed YAML video compiler and renderer.
+//! Embed the `ClipAsm` typed video compiler and renderer.
 //!
 //! `ClipAsm` separates authoring from execution. Parse a
 //! [`source::SourceEntryPoint`] through a frontend,
@@ -24,13 +24,14 @@
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 //!
-//! The YAML language, programs, and stack behavior are documented in the
-//! project guide rather than duplicated in this Rust API reference.
+//! The canonical language, YAML frontend, programs, and stack behavior are
+//! documented in the project guide rather than duplicated in this Rust API
+//! reference.
 
 pub mod compiler;
 pub mod diagnostic;
-pub mod frontend;
 pub(crate) mod format;
+pub mod frontend;
 pub mod model;
 pub mod preflight;
 pub(crate) mod program;

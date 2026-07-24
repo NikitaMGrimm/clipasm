@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, FrameRange, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
+use crate::source::SourceSpan;
 
 use super::assets::{prepare_image_asset, prepare_video_asset};
 use super::identity::node_fingerprint;
@@ -27,12 +28,8 @@ impl PreflightLowerer<'_> {
         let compiled_node = &self.compiled.nodes()[value.id().get() as usize];
         let result = match compiled_node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
-                let asset = prepare_image_asset(
-                    path,
-                    compiled_node.origin(),
-                    self.ffmpeg,
-                    self.ffprobe,
-                )?;
+                let asset =
+                    prepare_image_asset(path, compiled_node.origin(), self.ffmpeg, self.ffprobe)?;
                 self.add_node(
                     PreparedNodeKind::ImageVideo {
                         asset,

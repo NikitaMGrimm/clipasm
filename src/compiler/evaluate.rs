@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
+use crate::source::SourceSpan;
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
     SourceProgram,
@@ -907,13 +908,18 @@ mod tests {
     ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
         let language = Language::new(registry).expect("language");
-        let workflow =
-            crate::frontend::yaml::parse_str_with_language(Path::new("test.yaml"), source, language)
-                .expect("workflow");
+        let workflow = crate::frontend::yaml::parse_str_with_language(
+            Path::new("test.yaml"),
+            source,
+            language,
+        )
+        .expect("workflow");
         (workflow, registry)
     }
 
-    fn parse_with_synthetic_outputs(source: &str) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
+    fn parse_with_synthetic_outputs(
+        source: &str,
+    ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
         let definitions = Box::leak(
             crate::program::BUILTIN_PROGRAMS
                 .iter()

@@ -6,8 +6,9 @@ use std::process::{Command, Output};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, VideoSpec};
+use crate::source::SourceSpan;
 
 use super::REQUIRED_FFMPEG_FILTERS;
 

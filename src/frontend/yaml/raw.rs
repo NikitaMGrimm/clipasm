@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::{Marker, TScalarStyle};
 
-use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
+use crate::source::{SourceFile, SourceSpan};
 
 #[derive(Clone, Debug)]
 pub(super) struct RawNode {

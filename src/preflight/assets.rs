@@ -5,9 +5,10 @@ use std::path::{Component, Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
+use crate::source::{SourceFile, SourceSpan};
 
 use super::tools::{ToolIdentity, verify_image_decodable, verify_video_decodable};
 use super::{PreparedAsset, PreparedNode, PreparedNodeKind};
@@ -324,11 +325,7 @@ mod tests {
 
     #[test]
     fn relative_paths_resolve_from_their_own_source_units() {
-        let main = SourceFile::with_base(
-            "main.yaml",
-            Some(PathBuf::from("/project")),
-            "",
-        );
+        let main = SourceFile::with_base("main.yaml", Some(PathBuf::from("/project")), "");
         let imported = SourceFile::with_base(
             "effects/intro.yaml",
             Some(PathBuf::from("/project/effects")),
@@ -336,19 +333,13 @@ mod tests {
         );
 
         assert_eq!(
-            resolve_authored_path(
-                Path::new("card.png"),
-                &SourceSpan::source_start(main),
-            )
-            .expect("main path"),
+            resolve_authored_path(Path::new("card.png"), &SourceSpan::source_start(main),)
+                .expect("main path"),
             PathBuf::from("/project/card.png")
         );
         assert_eq!(
-            resolve_authored_path(
-                Path::new("card.png"),
-                &SourceSpan::source_start(imported),
-            )
-            .expect("imported path"),
+            resolve_authored_path(Path::new("card.png"), &SourceSpan::source_start(imported),)
+                .expect("imported path"),
             PathBuf::from("/project/effects/card.png")
         );
     }
@@ -356,11 +347,8 @@ mod tests {
     #[test]
     fn relative_paths_require_a_source_base() {
         let source = SourceFile::with_base("<memory>", None, "");
-        let error = resolve_authored_path(
-            Path::new("card.png"),
-            &SourceSpan::source_start(source),
-        )
-        .expect_err("missing base");
+        let error = resolve_authored_path(Path::new("card.png"), &SourceSpan::source_start(source))
+            .expect_err("missing base");
 
         assert_eq!(error.code, "E_RELATIVE_PATH_WITHOUT_BASE");
     }

@@ -14,11 +14,12 @@ pub(crate) mod traversal;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
 use crate::semantic::CompiledNode;
 use crate::source::SourceEntryPoint;
+use crate::source::{SourceFile, SourceSpan, Spanned};
 
 pub use crate::semantic::SourceOrigin;
 
@@ -303,18 +304,18 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::diagnostic::{SourceFile, SourceSpan, Spanned};
     use crate::program::StackAccess;
     use crate::source::{
         ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
         ProjectSettings, SourceProgram,
     };
+    use crate::source::{SourceFile, SourceSpan, Spanned};
 
     #[test]
     fn compilation_is_independent_of_the_yaml_frontend() {
         let text = "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n";
-        let yaml = crate::frontend::yaml::parse_str(Path::new("program.yaml"), text)
-            .expect("YAML source");
+        let yaml =
+            crate::frontend::yaml::parse_str(Path::new("program.yaml"), text).expect("YAML source");
 
         let source = SourceFile::new("program.yaml", text);
         let program_span = SourceSpan::at(source.clone(), 1, 9);

@@ -1,4 +1,4 @@
-//! Restricted YAML frontend for authored ClipAsm source programs.
+//! Restricted YAML frontend for authored `ClipAsm` source programs.
 
 mod language;
 mod lower;

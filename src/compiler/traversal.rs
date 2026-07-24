@@ -136,7 +136,7 @@ fn node_index<N>(value: ValueRef, nodes: &[N]) -> Result<usize> {
                 value.id().get(),
                 nodes.len()
             ),
-            crate::diagnostic::SourceSpan::file_start("<semantic-graph>"),
+            crate::source::SourceSpan::file_start("<semantic-graph>"),
         ))
     }
 }
@@ -144,9 +144,9 @@ fn node_index<N>(value: ValueRef, nodes: &[N]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostic::SourceSpan;
     use crate::model::{FrameCount, ImageFit, ValueType, VideoSpec};
     use crate::semantic::{GraphBuilder, SourceOrigin};
+    use crate::source::SourceSpan;
 
     fn origin() -> SourceOrigin {
         SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))

@@ -3,9 +3,10 @@ mod builtins;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
+use crate::source::{SourceSpan, Spanned};
 
 pub(crate) use builtins::BUILTIN_PROGRAMS;
 

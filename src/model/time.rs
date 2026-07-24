@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::FrameRate;
+use crate::source::SourceSpan;
 
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,

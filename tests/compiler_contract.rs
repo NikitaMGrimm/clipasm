@@ -43,8 +43,9 @@ fn source_program_body_returns_one_video_without_an_implicit_glue() {
 
 #[test]
 fn source_program_allows_zero_or_multiple_outputs_without_publication() {
-    let empty = clipasm::frontend::yaml::parse_str(Path::new("empty.yaml"), "- program:\n    version: 1\n")
-        .expect("empty source syntax");
+    let empty =
+        clipasm::frontend::yaml::parse_str(Path::new("empty.yaml"), "- program:\n    version: 1\n")
+            .expect("empty source syntax");
     let compiled = clipasm::compiler::compile(&empty).expect("zero outputs");
     assert!(compiled.outputs().is_empty());
 
@@ -99,8 +100,8 @@ fn source_program_header_is_required_first_and_rejects_unknown_fields() {
 #[test]
 fn stack_access_is_generic_source_and_invocation_metadata() {
     let source = "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: card.ppm\n    duration: 1s\n    stack_access: visible\n";
-    let program =
-        clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source).expect("stack metadata");
+    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
+        .expect("stack metadata");
     clipasm::compiler::compile(&program).expect("no-op visible image");
 
     for source in [
@@ -116,8 +117,8 @@ fn stack_access_is_generic_source_and_invocation_metadata() {
 #[test]
 fn compiled_program_serializes_ordered_outputs() {
     let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
-    let program =
-        clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source).expect("source program");
+    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
+        .expect("source program");
     let compiled = clipasm::compiler::compile(&program).expect("compiled program");
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
@@ -181,8 +182,8 @@ fn id_and_ids_are_mutually_exclusive_and_ids_requires_a_sequence() {
 fn explain_entries_expose_authored_names_and_source_locations() {
     let source =
         "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n  id: card\n";
-    let program =
-        clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source).expect("source program");
+    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
+        .expect("source program");
     let compiled = clipasm::compiler::compile(&program).expect("compiled program");
     let entry = compiled.explain().last().expect("explain entry");
 
@@ -202,8 +203,9 @@ fn entrypoint_output_does_not_change_compiled_semantics() {
     };
     let first = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), &source("first.mp4"))
         .expect("first source program");
-    let second = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), &source("second.mp4"))
-        .expect("second source program");
+    let second =
+        clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), &source("second.mp4"))
+            .expect("second source program");
 
     assert_eq!(
         clipasm::compiler::compile(&first)

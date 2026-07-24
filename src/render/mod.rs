@@ -15,11 +15,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::preflight::{
     PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
+use crate::source::SourceSpan;
 use publication::PublicationTransaction;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -84,10 +85,13 @@ struct ProbeStream {
 #[allow(clippy::too_many_lines)]
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
-    let source_directory = plan
-        .entrypoint_source()
-        .base_directory()
-        .expect("preflight requires an entrypoint base directory");
+    let source_directory = plan.entrypoint_source().base_directory().ok_or_else(|| {
+        Diagnostic::new(
+            "E_INVALID_PLAN",
+            "prepared plan has no entrypoint base directory",
+            SourceSpan::source_start(plan.entrypoint_source().clone()),
+        )
+    })?;
     let cache_directory = source_directory
         .join(".clipasm")
         .join("cache")

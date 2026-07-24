@@ -3,7 +3,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
+use crate::source::SourceSpan;
 
 static PUBLICATION_COUNTER: AtomicU64 = AtomicU64::new(0);
 

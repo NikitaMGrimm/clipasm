@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyFinalizer, BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType,
@@ -6,6 +6,7 @@ use crate::program::{
     ResolvedCall, StackAccess,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
+use crate::source::SourceSpan;
 
 const VIDEO: ValueType = ValueType::Video;
 const VIDEO_OUTPUTS: &[ValueType] = &[VIDEO];

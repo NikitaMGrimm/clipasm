@@ -6,7 +6,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use clipasm::diagnostic::{Diagnostic, Result, SourceSpan};
+use clipasm::diagnostic::{Diagnostic, Result};
+use clipasm::source::SourceSpan;
 use clipasm::{compiler, frontend, preflight, render};
 
 #[derive(Debug, Parser)]

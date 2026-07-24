@@ -1,6 +1,7 @@
-use crate::diagnostic::{Diagnostic, SourceSpan};
+use crate::diagnostic::Diagnostic;
 use crate::model::ValueRef;
 use crate::program::StackAccess;
+use crate::source::SourceSpan;
 
 #[derive(Clone, Debug)]
 pub(super) struct VisibilityBoundary {

@@ -1,10 +1,14 @@
-//! Representation-neutral, fully desugared authored ClipAsm programs.
+//! Representation-neutral, fully desugared authored `ClipAsm` programs.
+
+mod location;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::diagnostic::{SourceFile, SourceSpan, Spanned};
 use crate::program::StackAccess;
+
+pub(crate) use location::Spanned;
+pub use location::{SourceFile, SourceSpan};
 
 pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
 
@@ -39,7 +43,7 @@ impl SourceEntryPoint {
     }
 }
 
-/// One callable authored ClipAsm stack program.
+/// One callable authored `ClipAsm` stack program.
 #[derive(Clone, Debug)]
 pub struct SourceProgram {
     pub(crate) clips: Vec<NamedClip>,

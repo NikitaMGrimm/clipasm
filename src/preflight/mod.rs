@@ -23,9 +23,10 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, FrameRange, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::semantic::SourceOrigin;
+use crate::source::{SourceFile, SourceSpan};
 
 mod assets;
 mod identity;

@@ -349,7 +349,7 @@ fn project_domain(video: &VideoSpec, frames: FrameCount) -> VideoDomain {
 fn validate_range(
     range: crate::model::FrameRange,
     input: FrameCount,
-    span: &crate::diagnostic::SourceSpan,
+    span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if range.end() > input.0 {
         return Err(Diagnostic::new(
@@ -369,7 +369,7 @@ fn validate_range(
 fn validate_flash_frames(
     frames: FrameCount,
     after: FrameCount,
-    span: &crate::diagnostic::SourceSpan,
+    span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if frames > after {
         return Err(Diagnostic::new(
@@ -389,7 +389,7 @@ fn infer_flash_domain(
     after: &DomainKnowledge,
     frames: FrameCount,
     video: &VideoSpec,
-    span: &crate::diagnostic::SourceSpan,
+    span: &crate::source::SourceSpan,
 ) -> Result<DomainKnowledge> {
     if let DomainKnowledge::Known(after) = after {
         validate_flash_frames(frames, after.frames, span)?;
@@ -409,7 +409,7 @@ fn infer_concat_domain(
     inputs: &[ValueRef],
     knowledge: &[DomainKnowledge],
     video: &VideoSpec,
-    span: &crate::diagnostic::SourceSpan,
+    span: &crate::source::SourceSpan,
 ) -> Result<DomainKnowledge> {
     if inputs.iter().any(|input| {
         matches!(
@@ -438,9 +438,9 @@ mod tests {
 
     use super::*;
     use crate::compiler::evaluate::{DeclaredValueType, SurfaceRecord, Symbol};
-    use crate::diagnostic::SourceSpan;
     use crate::model::ImageFit;
     use crate::semantic::{GraphBuilder, SourceOrigin};
+    use crate::source::SourceSpan;
 
     fn origin() -> SourceOrigin {
         SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::FrameCount;
+use crate::source::SourceSpan;
 
 /// A positive rational project frame rate in canonical reduced form.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -130,7 +131,7 @@ pub struct VideoDomain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostic::SourceSpan;
+    use crate::source::SourceSpan;
 
     #[test]
     fn frame_rates_are_reduced_on_construction_and_parsing() {

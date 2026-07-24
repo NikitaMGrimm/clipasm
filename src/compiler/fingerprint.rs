@@ -4,9 +4,10 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::compiler::evaluate::Evaluation;
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::SemanticNodeKind;
+use crate::source::SourceSpan;
 
 #[derive(Serialize)]
 struct CompiledIdentity<'a> {
@@ -189,9 +190,9 @@ mod tests {
 
     use super::*;
     use crate::compiler::evaluate::{DeclaredValueType, Evaluation, Symbol};
-    use crate::diagnostic::SourceSpan;
     use crate::model::{FrameCount, ImageFit, ValueId, ValueType, VideoDomain, VideoSpec};
     use crate::semantic::{GraphBuilder, SourceOrigin};
+    use crate::source::SourceSpan;
 
     #[test]
     fn reference_hash_is_exactly_its_target_hash() {
@@ -313,12 +314,8 @@ mod tests {
             let span = SourceSpan::file_start("workflow.yaml");
             let video = VideoSpec::default();
             let mut nodes = Vec::new();
-            let mut builder = GraphBuilder::for_program(
-                &mut nodes,
-                &video,
-                2,
-                SourceOrigin::new("repeat", span),
-            );
+            let mut builder =
+                GraphBuilder::for_program(&mut nodes, &video, 2, SourceOrigin::new("repeat", span));
             let source = builder
                 .image_video("source.png".into(), FrameCount(5), ImageFit::Cover)
                 .expect("source");

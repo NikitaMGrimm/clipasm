@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef};
 use crate::program::{
     BoundParameters, Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue,
@@ -8,6 +8,7 @@ use crate::program::{
 };
 use crate::semantic::{SourceOrigin, require_value_type};
 use crate::source::{ArgumentValue, Invocation, Literal};
+use crate::source::{SourceSpan, Spanned};
 
 use super::stack::{EvaluationStack, StackFrame};
 
@@ -162,12 +163,8 @@ fn bind_parameter(
         ));
     };
     let value = match (descriptor.parameter_type, argument) {
-        (ParameterType::Integer, Literal::Integer(value, _)) => {
-            ParameterValue::Integer(*value)
-        }
-        (ParameterType::File, Literal::String(value, _)) => {
-            ParameterValue::File(value.into())
-        }
+        (ParameterType::Integer, Literal::Integer(value, _)) => ParameterValue::Integer(*value),
+        (ParameterType::File, Literal::String(value, _)) => ParameterValue::File(value.into()),
         (ParameterType::Duration, Literal::String(value, span)) => {
             ParameterValue::Duration(SourceTime::parse(value, span)?)
         }
@@ -213,7 +210,10 @@ fn resolve_explicit_input(
     resolve_input_value: &mut impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<Vec<ValueRef>> {
     if matches!(port.cardinality, Cardinality::Variadic { .. })
-        && !matches!(argument, ArgumentValue::Reference(_) | ArgumentValue::References(_, _))
+        && !matches!(
+            argument,
+            ArgumentValue::Reference(_) | ArgumentValue::References(_, _)
+        )
     {
         return Err(Diagnostic::new(
             "E_INVALID_ARGUMENT_TYPE",
@@ -243,13 +243,7 @@ fn resolve_explicit_input(
         _ => {}
     }
     for value in &values {
-        require_value_type(
-            *value,
-            port.value_type,
-            program,
-            port.name,
-            argument.span(),
-        )?;
+        require_value_type(*value, port.value_type, program, port.name, argument.span())?;
     }
     Ok(values)
 }
@@ -451,10 +445,7 @@ mod tests {
     #[test]
     fn converts_every_declared_parameter_type() {
         let call = bind(&invocation([
-            (
-                "count",
-                ArgumentValue::Literal(Literal::Integer(3, span())),
-            ),
+            ("count", ArgumentValue::Literal(Literal::Integer(3, span()))),
             (
                 "path",
                 ArgumentValue::Literal(Literal::String("card.png".to_owned(), span())),
