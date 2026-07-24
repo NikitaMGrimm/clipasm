@@ -11,7 +11,7 @@ tests, documentation, and identity versions.
 
 ## Setup
 
-Install a Rust toolchain compatible with edition 2024. Full verification also
+Install Rust 1.88 or newer. Full verification also
 requires FFmpeg, FFprobe, and mdBook on `PATH`.
 
 ## Contribution workflow

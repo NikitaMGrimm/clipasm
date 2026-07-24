@@ -30,8 +30,11 @@ bindings. The compiler consumes only this canonical model.
 It owns YAML mappings, scalar styles, reserved fields, the `program` header,
 postfix and primary-argument sugar, duplicate keys, anchors, aliases, tags, and
 document-count restrictions. Those surface details disappear before
-compilation. Other frontends may provide different syntax and sugar without
-changing compiler behavior.
+compilation. This internal boundary permits future frontends to provide
+different syntax and sugar without changing compiler behavior. The canonical
+source structs are intentionally opaque to external crates today; no stable
+public builder API is promised before a second frontend demonstrates what it
+needs.
 
 ## Compilation
 

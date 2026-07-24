@@ -1,4 +1,8 @@
 //! Representation-neutral, fully desugared authored `ClipAsm` programs.
+//!
+//! The public package types are currently opaque compiler inputs produced by
+//! built-in frontends. Construction remains crate-private until a second
+//! frontend demonstrates the shape of a stable external builder API.
 
 mod location;
 
@@ -15,7 +19,9 @@ pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess:
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SourceUnitId(pub(crate) usize);
 
-/// One linked collection of authored source programs.
+/// One opaque linked collection of authored source programs.
+///
+/// Obtain a package from a frontend such as [`crate::frontend::yaml`].
 #[derive(Clone, Debug)]
 pub struct SourcePackage {
     pub(crate) root: SourceUnitId,
@@ -34,7 +40,7 @@ impl SourcePackage {
     }
 }
 
-/// One linked authored source unit.
+/// One opaque linked authored source unit.
 #[derive(Clone, Debug)]
 pub struct SourceUnit {
     pub(crate) source: SourceFile,
@@ -87,7 +93,7 @@ pub(crate) struct ResolvedImport {
     pub(crate) target: SourceUnitId,
 }
 
-/// One callable authored `ClipAsm` stack program.
+/// One opaque callable authored `ClipAsm` stack program.
 #[derive(Clone, Debug)]
 pub struct SourceProgram {
     pub(crate) inputs: Vec<InputPort>,

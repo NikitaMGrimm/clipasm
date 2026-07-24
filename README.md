@@ -16,7 +16,7 @@ Current features:
 
 ## Requirements
 
-- Rust toolchain compatible with edition 2024
+- Rust 1.88 or newer
 - FFmpeg and FFprobe on `PATH` for rendering
 
 Compilation and validation do not open media files or invoke external tools.

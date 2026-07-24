@@ -18,6 +18,12 @@ to the common compiler binder so future frontends cannot accidentally enforce
 different program contracts. No generic frontend trait is introduced before a
 second frontend demonstrates a need for one.
 
+The canonical source package is an opaque public compiler input, not yet a
+public construction API. Its fields, bodies, invocations, and builders remain
+crate-private until a second frontend provides concrete requirements for a
+stable external API. This preserves the architectural boundary without
+prematurely freezing the authored model.
+
 Every source span retains its source unit. A source unit carries a diagnostic
 name, retained text, an optional backing filesystem path, and an optional base
 directory. Relative authored paths resolve from the source unit containing the
