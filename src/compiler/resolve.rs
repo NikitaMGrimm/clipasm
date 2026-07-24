@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::compiler::evaluate::Evaluation;
-use crate::compiler::{CompiledProgram, ExplainEntry};
+use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind};
@@ -70,8 +70,14 @@ pub(super) fn finalize(
         .into_iter()
         .map(|record| ExplainEntry {
             construct: record.construct,
-            output: record.value,
-            id: record.id,
+            outputs: record
+                .outputs
+                .into_iter()
+                .map(|output| ExplainOutput {
+                    value: output.value,
+                    id: output.id,
+                })
+                .collect(),
             span: record.span,
         })
         .collect::<Vec<_>>();

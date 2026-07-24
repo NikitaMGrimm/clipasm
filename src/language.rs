@@ -2,6 +2,7 @@ use crate::diagnostic::Result;
 use crate::program::{ProgramImplementation, ProgramRegistry, definition_error};
 
 pub(crate) const ID_FIELD: &str = "id";
+pub(crate) const IDS_FIELD: &str = "ids";
 pub(crate) const BODY_FIELD: &str = "body";
 pub(crate) const PROGRAM_HEADER_FIELD: &str = "program";
 pub(crate) const STACK_ACCESS_FIELD: &str = "stack_access";
@@ -27,7 +28,7 @@ impl Language {
 fn validate_syntax_collisions(programs: ProgramRegistry) -> Result<()> {
     for definition in programs.definitions() {
         let descriptor = &definition.descriptor;
-        if matches!(descriptor.name, ID_FIELD | PROGRAM_HEADER_FIELD) {
+        if matches!(descriptor.name, ID_FIELD | IDS_FIELD | PROGRAM_HEADER_FIELD) {
             return Err(definition_error(format!(
                 "program name `{}` collides with source syntax",
                 descriptor.name
@@ -149,7 +150,7 @@ mod tests {
 
     #[test]
     fn rejects_only_real_syntax_collisions() {
-        for name in [ID_FIELD, PROGRAM_HEADER_FIELD] {
+        for name in [ID_FIELD, IDS_FIELD, PROGRAM_HEADER_FIELD] {
             language_with(definition(
                 name,
                 ProgramImplementation::Direct(direct),

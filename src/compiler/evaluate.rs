@@ -5,7 +5,8 @@ use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{InputPort, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
 use crate::syntax::{
-    Argument, InputExpression, Invocation, Item, ItemKind, ProgramBody, Reference, SourceProgram,
+    Argument, InputExpression, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
+    SourceProgram,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -27,9 +28,14 @@ pub(super) struct Symbol {
 #[derive(Clone, Debug)]
 pub(super) struct SurfaceRecord {
     pub(super) construct: String,
+    pub(super) outputs: Vec<SurfaceOutput>,
+    pub(super) span: SourceSpan,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SurfaceOutput {
     pub(super) value: ValueRef,
     pub(super) id: Option<String>,
-    pub(super) span: SourceSpan,
 }
 
 pub(super) struct Evaluation {
@@ -101,8 +107,33 @@ impl Evaluator<'_> {
     }
 
     fn collect_item_names(&mut self, item: &Item) -> Result<()> {
-        if let Some(id) = &item.id {
-            self.add_symbol(&id.value, &id.span, self.item_output_type(&item.kind)?)?;
+        let output_types = self.item_output_types(&item.kind)?;
+        match &item.output_bindings {
+            OutputBindings::None => {}
+            OutputBindings::One(id) => {
+                let [output_type] = output_types.as_slice() else {
+                    return Err(output_binding_count_error(
+                        &item.kind,
+                        output_types.len(),
+                        "`id` requires exactly one output",
+                        &id.span,
+                    ));
+                };
+                self.add_symbol(&id.value, &id.span, output_type.clone())?;
+            }
+            OutputBindings::Many(ids, span) => {
+                if output_types.len() <= 1 || ids.len() != output_types.len() {
+                    return Err(output_binding_count_error(
+                        &item.kind,
+                        output_types.len(),
+                        &format!("`ids` contains {} name(s)", ids.len()),
+                        span,
+                    ));
+                }
+                for (id, output_type) in ids.iter().zip(output_types) {
+                    self.add_symbol(&id.value, &id.span, output_type)?;
+                }
+            }
         }
         if let ItemKind::Invocation(invocation) = &item.kind {
             if let Some(body) = &invocation.body {
@@ -117,17 +148,22 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn item_output_type(&self, kind: &ItemKind) -> Result<DeclaredValueType> {
+    fn item_output_types(&self, kind: &ItemKind) -> Result<Vec<DeclaredValueType>> {
         match kind {
             ItemKind::Reference(reference) => {
-                Ok(DeclaredValueType::Alias(reference.name.value.clone()))
+                Ok(vec![DeclaredValueType::Alias(reference.name.value.clone())])
             }
             ItemKind::Invocation(invocation) => self
                 .registry
                 .get(&invocation.program.value)
-                .and_then(|definition| match definition.descriptor.outputs {
-                    [output] => Some(DeclaredValueType::Known(*output)),
-                    _ => None,
+                .map(|definition| {
+                    definition
+                        .descriptor
+                        .outputs
+                        .iter()
+                        .copied()
+                        .map(DeclaredValueType::Known)
+                        .collect()
                 })
                 .ok_or_else(|| unknown_program(invocation)),
         }
@@ -190,8 +226,10 @@ impl Evaluator<'_> {
             self.bind_symbol(&clip.name, *output)?;
             self.surface.push(SurfaceRecord {
                 construct: "named clip".to_owned(),
-                value: *output,
-                id: Some(clip.name.clone()),
+                outputs: vec![SurfaceOutput {
+                    value: *output,
+                    id: Some(clip.name.clone()),
+                }],
                 span: clip.span.clone(),
             });
         }
@@ -255,24 +293,28 @@ impl Evaluator<'_> {
                 invocation.program.value.clone(),
             ),
         };
-        let [output] = outputs.as_slice() else {
-            return Err(Diagnostic::new(
-                "E_ITEM_OUTPUT_COUNT",
-                format!(
-                    "items currently require exactly one output, but `{construct}` produced {}",
-                    outputs.len()
-                ),
-                item.span.clone(),
-            ));
+        let output_names = match &item.output_bindings {
+            OutputBindings::None => vec![None; outputs.len()],
+            OutputBindings::One(id) => vec![Some(id.value.clone())],
+            OutputBindings::Many(ids, _) => ids
+                .iter()
+                .map(|id| Some(id.value.clone()))
+                .collect::<Vec<_>>(),
         };
-        stack.push(*output);
-        if let Some(id) = &item.id {
-            self.bind_symbol(&id.value, *output)?;
+        debug_assert_eq!(outputs.len(), output_names.len());
+        for (output, name) in outputs.iter().copied().zip(&output_names) {
+            if let Some(name) = name {
+                self.bind_symbol(name, output)?;
+            }
         }
+        stack.extend(outputs.iter().copied());
         self.surface.push(SurfaceRecord {
             construct,
-            value: *output,
-            id: item.id.as_ref().map(|id| id.value.clone()),
+            outputs: outputs
+                .into_iter()
+                .zip(output_names)
+                .map(|(value, id)| SurfaceOutput { value, id })
+                .collect(),
             span: item.span.clone(),
         });
         Ok(())
@@ -578,6 +620,23 @@ fn output_count_error(
     )
 }
 
+fn output_binding_count_error(
+    kind: &ItemKind,
+    output_count: usize,
+    binding: &str,
+    span: &SourceSpan,
+) -> Diagnostic {
+    let construct = match kind {
+        ItemKind::Reference(_) => "reference",
+        ItemKind::Invocation(invocation) => invocation.program.value.as_str(),
+    };
+    Diagnostic::new(
+        "E_OUTPUT_BINDING_COUNT",
+        format!("`{construct}` produces {output_count} value(s), but {binding}"),
+        span.clone(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -634,6 +693,18 @@ mod tests {
         builder: &mut GraphBuilder<'_>,
     ) -> Result<Vec<ValueRef>> {
         Ok(vec![builder.test_value()?])
+    }
+
+    fn lower_two(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
+        Ok(vec![
+            builder.image_video(PathBuf::from("first.png"), FrameCount(1), ImageFit::Cover)?,
+            builder.image_video(PathBuf::from("second.png"), FrameCount(1), ImageFit::Cover)?,
+        ])
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    fn lower_zero(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
+        Ok(Vec::new())
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -795,6 +866,32 @@ mod tests {
         implementation: ProgramImplementation::Body(prepare_root),
         postfix: None,
     };
+    const TWO_OUTPUT: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "two_output",
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            outputs: &[ValueType::Video, ValueType::Video],
+        },
+        implementation: ProgramImplementation::Direct(lower_two),
+        postfix: None,
+    };
+    const ZERO_OUTPUT: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "zero_output",
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            outputs: &[],
+        },
+        implementation: ProgramImplementation::Direct(lower_zero),
+        postfix: None,
+    };
 
     static OUTPUT_PROGRAMS: &[ProgramDefinition] = &[ROOT, SOURCE, WRONG_DIRECT, WRONG_BODY];
     static VERSION_PROGRAMS: &[ProgramDefinition] = &[ROOT, VERSIONED_DIRECT, VERSIONED_BODY];
@@ -810,6 +907,75 @@ mod tests {
             crate::syntax::parse_str_with_language(Path::new("test.yaml"), source, language)
                 .expect("workflow");
         (workflow, registry)
+    }
+
+    fn parse_with_synthetic_outputs(source: &str) -> (SourceProgram, ProgramRegistry) {
+        let definitions = Box::leak(
+            crate::program::BUILTIN_PROGRAMS
+                .iter()
+                .copied()
+                .chain([TWO_OUTPUT, ZERO_OUTPUT])
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        );
+        parse_with_registry(source, definitions)
+    }
+
+    #[test]
+    fn ids_bind_multiple_outputs_in_stack_order_and_support_forward_references() {
+        let (workflow, registry) = parse_with_synthetic_outputs(
+            "- program:\n    version: 1\n    clips:\n      combined:\n        - $before\n        - $after\n        - concat\n\n- two_output:\n  ids: [before, after]\n- concat\n",
+        );
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+
+        let before = compiled.named_values()["before"];
+        let after = compiled.named_values()["after"];
+        assert!(before.id().get() < after.id().get());
+        let entry = compiled
+            .explain()
+            .iter()
+            .find(|entry| entry.construct() == "two_output")
+            .expect("two-output explain entry");
+        assert_eq!(entry.outputs().len(), 2);
+        assert_eq!(entry.outputs()[0].id(), Some("before"));
+        assert_eq!(entry.outputs()[1].id(), Some("after"));
+    }
+
+    #[test]
+    fn zero_output_items_leave_the_stack_unchanged() {
+        let (workflow, registry) = parse_with_synthetic_outputs(
+            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n- zero_output\n",
+        );
+        crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+    }
+
+    #[test]
+    fn output_bindings_require_the_exact_supported_cardinality() {
+        for (source, expected) in [
+            (
+                "- program:\n    version: 1\n\n- two_output:\n  id: pair\n",
+                "`id` requires exactly one output",
+            ),
+            (
+                "- program:\n    version: 1\n\n- two_output:\n  ids: [only]\n",
+                "`ids` contains 1 name(s)",
+            ),
+            (
+                "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: [card]\n",
+                "produces 1 value(s)",
+            ),
+            (
+                "- program:\n    version: 1\n\n- zero_output:\n  id: none\n",
+                "produces 0 value(s)",
+            ),
+        ] {
+            let (workflow, registry) = parse_with_synthetic_outputs(source);
+            let error = crate::compiler::compile_with_registry(&workflow, registry)
+                .expect_err("invalid output binding");
+            assert_eq!(error.code, "E_OUTPUT_BINDING_COUNT");
+            assert!(error.message.contains(expected), "{}", error.message);
+        }
     }
 
     #[test]

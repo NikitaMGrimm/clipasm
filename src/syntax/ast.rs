@@ -96,8 +96,15 @@ pub(crate) struct ProgramBody {
 #[derive(Clone, Debug)]
 pub(crate) struct Item {
     pub(crate) kind: ItemKind,
-    pub(crate) id: Option<Spanned<String>>,
+    pub(crate) output_bindings: OutputBindings,
     pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum OutputBindings {
+    None,
+    One(Spanned<String>),
+    Many(Vec<Spanned<String>>, SourceSpan),
 }
 
 #[derive(Clone, Debug)]

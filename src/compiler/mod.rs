@@ -139,9 +139,15 @@ impl CompiledProgram {
 /// becomes one or more semantic operations.
 pub struct ExplainEntry {
     construct: String,
-    output: ValueRef,
-    id: Option<String>,
+    outputs: Vec<ExplainOutput>,
     span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Serialize)]
+/// One ordered semantic output from an authored construct.
+pub struct ExplainOutput {
+    value: ValueRef,
+    id: Option<String>,
 }
 
 impl ExplainEntry {
@@ -152,21 +158,29 @@ impl ExplainEntry {
     }
 
     #[must_use]
-    /// Return the semantic value produced by this construct.
-    pub const fn output(&self) -> ValueRef {
-        self.output
-    }
-
-    #[must_use]
-    /// Return the optional user-authored name attached with `id` or declared by a named clip.
-    pub fn id(&self) -> Option<&str> {
-        self.id.as_deref()
+    /// Return the ordered semantic values produced by this construct.
+    pub fn outputs(&self) -> &[ExplainOutput] {
+        &self.outputs
     }
 
     #[must_use]
     /// Return the source location of this authored construct.
     pub const fn span(&self) -> &SourceSpan {
         &self.span
+    }
+}
+
+impl ExplainOutput {
+    #[must_use]
+    /// Return the semantic value produced at this output position.
+    pub const fn value(&self) -> ValueRef {
+        self.value
+    }
+
+    #[must_use]
+    /// Return the optional user-authored name attached to this output.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 }
 

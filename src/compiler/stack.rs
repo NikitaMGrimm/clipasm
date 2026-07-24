@@ -57,6 +57,7 @@ impl EvaluationStack {
         self.values.len()
     }
 
+    #[cfg(test)]
     pub(super) fn push(&mut self, value: ValueRef) {
         self.values.push(value);
     }

@@ -5,13 +5,16 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::scanner::TScalarStyle;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
-use crate::language::{BODY_FIELD, ID_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD};
+use crate::language::{
+    BODY_FIELD, ID_FIELD, IDS_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD,
+};
 use crate::program::{
     Cardinality, ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess,
 };
 use crate::syntax::ast::{
-    Argument, InputExpression, Invocation, Item, ItemKind, NamedClip, ParameterArgument,
-    ProgramBody, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceProgram, VideoSettings,
+    Argument, InputExpression, Invocation, Item, ItemKind, NamedClip, OutputBindings,
+    ParameterArgument, ProgramBody, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceProgram,
+    VideoSettings,
 };
 use crate::syntax::raw::{RawKind, RawNode};
 
@@ -260,7 +263,7 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
                     kind: ItemKind::Reference(Reference {
                         name: Spanned::new(reference, item_span.clone()),
                     }),
-                    id: None,
+                    output_bindings: OutputBindings::None,
                     span: item_span,
                 })
             } else if style == TScalarStyle::Plain {
@@ -281,7 +284,7 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
                         arguments: BTreeMap::new(),
                         body: None,
                     }),
-                    id: None,
+                    output_bindings: OutputBindings::None,
                     span: item_span,
                 })
             } else {
@@ -319,13 +322,50 @@ fn parse_invocation(
     span: SourceSpan,
     language: Language,
 ) -> Result<Item> {
-    let mut id = None;
+    let mut output_bindings = OutputBindings::None;
     let mut program_entries = Vec::new();
     for (key, key_span, value) in entries {
         if key == ID_FIELD {
+            if !matches!(output_bindings, OutputBindings::None) {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_OUTPUT_BINDING",
+                    "an item may use either `id` or `ids`, but not both",
+                    key_span,
+                ));
+            }
             let (name, _) = scalar(&value, "`id`")?;
             validate_name(name, &value.span)?;
-            id = Some(Spanned::new(name.to_owned(), value.span));
+            output_bindings = OutputBindings::One(Spanned::new(name.to_owned(), value.span));
+        } else if key == IDS_FIELD {
+            if !matches!(output_bindings, OutputBindings::None) {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_OUTPUT_BINDING",
+                    "an item may use either `id` or `ids`, but not both",
+                    key_span,
+                ));
+            }
+            let ids_span = value.span.clone();
+            let RawKind::Sequence(values) = value.kind else {
+                return Err(Diagnostic::new(
+                    "E_INVALID_OUTPUT_BINDING",
+                    "`ids` must be a sequence of names",
+                    ids_span,
+                ));
+            };
+            if values.is_empty() {
+                return Err(Diagnostic::new(
+                    "E_INVALID_OUTPUT_BINDING",
+                    "`ids` must contain at least one name",
+                    ids_span,
+                ));
+            }
+            let mut names = Vec::with_capacity(values.len());
+            for value in values {
+                let (name, _) = scalar(&value, "an `ids` entry")?;
+                validate_name(name, &value.span)?;
+                names.push(Spanned::new(name.to_owned(), value.span));
+            }
+            output_bindings = OutputBindings::Many(names, ids_span);
         } else {
             program_entries.push((key, key_span, value));
         }
@@ -351,7 +391,7 @@ fn parse_invocation(
         }
         return Ok(Item {
             kind: ItemKind::Invocation(invocation),
-            id,
+            output_bindings,
             span,
         });
     }
@@ -378,7 +418,7 @@ fn parse_invocation(
             .unwrap_or_else(|| program_entries.first().expect("nonempty entries"));
         return Err(Diagnostic::new(
             "E_UNKNOWN_INVOCATION_FIELD",
-            "program parameters must be nested inside the program mapping; only `id` may annotate an item",
+            "program parameters must be nested inside the program mapping; only `id` or `ids` may annotate an item",
             offending.1.clone(),
         ));
     }
@@ -391,7 +431,7 @@ fn parse_invocation(
         normalize_invocation(head_definition, head_span.clone(), head_value, language)?;
     let inner = Item {
         kind: ItemKind::Invocation(head_invocation),
-        id: None,
+        output_bindings: OutputBindings::None,
         span: head_span,
     };
 
@@ -415,7 +455,7 @@ fn parse_invocation(
     });
     Ok(Item {
         kind: ItemKind::Invocation(wrapper_invocation),
-        id,
+        output_bindings,
         span,
     })
 }
