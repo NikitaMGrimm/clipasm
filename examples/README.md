@@ -7,8 +7,8 @@ commands is in [the examples chapter](../docs/examples.md).
 
 All source assets are committed and intentionally small:
 
-- illustrated ASCII PPM still images;
-- one two-second YUV4MPEG video with gentle continuous motion.
+- three 320x180 lossless PNG illustrations;
+- one two-second 320x180 H.264/Matroska video with gentle continuous motion.
 
 No asset-generation step is required.
 

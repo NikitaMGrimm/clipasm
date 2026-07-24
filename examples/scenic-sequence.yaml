@@ -7,6 +7,6 @@
     output: generated/scenic-sequence.mp4
 
 - glue:
-    - image: {path: assets/morning.ppm, duration: 1500ms, fit: contain}
-    - image: {path: assets/meadow.ppm, duration: 1500ms, fit: contain}
-    - image: {path: assets/evening.ppm, duration: 1500ms, fit: contain}
+    - image: {path: assets/morning.png, duration: 1500ms, fit: contain}
+    - image: {path: assets/meadow.png, duration: 1500ms, fit: contain}
+    - image: {path: assets/evening.png, duration: 1500ms, fit: contain}

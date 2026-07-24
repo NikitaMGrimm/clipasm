@@ -6,11 +6,11 @@
 
     clips:
       opening:
-        - image: {path: assets/morning.ppm, duration: 1s, fit: contain}
+        - image: {path: assets/morning.png, duration: 1s, fit: contain}
         - zoom
 
       closing:
-        image: {path: assets/evening.ppm, duration: 1s, fit: contain}
+        image: {path: assets/evening.png, duration: 1s, fit: contain}
 
     output: generated/reusable-composition.mp4
 
@@ -19,7 +19,7 @@
 - flash:
     before: $opening
     after:
-      - image: {path: assets/meadow.ppm, duration: 1s, fit: contain}
+      - image: {path: assets/meadow.png, duration: 1s, fit: contain}
       - wobble: 2
     frames: 5
 
