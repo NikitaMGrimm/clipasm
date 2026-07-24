@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
@@ -21,7 +22,42 @@ enum LocalType {
     Alias(String),
 }
 
-pub(super) fn build_catalog(package: &SourcePackage) -> Result<ProgramRegistry> {
+#[derive(Clone, Debug)]
+pub(super) struct CheckedPackage {
+    pub(super) registry: ProgramRegistry,
+    pub(super) programs: Vec<Arc<CheckedProgram>>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedProgram {
+    pub(super) source: Arc<SourceProgram>,
+    pub(super) clips: Vec<CheckedBody>,
+    pub(super) body: CheckedBody,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedBody {
+    pub(super) items: Vec<CheckedItem>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedItem {
+    pub(super) output_types: Vec<ValueType>,
+    pub(super) kind: CheckedItemKind,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CheckedItemKind {
+    Reference,
+    Invocation {
+        program: ProgramId,
+        access: crate::program::StackAccess,
+        body: Option<Box<CheckedBody>>,
+        input_bodies: BTreeMap<String, CheckedBody>,
+    },
+}
+
+pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
     let mut definitions = builtin_programs();
     let builtin_count = definitions.len();
     let builtin_names = definitions[..builtin_count]
@@ -35,7 +71,7 @@ pub(super) fn build_catalog(package: &SourcePackage) -> Result<ProgramRegistry> 
         })
         .collect::<BTreeMap<_, _>>();
     let mut unit_programs = BTreeMap::new();
-    let mut namespaces = BTreeMap::new();
+    let mut programs = Vec::with_capacity(package.units().len());
 
     for (index, unit) in package.units().iter().enumerate() {
         let unit_id = SourceUnitId(index);
@@ -56,9 +92,9 @@ pub(super) fn build_catalog(package: &SourcePackage) -> Result<ProgramRegistry> 
                 Ok((import.alias.value.clone(), program))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
-        let outputs = infer_outputs(
+        let (outputs, checked_program) = check_program(
             unit_id,
-            unit.program(),
+            Arc::clone(&unit.program),
             &definitions,
             &builtin_names,
             &namespace,
@@ -99,19 +135,52 @@ pub(super) fn build_catalog(package: &SourcePackage) -> Result<ProgramRegistry> 
         );
         definitions.push(definition);
         unit_programs.insert(unit_id, id);
-        namespaces.insert(unit_id, namespace);
+        programs.push(Arc::new(checked_program));
     }
 
-    ProgramRegistry::from_linked(definitions, builtin_count, namespaces, unit_programs)
+    let registry = ProgramRegistry::from_linked(definitions, builtin_count, unit_programs)?;
+    Ok(CheckedPackage { registry, programs })
 }
 
-fn infer_outputs(
+#[cfg(test)]
+pub(super) fn check_with_registry(
+    package: &SourcePackage,
+    registry: ProgramRegistry,
+) -> Result<CheckedPackage> {
+    debug_assert_eq!(package.units().len(), 1);
+    debug_assert!(package.root().imports.is_empty());
+    let definitions = registry.definitions();
+    let names = definitions
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| {
+            (
+                definition.descriptor.name.clone(),
+                ProgramId::new(u32::try_from(index).expect("test catalog fits in u32")),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let (_, program) = check_program(
+        package.root,
+        Arc::clone(&package.root().program),
+        definitions,
+        &names,
+        &BTreeMap::new(),
+    )?;
+    Ok(CheckedPackage {
+        registry,
+        programs: vec![Arc::new(program)],
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+fn check_program(
     unit: SourceUnitId,
-    program: &SourceProgram,
+    program: Arc<SourceProgram>,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
-) -> Result<Vec<ValueType>> {
+) -> Result<(Vec<ValueType>, CheckedProgram)> {
     let mut locals = BTreeMap::new();
     for input in program.inputs() {
         insert_local(
@@ -157,12 +226,13 @@ fn infer_outputs(
     )?;
     resolve_local_types(&mut locals)?;
 
+    let mut checked_clips = Vec::with_capacity(program.clips().len());
     for clip in program.clips() {
         let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
             format!("named clip `{}` inference", clip.name),
             clip.span.clone(),
         );
-        infer_body(
+        let checked = infer_body(
             &clip.body,
             &locals,
             unit,
@@ -193,13 +263,14 @@ fn infer_outputs(
                 clip.span.clone(),
             ));
         }
+        checked_clips.push(checked);
     }
 
     let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
         "authored program inference",
         program.span().clone(),
     );
-    infer_body(
+    let checked_body = infer_body(
         &program.body,
         &locals,
         unit,
@@ -209,7 +280,15 @@ fn infer_outputs(
         &mut stack,
         &mut frame,
     )?;
-    Ok(stack.values().to_vec())
+    let outputs = stack.values().to_vec();
+    Ok((
+        outputs,
+        CheckedProgram {
+            source: program,
+            clips: checked_clips,
+            body: checked_body,
+        },
+    ))
 }
 
 fn collect_body_names(
@@ -229,7 +308,7 @@ fn collect_body_names(
                     return Err(binding_count_error(
                         item,
                         output_types.len(),
-                        "`id`",
+                        "`id` requires exactly one output",
                         &name.span,
                     ));
                 };
@@ -238,7 +317,12 @@ fn collect_body_names(
             OutputBindings::Many(names, span) => {
                 let output_types = item_output_types(item, unit, definitions, builtins, namespace)?;
                 if output_types.len() <= 1 || output_types.len() != names.len() {
-                    return Err(binding_count_error(item, output_types.len(), "`ids`", span));
+                    return Err(binding_count_error(
+                        item,
+                        output_types.len(),
+                        &format!("`ids` contains {} name(s)", names.len()),
+                        span,
+                    ));
                 }
                 for (name, output) in names.iter().zip(output_types) {
                     insert_local(locals, &name.value, output, &name.span)?;
@@ -298,26 +382,27 @@ fn infer_body(
     namespace: &BTreeMap<String, ProgramId>,
     stack: &mut EvaluationStack<ValueType>,
     frame: &mut super::stack::StackFrame,
-) -> Result<()> {
+) -> Result<CheckedBody> {
+    let mut checked_items = Vec::with_capacity(body.items.len());
     for item in &body.items {
-        match &item.kind {
+        let checked = match &item.kind {
             ItemKind::Reference(reference) => {
-                stack.extend([value_local(
-                    locals,
-                    &reference.name.value,
-                    &reference.name.span,
-                )?]);
+                let output = value_local(locals, &reference.name.value, &reference.name.span)?;
+                stack.extend([output]);
+                CheckedItem {
+                    output_types: vec![output],
+                    kind: CheckedItemKind::Reference,
+                }
             }
             ItemKind::Invocation(invocation) => {
-                let definition = definition_for(
-                    unit,
+                let program = program_id_for(
                     &invocation.program.value,
-                    definitions,
                     builtins,
                     namespace,
                     &invocation.program.span,
                 )?;
-                validate_explicit_arguments(
+                let definition = &definitions[program.index()];
+                let input_bodies = validate_explicit_arguments(
                     invocation,
                     definition,
                     locals,
@@ -386,7 +471,7 @@ fn infer_body(
                     }
                 }
 
-                match definition.implementation {
+                let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_) => {
                         if invocation.body.is_some() {
                             return Err(Diagnostic::new(
@@ -398,6 +483,7 @@ fn infer_body(
                                 invocation.program.span.clone(),
                             ));
                         }
+                        None
                     }
                     ProgramImplementation::Body(_) => {
                         let body = invocation.body.as_ref().ok_or_else(|| {
@@ -421,7 +507,7 @@ fn infer_body(
                             invocation.program.span.clone(),
                         );
                         stack.extend(contract.initial_values.iter().copied());
-                        infer_body(
+                        let checked_body = infer_body(
                             body,
                             locals,
                             unit,
@@ -439,13 +525,27 @@ fn infer_body(
                             contract.count_error_code,
                             &body.span,
                         )?;
+                        Some(Box::new(checked_body))
                     }
+                };
+                let output_types = definition.descriptor.outputs.clone();
+                stack.extend(output_types.iter().copied());
+                CheckedItem {
+                    output_types,
+                    kind: CheckedItemKind::Invocation {
+                        program,
+                        access,
+                        body: checked_body,
+                        input_bodies,
+                    },
                 }
-                stack.extend(definition.descriptor.outputs.iter().copied());
             }
-        }
+        };
+        checked_items.push(checked);
     }
-    Ok(())
+    Ok(CheckedBody {
+        items: checked_items,
+    })
 }
 
 fn validate_explicit_arguments(
@@ -456,7 +556,8 @@ fn validate_explicit_arguments(
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
-) -> Result<()> {
+) -> Result<BTreeMap<String, CheckedBody>> {
+    let mut input_bodies = BTreeMap::new();
     for (name, argument) in &invocation.arguments {
         if let Some(port) = definition
             .descriptor
@@ -464,7 +565,7 @@ fn validate_explicit_arguments(
             .iter()
             .find(|port| port.name == *name)
         {
-            validate_input_argument(
+            if let Some(body) = validate_input_argument(
                 invocation,
                 port,
                 argument,
@@ -473,7 +574,9 @@ fn validate_explicit_arguments(
                 definitions,
                 builtins,
                 namespace,
-            )?;
+            )? {
+                input_bodies.insert(name.clone(), body);
+            }
         } else if let Some(parameter) = definition
             .descriptor
             .parameters
@@ -504,7 +607,7 @@ fn validate_explicit_arguments(
             ));
         }
     }
-    Ok(())
+    Ok(input_bodies)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -517,7 +620,7 @@ fn validate_input_argument(
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
-) -> Result<()> {
+) -> Result<Option<CheckedBody>> {
     if matches!(port.cardinality, Cardinality::Variadic { .. })
         && !matches!(
             argument,
@@ -534,6 +637,7 @@ fn validate_input_argument(
         ));
     }
 
+    let mut checked_body = None;
     let values = match argument {
         ArgumentValue::Reference(reference) => {
             vec![value_local(locals, &reference.value, &reference.span)?]
@@ -550,7 +654,7 @@ fn validate_input_argument(
                 ),
                 body.span.clone(),
             );
-            infer_body(
+            let checked = infer_body(
                 body,
                 locals,
                 unit,
@@ -560,6 +664,7 @@ fn validate_input_argument(
                 &mut stack,
                 &mut frame,
             )?;
+            checked_body = Some(checked);
             let [value] = stack.values() else {
                 return Err(Diagnostic::new(
                     "E_INPUT_BODY_OUTPUT_COUNT",
@@ -609,7 +714,8 @@ fn validate_input_argument(
         }
         _ => {}
     }
-    ensure_types(&values, port, argument.span())
+    ensure_types(&values, port, argument.span())?;
+    Ok(checked_body)
 }
 
 fn validate_body_outputs(
@@ -732,10 +838,19 @@ fn definition_for<'a>(
     namespace: &BTreeMap<String, ProgramId>,
     span: &crate::source::SourceSpan,
 ) -> Result<&'a ProgramDefinition> {
+    program_id_for(name, builtins, namespace, span).map(|id| &definitions[id.index()])
+}
+
+fn program_id_for(
+    name: &str,
+    builtins: &BTreeMap<String, ProgramId>,
+    namespace: &BTreeMap<String, ProgramId>,
+    span: &crate::source::SourceSpan,
+) -> Result<ProgramId> {
     builtins
         .get(name)
         .or_else(|| namespace.get(name))
-        .map(|id| &definitions[id.index()])
+        .copied()
         .ok_or_else(|| {
             Diagnostic::new(
                 "E_UNKNOWN_PROGRAM",
@@ -900,15 +1015,13 @@ fn binding_count_error(
     binding: &str,
     span: &crate::source::SourceSpan,
 ) -> Diagnostic {
-    let program = match &item.kind {
+    let construct = match &item.kind {
         ItemKind::Reference(_) => "reference",
         ItemKind::Invocation(invocation) => &invocation.program.value,
     };
     Diagnostic::new(
         "E_OUTPUT_BINDING_COUNT",
-        format!(
-            "{binding} cannot name program `{program}` because it produces {output_count} output(s)"
-        ),
+        format!("`{construct}` produces {output_count} value(s), but {binding}"),
         span.clone(),
     )
 }

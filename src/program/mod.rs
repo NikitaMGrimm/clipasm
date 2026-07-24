@@ -317,7 +317,6 @@ impl ResolvedCall {
 struct ProgramCatalogData {
     definitions: Vec<ProgramDefinition>,
     names: BTreeMap<String, ProgramId>,
-    namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
     source_programs: BTreeMap<SourceUnitId, ProgramId>,
 }
 
@@ -349,7 +348,6 @@ impl ProgramRegistry {
             data: Arc::new(ProgramCatalogData {
                 definitions,
                 names,
-                namespaces: BTreeMap::new(),
                 source_programs: BTreeMap::new(),
             }),
         })
@@ -358,7 +356,6 @@ impl ProgramRegistry {
     pub(crate) fn from_linked(
         definitions: Vec<ProgramDefinition>,
         builtin_count: usize,
-        namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
         source_programs: BTreeMap<SourceUnitId, ProgramId>,
     ) -> Result<Self> {
         validate_definitions(&definitions)?;
@@ -376,7 +373,6 @@ impl ProgramRegistry {
             data: Arc::new(ProgramCatalogData {
                 definitions,
                 names,
-                namespaces,
                 source_programs,
             }),
         })
@@ -400,17 +396,6 @@ impl ProgramRegistry {
     #[must_use]
     pub(crate) fn definitions(&self) -> &[ProgramDefinition] {
         &self.data.definitions
-    }
-
-    #[must_use]
-    pub(crate) fn get_for(&self, unit: SourceUnitId, name: &str) -> Option<&ProgramDefinition> {
-        self.get(name).or_else(|| {
-            self.data
-                .namespaces
-                .get(&unit)
-                .and_then(|namespace| namespace.get(name))
-                .map(|id| self.definition(*id))
-        })
     }
 
     #[must_use]

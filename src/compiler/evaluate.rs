@@ -5,7 +5,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     BoundParameters, InputPort, ParameterType, ProgramDefinition, ProgramImplementation,
-    ProgramRegistry, ResolvedCall,
+    ResolvedCall,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::SourceSpan;
@@ -15,6 +15,7 @@ use crate::source::{
 };
 
 use super::EntrypointBindings;
+use super::infer::{CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage};
 
 use super::stack::{EvaluationStack, StackFrame};
 
@@ -59,13 +60,13 @@ pub(super) struct Evaluation {
 pub(super) fn evaluate(
     package: &SourcePackage,
     video: &VideoSpec,
-    registry: ProgramRegistry,
+    checked: CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
     let mut evaluator = Evaluator {
         package,
         video,
-        registry,
+        checked,
         nodes: Vec::new(),
         symbols: BTreeMap::new(),
         symbol_order: Vec::new(),
@@ -87,7 +88,7 @@ pub(super) fn evaluate(
 struct Evaluator<'a> {
     package: &'a SourcePackage,
     video: &'a VideoSpec,
-    registry: ProgramRegistry,
+    checked: CheckedPackage,
     nodes: Vec<DraftNode>,
     symbols: BTreeMap<SymbolId, Symbol>,
     symbol_order: Vec<SymbolId>,
@@ -96,7 +97,6 @@ struct Evaluator<'a> {
 }
 
 struct EvalScope {
-    unit: SourceUnitId,
     values: BTreeMap<String, SymbolId>,
     parameters: BoundParameters,
     public: bool,
@@ -105,7 +105,12 @@ struct EvalScope {
 impl Evaluator<'_> {
     fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
         let program = self.package.root().program();
-        let Some(definition) = self.registry.source_program(self.package.root).cloned() else {
+        let Some(definition) = self
+            .checked
+            .registry
+            .source_program(self.package.root)
+            .cloned()
+        else {
             debug_assert!(bindings.video_inputs.is_empty());
             debug_assert!(bindings.parameters.is_empty());
             return Ok(ResolvedCall::new(
@@ -147,10 +152,26 @@ impl Evaluator<'_> {
         let (mut stack, mut frame) =
             EvaluationStack::isolated("root program call", program.span().clone());
         let mut scope = EvalScope {
-            unit: self.package.root,
             values: BTreeMap::new(),
             parameters: BoundParameters::new(),
             public: false,
+        };
+        let video_program = self
+            .checked
+            .registry
+            .id("video")
+            .expect("native video program is registered");
+        let video_definition = self.checked.registry.definition(video_program);
+        let checked_input = CheckedBody {
+            items: vec![CheckedItem {
+                output_types: video_definition.descriptor.outputs.clone(),
+                kind: CheckedItemKind::Invocation {
+                    program: video_program,
+                    access: video_definition.descriptor.default_stack_access,
+                    body: None,
+                    input_bodies: BTreeMap::new(),
+                },
+            }],
         };
         super::bind::bind_call(
             &definition,
@@ -166,7 +187,14 @@ impl Evaluator<'_> {
                 ArgumentValue::Body(body) => {
                     let (mut input_stack, mut input_frame) =
                         EvaluationStack::isolated("entrypoint Video input", body.span.clone());
-                    self.evaluate_body(body, &mut scope, &mut input_stack, &mut input_frame, None)?;
+                    self.evaluate_body(
+                        body,
+                        &checked_input,
+                        &mut scope,
+                        &mut input_stack,
+                        &mut input_frame,
+                        None,
+                    )?;
                     Ok(input_stack.values().to_vec())
                 }
                 _ => unreachable!("entrypoint graph inputs are synthetic bodies"),
@@ -184,9 +212,9 @@ impl Evaluator<'_> {
         call: Option<&ResolvedCall>,
         public: bool,
     ) -> Result<Vec<ValueRef>> {
-        let program = Arc::clone(&self.package.units()[unit.0].program);
+        let checked_program = Arc::clone(&self.checked.programs[unit.0]);
+        let program = Arc::clone(&checked_program.source);
         let mut scope = EvalScope {
-            unit,
             values: BTreeMap::new(),
             parameters: call
                 .map(|call| call.parameters().clone())
@@ -242,19 +270,25 @@ impl Evaluator<'_> {
                 DeclaredValueType::Known(ValueType::Video),
             )?;
         }
-        for clip in program.clips() {
-            self.collect_body_names(&clip.body, &mut scope)?;
+        for (clip, checked) in program.clips().iter().zip(&checked_program.clips) {
+            self.collect_body_names(&clip.body, checked, &mut scope)?;
         }
-        self.collect_body_names(program.body(), &mut scope)?;
+        self.collect_body_names(program.body(), &checked_program.body, &mut scope)?;
         self.link_scope_aliases(&scope)?;
         resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
 
-        let mut clips = program.clips().iter().collect::<Vec<_>>();
-        clips.sort_by(|left, right| left.name.cmp(&right.name));
-        for clip in clips {
+        let mut clips = program
+            .clips()
+            .iter()
+            .zip(&checked_program.clips)
+            .collect::<Vec<_>>();
+        clips.sort_by(|(left, _), (right, _)| left.name.cmp(&right.name));
+        for (clip, checked) in clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(&clip.body, &mut scope, &mut stack, &mut frame, None)?;
+            self.evaluate_body(
+                &clip.body, checked, &mut scope, &mut stack, &mut frame, None,
+            )?;
             let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
@@ -292,6 +326,7 @@ impl Evaluator<'_> {
         );
         self.evaluate_body(
             program.body(),
+            &checked_program.body,
             &mut scope,
             &mut stack,
             &mut body_frame,
@@ -344,18 +379,39 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn collect_body_names(&mut self, body: &ProgramBody, scope: &mut EvalScope) -> Result<()> {
-        for item in &body.items {
-            self.collect_item_names(item, scope)?;
+    fn collect_body_names(
+        &mut self,
+        body: &ProgramBody,
+        checked: &CheckedBody,
+        scope: &mut EvalScope,
+    ) -> Result<()> {
+        debug_assert_eq!(body.items.len(), checked.items.len());
+        for (item, checked) in body.items.iter().zip(&checked.items) {
+            self.collect_item_names(item, checked, scope)?;
         }
         Ok(())
     }
 
-    fn collect_item_names(&mut self, item: &Item, scope: &mut EvalScope) -> Result<()> {
+    fn collect_item_names(
+        &mut self,
+        item: &Item,
+        checked: &CheckedItem,
+        scope: &mut EvalScope,
+    ) -> Result<()> {
+        let output_types = match &item.kind {
+            ItemKind::Reference(reference) => {
+                vec![DeclaredValueType::AliasName(reference.name.value.clone())]
+            }
+            ItemKind::Invocation(_) => checked
+                .output_types
+                .iter()
+                .copied()
+                .map(DeclaredValueType::Known)
+                .collect(),
+        };
         match &item.output_bindings {
             OutputBindings::None => {}
             OutputBindings::One(id) => {
-                let output_types = self.item_output_types(&item.kind, scope)?;
                 let [output_type] = output_types.as_slice() else {
                     return Err(output_binding_count_error(
                         &item.kind,
@@ -367,7 +423,6 @@ impl Evaluator<'_> {
                 self.add_scope_symbol(scope, &id.value, &id.span, output_type.clone())?;
             }
             OutputBindings::Many(ids, span) => {
-                let output_types = self.item_output_types(&item.kind, scope)?;
                 if output_types.len() <= 1 || ids.len() != output_types.len() {
                     return Err(output_binding_count_error(
                         &item.kind,
@@ -381,42 +436,26 @@ impl Evaluator<'_> {
                 }
             }
         }
-        if let ItemKind::Invocation(invocation) = &item.kind {
-            if let Some(body) = &invocation.body {
-                self.collect_body_names(body, scope)?;
+        if let (
+            ItemKind::Invocation(invocation),
+            CheckedItemKind::Invocation {
+                body, input_bodies, ..
+            },
+        ) = (&item.kind, &checked.kind)
+        {
+            if let (Some(source), Some(checked)) = (&invocation.body, body.as_deref()) {
+                self.collect_body_names(source, checked, scope)?;
             }
-            for argument in invocation.arguments.values() {
-                if let ArgumentValue::Body(body) = argument {
-                    self.collect_body_names(body, scope)?;
+            for (name, argument) in &invocation.arguments {
+                if let ArgumentValue::Body(source) = argument {
+                    let checked = input_bodies
+                        .get(name)
+                        .expect("checked input body matches canonical source");
+                    self.collect_body_names(source, checked, scope)?;
                 }
             }
         }
         Ok(())
-    }
-
-    fn item_output_types(
-        &self,
-        kind: &ItemKind,
-        scope: &EvalScope,
-    ) -> Result<Vec<DeclaredValueType>> {
-        match kind {
-            ItemKind::Reference(reference) => Ok(vec![DeclaredValueType::AliasName(
-                reference.name.value.clone(),
-            )]),
-            ItemKind::Invocation(invocation) => self
-                .registry
-                .get_for(scope.unit, &invocation.program.value)
-                .map(|definition| {
-                    definition
-                        .descriptor
-                        .outputs
-                        .iter()
-                        .copied()
-                        .map(DeclaredValueType::Known)
-                        .collect()
-                })
-                .ok_or_else(|| unknown_program(invocation)),
-        }
     }
 
     fn add_scope_symbol(
@@ -489,13 +528,15 @@ impl Evaluator<'_> {
     fn evaluate_body(
         &mut self,
         body: &ProgramBody,
+        checked: &CheckedBody,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
-        for item in &body.items {
-            self.evaluate_item(item, scope, stack, frame, requested_frames)?;
+        debug_assert_eq!(body.items.len(), checked.items.len());
+        for (item, checked) in body.items.iter().zip(&checked.items) {
+            self.evaluate_item(item, checked, scope, stack, frame, requested_frames)?;
         }
         Ok(())
     }
@@ -503,19 +544,32 @@ impl Evaluator<'_> {
     fn evaluate_item(
         &mut self,
         item: &Item,
+        checked: &CheckedItem,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
-        let (outputs, construct) = match &item.kind {
-            ItemKind::Reference(reference) => (
+        let (outputs, construct) = match (&item.kind, &checked.kind) {
+            (ItemKind::Reference(reference), CheckedItemKind::Reference) => (
                 vec![self.evaluate_reference(reference, scope)?],
                 "reference".to_owned(),
             ),
-            ItemKind::Invocation(invocation) => (
+            (
+                ItemKind::Invocation(invocation),
+                CheckedItemKind::Invocation {
+                    program,
+                    access,
+                    body,
+                    input_bodies,
+                },
+            ) => (
                 self.evaluate_invocation(
                     invocation,
+                    *program,
+                    *access,
+                    body.as_deref(),
+                    input_bodies,
                     scope,
                     stack,
                     frame,
@@ -524,6 +578,7 @@ impl Evaluator<'_> {
                 )?,
                 invocation.program.value.clone(),
             ),
+            _ => unreachable!("checked item kind matches canonical source"),
         };
         let output_names = match &item.output_bindings {
             OutputBindings::None => vec![None; outputs.len()],
@@ -599,32 +654,27 @@ impl Evaluator<'_> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
         invocation: &Invocation,
+        program: crate::program::ProgramId,
+        access: crate::program::StackAccess,
+        checked_body: Option<&CheckedBody>,
+        input_bodies: &BTreeMap<String, CheckedBody>,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
     ) -> Result<Vec<ValueRef>> {
-        let definition = self
-            .registry
-            .get_for(scope.unit, &invocation.program.value)
-            .cloned()
-            .ok_or_else(|| unknown_program(invocation))?;
+        let registry = self.checked.registry.clone();
+        let definition = registry.definition(program);
         let origin = SourceOrigin::new(invocation.program.value.clone(), span.clone());
-        let access = invocation
-            .stack_access
-            .as_ref()
-            .map_or(definition.descriptor.default_stack_access, |access| {
-                access.value
-            });
         let parameter_bindings = scope.parameters.clone();
         let value_names = scope.values.keys().cloned().collect::<Vec<_>>();
         let call = super::bind::bind_call(
-            &definition,
+            definition,
             invocation,
             super::bind::BindContext {
                 stack,
@@ -638,6 +688,7 @@ impl Evaluator<'_> {
                     expression,
                     port,
                     &invocation.program.value,
+                    input_bodies.get(&port.name),
                     requested_frames,
                     scope,
                 )
@@ -673,8 +724,7 @@ impl Evaluator<'_> {
                 }
                 Ok(value.clone())
             },
-        );
-        let call = call?;
+        )?;
 
         let outputs = match definition.implementation {
             ProgramImplementation::Direct(lower) => {
@@ -687,16 +737,12 @@ impl Evaluator<'_> {
                 lower(&call, &mut builder)?
             }
             ProgramImplementation::Body(prepare) => {
-                let body = invocation.body.as_ref().ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_MISSING_PROGRAM_BODY",
-                        format!(
-                            "body program `{}` requires a `body`",
-                            definition.descriptor.name
-                        ),
-                        invocation.program.span.clone(),
-                    )
-                })?;
+                let body = invocation
+                    .body
+                    .as_ref()
+                    .expect("checked body program has canonical body");
+                let checked_body =
+                    checked_body.expect("checked body program has checked body metadata");
                 let plan = {
                     let mut builder = GraphBuilder::for_program(
                         &mut self.nodes,
@@ -715,6 +761,7 @@ impl Evaluator<'_> {
                 stack.extend(plan.initial_values);
                 self.evaluate_body(
                     body,
+                    checked_body,
                     scope,
                     stack,
                     &mut child,
@@ -730,21 +777,12 @@ impl Evaluator<'_> {
                 plan.finalizer.finish(owned, &mut builder)?
             }
             ProgramImplementation::Authored(unit) => {
-                if invocation.body.is_some() {
-                    return Err(Diagnostic::new(
-                        "E_UNEXPECTED_PROGRAM_BODY",
-                        format!(
-                            "authored program `{}` does not accept a caller-supplied body",
-                            invocation.program.value
-                        ),
-                        invocation.program.span.clone(),
-                    ));
-                }
+                debug_assert!(invocation.body.is_none());
                 self.evaluate_program(unit, Some(&call), false)?
             }
         };
 
-        validate_program_outputs(&definition, outputs, span)
+        validate_program_outputs(definition, outputs, span)
     }
 
     fn evaluate_input_value(
@@ -752,6 +790,7 @@ impl Evaluator<'_> {
         value: &ArgumentValue,
         port: &InputPort,
         program: &str,
+        checked_body: Option<&CheckedBody>,
         requested_frames: Option<FrameCount>,
         scope: &mut EvalScope,
     ) -> Result<Vec<ValueRef>> {
@@ -768,11 +807,20 @@ impl Evaluator<'_> {
                 })
                 .collect(),
             ArgumentValue::Body(body) => {
+                let checked_body =
+                    checked_body.expect("checked input body matches canonical source");
                 let (mut local, mut frame) = EvaluationStack::isolated(
                     format!("inline input body for `{program}.{}`", port.name),
                     body.span.clone(),
                 );
-                self.evaluate_body(body, scope, &mut local, &mut frame, requested_frames)?;
+                self.evaluate_body(
+                    body,
+                    checked_body,
+                    scope,
+                    &mut local,
+                    &mut frame,
+                    requested_frames,
+                )?;
                 let [result] = local.values() else {
                     return Err(output_count_error(
                         "E_INPUT_BODY_OUTPUT_COUNT",
@@ -841,14 +889,6 @@ fn entrypoint_video_body(binding: &super::entrypoint::VideoInputBinding) -> Prog
         }],
         span,
     }
-}
-
-fn unknown_program(invocation: &Invocation) -> Diagnostic {
-    Diagnostic::new(
-        "E_UNKNOWN_PROGRAM",
-        format!("unknown program `{}`", invocation.program.value),
-        invocation.program.span.clone(),
-    )
 }
 
 fn validate_program_outputs(
@@ -986,7 +1026,7 @@ mod tests {
     use crate::model::{FrameCount, ImageFit};
     use crate::program::{
         BodyFinalizer, BodyPlan, Cardinality, InputPort, ProgramDefinition, ProgramDescriptor,
-        ResolvedCall, StackAccess,
+        ProgramRegistry, ResolvedCall, StackAccess,
     };
 
     #[allow(clippy::unnecessary_wraps)]
@@ -1173,6 +1213,19 @@ mod tests {
     }
 
     fn version_programs() -> Vec<ProgramDefinition> {
+        let mut versioned_body = definition(
+            "versioned_body",
+            17,
+            StackAccess::Owned,
+            vec![],
+            vec![ValueType::Video],
+            ProgramImplementation::Body(prepare_versioned_body),
+        );
+        versioned_body
+            .body_contract
+            .as_mut()
+            .expect("body contract")
+            .initial_values = vec![ValueType::Video];
         vec![
             definition(
                 "glue",
@@ -1190,14 +1243,7 @@ mod tests {
                 vec![ValueType::Video],
                 ProgramImplementation::Direct(lower_source),
             ),
-            definition(
-                "versioned_body",
-                17,
-                StackAccess::Owned,
-                vec![],
-                vec![ValueType::Video],
-                ProgramImplementation::Body(prepare_versioned_body),
-            ),
+            versioned_body,
         ]
     }
 

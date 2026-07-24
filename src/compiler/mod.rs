@@ -18,6 +18,7 @@ use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
+#[cfg(test)]
 use crate::program::ProgramRegistry;
 use crate::semantic::{CompiledNode, SymbolId};
 use crate::source::{SourceFile, SourceSpan, Spanned};
@@ -271,7 +272,7 @@ pub fn compile_with_bindings(
     package: &SourcePackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
-    compile_with_registry_and_bindings(package, infer::build_catalog(package)?, bindings)
+    compile_checked(package, infer::check(package)?, bindings)
 }
 
 #[cfg(test)]
@@ -279,17 +280,18 @@ pub(crate) fn compile_with_registry(
     package: &SourcePackage,
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
-    compile_with_registry_and_bindings(package, registry, &EntrypointBindings::new())
+    let checked = infer::check_with_registry(package, registry)?;
+    compile_checked(package, checked, &EntrypointBindings::new())
 }
 
-fn compile_with_registry_and_bindings(
+fn compile_checked(
     package: &SourcePackage,
-    registry: ProgramRegistry,
+    checked: infer::CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(package, &video, registry, bindings)?;
+    let evaluation = evaluate::evaluate(package, &video, checked, bindings)?;
     let output = bindings.output.as_ref().or_else(|| entrypoint.output());
     validate_publication_output(entrypoint, output, &evaluation)?;
     resolve::finalize(
