@@ -8,7 +8,7 @@ use crate::model::{
     FrameCount, FrameRange, ImageFit, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec,
 };
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct CompiledNode {
     id: ValueId,
     kind: SemanticNodeKind,
@@ -32,6 +32,14 @@ impl CompiledNode {
 
     pub(crate) const fn kind(&self) -> &SemanticNodeKind {
         &self.kind
+    }
+
+    pub(crate) const fn id(&self) -> ValueId {
+        self.id
+    }
+
+    pub(crate) const fn value_type(&self) -> ValueType {
+        self.value_type
     }
 
     pub(crate) const fn domain(&self) -> Option<&VideoDomain> {

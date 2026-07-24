@@ -14,8 +14,6 @@ pub(crate) mod traversal;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde::Serialize;
-
 use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
@@ -26,7 +24,7 @@ pub use crate::semantic::SourceOrigin;
 
 const COMPILED_FORMAT_VERSION: u32 = 8;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
 ///
 /// Use [`result_domain`](Self::result_domain) to inspect a domain known from
@@ -42,7 +40,6 @@ pub struct CompiledProgram {
     named_values: BTreeMap<String, ValueRef>,
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
-    #[serde(skip)]
     entrypoint_source: SourceFile,
 }
 
@@ -59,13 +56,7 @@ impl CompiledProgram {
     ///
     /// Returns a diagnostic if serialization fails.
     pub fn canonical_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).map_err(|error| {
-            Diagnostic::new(
-                "E_PLAN_SERIALIZATION",
-                format!("could not serialize compiled program: {error}"),
-                SourceSpan::file_start("<compiled-program>"),
-            )
-        })
+        crate::format::json::compiled_program(self)
     }
 
     #[must_use]
@@ -124,6 +115,14 @@ impl CompiledProgram {
         &self.nodes
     }
 
+    pub(crate) const fn format_version(&self) -> u32 {
+        self.format_version
+    }
+
+    pub(crate) fn engine_version(&self) -> &str {
+        &self.engine_version
+    }
+
     pub(crate) fn render_output(&self) -> Result<ValueRef> {
         let [output] = self.outputs.as_slice() else {
             return Err(Diagnostic::new(
@@ -167,7 +166,7 @@ impl CompiledProgram {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// A user-visible source construct and the semantic value it produced.
 ///
 /// Explain entries preserve authoring constructs even when their lowering
@@ -178,7 +177,7 @@ pub struct ExplainEntry {
     span: SourceSpan,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// One ordered semantic output from an authored construct.
 pub struct ExplainOutput {
     value: ValueRef,
