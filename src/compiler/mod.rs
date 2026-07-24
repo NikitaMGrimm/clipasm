@@ -5,10 +5,10 @@
 //! identity. It never reads media files or invokes external tools.
 
 mod bind;
+mod check;
 mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
-mod infer;
 mod resolve;
 mod stack;
 pub(crate) mod traversal;
@@ -272,7 +272,7 @@ pub fn compile_with_bindings(
     package: &SourcePackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
-    compile_checked(package, infer::check(package)?, bindings)
+    compile_checked(package, check::check(package)?, bindings)
 }
 
 #[cfg(test)]
@@ -280,13 +280,13 @@ pub(crate) fn compile_with_registry(
     package: &SourcePackage,
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
-    let checked = infer::check_with_registry(package, registry)?;
+    let checked = check::check_with_registry(package, registry)?;
     compile_checked(package, checked, &EntrypointBindings::new())
 }
 
 fn compile_checked(
     package: &SourcePackage,
-    checked: infer::CheckedPackage,
+    checked: check::CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();

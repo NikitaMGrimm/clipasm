@@ -4,7 +4,8 @@
 authoring representation
   -> frontend parsing and desugaring
 Canonical source package + linked source programs
-  -> program catalog linking and output-signature inference
+  -> program catalog linking and checked-source construction
+Checked source + canonical source
   -> typed call binding and stack evaluation
 Semantic graph + ordered source outputs
   -> compiled JSON adapter (optional)
@@ -39,19 +40,25 @@ needs.
 ## Compilation
 
 Before evaluation, the compiler links each source unit's local program
-namespace and infers every authored program's ordered output types in import
-dependency order. Imported definitions and built-ins then share one runtime
-catalog and one call binder.
+namespace and checks every authored program in import dependency order,
+including programs the root never invokes. This pass resolves program IDs,
+effective stack access, argument and body contracts, named-value types, and
+ordered output types into compiler-owned checked-source metadata paired with
+the immutable canonical source. Imported definitions and built-ins then share
+one runtime catalog and one call binder.
 
 `compiler` evaluates the source body and every nested body as a typed postfix
 stack program over one physical evaluation stack. Recursive body frames track a
 visible suffix and an owned suffix by index. The source body starts empty and
-returns its complete final owned suffix. One shared binder resolves explicit inputs in
-descriptor order, evaluates inline fixed-input bodies on isolated evaluation
-stacks, consumes missing inputs from the invocation's accessible suffix, and
-converts authored parameters to their declared Rust types. Program
-implementations therefore receive a fully resolved call rather than
-frontend-layer arguments or stack-frame metadata.
+returns its complete final owned suffix. Evaluation traverses canonical source
+and checked metadata together, so it does not repeat program-name lookup,
+effective-access resolution, output-signature discovery, or structural body
+validation. One shared binder resolves explicit inputs in descriptor order,
+evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
+missing inputs from the invocation's accessible suffix, and converts authored
+parameters to their declared Rust types. Program implementations therefore
+receive a fully resolved call rather than frontend-layer arguments or
+stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
 invocation metadata may override it with `stack_access: owned|visible`.
@@ -100,10 +107,12 @@ the caller. Internal references use typed symbol identities, while public root
 names remain a separate compiled interface.
 
 External root bindings enter compilation through `EntrypointBindings`. A bound
-root Video input is lowered through the native `video` program, and scalar text
-is converted by the shared parameter binder. Binding spans carry the caller's
-path base, so the CLI can resolve supplied media, `File` parameters, and output
-destinations from its working directory without rewriting canonical source.
+root Video input is adapted to an isolated canonical body invoking the native
+`video` program, then evaluated and bound through the ordinary program catalog,
+call binder, and type checks. Scalar text is converted by the shared parameter
+binder. Binding spans carry the caller's path base, so the CLI can resolve
+supplied media, `File` parameters, and output destinations from its working
+directory without rewriting authored source.
 
 Registered programs are:
 
@@ -164,6 +173,8 @@ rollback-capable in-process publication transaction after verification.
   locations.
 - Each frontend owns its surface grammar, reserved syntax, and desugaring.
 - Compiler binding owns signature enforcement and parameter conversion.
+- Checked-source construction owns linked program resolution, static body
+  validation, and authored output inference.
 - Programs own operation signatures, body lifecycles, and semantic versions.
 - Semantic graph construction owns graph-local validity.
 - Compilation owns typed stack evaluation, dependency resolution, and pure

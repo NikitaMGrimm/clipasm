@@ -15,7 +15,7 @@ use crate::source::{
 };
 
 use super::EntrypointBindings;
-use super::infer::{CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage};
+use super::check::{CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage};
 
 use super::stack::{EvaluationStack, StackFrame};
 

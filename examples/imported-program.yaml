@@ -1,0 +1,11 @@
+- program:
+    version: 1
+    project:
+      video: {width: 320, height: 180, fps: 24}
+    imports:
+      polish: programs/polish.yaml
+    output: generated/imported-program.mp4
+
+- video: {path: assets/gentle-motion.mkv, fit: contain}
+- polish:
+    percent: 10

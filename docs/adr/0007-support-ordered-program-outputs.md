@@ -11,6 +11,9 @@ lowerers and body finalizers return values in descriptor order, and the
 evaluator appends every returned value to the evaluation stack in that order.
 The last returned value is therefore the new stack top.
 
+ADR 0009 later scopes named values to each authored-program invocation. The
+namespace rules below remain unchanged within one such local scope.
+
 A source program is not implicitly reduced. Its outputs are the complete final
 owned suffix of its body, including an empty suffix. Pure `validate` and
 `compile` accept zero, one, or multiple source outputs. A header `output` path

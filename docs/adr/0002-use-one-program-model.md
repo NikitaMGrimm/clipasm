@@ -10,6 +10,10 @@ now receive scoped visible and owned suffixes over one evaluation stack. ADR
 sequence while existing programs remain one-output. The prepare, evaluate, and
 finalize lifecycle remains unchanged.
 
+ADR 0009 supersedes this record's original static-registry limitation by
+introducing runtime-owned authored program definitions in the same crate-private
+catalog. The one-program model and direct/body lifecycle remain unchanged.
+
 Every callable ClipAsm construct is a registered typed program. A program is
 either direct, meaning it lowers one resolved call immediately, or body-based,
 meaning it prepares one nested body evaluation and finalizes that body's owned
@@ -24,9 +28,10 @@ branches based on their names. Body programs instead use the common
 prepare, evaluate once, and finalize lifecycle. Surface forms such as postfix
 `during` normalize into ordinary invocations before compilation.
 
-The registry remains static and crate-private. This gives built-in programs a
-uniform extension path without committing the foundation to plugins, a public
-registration API, or dynamically extensible semantic operations.
+The registry was originally static and remains crate-private. ADR 0009 later
+made its definitions runtime-owned so authored source programs can join the
+same catalog without adding plugins, a public registration API, or dynamically
+extensible semantic operations.
 
 The source-program header is definition syntax rather than a callable registry
 entry. Its executable body still uses the same item parser, binder, evaluator,

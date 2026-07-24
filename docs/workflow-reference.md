@@ -109,6 +109,9 @@ They cannot collide. Local names do not escape an invocation. Ordered outputs
 are inferred from the program body's complete final owned suffix; no
 `outputs:` declaration is required. Authored programs currently have no YAML
 primary shorthand, postfix syntax, variadic inputs, or caller-supplied body.
+Every linked authored program is checked, including unused imports. Invalid
+parameter defaults, bodies, names, references, or output contracts therefore
+fail compilation even when the root never invokes that program.
 
 ### Root CLI bindings
 
@@ -357,8 +360,8 @@ An inline input body:
 
 A sequence supplies a multi-item body. One invocation mapping or an
 unambiguous scalar invocation or reference supplies a one-item body. IDs inside
-inline bodies use the same global namespace as named clips and all other item
-IDs.
+inline bodies use the same source-program invocation-local namespace as named
+clips and all other item IDs.
 
 ```yaml
 - flash:

@@ -9,6 +9,10 @@ supersedes the single-source-result restriction: source programs now return
 their ordered final owned suffix, while publication still requires one Video.
 Named clips and inline input bodies remain isolated and single-valued.
 
+ADR 0009 subsequently adds source-program signatures, imports, runtime-owned
+program definitions, and ordinary calls between authored source files. The
+file-as-program and entrypoint-publication decisions below remain unchanged.
+
 A ClipAsm source file defines one typed stack program whose outputs are its
 ordered final owned suffix. The YAML document is a sequence: its required first item is a
 non-executable `program` header, and every remaining item belongs to the
@@ -25,10 +29,11 @@ role in source-file evaluation.
 
 The source program's ordered outputs belong to compilation semantics. A header
 `output` path requires exactly one Video, whose publication belongs to
-entrypoint render orchestration. The output path does not alter semantic graph identity and must
-not become a graph value or operation. A future source-program invocation from
-another YAML program will return the Video without publishing the imported
-file's output default.
+entrypoint render orchestration. The output path does not alter semantic graph
+identity and must not become a graph value or operation. As added by ADR 0009,
+an invocation from another source program returns the authored outputs without
+publishing an imported file's output default; imported files may not declare
+that root-only setting.
 
 A fixed, single-value graph input may be supplied by an inline input body.
 That body starts with an empty stack, inherits the enclosing requested-frame
@@ -37,8 +42,8 @@ declared input type. Its values do not enter or consume the surrounding local
 stack. IDs and references inside it use the existing global named-value
 namespace and dependency machinery.
 
-This decision deliberately does not add source-program signatures, imports,
+This decision deliberately did not add source-program signatures, imports,
 runtime-owned registry definitions, scalar-producing programs, or variadic
-input bodies. ADR 0007 adds multiple outputs without adding callable YAML
-programs. Those features can build on the same source body
-and isolated input-body evaluator when their language contracts are defined.
+input bodies. ADR 0007 added multiple outputs, and ADR 0009 later added callable
+authored programs, signatures, imports, and runtime-owned definitions. Scalar
+programs and variadic input bodies remain outside this decision.

@@ -40,6 +40,39 @@ cargo run -- validate examples/reusable-composition.yaml
 cargo run -- render examples/reusable-composition.yaml
 ```
 
+## Imported authored program
+
+`examples/imported-program.yaml` imports
+`examples/programs/polish.yaml` as an ordinary typed program. The imported
+program receives one Video input, forwards a scalar parameter into `zoom`, and
+returns its final Video to the caller. Its local names and stack do not escape
+the invocation.
+
+```console
+cargo run -- validate examples/imported-program.yaml
+cargo run -- render examples/imported-program.yaml
+```
+
+## Root bindings
+
+`examples/root-bindings.yaml` is a reusable entrypoint with one declared Video
+input and two required scalar parameters. External Video inputs are adapted to
+the ordinary `video` program and all values use the same compiler binder as
+authored calls.
+
+```console
+cargo run -- validate examples/root-bindings.yaml \
+  --input source=examples/assets/gentle-motion.mkv \
+  --arg range=500ms..1500ms \
+  --arg count=2
+
+cargo run -- render examples/root-bindings.yaml \
+  --input source=examples/assets/gentle-motion.mkv \
+  --arg range=500ms..1500ms \
+  --arg count=2 \
+  --output root-bindings.mp4
+```
+
 The PNG images are lossless 320×180 illustrations. The video uses H.264 in a
 Matroska container because it is compact while relying only on codec and
 container capabilities ClipAsm already requires. Generated outputs, manifests,

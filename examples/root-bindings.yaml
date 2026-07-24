@@ -1,0 +1,16 @@
+- program:
+    version: 1
+    project:
+      video: {width: 320, height: 180, fps: 24}
+    inputs:
+      - source: Video
+    parameters:
+      range:
+        type: TimeRange
+      count:
+        type: Integer
+
+- trim:
+    video: $source
+    range: $range
+- repeat: $count
