@@ -182,21 +182,15 @@ impl PublicationFile {
 
 fn validate_destination(file: &PublicationFile) -> Result<()> {
     match fs::symlink_metadata(&file.destination) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            match fs::metadata(&file.destination) {
-                Ok(target) if target.is_file() => Ok(()),
-                Ok(_) => Err(invalid_destination(file)),
-                Err(error) => Err(Diagnostic::new(
-                    destination_code(file.role),
-                    format!(
-                        "{} destination `{}` is an unsupported symlink: {error}",
-                        file.role,
-                        file.destination.display()
-                    ),
-                    SourceSpan::file_start(&file.destination),
-                )),
-            }
-        }
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
+            destination_code(file.role),
+            format!(
+                "{} destination `{}` is a symlink; publication destinations must be regular files",
+                file.role,
+                file.destination.display()
+            ),
+            SourceSpan::file_start(&file.destination),
+        )),
         Ok(metadata) if metadata.is_file() => Ok(()),
         Ok(_) => Err(invalid_destination(file)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -364,6 +358,44 @@ mod tests {
 
         assert_pair(directory.path(), b"old output", b"old manifest");
         assert_no_residue(directory.path());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn commit_rejects_an_output_symlink_without_replacing_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let target = directory.path().join("existing.mp4");
+        fs::write(&target, b"old target").expect("output target");
+        symlink(&target, directory.path().join("final.mp4")).expect("output symlink");
+        fs::write(
+            directory.path().join("final.mp4.manifest.json"),
+            b"old manifest",
+        )
+        .expect("old manifest");
+
+        let publication = transaction(directory.path());
+        fs::write(publication.staged_output(), b"new output").expect("staged output");
+        publication
+            .stage_manifest(b"new manifest")
+            .expect("staged manifest");
+
+        let error = publication.commit().expect_err("output symlink");
+
+        assert_eq!(error.code, "E_INVALID_OUTPUT_DESTINATION");
+        assert!(error.message.contains("is a symlink"));
+        assert!(
+            fs::symlink_metadata(directory.path().join("final.mp4"))
+                .expect("output link")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&target).expect("output target"), b"old target");
+        assert_eq!(
+            fs::read(directory.path().join("final.mp4.manifest.json")).expect("old manifest"),
+            b"old manifest"
+        );
     }
 
     #[test]

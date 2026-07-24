@@ -38,18 +38,14 @@ pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf>
 
 pub(super) fn validate_destination(path: &Path, role: &str, code: &'static str) -> Result<()> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => match fs::metadata(path) {
-            Ok(target) if target.is_file() => Ok(()),
-            Ok(_) => Err(invalid_destination(path, role, code)),
-            Err(error) => Err(Diagnostic::new(
-                code,
-                format!(
-                    "{role} destination `{}` is an unsupported symlink: {error}",
-                    path.display()
-                ),
-                SourceSpan::file_start(path),
-            )),
-        },
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
+            code,
+            format!(
+                "{role} destination `{}` is a symlink; publication destinations must be regular files",
+                path.display()
+            ),
+            SourceSpan::file_start(path),
+        )),
         Ok(metadata) if metadata.is_file() => Ok(()),
         Ok(_) => Err(invalid_destination(path, role, code)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),

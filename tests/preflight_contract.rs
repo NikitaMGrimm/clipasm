@@ -271,13 +271,14 @@ fn existing_directory_output_is_rejected() {
 
 #[cfg(unix)]
 #[test]
-fn symlink_equivalent_output_asset_collision_is_rejected() {
+fn output_symlink_to_a_regular_file_is_rejected() {
     use std::os::unix::fs::symlink;
 
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
+    fs::write(directory.path().join("existing.mp4"), b"old output").expect("output target");
     symlink(
-        directory.path().join("card.ppm"),
+        directory.path().join("existing.mp4"),
         directory.path().join("final.mp4"),
     )
     .expect("output symlink");
@@ -289,8 +290,59 @@ fn symlink_equivalent_output_asset_collision_is_rejected() {
     .expect("workflow");
 
     let compiled = compile_yaml(&workflow).expect("compile");
-    let error = clipasm::preflight::preflight(&compiled).expect_err("symlink collision");
-    assert_eq!(error.code, "E_OUTPUT_COLLISION");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("output symlink");
+    assert_eq!(error.code, "E_INVALID_OUTPUT_DESTINATION");
+    assert!(error.message.contains("is a symlink"));
+    assert!(
+        fs::symlink_metadata(directory.path().join("final.mp4"))
+            .expect("output link")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read(directory.path().join("existing.mp4")).expect("output target"),
+        b"old output"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn manifest_symlink_to_a_regular_file_is_rejected() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    fs::write(
+        directory.path().join("existing-manifest.json"),
+        b"old manifest",
+    )
+    .expect("manifest target");
+    symlink(
+        directory.path().join("existing-manifest.json"),
+        directory.path().join("final.mp4.manifest.json"),
+    )
+    .expect("manifest symlink");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+    )
+    .expect("workflow");
+
+    let compiled = compile_yaml(&workflow).expect("compile");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("manifest symlink");
+    assert_eq!(error.code, "E_INVALID_MANIFEST_DESTINATION");
+    assert!(error.message.contains("is a symlink"));
+    assert!(
+        fs::symlink_metadata(directory.path().join("final.mp4.manifest.json"))
+            .expect("manifest link")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read(directory.path().join("existing-manifest.json")).expect("manifest target"),
+        b"old manifest"
+    );
 }
 
 #[test]

@@ -559,4 +559,6 @@ verified before reuse.
 The output and manifest are staged and published through one rollback-capable
 in-process transaction. Each final rename is atomic. If `render` returns an
 error, ClipAsm attempts to preserve both previously published files. The pair
-is not crash-atomic across process termination or power loss.
+is not crash-atomic across process termination or power loss. Existing output
+and manifest destinations must be regular files; symlinks are rejected rather
+than replaced or followed during publication.
