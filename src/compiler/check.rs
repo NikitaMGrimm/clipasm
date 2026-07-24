@@ -269,7 +269,7 @@ fn check_program(
         );
         let checked = infer_body(
             &clip.body,
-            &locals,
+            &mut locals,
             unit,
             definitions,
             builtins,
@@ -307,7 +307,7 @@ fn check_program(
     );
     let checked_body = infer_body(
         &program.body,
-        &locals,
+        &mut locals,
         unit,
         definitions,
         builtins,
@@ -653,7 +653,7 @@ fn validate_explicit_input_types(
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_body(
     body: &ProgramBody,
-    locals: &BTreeMap<String, LocalType>,
+    locals: &mut BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
@@ -803,7 +803,7 @@ fn infer_body(
                         }
                         let checked_body = infer_body(
                             body,
-                            &body_locals,
+                            &mut body_locals,
                             unit,
                             definitions,
                             builtins,
@@ -855,6 +855,7 @@ fn infer_body(
                 }
             }
         };
+        update_output_bindings(locals, &item.output_bindings, &checked.output_types);
         checked_items.push(checked);
     }
     Ok(CheckedBody {
@@ -979,9 +980,10 @@ fn validate_input_argument(
                 ),
                 body.span.clone(),
             );
+            let mut body_locals = locals.clone();
             let checked = infer_body(
                 body,
-                locals,
+                &mut body_locals,
                 unit,
                 definitions,
                 builtins,
@@ -1228,17 +1230,20 @@ fn resolve_local_types(
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<()> {
     let names = locals.keys().cloned().collect::<Vec<_>>();
-    let mut path = Vec::new();
     for name in names {
-        resolve_local_type(
+        match resolve_local_type(
             &name,
             locals,
             unit,
             definitions,
             builtins,
             namespace,
-            &mut path,
-        )?;
+            &mut Vec::new(),
+        ) {
+            Ok(_) => {}
+            Err(error) if error.code == "E_GENERIC_OUTPUT_TYPE_REQUIRED" => {}
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -1548,7 +1553,7 @@ fn infer_deferred_body_signature(
     }
     infer_body(
         body,
-        &body_locals,
+        &mut body_locals,
         unit,
         definitions,
         builtins,
@@ -1610,6 +1615,28 @@ fn value_local(
             span.clone(),
         )),
         None => Err(missing_reference(name, span)),
+    }
+}
+
+fn update_output_bindings(
+    locals: &mut BTreeMap<String, LocalType>,
+    bindings: &OutputBindings,
+    outputs: &[ValueType],
+) {
+    match bindings {
+        OutputBindings::None => {}
+        OutputBindings::One(name) => {
+            let [output] = outputs else {
+                unreachable!("checked one-output binding has one output")
+            };
+            locals.insert(name.value.clone(), LocalType::Value(*output));
+        }
+        OutputBindings::Many(names, _) => {
+            debug_assert_eq!(names.len(), outputs.len());
+            for (name, output) in names.iter().zip(outputs) {
+                locals.insert(name.value.clone(), LocalType::Value(*output));
+            }
+        }
     }
 }
 

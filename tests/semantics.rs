@@ -1132,11 +1132,15 @@ fn named_glue_type_inference_respects_body_port_shadowing() {
 }
 
 #[test]
-fn stack_dependent_named_generic_outputs_still_need_evidence() {
+fn named_generic_output_infers_from_the_same_stack_value_as_an_unnamed_call() {
     let (_directory, workflow) = project(
         "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- repeat: 2\n  id: doubled\n",
     );
-    let error = compiler::compile(&workflow).expect_err("stack-dependent named generic output");
-    assert_eq!(error.code, "E_GENERIC_OUTPUT_TYPE_REQUIRED");
-    assert!(error.message.contains("caller stack state"));
+    let compiled = compiler::compile(&workflow).expect("named Video repeat");
+    assert_eq!(compiled.outputs().len(), 1);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Video
+    );
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 60);
 }
