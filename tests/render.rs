@@ -22,7 +22,7 @@ fn renders_and_reuses_verified_cache() {
     let workflow_path = directory.path().join("workflow.yaml");
     fs::write(
         &workflow_path,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 20/2}\n    clips:\n      card:\n        - image:\n            path: card.ppm\n            duration: 1s\n        - repeat: 2\n    output: final.mp4\n\n\n- timeline:\n    - $card",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 20/2}\n    clips:\n      card:\n        - image:\n            path: card.ppm\n            duration: 1s\n        - repeat: 2\n    output: final.mp4\n\n\n- glue:\n    - $card",
     )
     .expect("workflow");
     let compiled = compiler::compile_file(&workflow_path).expect("compile");
@@ -66,7 +66,7 @@ fn renders_during_with_an_exact_duration_change() {
     let workflow_path = directory.path().join("workflow.yaml");
     fs::write(
         &workflow_path,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: during.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2\n      during: 200ms..400ms",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: during.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2\n      during: 200ms..400ms",
     )
     .expect("workflow");
     let compiled = compiler::compile_file(&workflow_path).expect("compile");
@@ -122,7 +122,7 @@ fn renders_and_normalizes_a_video_source() {
     let workflow_path = directory.path().join("workflow.yaml");
     fs::write(
         &workflow_path,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: video-source.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - video:\n        path: source.mkv\n        fit: contain",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: video-source.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - video:\n        path: source.mkv\n        fit: contain",
     )
     .expect("workflow");
 
@@ -176,7 +176,7 @@ fn video_source_duration_is_quantized_by_coverage() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 30000/1001}\n    output: final.mp4\n\n\n- timeline:\n    - video: source.mkv",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 30000/1001}\n    output: final.mp4\n\n\n- glue:\n    - video: source.mkv",
     )
     .expect("workflow");
 
@@ -219,7 +219,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 5}\n    output: final.mp4\n\n\n- timeline:\n    - video: source.mkv",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 5}\n    output: final.mp4\n\n\n- glue:\n    - video: source.mkv",
     )
     .expect("workflow");
 
@@ -269,7 +269,7 @@ fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
         fs::write(
             &workflow,
             format!(
-                "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n    output: zoom.mp4\n\n\n- timeline:\n    - image: {{path: card.ppm, duration: {duration}, fit: stretch}}\n    - zoom: 20"
+                "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n    output: zoom.mp4\n\n\n- glue:\n    - image: {{path: card.ppm, duration: {duration}, fit: stretch}}\n    - zoom: 20"
             ),
         )
         .expect("workflow");
@@ -334,7 +334,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: zoom.mp4\n\n\n- timeline:\n    - image: {path: center.ppm, duration: 1s, fit: stretch}\n    - zoom: 100",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: zoom.mp4\n\n\n- glue:\n    - image: {path: center.ppm, duration: 1s, fit: stretch}\n    - zoom: 100",
     )
     .expect("workflow");
 
@@ -382,7 +382,7 @@ fn wobble_renders_exact_domain_without_exposing_borders() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: wobble.mp4\n\n\n- timeline:\n    - image: {path: white.ppm, duration: 1s, fit: stretch}\n    - wobble: 4",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: wobble.mp4\n\n\n- glue:\n    - image: {path: white.ppm, duration: 1s, fit: stretch}\n    - wobble: 4",
     )
     .expect("workflow");
 
@@ -460,7 +460,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: flash.mp4\n\n\n- timeline:\n    - image: {path: before.ppm, duration: 1s, fit: stretch}\n    - image: {path: after.ppm, duration: 1s, fit: stretch}\n    - join:\n        - flash: 4",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: flash.mp4\n\n\n- glue:\n    - image: {path: before.ppm, duration: 1s, fit: stretch}\n    - image: {path: after.ppm, duration: 1s, fit: stretch}\n    - join:\n        - flash: 4",
     )
     .expect("workflow");
 

@@ -42,16 +42,16 @@ pub(crate) const JOIN: ProgramDefinition = body(
     None,
 );
 
-pub(crate) const TIMELINE: ProgramDefinition = body(
+pub(crate) const GLUE: ProgramDefinition = body(
     ProgramDescriptor {
-        name: "timeline",
+        name: "glue",
         semantic_version: 1,
         inputs: &[],
         parameters: &[],
         primary_parameter: None,
         output: VIDEO,
     },
-    prepare_timeline,
+    prepare_glue,
     None,
 );
 
@@ -89,11 +89,11 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn prepare_timeline(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
+fn prepare_glue(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
     Ok(BodyPlan {
         initial_stack: Vec::new(),
         requested_frames: call.requested_frames(),
-        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_TIMELINE")),
+        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_GLUE")),
     })
 }
 

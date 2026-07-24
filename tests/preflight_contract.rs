@@ -44,7 +44,7 @@ fn relocated_identical_projects_have_equal_semantic_hashes() {
         write_image(directory, "card.ppm", "255 0 0");
         fs::write(
             directory.join("workflow.yaml"),
-            "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+            "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
         )
         .expect("workflow");
     }
@@ -69,7 +69,7 @@ fn unused_named_values_are_absent_from_executable_nodes() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      unused:\n        image:\n          path: unused.ppm\n          duration: 1s\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: used.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    clips:\n      unused:\n        image:\n          path: unused.ppm\n          duration: 1s\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: used.ppm\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -90,7 +90,7 @@ fn preflight_hashes_assets_and_render_rejects_later_changes() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
     let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
@@ -117,7 +117,7 @@ fn backend_export_constraints_do_not_leak_into_pure_compilation() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 63, height: 65, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    project:\n      video: {width: 63, height: 65, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
     let compiled = clipasm::compiler::compile_file(&workflow).expect("pure compile");
@@ -131,7 +131,7 @@ fn output_extension_is_strictly_mp4() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mov\n\n\n- timeline:\n    - image:\n        path: missing.png\n        duration: 1s",
+        "- program:\n    version: 1\n    output: final.mov\n\n\n- glue:\n    - image:\n        path: missing.png\n        duration: 1s",
     )
     .expect("workflow");
     let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
@@ -146,7 +146,7 @@ fn output_cannot_replace_the_source_program() {
     let source = directory.path().join("program.mp4");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: program.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    output: program.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("source program");
 
@@ -164,7 +164,7 @@ fn manifest_cannot_replace_the_source_program() {
     let source = directory.path().join("final.mp4.manifest.json");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}",
     )
     .expect("source program");
 
@@ -182,7 +182,7 @@ fn output_cannot_replace_a_reachable_image_asset() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: card.mp4\n\n\n- timeline:\n    - image:\n        path: card.mp4\n        duration: 1s",
+        "- program:\n    version: 1\n    output: card.mp4\n\n\n- glue:\n    - image:\n        path: card.mp4\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -222,7 +222,7 @@ fn output_cannot_replace_a_reachable_video_asset() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: source.mp4\n\n\n- timeline:\n    - video: source.mp4",
+        "- program:\n    version: 1\n    output: source.mp4\n\n\n- glue:\n    - video: source.mp4",
     )
     .expect("workflow");
 
@@ -239,7 +239,7 @@ fn manifest_cannot_replace_a_reachable_asset() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: final.mp4.manifest.json\n        duration: 1s",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: final.mp4.manifest.json\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -258,7 +258,7 @@ fn existing_directory_output_is_rejected() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -283,7 +283,7 @@ fn symlink_equivalent_output_asset_collision_is_rejected() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -298,7 +298,7 @@ fn video_preflight_reports_missing_files_by_source_kind() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - video: missing.mp4",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - video: missing.mp4",
     )
     .expect("workflow");
 
@@ -336,7 +336,7 @@ fn video_preflight_derives_the_full_source_duration() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - video: source.mkv",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - video: source.mkv",
     )
     .expect("workflow");
 
@@ -352,7 +352,7 @@ fn prepared_repeat_keeps_one_upstream_edge() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2",
     )
     .expect("workflow");
 
@@ -378,7 +378,7 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n    - zoom: 12",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - zoom: 12",
     )
     .expect("workflow");
 
@@ -401,7 +401,7 @@ fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n    - wobble: 4",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - wobble: 4",
     )
     .expect("workflow");
 
@@ -429,7 +429,7 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: before.ppm, duration: 1s}\n    - image: {path: after.ppm, duration: 1s}\n    - flash: 4",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: before.ppm, duration: 1s}\n    - image: {path: after.ppm, duration: 1s}\n    - flash: 4",
     )
     .expect("workflow");
 
@@ -480,7 +480,7 @@ fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: before.ppm, duration: 1s}\n    - video: after.mkv\n    - flash: 11",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: before.ppm, duration: 1s}\n    - video: after.mkv\n    - flash: 11",
     )
     .expect("workflow");
 

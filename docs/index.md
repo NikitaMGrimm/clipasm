@@ -7,7 +7,7 @@ renders an MP4 through verified cached artifacts.
 
 The current language supports still-image and video-file sources, named clips,
 references, inline fixed-input bodies, concatenation, repetition, effects, and
-the `join`, `timeline`, and `during` body programs. Audio output, plugins,
+the `join`, `glue`, and `during` body programs. Audio output, plugins,
 imports, and user-defined program signatures are outside the current
 foundation.
 

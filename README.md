@@ -10,7 +10,7 @@ Current features:
 - source-program results and isolated inline fixed inputs
 - concatenation and repetition
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
-- `during`, `join`, and nested `timeline`
+- `during`, `join`, and nested `glue`
 - content-addressed render caching
 
 ## Requirements

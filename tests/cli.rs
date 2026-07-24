@@ -13,7 +13,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
     )
     .expect("workflow");
     (directory, workflow)
@@ -54,7 +54,7 @@ fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - repeat: 2\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - repeat: 2\n  ",
     )
     .expect("invalid workflow");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
@@ -72,7 +72,7 @@ fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - video: missing.mp4\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - video: missing.mp4\n  ",
     )
     .expect("workflow");
 

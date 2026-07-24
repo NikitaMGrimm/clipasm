@@ -46,15 +46,15 @@ consume nothing; a fixed input may instead evaluate an isolated inline input
 body.
 
 - A named clip starts with an empty local stack and must leave exactly one
-  Video. It does not receive timeline finalization.
+  Video. It does not receive glue finalization.
 - `join` starts its body with two preceding Videos in order and concatenates
   all Videos left by the body.
-- A nested `timeline` starts empty and concatenates leftover Videos in order.
+- A nested `glue` starts empty and concatenates leftover Videos in order.
 - `during` starts its body with only the selected range, requires one processed
   Video, and splices that result between the untouched prefix and suffix.
 
 A source-program body starts empty and must leave exactly one Video. It is not
-implicitly wrapped in `timeline`; authors use `concat` or a nested `timeline`
+implicitly wrapped in `glue`; authors use `concat` or a nested `glue`
 when they want concatenation.
 
 An inline input body also starts empty, inherits the enclosing requested-frame

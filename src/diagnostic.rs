@@ -9,7 +9,7 @@
 //!
 //! let error = clipasm::syntax::parse_str(
 //!     Path::new("program.yaml"),
-//!     "- program:\n    version: 1\n\n- timeline:\n    body: not-a-sequence\n",
+//!     "- program:\n    version: 1\n\n- glue:\n    body: not-a-sequence\n",
 //! )
 //! .expect_err("invalid source program");
 //!

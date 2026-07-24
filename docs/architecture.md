@@ -58,7 +58,7 @@ Registered programs are:
 
 - direct: `image`, `video`, `concat`, `repeat`, `trim`, `zoom`, `wobble`,
   `flash`
-- body: `join`, `timeline`, `during`
+- body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
 inherits the active program's semantic version and origin. Adding a program
@@ -72,7 +72,7 @@ implementations.
 
 The `program` header is source-definition syntax, not a registered invocation.
 The evaluator treats its body uniformly without granting any registered
-program, including `timeline`, a privileged source-file role.
+program, including `glue`, a privileged source-file role.
 
 ## Preflight
 

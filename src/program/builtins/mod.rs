@@ -13,6 +13,6 @@ pub(crate) static BUILTIN_PROGRAMS: &[ProgramDefinition] = &[
     direct::WOBBLE,
     direct::FLASH,
     body::JOIN,
-    body::TIMELINE,
+    body::GLUE,
     body::DURING,
 ];

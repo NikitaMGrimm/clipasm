@@ -199,7 +199,7 @@ impl Evaluator<'_> {
                 stack.len(),
                 self.program.header_span(),
             )
-            .note("combine multiple Videos explicitly with `concat` or a nested `timeline`"));
+            .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
         };
         require_value_type(
             *result,
@@ -391,9 +391,7 @@ impl Evaluator<'_> {
                         local.len(),
                         &body.span,
                     )
-                    .note(
-                        "combine multiple Videos explicitly with `concat` or a nested `timeline`",
-                    ));
+                    .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
                 };
                 Ok(vec![*result])
             }
@@ -605,7 +603,7 @@ mod tests {
 
     const ROOT: ProgramDefinition = ProgramDefinition {
         descriptor: ProgramDescriptor {
-            name: "timeline",
+            name: "glue",
             semantic_version: 1,
             inputs: &[],
             parameters: &[],

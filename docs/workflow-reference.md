@@ -28,8 +28,8 @@ compilation. Rendering the source file as the CLI entrypoint requires `output`,
 whose extension must be `.mp4`.
 
 The source-program body starts with an empty local stack and must finish with
-exactly one Video. It is not implicitly wrapped in `timeline`. If multiple
-Videos should become the result, use `concat` or a nested `timeline`
+exactly one Video. It is not implicitly wrapped in `glue`. If multiple
+Videos should become the result, use `concat` or a nested `glue`
 explicitly.
 
 Relative media and output paths resolve from the source file's directory.
@@ -70,7 +70,7 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `wobble` | `video: Video` | optional `pixels` | none |
 | `flash` | `before: Video`, `after: Video` | optional `frames` | none |
 | `join` | `before: Video`, `after: Video` | none | required |
-| `timeline` | none | none | required |
+| `glue` | none | none | required |
 | `during` | `base: Video` | `range` | required |
 
 `fit` is `cover`, `contain`, or `stretch`. The default is `cover`.
@@ -316,20 +316,20 @@ onto the surrounding stack.
     - flash
 ```
 
-### Timeline
+### Glue
 
-A `timeline` has no inputs, consumes nothing from the surrounding local stack,
+A `glue` has no inputs, consumes nothing from the surrounding local stack,
 starts its body empty, and concatenates all Videos left by that body. Its single
 result is pushed onto the surrounding stack.
 
 ```yaml
-- timeline:
+- glue:
     - $first
     - $second
 ```
 
-`timeline` is an ordinary nested body program. A source program receives no
-implicit timeline finalization.
+`glue` is an ordinary nested body program. A source program receives no
+implicit glue finalization.
 
 ### During
 
@@ -373,12 +373,12 @@ inputs execute on isolated stacks.
 | named clip | empty | exactly one Video |
 | inline fixed input | empty | exactly one value of the port type |
 | `join` | two preceding Videos | leftovers concatenated in order |
-| `timeline` | empty | leftovers concatenated in order |
+| `glue` | empty | leftovers concatenated in order |
 | `during` | selected range | exactly one Video, then splice |
 
 There is no hidden replacement, fallback input, or source-level reduction.
 Named clips, inline inputs, the source program, and `during` require exactly one
-result. Only `join` and `timeline` explicitly concatenate their leftover local
+result. Only `join` and `glue` explicitly concatenate their leftover local
 Videos.
 
 ## Entrypoint publication and rendering

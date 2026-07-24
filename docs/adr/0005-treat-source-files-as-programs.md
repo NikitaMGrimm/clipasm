@@ -13,8 +13,8 @@ entrypoint output path.
 
 The source-program body starts with an empty local stack and receives no
 implicit finalizer. Zero or multiple remaining values are errors. Authors use
-`concat` or an explicit nested `timeline` when they want concatenation. The
-registered `timeline` body program remains available, but it has no privileged
+`concat` or an explicit nested `glue` when they want concatenation. The
+registered `glue` body program remains available, but it has no privileged
 role in source-file evaluation.
 
 The source program's Video result belongs to compilation semantics. Publishing

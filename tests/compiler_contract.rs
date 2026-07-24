@@ -27,7 +27,7 @@ fn compile_json(workflow: &Path) -> serde_json::Value {
 }
 
 #[test]
-fn source_program_body_returns_one_video_without_an_implicit_timeline() {
+fn source_program_body_returns_one_video_without_an_implicit_glue() {
     let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
     let program = clipasm::syntax::parse_str(Path::new("program.yaml"), source)
         .expect("source program syntax");
@@ -56,14 +56,14 @@ fn source_program_requires_exactly_one_final_value() {
         error
             .notes
             .iter()
-            .any(|note| note.contains("`concat`") && note.contains("`timeline`"))
+            .any(|note| note.contains("`concat`") && note.contains("`glue`"))
     );
 }
 
 #[test]
 fn source_program_header_is_required_first_and_rejects_unknown_fields() {
     let cases = [
-        ("version: 1\ntimeline: []\n", "E_EXPECTED_SOURCE_PROGRAM"),
+        ("version: 1\nglue: []\n", "E_EXPECTED_SOURCE_PROGRAM"),
         ("- image: card.png\n", "E_MISSING_PROGRAM_HEADER"),
         (
             "- program:\n    version: 1\n\n- program:\n    version: 1\n",
@@ -137,7 +137,7 @@ fn pure_compile_does_not_require_assets_to_exist() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: missing.png\n        duration: 1s",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: missing.png\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -159,7 +159,7 @@ fn sibling_program_parameters_are_rejected() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - image: card.ppm\n      duration: 1s\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - image: card.ppm\n      duration: 1s\n  ",
     )
     .expect("workflow");
 
@@ -179,7 +179,7 @@ fn clip_is_not_a_public_program() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- timeline:\n    - clip: $card\n  ",
+        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- glue:\n    - clip: $card\n  ",
     )
     .expect("workflow");
 
@@ -195,7 +195,23 @@ fn then_is_not_a_public_program() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n    - then:\n        - repeat: 2\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - then:\n        - repeat: 2\n  ",
+    )
+    .expect("workflow");
+
+    let output = run(&["validate", workflow.to_str().expect("UTF-8 fixture path")]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_PROGRAM]"));
+}
+
+#[test]
+fn timeline_is_not_a_public_program() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n",
     )
     .expect("workflow");
 
@@ -211,7 +227,7 @@ fn references_are_explained_as_references() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- timeline:\n    - $card\n  ",
+        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- glue:\n    - $card\n  ",
     )
     .expect("workflow");
 
@@ -233,7 +249,7 @@ fn reducible_frame_rate_is_canonical() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 60/2}\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 60/2}\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
     )
     .expect("workflow");
 
@@ -248,7 +264,7 @@ fn unused_definitions_are_still_compiled_and_validated() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      invalid:\n        image: unused.png\n\n- timeline:\n    - image:\n        path: used.png\n        duration: 1s\n  ",
+        "- program:\n    version: 1\n    clips:\n      invalid:\n        image: unused.png\n\n- glue:\n    - image:\n        path: used.png\n        duration: 1s\n  ",
     )
     .expect("workflow");
     let error = clipasm::compiler::compile_file(&workflow).expect_err("unused invalid clip");
@@ -261,7 +277,7 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - video: missing.mp4\n  ",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - video: missing.mp4\n  ",
     )
     .expect("workflow");
 
@@ -280,7 +296,7 @@ fn video_sources_do_not_accept_an_authored_duration() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - video:\n        path: source.mp4\n        duration: 1s\n  ",
+        "- program:\n    version: 1\n\n- glue:\n    - video:\n        path: source.mp4\n        duration: 1s\n  ",
     )
     .expect("workflow");
 
