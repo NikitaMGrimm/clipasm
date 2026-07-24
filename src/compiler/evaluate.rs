@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
-use crate::program::{InputPort, ProgramImplementation, ProgramRegistry};
+use crate::program::{InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
 use crate::syntax::{
     Argument, InputExpression, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
@@ -441,38 +441,7 @@ impl Evaluator<'_> {
             }
         };
 
-        if outputs.len() != definition.descriptor.outputs.len() {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_OUTPUT_COUNT",
-                format!(
-                    "program `{}` declares {} output(s), but its implementation returned {}",
-                    definition.descriptor.name,
-                    definition.descriptor.outputs.len(),
-                    outputs.len()
-                ),
-                span.clone(),
-            ));
-        }
-        for (index, (output, expected)) in outputs
-            .iter()
-            .zip(definition.descriptor.outputs)
-            .enumerate()
-        {
-            if output.value_type() != *expected {
-                return Err(Diagnostic::new(
-                    "E_PROGRAM_OUTPUT_TYPE",
-                    format!(
-                        "program `{}` declares output {} as {}, but its implementation returned {}",
-                        definition.descriptor.name,
-                        index + 1,
-                        expected,
-                        output.value_type()
-                    ),
-                    span.clone(),
-                ));
-            }
-        }
-        Ok(outputs)
+        validate_program_outputs(definition, outputs, span)
     }
 
     fn evaluate_input_expression(
@@ -549,6 +518,45 @@ fn unknown_program(invocation: &Invocation) -> Diagnostic {
         format!("unknown program `{}`", invocation.program.value),
         invocation.program.span.clone(),
     )
+}
+
+fn validate_program_outputs(
+    definition: &'static ProgramDefinition,
+    outputs: Vec<ValueRef>,
+    span: &SourceSpan,
+) -> Result<Vec<ValueRef>> {
+    if outputs.len() != definition.descriptor.outputs.len() {
+        return Err(Diagnostic::new(
+            "E_PROGRAM_OUTPUT_COUNT",
+            format!(
+                "program `{}` declares {} output(s), but its implementation returned {}",
+                definition.descriptor.name,
+                definition.descriptor.outputs.len(),
+                outputs.len()
+            ),
+            span.clone(),
+        ));
+    }
+    for (index, (output, expected)) in outputs
+        .iter()
+        .zip(definition.descriptor.outputs)
+        .enumerate()
+    {
+        if output.value_type() != *expected {
+            return Err(Diagnostic::new(
+                "E_PROGRAM_OUTPUT_TYPE",
+                format!(
+                    "program `{}` declares output {} as {}, but its implementation returned {}",
+                    definition.descriptor.name,
+                    index + 1,
+                    expected,
+                    output.value_type()
+                ),
+                span.clone(),
+            ));
+        }
+    }
+    Ok(outputs)
 }
 
 fn resolve_symbol_types(
@@ -815,6 +823,19 @@ mod tests {
         implementation: ProgramImplementation::Body(prepare_wrong_body),
         postfix: None,
     };
+    const WRONG_COUNT: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "wrong_count",
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            outputs: &[ValueType::Video, ValueType::Video],
+        },
+        implementation: ProgramImplementation::Direct(lower_source),
+        postfix: None,
+    };
     const VERSIONED_DIRECT: ProgramDefinition = ProgramDefinition {
         descriptor: ProgramDescriptor {
             name: "versioned_direct",
@@ -894,7 +915,8 @@ mod tests {
         postfix: None,
     };
 
-    static OUTPUT_PROGRAMS: &[ProgramDefinition] = &[ROOT, SOURCE, WRONG_DIRECT, WRONG_BODY];
+    static OUTPUT_PROGRAMS: &[ProgramDefinition] =
+        &[ROOT, SOURCE, WRONG_DIRECT, WRONG_BODY, WRONG_COUNT];
     static VERSION_PROGRAMS: &[ProgramDefinition] = &[ROOT, VERSIONED_DIRECT, VERSIONED_BODY];
     static VISIBLE_DEFAULT_PROGRAMS: &[ProgramDefinition] = &[SOURCE, VISIBLE_UNARY, VISIBLE_BODY];
 
@@ -948,7 +970,23 @@ mod tests {
         let (workflow, registry) = parse_with_synthetic_outputs(
             "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n- zero_output\n",
         );
-        crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+        let entry = compiled
+            .explain()
+            .iter()
+            .find(|entry| entry.construct() == "zero_output")
+            .expect("zero-output explain entry");
+        assert!(entry.outputs().is_empty());
+    }
+
+    #[test]
+    fn unnamed_multiple_outputs_are_appended_and_may_be_consumed() {
+        let (workflow, registry) =
+            parse_with_synthetic_outputs("- program:\n    version: 1\n\n- two_output\n- concat\n");
+        let compiled =
+            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+        assert_eq!(compiled.outputs().len(), 1);
     }
 
     #[test]
@@ -990,6 +1028,17 @@ mod tests {
                 crate::compiler::compile_with_registry(&workflow, registry).expect_err("type");
             assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
         }
+    }
+
+    #[test]
+    fn program_output_count_must_match_its_declaration() {
+        let (workflow, registry) = parse_with_registry(
+            "- program:\n    version: 1\n\n- wrong_count\n",
+            OUTPUT_PROGRAMS,
+        );
+        let error =
+            crate::compiler::compile_with_registry(&workflow, registry).expect_err("output count");
+        assert_eq!(error.code, "E_PROGRAM_OUTPUT_COUNT");
     }
 
     #[test]

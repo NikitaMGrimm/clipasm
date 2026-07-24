@@ -85,9 +85,10 @@ impl CompiledProgram {
     }
 
     #[must_use]
-    /// Return the result Video domain when it is knowable without reading media.
+    /// Return the single Video output domain when it is knowable without reading media.
     ///
-    /// Video-file source durations remain deferred until preflight.
+    /// Returns `None` for zero or multiple outputs, non-Video output, or a
+    /// Video-file source whose duration remains deferred until preflight.
     ///
     /// ```
     /// use std::path::Path;

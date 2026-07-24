@@ -968,6 +968,29 @@ mod tests {
         &[SYNTHETIC_DIRECT, SYNTHETIC_BODY, SYNTHETIC_POSTFIX];
 
     #[test]
+    fn postfix_output_bindings_belong_to_the_outer_invocation() {
+        let registry =
+            ProgramRegistry::from_definitions(SYNTHETIC_PROGRAMS).expect("synthetic registry");
+        let language = Language::new(registry).expect("synthetic language");
+        let workflow = parse_str_with_language(
+            Path::new("workflow.yaml"),
+            "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n  ids: [first, second]\n",
+            language,
+        )
+        .expect("generic parse");
+        let OutputBindings::Many(names, _) = &workflow.body.items[0].output_bindings else {
+            panic!("outer ids");
+        };
+        assert_eq!(
+            names
+                .iter()
+                .map(|name| name.value.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+    }
+
+    #[test]
     fn registry_metadata_extends_parser_and_evaluator() {
         let registry =
             ProgramRegistry::from_definitions(SYNTHETIC_PROGRAMS).expect("synthetic registry");
