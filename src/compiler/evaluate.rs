@@ -183,7 +183,7 @@ impl Evaluator<'_> {
             )
             .note(format!(
                 "the first `{name}` was declared at {}:{}:{}",
-                previous.declared_at.file.display(),
+                previous.declared_at.file().display(),
                 previous.declared_at.line,
                 previous.declared_at.column
             )));

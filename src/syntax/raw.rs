@@ -1,10 +1,9 @@
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust2::scanner::{Marker, TScalarStyle};
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan};
+use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan};
 
 #[derive(Clone, Debug)]
 pub(super) struct RawNode {
@@ -29,16 +28,16 @@ impl MarkedEventReceiver for EventSink {
     }
 }
 
-pub(super) fn parse(path: &Path, source: &str) -> Result<RawNode> {
+pub(super) fn parse(source: &SourceFile) -> Result<RawNode> {
     let mut sink = EventSink { events: Vec::new() };
-    Parser::new_from_str(source)
+    Parser::new_from_str(source.text())
         .load(&mut sink, true)
         .map_err(|error| {
             let marker = error.marker();
             Diagnostic::new(
                 "E_YAML_SYNTAX",
                 error.info().to_owned(),
-                SourceSpan::new(path, marker.line(), marker.col()),
+                SourceSpan::at(source.clone(), marker.line(), marker.col()),
             )
         })?;
 
@@ -51,7 +50,7 @@ pub(super) fn parse(path: &Path, source: &str) -> Result<RawNode> {
         return Err(Diagnostic::new(
             "E_YAML_DOCUMENT_COUNT",
             "a source program must contain exactly one YAML document",
-            SourceSpan::file_start(path),
+            SourceSpan::source_start(source.clone()),
         ));
     }
 
@@ -61,19 +60,23 @@ pub(super) fn parse(path: &Path, source: &str) -> Result<RawNode> {
         .position(|(event, _)| matches!(event, Event::DocumentStart))
         .map_or(0, |index| index + 1);
     let mut cursor = start;
-    raw_node(&sink.events, &mut cursor, path)
+    raw_node(&sink.events, &mut cursor, source)
 }
 
-fn raw_node(events: &[(Event, Marker)], cursor: &mut usize, path: &Path) -> Result<RawNode> {
+fn raw_node(
+    events: &[(Event, Marker)],
+    cursor: &mut usize,
+    source: &SourceFile,
+) -> Result<RawNode> {
     let Some((event, marker)) = events.get(*cursor) else {
         return Err(Diagnostic::new(
             "E_YAML_SYNTAX",
             "unexpected end of YAML input",
-            SourceSpan::file_start(path),
+            SourceSpan::source_start(source.clone()),
         ));
     };
     *cursor += 1;
-    let span = SourceSpan::new(path, marker.line(), marker.col());
+    let span = SourceSpan::at(source.clone(), marker.line(), marker.col());
     match event {
         Event::Alias(_) => Err(Diagnostic::new(
             "E_YAML_ALIAS",
@@ -97,7 +100,7 @@ fn raw_node(events: &[(Event, Marker)], cursor: &mut usize, path: &Path) -> Resu
                 events.get(*cursor).map(|item| &item.0),
                 Some(Event::SequenceEnd)
             ) {
-                values.push(raw_node(events, cursor, path)?);
+                values.push(raw_node(events, cursor, source)?);
             }
             *cursor += 1;
             Ok(RawNode {
@@ -113,7 +116,7 @@ fn raw_node(events: &[(Event, Marker)], cursor: &mut usize, path: &Path) -> Resu
                 events.get(*cursor).map(|item| &item.0),
                 Some(Event::MappingEnd)
             ) {
-                let key = raw_node(events, cursor, path)?;
+                let key = raw_node(events, cursor, source)?;
                 let (key_text, key_span) = match key.kind {
                     RawKind::Scalar { value, .. } => (value, key.span),
                     _ => {
@@ -131,7 +134,7 @@ fn raw_node(events: &[(Event, Marker)], cursor: &mut usize, path: &Path) -> Resu
                         key_span,
                     ));
                 }
-                let value = raw_node(events, cursor, path)?;
+                let value = raw_node(events, cursor, source)?;
                 entries.push((key_text, key_span, value));
             }
             *cursor += 1;

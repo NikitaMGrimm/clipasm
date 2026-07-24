@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use yaml_rust2::scanner::TScalarStyle;
 
-use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
+use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
 use crate::language::{
     BODY_FIELD, ID_FIELD, IDS_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD,
 };
@@ -28,7 +28,7 @@ pub fn parse_file(path: &Path) -> Result<SourceProgram> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
     let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    parse_str_with_language(&source_path, &source, Language::default())
+    parse_source_with_language(SourceFile::new(source_path, source), Language::default())
 }
 
 /// Parse source-program text supplied by tests or an embedding application.
@@ -37,7 +37,10 @@ pub fn parse_file(path: &Path) -> Result<SourceProgram> {
 ///
 /// Returns a source-located diagnostic for invalid YAML or source-program syntax.
 pub fn parse_str(path: &Path, source: &str) -> Result<SourceProgram> {
-    parse_str_with_language(path, source, Language::default())
+    parse_source_with_language(
+        SourceFile::new(path.to_path_buf(), source.to_owned()),
+        Language::default(),
+    )
 }
 
 /// Parse source-program text with an explicit static language.
@@ -45,20 +48,22 @@ pub fn parse_str(path: &Path, source: &str) -> Result<SourceProgram> {
 /// # Errors
 ///
 /// Returns a source-located diagnostic for invalid YAML or source-program syntax.
+#[cfg(test)]
 pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,
     language: Language,
 ) -> Result<SourceProgram> {
-    parse_source_program(
-        path.to_path_buf(),
-        super::raw::parse(path, source)?,
-        language,
-    )
+    parse_source_with_language(SourceFile::new(path.to_path_buf(), source.to_owned()), language)
+}
+
+fn parse_source_with_language(source: SourceFile, language: Language) -> Result<SourceProgram> {
+    let root = super::raw::parse(&source)?;
+    parse_source_program(source, root, language)
 }
 
 fn parse_source_program(
-    source_path: PathBuf,
+    source: SourceFile,
     root: RawNode,
     language: Language,
 ) -> Result<SourceProgram> {
@@ -147,7 +152,7 @@ fn parse_source_program(
     };
 
     Ok(SourceProgram {
-        source_path,
+        source_path: source.display_path().to_path_buf(),
         version,
         video,
         clips,

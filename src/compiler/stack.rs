@@ -207,7 +207,7 @@ impl EvaluationStack {
             diagnostic = diagnostic.note(format!(
                 "the body of `{}` at {}:{}:{} establishes the nearest stack visibility boundary",
                 frame.boundary.owner(),
-                frame.boundary.span().file.display(),
+                frame.boundary.span().file().display(),
                 frame.boundary.span().line,
                 frame.boundary.span().column
             ));

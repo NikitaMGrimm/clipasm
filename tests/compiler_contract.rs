@@ -184,7 +184,7 @@ fn explain_entries_expose_authored_names_and_source_locations() {
     assert_eq!(entry.construct(), "image");
     assert_eq!(entry.outputs().len(), 1);
     assert_eq!(entry.outputs()[0].id(), Some("card"));
-    assert_eq!(entry.span().file, Path::new("program.yaml"));
+    assert_eq!(entry.span().file(), Path::new("program.yaml"));
     assert_eq!(entry.span().line, 4);
 }
 
