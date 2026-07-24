@@ -7,7 +7,7 @@ pub(crate) const BODY_FIELD: &str = "body";
 pub(crate) const PROGRAM_HEADER_FIELD: &str = "program";
 pub(crate) const STACK_ACCESS_FIELD: &str = "stack_access";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Language {
     pub(crate) programs: ProgramRegistry,
 }
@@ -20,15 +20,18 @@ impl Default for Language {
 
 impl Language {
     pub(crate) fn new(programs: ProgramRegistry) -> Result<Self> {
-        validate_syntax_collisions(programs)?;
+        validate_syntax_collisions(&programs)?;
         Ok(Self { programs })
     }
 }
 
-fn validate_syntax_collisions(programs: ProgramRegistry) -> Result<()> {
+fn validate_syntax_collisions(programs: &ProgramRegistry) -> Result<()> {
     for definition in programs.definitions() {
         let descriptor = &definition.descriptor;
-        if matches!(descriptor.name, ID_FIELD | IDS_FIELD | PROGRAM_HEADER_FIELD) {
+        if matches!(
+            descriptor.name.as_str(),
+            ID_FIELD | IDS_FIELD | PROGRAM_HEADER_FIELD
+        ) {
             return Err(definition_error(format!(
                 "program name `{}` collides with source syntax",
                 descriptor.name
@@ -91,27 +94,6 @@ mod tests {
     };
     use crate::semantic::GraphBuilder;
 
-    const BODY_INPUT: &[InputPort] = &[InputPort {
-        name: BODY_FIELD,
-        value_type: ValueType::Video,
-        cardinality: Cardinality::One,
-    }];
-    const BODY_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
-        name: BODY_FIELD,
-        parameter_type: ParameterType::File,
-        required: false,
-    }];
-    const STACK_ACCESS_INPUT: &[InputPort] = &[InputPort {
-        name: STACK_ACCESS_FIELD,
-        value_type: ValueType::Video,
-        cardinality: Cardinality::One,
-    }];
-    const STACK_ACCESS_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
-        name: STACK_ACCESS_FIELD,
-        parameter_type: ParameterType::File,
-        required: false,
-    }];
-
     fn prepare(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
         unreachable!("language validation does not execute programs")
     }
@@ -121,22 +103,22 @@ mod tests {
     }
 
     fn definition(
-        name: &'static str,
+        name: &str,
         implementation: ProgramImplementation,
-        inputs: &'static [InputPort],
-        parameters: &'static [ParameterDescriptor],
+        inputs: Vec<InputPort>,
+        parameters: Vec<ParameterDescriptor>,
         output: ValueType,
         postfix: Option<PostfixSyntax>,
     ) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
-                name,
+                name: name.to_owned(),
                 semantic_version: 1,
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
                 primary_parameter: None,
-                outputs: Box::leak(vec![output].into_boxed_slice()),
+                outputs: vec![output],
             },
             implementation,
             postfix,
@@ -144,8 +126,7 @@ mod tests {
     }
 
     fn language_with(extra: ProgramDefinition) -> Result<Language> {
-        let definitions = Box::leak(vec![extra].into_boxed_slice());
-        Language::new(ProgramRegistry::from_definitions(definitions)?)
+        Language::new(ProgramRegistry::from_definitions(vec![extra])?)
     }
 
     #[test]
@@ -154,8 +135,8 @@ mod tests {
             language_with(definition(
                 name,
                 ProgramImplementation::Direct(direct),
-                &[],
-                &[],
+                vec![],
+                vec![],
                 ValueType::Video,
                 None,
             ))
@@ -166,32 +147,48 @@ mod tests {
             definition(
                 "stack_access_input",
                 ProgramImplementation::Direct(direct),
-                STACK_ACCESS_INPUT,
-                &[],
+                vec![InputPort {
+                    name: STACK_ACCESS_FIELD.to_owned(),
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::One,
+                }],
+                vec![],
                 ValueType::Video,
                 None,
             ),
             definition(
                 "stack_access_parameter",
                 ProgramImplementation::Direct(direct),
-                &[],
-                STACK_ACCESS_PARAMETER,
+                vec![],
+                vec![ParameterDescriptor {
+                    name: STACK_ACCESS_FIELD.to_owned(),
+                    parameter_type: ParameterType::File,
+                    required: false,
+                }],
                 ValueType::Video,
                 None,
             ),
             definition(
                 "body_input",
                 ProgramImplementation::Body(prepare),
-                BODY_INPUT,
-                &[],
+                vec![InputPort {
+                    name: BODY_FIELD.to_owned(),
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::One,
+                }],
+                vec![],
                 ValueType::Video,
                 None,
             ),
             definition(
                 "body_parameter",
                 ProgramImplementation::Body(prepare),
-                &[],
-                BODY_PARAMETER,
+                vec![],
+                vec![ParameterDescriptor {
+                    name: BODY_FIELD.to_owned(),
+                    parameter_type: ParameterType::File,
+                    required: false,
+                }],
                 ValueType::Video,
                 None,
             ),
@@ -203,8 +200,8 @@ mod tests {
             language_with(definition(
                 name,
                 ProgramImplementation::Direct(direct),
-                &[],
-                &[],
+                vec![],
+                vec![],
                 ValueType::Video,
                 None,
             ))

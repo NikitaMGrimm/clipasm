@@ -3,16 +3,18 @@ mod direct;
 
 use super::ProgramDefinition;
 
-pub(crate) static BUILTIN_PROGRAMS: &[ProgramDefinition] = &[
-    direct::IMAGE,
-    direct::VIDEO_SOURCE,
-    direct::CONCAT,
-    direct::REPEAT,
-    direct::TRIM,
-    direct::ZOOM,
-    direct::WOBBLE,
-    direct::FLASH,
-    body::JOIN,
-    body::GLUE,
-    body::DURING,
-];
+pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
+    vec![
+        direct::image(),
+        direct::video_source(),
+        direct::concat(),
+        direct::repeat(),
+        direct::trim(),
+        direct::zoom(),
+        direct::wobble(),
+        direct::flash(),
+        body::join(),
+        body::glue(),
+        body::during(),
+    ]
+}

@@ -27,7 +27,8 @@ pub fn parse_file(path: &Path) -> Result<SourceEntryPoint> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
     let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    parse_source_with_language(SourceFile::new(source_path, source), Language::default())
+    let language = Language::default();
+    parse_source_with_language(SourceFile::new(source_path, source), &language)
 }
 
 /// Parse source-program text supplied by tests or an embedding application.
@@ -36,9 +37,10 @@ pub fn parse_file(path: &Path) -> Result<SourceEntryPoint> {
 ///
 /// Returns a source-located diagnostic for invalid YAML or source-program syntax.
 pub fn parse_str(path: &Path, source: &str) -> Result<SourceEntryPoint> {
+    let language = Language::default();
     parse_source_with_language(
         SourceFile::new(path.to_path_buf(), source.to_owned()),
-        Language::default(),
+        &language,
     )
 }
 
@@ -51,7 +53,7 @@ pub fn parse_str(path: &Path, source: &str) -> Result<SourceEntryPoint> {
 pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,
-    language: Language,
+    language: &Language,
 ) -> Result<SourceEntryPoint> {
     parse_source_with_language(
         SourceFile::new(path.to_path_buf(), source.to_owned()),
@@ -59,7 +61,7 @@ pub(crate) fn parse_str_with_language(
     )
 }
 
-fn parse_source_with_language(source: SourceFile, language: Language) -> Result<SourceEntryPoint> {
+fn parse_source_with_language(source: SourceFile, language: &Language) -> Result<SourceEntryPoint> {
     let root = super::raw::parse(&source)?;
     parse_source_program(source, root, language)
 }
@@ -67,7 +69,7 @@ fn parse_source_with_language(source: SourceFile, language: Language) -> Result<
 fn parse_source_program(
     source: SourceFile,
     root: RawNode,
-    language: Language,
+    language: &Language,
 ) -> Result<SourceEntryPoint> {
     let root_span = root.span.clone();
     let RawKind::Sequence(mut items) = root.kind else {
@@ -226,7 +228,7 @@ fn parse_u32(text: &str, span: &SourceSpan, field: &str) -> Result<u32> {
     Ok(value)
 }
 
-fn parse_clips(node: RawNode, language: Language) -> Result<Vec<NamedClip>> {
+fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<NamedClip>> {
     let mut clips = Vec::new();
     for (name, span, value) in into_mapping(node, "`clips`")? {
         validate_name(&name, &span)?;
@@ -245,7 +247,7 @@ fn parse_clips(node: RawNode, language: Language) -> Result<Vec<NamedClip>> {
     Ok(clips)
 }
 
-fn parse_body(node: RawNode, owner: &str, language: Language) -> Result<ProgramBody> {
+fn parse_body(node: RawNode, owner: &str, language: &Language) -> Result<ProgramBody> {
     let span = node.span.clone();
     let RawKind::Sequence(values) = node.kind else {
         return Err(Diagnostic::new(
@@ -261,7 +263,7 @@ fn parse_body(node: RawNode, owner: &str, language: Language) -> Result<ProgramB
     Ok(ProgramBody { items, span })
 }
 
-fn parse_item(node: RawNode, language: Language) -> Result<Item> {
+fn parse_item(node: RawNode, language: &Language) -> Result<Item> {
     let item_span = node.span.clone();
     match node.kind {
         RawKind::Scalar { value, style } => {
@@ -285,7 +287,7 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
                 Ok(Item {
                     kind: ItemKind::Invocation(Invocation {
                         program: Spanned::new(
-                            definition.descriptor.name.to_owned(),
+                            definition.descriptor.name.clone(),
                             item_span.clone(),
                         ),
                         stack_access: None,
@@ -328,7 +330,7 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
 fn parse_invocation(
     entries: Vec<(String, SourceSpan, RawNode)>,
     span: SourceSpan,
-    language: Language,
+    language: &Language,
 ) -> Result<Item> {
     let mut output_bindings = OutputBindings::None;
     let mut program_entries = Vec::new();
@@ -388,7 +390,7 @@ fn parse_invocation(
 
     if program_entries.len() == 1 {
         let (program, program_span, value) = program_entries.remove(0);
-        let definition = require_program(language.programs, &program, &program_span)?;
+        let definition = require_program(&language.programs, &program, &program_span)?;
         let invocation = normalize_invocation(definition, program_span.clone(), value, language)?;
         if definition.postfix.is_some() && invocation.body.is_none() {
             return Err(Diagnostic::new(
@@ -434,7 +436,7 @@ fn parse_invocation(
     let wrapper_index = postfix_indices[0];
     let (wrapper_name, wrapper_span, wrapper_value) = program_entries.remove(wrapper_index);
     let (head_name, head_span, head_value) = program_entries.remove(0);
-    let head_definition = require_program(language.programs, &head_name, &head_span)?;
+    let head_definition = require_program(&language.programs, &head_name, &head_span)?;
     let head_invocation =
         normalize_invocation(head_definition, head_span.clone(), head_value, language)?;
     let inner = Item {
@@ -443,7 +445,7 @@ fn parse_invocation(
         span: head_span,
     };
 
-    let wrapper_definition = require_program(language.programs, &wrapper_name, &wrapper_span)?;
+    let wrapper_definition = require_program(&language.programs, &wrapper_name, &wrapper_span)?;
     let mut wrapper_invocation = normalize_invocation(
         wrapper_definition,
         wrapper_span.clone(),
@@ -468,11 +470,11 @@ fn parse_invocation(
     })
 }
 
-fn require_program(
-    registry: ProgramRegistry,
+fn require_program<'a>(
+    registry: &'a ProgramRegistry,
     program: &str,
     span: &SourceSpan,
-) -> Result<&'static ProgramDefinition> {
+) -> Result<&'a ProgramDefinition> {
     registry.get(program).ok_or_else(|| {
         Diagnostic::new(
             "E_UNKNOWN_PROGRAM",
@@ -483,12 +485,12 @@ fn require_program(
 }
 
 fn normalize_invocation(
-    definition: &'static ProgramDefinition,
+    definition: &ProgramDefinition,
     program_span: SourceSpan,
     value: RawNode,
-    language: Language,
+    language: &Language,
 ) -> Result<Invocation> {
-    let program = definition.descriptor.name;
+    let program = &definition.descriptor.name;
     let mut arguments = BTreeMap::new();
     let mut body = None;
     let mut stack_access = None;
@@ -518,7 +520,7 @@ fn normalize_invocation(
     {
         body = Some(parse_body(value, &format!("`{program}` body"), language)?);
     } else {
-        let Some(primary) = definition.descriptor.primary_parameter else {
+        let Some(primary) = definition.descriptor.primary_parameter.as_deref() else {
             return Err(Diagnostic::new(
                 "E_INVALID_PRIMARY_ARGUMENT",
                 format!("program `{program}` has no primary shorthand parameter"),
@@ -528,7 +530,7 @@ fn normalize_invocation(
         arguments.insert(primary.to_owned(), parse_argument_value(value, language)?);
     }
     Ok(Invocation {
-        program: Spanned::new(program.to_owned(), program_span),
+        program: Spanned::new(program.clone(), program_span),
         stack_access,
         arguments,
         body,
@@ -552,7 +554,7 @@ fn parse_stack_access(node: &RawNode) -> Result<Spanned<StackAccess>> {
     Ok(Spanned::new(value, span))
 }
 
-fn parse_argument_value(node: RawNode, language: Language) -> Result<ArgumentValue> {
+fn parse_argument_value(node: RawNode, language: &Language) -> Result<ArgumentValue> {
     let span = node.span.clone();
     match node.kind {
         RawKind::Scalar { value, style } => {
@@ -841,17 +843,6 @@ mod tests {
         assert_eq!(error.code, "E_MISSING_ARGUMENT");
     }
 
-    const SOURCE_PARAMETERS: &[crate::program::ParameterDescriptor] = &[ParameterDescriptor {
-        name: "path",
-        parameter_type: ParameterType::File,
-        required: true,
-    }];
-    const POSTFIX_PARAMETERS: &[crate::program::ParameterDescriptor] = &[ParameterDescriptor {
-        name: "range",
-        parameter_type: ParameterType::TimeRange,
-        required: true,
-    }];
-
     fn lower_synthetic_source(
         call: &ResolvedCall,
         builder: &mut GraphBuilder<'_>,
@@ -907,57 +898,69 @@ mod tests {
         }
     }
 
-    const SYNTHETIC_DIRECT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "synthetic_direct",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: SOURCE_PARAMETERS,
-            primary_parameter: Some("path"),
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_synthetic_source),
-        postfix: None,
-    };
-    const SYNTHETIC_BODY: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "synthetic_body",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_synthetic_body),
-        postfix: None,
-    };
-    const SYNTHETIC_POSTFIX: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "synthetic_postfix",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: POSTFIX_PARAMETERS,
-            primary_parameter: Some("range"),
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
-        postfix: Some(PostfixSyntax { parameter: "range" }),
-    };
-    static SYNTHETIC_PROGRAMS: &[ProgramDefinition] =
-        &[SYNTHETIC_DIRECT, SYNTHETIC_BODY, SYNTHETIC_POSTFIX];
+    fn synthetic_programs() -> Vec<ProgramDefinition> {
+        vec![
+            ProgramDefinition {
+                descriptor: ProgramDescriptor {
+                    name: "synthetic_direct".to_owned(),
+                    semantic_version: 1,
+                    default_stack_access: StackAccess::Owned,
+                    inputs: vec![],
+                    parameters: vec![ParameterDescriptor {
+                        name: "path".to_owned(),
+                        parameter_type: ParameterType::File,
+                        required: true,
+                    }],
+                    primary_parameter: Some("path".to_owned()),
+                    outputs: vec![ValueType::Video],
+                },
+                implementation: ProgramImplementation::Direct(lower_synthetic_source),
+                postfix: None,
+            },
+            ProgramDefinition {
+                descriptor: ProgramDescriptor {
+                    name: "synthetic_body".to_owned(),
+                    semantic_version: 1,
+                    default_stack_access: StackAccess::Owned,
+                    inputs: vec![],
+                    parameters: vec![],
+                    primary_parameter: None,
+                    outputs: vec![ValueType::Video],
+                },
+                implementation: ProgramImplementation::Body(prepare_synthetic_body),
+                postfix: None,
+            },
+            ProgramDefinition {
+                descriptor: ProgramDescriptor {
+                    name: "synthetic_postfix".to_owned(),
+                    semantic_version: 1,
+                    default_stack_access: StackAccess::Owned,
+                    inputs: vec![],
+                    parameters: vec![ParameterDescriptor {
+                        name: "range".to_owned(),
+                        parameter_type: ParameterType::TimeRange,
+                        required: true,
+                    }],
+                    primary_parameter: Some("range".to_owned()),
+                    outputs: vec![ValueType::Video],
+                },
+                implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
+                postfix: Some(PostfixSyntax {
+                    parameter: "range".to_owned(),
+                }),
+            },
+        ]
+    }
 
     #[test]
     fn postfix_output_bindings_belong_to_the_outer_invocation() {
         let registry =
-            ProgramRegistry::from_definitions(SYNTHETIC_PROGRAMS).expect("synthetic registry");
-        let language = Language::new(registry).expect("synthetic language");
+            ProgramRegistry::from_definitions(synthetic_programs()).expect("synthetic registry");
+        let language = Language::new(registry.clone()).expect("synthetic language");
         let workflow = parse_str_with_language(
             Path::new("workflow.yaml"),
             "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n  ids: [first, second]\n",
-            language,
+            &language,
         )
         .expect("generic parse");
         let OutputBindings::Many(names, _) = &workflow.program.body.items[0].output_bindings else {
@@ -975,12 +978,12 @@ mod tests {
     #[test]
     fn registry_metadata_extends_parser_and_evaluator() {
         let registry =
-            ProgramRegistry::from_definitions(SYNTHETIC_PROGRAMS).expect("synthetic registry");
-        let language = Language::new(registry).expect("synthetic language");
+            ProgramRegistry::from_definitions(synthetic_programs()).expect("synthetic registry");
+        let language = Language::new(registry.clone()).expect("synthetic language");
         let workflow = parse_str_with_language(
             Path::new("workflow.yaml"),
             "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n",
-            language,
+            &language,
         )
         .expect("generic parse");
         let compiled =

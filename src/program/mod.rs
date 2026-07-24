@@ -2,13 +2,29 @@ mod builtins;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
 
-pub(crate) use builtins::BUILTIN_PROGRAMS;
+pub(crate) use builtins::builtin_programs;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ProgramId(u32);
+
+impl ProgramId {
+    #[must_use]
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Cardinality {
@@ -32,20 +48,20 @@ impl StackAccess {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InputPort {
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     pub(crate) value_type: ValueType,
     pub(crate) cardinality: Cardinality,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterType {
     Integer,
     File,
     Duration,
     TimeRange,
-    Keyword(&'static [&'static str]),
+    Keyword(Vec<String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,32 +70,32 @@ pub(crate) enum ParameterValue {
     File(PathBuf),
     Duration(SourceTime),
     TimeRange(SourceTimeRange),
-    Keyword(&'static str),
+    Keyword(String),
 }
 
-pub(crate) type BoundParameters = BTreeMap<&'static str, Spanned<ParameterValue>>;
+pub(crate) type BoundParameters = BTreeMap<String, Spanned<ParameterValue>>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterDescriptor {
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     pub(crate) parameter_type: ParameterType,
     pub(crate) required: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProgramDescriptor {
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     pub(crate) semantic_version: u32,
     pub(crate) default_stack_access: StackAccess,
-    pub(crate) inputs: &'static [InputPort],
-    pub(crate) parameters: &'static [ParameterDescriptor],
-    pub(crate) primary_parameter: Option<&'static str>,
-    pub(crate) outputs: &'static [ValueType],
+    pub(crate) inputs: Vec<InputPort>,
+    pub(crate) parameters: Vec<ParameterDescriptor>,
+    pub(crate) primary_parameter: Option<String>,
+    pub(crate) outputs: Vec<ValueType>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PostfixSyntax {
-    pub(crate) parameter: &'static str,
+    pub(crate) parameter: String,
 }
 
 pub(crate) type ProgramOutputs = Vec<ValueRef>;
@@ -103,7 +119,7 @@ impl std::fmt::Debug for ProgramImplementation {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ProgramDefinition {
     pub(crate) descriptor: ProgramDescriptor,
     pub(crate) implementation: ProgramImplementation,
@@ -126,8 +142,8 @@ pub(crate) trait BodyFinalizer {
 
 #[derive(Debug)]
 pub(crate) struct ResolvedCall {
-    definition: &'static ProgramDefinition,
-    inputs: BTreeMap<&'static str, Vec<ValueRef>>,
+    program_name: String,
+    inputs: BTreeMap<String, Vec<ValueRef>>,
     parameters: BoundParameters,
     requested_frames: Option<FrameCount>,
     origin: SourceOrigin,
@@ -135,14 +151,14 @@ pub(crate) struct ResolvedCall {
 
 impl ResolvedCall {
     pub(crate) fn new(
-        definition: &'static ProgramDefinition,
-        inputs: BTreeMap<&'static str, Vec<ValueRef>>,
+        program_name: String,
+        inputs: BTreeMap<String, Vec<ValueRef>>,
         parameters: BoundParameters,
         requested_frames: Option<FrameCount>,
         origin: SourceOrigin,
     ) -> Self {
         Self {
-            definition,
+            program_name,
             inputs,
             parameters,
             requested_frames,
@@ -151,8 +167,8 @@ impl ResolvedCall {
     }
 
     #[must_use]
-    pub(crate) const fn definition(&self) -> &'static ProgramDefinition {
-        self.definition
+    pub(crate) fn program_name(&self) -> &str {
+        &self.program_name
     }
 
     #[must_use]
@@ -238,12 +254,12 @@ impl ResolvedCall {
     pub(crate) fn optional_keyword_parameter(
         &self,
         name: &str,
-    ) -> Result<Option<(&'static str, &SourceSpan)>> {
+    ) -> Result<Option<(&str, &SourceSpan)>> {
         let Some(parameter) = self.parameters.get(name) else {
             return Ok(None);
         };
         match &parameter.value {
-            ParameterValue::Keyword(value) => Ok(Some((*value, &parameter.span))),
+            ParameterValue::Keyword(value) => Ok(Some((value, &parameter.span))),
             _ => Err(self.parameter_type_error(name, "keyword")),
         }
     }
@@ -271,33 +287,59 @@ impl ResolvedCall {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
+struct ProgramCatalogData {
+    definitions: Vec<ProgramDefinition>,
+    names: BTreeMap<String, ProgramId>,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct ProgramRegistry {
-    definitions: &'static [ProgramDefinition],
+    data: Arc<ProgramCatalogData>,
 }
 
 impl Default for ProgramRegistry {
     fn default() -> Self {
-        Self::from_definitions(BUILTIN_PROGRAMS).expect("built-in program definitions are valid")
+        Self::from_definitions(builtin_programs()).expect("built-in program definitions are valid")
     }
 }
 
 impl ProgramRegistry {
-    pub(crate) fn from_definitions(definitions: &'static [ProgramDefinition]) -> Result<Self> {
-        validate_definitions(definitions)?;
-        Ok(Self { definitions })
-    }
-
-    #[must_use]
-    pub(crate) fn get(self, name: &str) -> Option<&'static ProgramDefinition> {
-        self.definitions
+    pub(crate) fn from_definitions(definitions: Vec<ProgramDefinition>) -> Result<Self> {
+        validate_definitions(&definitions)?;
+        let names = definitions
             .iter()
-            .find(|definition| definition.descriptor.name == name)
+            .enumerate()
+            .map(|(index, definition)| {
+                (
+                    definition.descriptor.name.clone(),
+                    ProgramId::new(u32::try_from(index).expect("program catalog fits in u32")),
+                )
+            })
+            .collect();
+        Ok(Self {
+            data: Arc::new(ProgramCatalogData { definitions, names }),
+        })
     }
 
     #[must_use]
-    pub(crate) const fn definitions(self) -> &'static [ProgramDefinition] {
-        self.definitions
+    pub(crate) fn id(&self, name: &str) -> Option<ProgramId> {
+        self.data.names.get(name).copied()
+    }
+
+    #[must_use]
+    pub(crate) fn get(&self, name: &str) -> Option<&ProgramDefinition> {
+        self.id(name).map(|id| self.definition(id))
+    }
+
+    #[must_use]
+    pub(crate) fn definition(&self, id: ProgramId) -> &ProgramDefinition {
+        &self.data.definitions[id.index()]
+    }
+
+    #[must_use]
+    pub(crate) fn definitions(&self) -> &[ProgramDefinition] {
+        &self.data.definitions
     }
 }
 
@@ -305,8 +347,8 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
     let mut programs = BTreeSet::new();
     for definition in definitions {
         let descriptor = &definition.descriptor;
-        validate_definition_name("program", descriptor.name)?;
-        if !programs.insert(descriptor.name) {
+        validate_definition_name("program", &descriptor.name)?;
+        if !programs.insert(descriptor.name.as_str()) {
             return Err(definition_error(format!(
                 "duplicate program name `{}`",
                 descriptor.name
@@ -316,10 +358,10 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
         let mut arguments = BTreeSet::new();
         let mut fixed = false;
         let mut variadic = false;
-        for port in descriptor.inputs {
-            validate_definition_name("input port", port.name)?;
-            if !arguments.insert(port.name) {
-                return Err(collision_error(descriptor.name, port.name));
+        for port in &descriptor.inputs {
+            validate_definition_name("input port", &port.name)?;
+            if !arguments.insert(port.name.as_str()) {
+                return Err(collision_error(&descriptor.name, &port.name));
             }
             match port.cardinality {
                 Cardinality::One => fixed = true,
@@ -345,17 +387,17 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
             )));
         }
 
-        for parameter in descriptor.parameters {
-            validate_definition_name("parameter", parameter.name)?;
-            if !arguments.insert(parameter.name) {
-                return Err(collision_error(descriptor.name, parameter.name));
+        for parameter in &descriptor.parameters {
+            validate_definition_name("parameter", &parameter.name)?;
+            if !arguments.insert(parameter.name.as_str()) {
+                return Err(collision_error(&descriptor.name, &parameter.name));
             }
         }
-        if let Some(primary) = descriptor.primary_parameter
+        if let Some(primary) = &descriptor.primary_parameter
             && !descriptor
                 .parameters
                 .iter()
-                .any(|parameter| parameter.name == primary)
+                .any(|parameter| parameter.name == *primary)
         {
             return Err(definition_error(format!(
                 "program `{}` names nonexistent primary parameter `{primary}`",
@@ -363,7 +405,7 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
             )));
         }
 
-        match (definition.implementation, definition.postfix) {
+        match (definition.implementation, &definition.postfix) {
             (ProgramImplementation::Direct(_), Some(_)) => {
                 return Err(definition_error(format!(
                     "direct program `{}` cannot declare postfix syntax",
@@ -431,22 +473,22 @@ mod tests {
     }
 
     fn definition(
-        name: &'static str,
-        inputs: &'static [InputPort],
-        parameters: &'static [ParameterDescriptor],
-        primary_parameter: Option<&'static str>,
+        name: &str,
+        inputs: Vec<InputPort>,
+        parameters: Vec<ParameterDescriptor>,
+        primary_parameter: Option<&str>,
         implementation: ProgramImplementation,
         postfix: Option<PostfixSyntax>,
     ) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
-                name,
+                name: name.to_owned(),
                 semantic_version: 1,
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
-                primary_parameter,
-                outputs: &[ValueType::Video],
+                primary_parameter: primary_parameter.map(str::to_owned),
+                outputs: vec![ValueType::Video],
             },
             implementation,
             postfix,
@@ -455,27 +497,24 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_program_names() {
-        let definitions = Box::leak(
-            vec![
-                definition(
-                    "duplicate",
-                    &[],
-                    &[],
-                    None,
-                    ProgramImplementation::Direct(direct_stub),
-                    None,
-                ),
-                definition(
-                    "duplicate",
-                    &[],
-                    &[],
-                    None,
-                    ProgramImplementation::Direct(direct_stub),
-                    None,
-                ),
-            ]
-            .into_boxed_slice(),
-        );
+        let definitions = vec![
+            definition(
+                "duplicate",
+                vec![],
+                vec![],
+                None,
+                ProgramImplementation::Direct(direct_stub),
+                None,
+            ),
+            definition(
+                "duplicate",
+                vec![],
+                vec![],
+                None,
+                ProgramImplementation::Direct(direct_stub),
+                None,
+            ),
+        ];
         let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate");
         assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
     }
@@ -483,78 +522,65 @@ mod tests {
     #[test]
     fn allows_ref_and_clip_program_names() {
         for name in ["ref", "clip"] {
-            let definitions = Box::leak(
-                vec![definition(
-                    name,
-                    &[],
-                    &[],
-                    None,
-                    ProgramImplementation::Direct(direct_stub),
-                    None,
-                )]
-                .into_boxed_slice(),
-            );
+            let definitions = vec![definition(
+                name,
+                vec![],
+                vec![],
+                None,
+                ProgramImplementation::Direct(direct_stub),
+                None,
+            )];
             ProgramRegistry::from_definitions(definitions).expect("ordinary program name");
         }
     }
 
     #[test]
     fn rejects_mixed_fixed_and_variadic_inputs() {
-        let ports = Box::leak(
-            vec![
-                InputPort {
-                    name: "head",
-                    value_type: ValueType::Video,
-                    cardinality: Cardinality::One,
-                },
-                InputPort {
-                    name: "tail",
-                    value_type: ValueType::Video,
-                    cardinality: Cardinality::Variadic { min: 1 },
-                },
-            ]
-            .into_boxed_slice(),
-        );
-        let definitions = Box::leak(
-            vec![definition(
-                "mixed",
-                ports,
-                &[],
-                None,
-                ProgramImplementation::Direct(direct_stub),
-                None,
-            )]
-            .into_boxed_slice(),
-        );
+        let ports = vec![
+            InputPort {
+                name: "head".to_owned(),
+                value_type: ValueType::Video,
+                cardinality: Cardinality::One,
+            },
+            InputPort {
+                name: "tail".to_owned(),
+                value_type: ValueType::Video,
+                cardinality: Cardinality::Variadic { min: 1 },
+            },
+        ];
+        let definitions = vec![definition(
+            "mixed",
+            ports,
+            vec![],
+            None,
+            ProgramImplementation::Direct(direct_stub),
+            None,
+        )];
         ProgramRegistry::from_definitions(definitions).expect_err("mixed cardinalities");
     }
 
     #[test]
     fn validates_primary_and_postfix_targets() {
-        let definitions = Box::leak(
-            vec![definition(
-                "missing_primary",
-                &[],
-                &[],
-                Some("value"),
-                ProgramImplementation::Direct(direct_stub),
-                None,
-            )]
-            .into_boxed_slice(),
-        );
+        let definitions = vec![definition(
+            "missing_primary",
+            vec![],
+            vec![],
+            Some("value"),
+            ProgramImplementation::Direct(direct_stub),
+            None,
+        )];
         ProgramRegistry::from_definitions(definitions).expect_err("missing primary target");
 
-        let definitions = Box::leak(
-            vec![definition(
-                "bad_postfix",
-                &[],
-                &[],
-                None,
-                ProgramImplementation::Body(body_stub),
-                Some(PostfixSyntax { parameter: "range" }),
-            )]
-            .into_boxed_slice(),
-        );
+        let definitions = vec![definition(
+            "bad_postfix",
+            vec![],
+            vec![],
+            None,
+            ProgramImplementation::Body(body_stub),
+            Some(PostfixSyntax {
+                parameter: "range".to_owned(),
+            }),
+        )];
         ProgramRegistry::from_definitions(definitions).expect_err("missing postfix target");
     }
 }

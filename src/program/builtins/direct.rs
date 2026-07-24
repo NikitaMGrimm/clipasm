@@ -8,194 +8,172 @@ use crate::program::{
 };
 use crate::semantic::GraphBuilder;
 
-const VIDEO: ValueType = ValueType::Video;
-const VIDEO_OUTPUTS: &[ValueType] = &[VIDEO];
-const NO_INPUTS: &[InputPort] = &[];
-const ONE_VIDEO: &[InputPort] = &[InputPort {
-    name: "video",
-    value_type: VIDEO,
-    cardinality: Cardinality::One,
-}];
-const TWO_VIDEOS: &[InputPort] = &[
-    InputPort {
-        name: "before",
-        value_type: VIDEO,
-        cardinality: Cardinality::One,
-    },
-    InputPort {
-        name: "after",
-        value_type: VIDEO,
-        cardinality: Cardinality::One,
-    },
-];
-const VIDEOS: &[InputPort] = &[InputPort {
-    name: "videos",
-    value_type: VIDEO,
-    cardinality: Cardinality::Variadic { min: 1 },
-}];
-const IMAGE_PARAMETERS: &[ParameterDescriptor] = &[
-    ParameterDescriptor {
-        name: "path",
-        parameter_type: ParameterType::File,
-        required: true,
-    },
-    ParameterDescriptor {
-        name: "duration",
-        parameter_type: ParameterType::Duration,
-        required: false,
-    },
-    ParameterDescriptor {
-        name: "fit",
-        parameter_type: ParameterType::Keyword(&["cover", "contain", "stretch"]),
-        required: false,
-    },
-];
-const VIDEO_PARAMETERS: &[ParameterDescriptor] = &[
-    ParameterDescriptor {
-        name: "path",
-        parameter_type: ParameterType::File,
-        required: true,
-    },
-    ParameterDescriptor {
-        name: "fit",
-        parameter_type: ParameterType::Keyword(&["cover", "contain", "stretch"]),
-        required: false,
-    },
-];
-const REPEAT_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "count",
-    parameter_type: ParameterType::Integer,
-    required: true,
-}];
-const TRIM_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "range",
-    parameter_type: ParameterType::TimeRange,
-    required: true,
-}];
-const ZOOM_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "percent",
-    parameter_type: ParameterType::Integer,
-    required: false,
-}];
-const WOBBLE_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "pixels",
-    parameter_type: ParameterType::Integer,
-    required: false,
-}];
-const FLASH_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "frames",
-    parameter_type: ParameterType::Integer,
-    required: false,
-}];
 const DEFAULT_ZOOM_PERCENT: u16 = 8;
 const DEFAULT_WOBBLE_PIXELS: u16 = 3;
 const DEFAULT_FLASH_MILLISECONDS: u64 = 160;
 
-pub(crate) const IMAGE: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "image",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: NO_INPUTS,
-        parameters: IMAGE_PARAMETERS,
-        primary_parameter: Some("path"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_image,
-);
+pub(crate) fn image() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "image",
+            1,
+            vec![],
+            vec![
+                parameter("path", ParameterType::File, true),
+                parameter("duration", ParameterType::Duration, false),
+                fit_parameter(),
+            ],
+            Some("path"),
+        ),
+        lower_image,
+    )
+}
 
-pub(crate) const VIDEO_SOURCE: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "video",
-        semantic_version: 2,
-        default_stack_access: StackAccess::Owned,
-        inputs: NO_INPUTS,
-        parameters: VIDEO_PARAMETERS,
-        primary_parameter: Some("path"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_video,
-);
+pub(crate) fn video_source() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "video",
+            2,
+            vec![],
+            vec![
+                parameter("path", ParameterType::File, true),
+                fit_parameter(),
+            ],
+            Some("path"),
+        ),
+        lower_video,
+    )
+}
 
-pub(crate) const CONCAT: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "concat",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: VIDEOS,
-        parameters: &[],
-        primary_parameter: None,
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_concat,
-);
+pub(crate) fn concat() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "concat",
+            1,
+            vec![input("videos", Cardinality::Variadic { min: 1 })],
+            vec![],
+            None,
+        ),
+        lower_concat,
+    )
+}
 
-pub(crate) const REPEAT: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "repeat",
-        semantic_version: 2,
-        default_stack_access: StackAccess::Owned,
-        inputs: ONE_VIDEO,
-        parameters: REPEAT_PARAMETERS,
-        primary_parameter: Some("count"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_repeat,
-);
+pub(crate) fn repeat() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "repeat",
+            2,
+            vec![input("video", Cardinality::One)],
+            vec![parameter("count", ParameterType::Integer, true)],
+            Some("count"),
+        ),
+        lower_repeat,
+    )
+}
 
-pub(crate) const TRIM: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "trim",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: ONE_VIDEO,
-        parameters: TRIM_PARAMETERS,
-        primary_parameter: Some("range"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_trim,
-);
+pub(crate) fn trim() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "trim",
+            1,
+            vec![input("video", Cardinality::One)],
+            vec![parameter("range", ParameterType::TimeRange, true)],
+            Some("range"),
+        ),
+        lower_trim,
+    )
+}
 
-pub(crate) const ZOOM: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "zoom",
-        semantic_version: 2,
-        default_stack_access: StackAccess::Owned,
-        inputs: ONE_VIDEO,
-        parameters: ZOOM_PARAMETERS,
-        primary_parameter: Some("percent"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_zoom,
-);
+pub(crate) fn zoom() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "zoom",
+            2,
+            vec![input("video", Cardinality::One)],
+            vec![parameter("percent", ParameterType::Integer, false)],
+            Some("percent"),
+        ),
+        lower_zoom,
+    )
+}
 
-pub(crate) const WOBBLE: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "wobble",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: ONE_VIDEO,
-        parameters: WOBBLE_PARAMETERS,
-        primary_parameter: Some("pixels"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_wobble,
-);
+pub(crate) fn wobble() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "wobble",
+            1,
+            vec![input("video", Cardinality::One)],
+            vec![parameter("pixels", ParameterType::Integer, false)],
+            Some("pixels"),
+        ),
+        lower_wobble,
+    )
+}
 
-pub(crate) const FLASH: ProgramDefinition = direct(
-    ProgramDescriptor {
-        name: "flash",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: TWO_VIDEOS,
-        parameters: FLASH_PARAMETERS,
-        primary_parameter: Some("frames"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    lower_flash,
-);
+pub(crate) fn flash() -> ProgramDefinition {
+    direct(
+        descriptor(
+            "flash",
+            1,
+            vec![
+                input("before", Cardinality::One),
+                input("after", Cardinality::One),
+            ],
+            vec![parameter("frames", ParameterType::Integer, false)],
+            Some("frames"),
+        ),
+        lower_flash,
+    )
+}
 
-const fn direct(
+fn descriptor(
+    name: &str,
+    semantic_version: u32,
+    inputs: Vec<InputPort>,
+    parameters: Vec<ParameterDescriptor>,
+    primary_parameter: Option<&str>,
+) -> ProgramDescriptor {
+    ProgramDescriptor {
+        name: name.to_owned(),
+        semantic_version,
+        default_stack_access: StackAccess::Owned,
+        inputs,
+        parameters,
+        primary_parameter: primary_parameter.map(str::to_owned),
+        outputs: vec![ValueType::Video],
+    }
+}
+
+fn input(name: &str, cardinality: Cardinality) -> InputPort {
+    InputPort {
+        name: name.to_owned(),
+        value_type: ValueType::Video,
+        cardinality,
+    }
+}
+
+fn parameter(name: &str, parameter_type: ParameterType, required: bool) -> ParameterDescriptor {
+    ParameterDescriptor {
+        name: name.to_owned(),
+        parameter_type,
+        required,
+    }
+}
+
+fn fit_parameter() -> ParameterDescriptor {
+    parameter(
+        "fit",
+        ParameterType::Keyword(
+            ["cover", "contain", "stretch"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        ),
+        false,
+    )
+}
+
+fn direct(
     descriptor: ProgramDescriptor,
     lower: crate::program::DirectLowerFn,
 ) -> ProgramDefinition {
@@ -389,8 +367,8 @@ mod tests {
 
     #[test]
     fn source_program_versions_cover_duration_and_repeat_semantics() {
-        assert_eq!(VIDEO_SOURCE.descriptor.semantic_version, 2);
-        assert_eq!(REPEAT.descriptor.semantic_version, 2);
-        assert_eq!(ZOOM.descriptor.semantic_version, 2);
+        assert_eq!(video_source().descriptor.semantic_version, 2);
+        assert_eq!(repeat().descriptor.semantic_version, 2);
+        assert_eq!(zoom().descriptor.semantic_version, 2);
     }
 }

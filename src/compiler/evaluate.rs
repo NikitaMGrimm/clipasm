@@ -335,8 +335,9 @@ impl Evaluator<'_> {
         let definition = self
             .registry
             .get(&invocation.program.value)
+            .cloned()
             .ok_or_else(|| unknown_program(invocation))?;
-        let origin = SourceOrigin::new(definition.descriptor.name, span.clone());
+        let origin = SourceOrigin::new(definition.descriptor.name.clone(), span.clone());
         let access = invocation
             .stack_access
             .as_ref()
@@ -344,7 +345,7 @@ impl Evaluator<'_> {
                 access.value
             });
         let call = super::bind::bind_call(
-            definition,
+            &definition,
             invocation,
             super::bind::BindContext {
                 stack,
@@ -357,7 +358,7 @@ impl Evaluator<'_> {
                 self.evaluate_input_value(
                     expression,
                     port,
-                    definition.descriptor.name,
+                    &definition.descriptor.name,
                     requested_frames,
                 )
             },
@@ -397,7 +398,7 @@ impl Evaluator<'_> {
                 let mut child = stack.enter_body(
                     frame,
                     access,
-                    definition.descriptor.name,
+                    definition.descriptor.name.clone(),
                     invocation.program.span.clone(),
                 );
                 stack.extend(plan.initial_values);
@@ -418,7 +419,7 @@ impl Evaluator<'_> {
             }
         };
 
-        validate_program_outputs(definition, outputs, span)
+        validate_program_outputs(&definition, outputs, span)
     }
 
     fn evaluate_input_value(
@@ -503,7 +504,7 @@ fn unknown_program(invocation: &Invocation) -> Diagnostic {
 }
 
 fn validate_program_outputs(
-    definition: &'static ProgramDefinition,
+    definition: &ProgramDefinition,
     outputs: Vec<ValueRef>,
     span: &SourceSpan,
 ) -> Result<Vec<ValueRef>> {
@@ -521,7 +522,7 @@ fn validate_program_outputs(
     }
     for (index, (output, expected)) in outputs
         .iter()
-        .zip(definition.descriptor.outputs)
+        .zip(&definition.descriptor.outputs)
         .enumerate()
     {
         if output.value_type() != *expected {
@@ -640,12 +641,6 @@ mod tests {
         ResolvedCall, StackAccess,
     };
 
-    const ONE_VIDEO: &[InputPort] = &[InputPort {
-        name: "video",
-        value_type: ValueType::Video,
-        cardinality: Cardinality::One,
-    }];
-
     #[allow(clippy::unnecessary_wraps)]
     fn prepare_root(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
         Ok(BodyPlan {
@@ -753,165 +748,146 @@ mod tests {
         }
     }
 
-    const ROOT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "glue",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_root),
-        postfix: None,
-    };
-    const SOURCE: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "source",
-            semantic_version: 3,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_source),
-        postfix: None,
-    };
-    const WRONG_DIRECT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "wrong_direct",
-            semantic_version: 5,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_wrong_type),
-        postfix: None,
-    };
-    const WRONG_BODY: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "wrong_body",
-            semantic_version: 7,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_wrong_body),
-        postfix: None,
-    };
-    const WRONG_COUNT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "wrong_count",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video, ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_source),
-        postfix: None,
-    };
-    const VERSIONED_DIRECT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "versioned_direct",
-            semantic_version: 11,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_source),
-        postfix: None,
-    };
-    const VERSIONED_BODY: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "versioned_body",
-            semantic_version: 17,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_versioned_body),
-        postfix: None,
-    };
-    const VISIBLE_UNARY: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "visible_unary",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Visible,
-            inputs: ONE_VIDEO,
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_alias),
-        postfix: None,
-    };
-    const VISIBLE_BODY: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "visible_body",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Visible,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video],
-        },
-        implementation: ProgramImplementation::Body(prepare_root),
-        postfix: None,
-    };
-    const TWO_OUTPUT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "two_output",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[ValueType::Video, ValueType::Video],
-        },
-        implementation: ProgramImplementation::Direct(lower_two),
-        postfix: None,
-    };
-    const ZERO_OUTPUT: ProgramDefinition = ProgramDefinition {
-        descriptor: ProgramDescriptor {
-            name: "zero_output",
-            semantic_version: 1,
-            default_stack_access: StackAccess::Owned,
-            inputs: &[],
-            parameters: &[],
-            primary_parameter: None,
-            outputs: &[],
-        },
-        implementation: ProgramImplementation::Direct(lower_zero),
-        postfix: None,
-    };
+    fn definition(
+        name: &str,
+        semantic_version: u32,
+        default_stack_access: StackAccess,
+        inputs: Vec<InputPort>,
+        outputs: Vec<ValueType>,
+        implementation: ProgramImplementation,
+    ) -> ProgramDefinition {
+        ProgramDefinition {
+            descriptor: ProgramDescriptor {
+                name: name.to_owned(),
+                semantic_version,
+                default_stack_access,
+                inputs,
+                parameters: vec![],
+                primary_parameter: None,
+                outputs,
+            },
+            implementation,
+            postfix: None,
+        }
+    }
 
-    static OUTPUT_PROGRAMS: &[ProgramDefinition] =
-        &[ROOT, SOURCE, WRONG_DIRECT, WRONG_BODY, WRONG_COUNT];
-    static VERSION_PROGRAMS: &[ProgramDefinition] = &[ROOT, VERSIONED_DIRECT, VERSIONED_BODY];
-    static VISIBLE_DEFAULT_PROGRAMS: &[ProgramDefinition] = &[SOURCE, VISIBLE_UNARY, VISIBLE_BODY];
+    fn output_programs() -> Vec<ProgramDefinition> {
+        vec![
+            definition(
+                "glue",
+                1,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body(prepare_root),
+            ),
+            definition(
+                "source",
+                3,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_source),
+            ),
+            definition(
+                "wrong_direct",
+                5,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_wrong_type),
+            ),
+            definition(
+                "wrong_body",
+                7,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body(prepare_wrong_body),
+            ),
+            definition(
+                "wrong_count",
+                1,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video, ValueType::Video],
+                ProgramImplementation::Direct(lower_source),
+            ),
+        ]
+    }
+
+    fn version_programs() -> Vec<ProgramDefinition> {
+        vec![
+            definition(
+                "glue",
+                1,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body(prepare_root),
+            ),
+            definition(
+                "versioned_direct",
+                11,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_source),
+            ),
+            definition(
+                "versioned_body",
+                17,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body(prepare_versioned_body),
+            ),
+        ]
+    }
+
+    fn visible_default_programs() -> Vec<ProgramDefinition> {
+        vec![
+            definition(
+                "source",
+                3,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_source),
+            ),
+            definition(
+                "visible_unary",
+                1,
+                StackAccess::Visible,
+                vec![InputPort {
+                    name: "video".to_owned(),
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::One,
+                }],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_alias),
+            ),
+            definition(
+                "visible_body",
+                1,
+                StackAccess::Visible,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body(prepare_root),
+            ),
+        ]
+    }
 
     fn parse_with_registry(
         source: &str,
-        definitions: &'static [ProgramDefinition],
+        definitions: Vec<ProgramDefinition>,
     ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
-        let language = Language::new(registry).expect("language");
+        let language = Language::new(registry.clone()).expect("language");
         let workflow = crate::frontend::yaml::parse_str_with_language(
             Path::new("test.yaml"),
             source,
-            language,
+            &language,
         )
         .expect("workflow");
         (workflow, registry)
@@ -920,14 +896,23 @@ mod tests {
     fn parse_with_synthetic_outputs(
         source: &str,
     ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
-        let definitions = Box::leak(
-            crate::program::BUILTIN_PROGRAMS
-                .iter()
-                .copied()
-                .chain([TWO_OUTPUT, ZERO_OUTPUT])
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        );
+        let mut definitions = crate::program::builtin_programs();
+        definitions.push(definition(
+            "two_output",
+            1,
+            StackAccess::Owned,
+            vec![],
+            vec![ValueType::Video, ValueType::Video],
+            ProgramImplementation::Direct(lower_two),
+        ));
+        definitions.push(definition(
+            "zero_output",
+            1,
+            StackAccess::Owned,
+            vec![],
+            vec![],
+            ProgramImplementation::Direct(lower_zero),
+        ));
         parse_with_registry(source, definitions)
     }
 
@@ -1010,7 +995,7 @@ mod tests {
             "- program:\n    version: 1\n\n- wrong_direct\n",
             "- program:\n    version: 1\n\n- wrong_body: [source]\n",
         ] {
-            let (workflow, registry) = parse_with_registry(source, OUTPUT_PROGRAMS);
+            let (workflow, registry) = parse_with_registry(source, output_programs());
             let error =
                 crate::compiler::compile_with_registry(&workflow, registry).expect_err("type");
             assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
@@ -1021,7 +1006,7 @@ mod tests {
     fn program_output_count_must_match_its_declaration() {
         let (workflow, registry) = parse_with_registry(
             "- program:\n    version: 1\n\n- wrong_count\n",
-            OUTPUT_PROGRAMS,
+            output_programs(),
         );
         let error =
             crate::compiler::compile_with_registry(&workflow, registry).expect_err("output count");
@@ -1032,7 +1017,7 @@ mod tests {
     fn scoped_builders_propagate_program_semantic_versions() {
         let (workflow, registry) = parse_with_registry(
             "- program:\n    version: 1\n    clips:\n      unused: versioned_direct\n\n- versioned_body: []\n",
-            VERSION_PROGRAMS,
+            version_programs(),
         );
         let compiled =
             crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
@@ -1057,14 +1042,14 @@ mod tests {
     fn descriptor_stack_access_defaults_apply_per_invocation_and_can_be_overridden() {
         let (workflow, registry) = parse_with_registry(
             "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary\n",
-            VISIBLE_DEFAULT_PROGRAMS,
+            visible_default_programs(),
         );
         crate::compiler::compile_with_registry(&workflow, registry)
             .expect("visible descriptor defaults capture the source");
 
         let (workflow, registry) = parse_with_registry(
             "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary:\n        stack_access: owned\n",
-            VISIBLE_DEFAULT_PROGRAMS,
+            visible_default_programs(),
         );
         let error = crate::compiler::compile_with_registry(&workflow, registry)
             .expect_err("owned override blocks capture");

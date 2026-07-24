@@ -9,72 +9,76 @@ use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
 
 const VIDEO: ValueType = ValueType::Video;
-const VIDEO_OUTPUTS: &[ValueType] = &[VIDEO];
-const JOIN_INPUTS: &[InputPort] = &[
+
+pub(crate) fn join() -> ProgramDefinition {
+    body(
+        descriptor(
+            "join",
+            2,
+            vec![input("before"), input("after")],
+            vec![],
+            None,
+        ),
+        prepare_join,
+        None,
+    )
+}
+
+pub(crate) fn glue() -> ProgramDefinition {
+    body(
+        descriptor("glue", 1, vec![], vec![], None),
+        prepare_glue,
+        None,
+    )
+}
+
+pub(crate) fn during() -> ProgramDefinition {
+    body(
+        descriptor(
+            "during",
+            1,
+            vec![input("base")],
+            vec![ParameterDescriptor {
+                name: "range".to_owned(),
+                parameter_type: ParameterType::TimeRange,
+                required: true,
+            }],
+            Some("range"),
+        ),
+        prepare_during,
+        Some(PostfixSyntax {
+            parameter: "range".to_owned(),
+        }),
+    )
+}
+
+fn descriptor(
+    name: &str,
+    semantic_version: u32,
+    inputs: Vec<InputPort>,
+    parameters: Vec<ParameterDescriptor>,
+    primary_parameter: Option<&str>,
+) -> ProgramDescriptor {
+    ProgramDescriptor {
+        name: name.to_owned(),
+        semantic_version,
+        default_stack_access: StackAccess::Owned,
+        inputs,
+        parameters,
+        primary_parameter: primary_parameter.map(str::to_owned),
+        outputs: vec![VIDEO],
+    }
+}
+
+fn input(name: &str) -> InputPort {
     InputPort {
-        name: "before",
+        name: name.to_owned(),
         value_type: VIDEO,
         cardinality: Cardinality::One,
-    },
-    InputPort {
-        name: "after",
-        value_type: VIDEO,
-        cardinality: Cardinality::One,
-    },
-];
-const DURING_INPUTS: &[InputPort] = &[InputPort {
-    name: "base",
-    value_type: VIDEO,
-    cardinality: Cardinality::One,
-}];
-const DURING_PARAMETERS: &[ParameterDescriptor] = &[ParameterDescriptor {
-    name: "range",
-    parameter_type: ParameterType::TimeRange,
-    required: true,
-}];
-pub(crate) const JOIN: ProgramDefinition = body(
-    ProgramDescriptor {
-        name: "join",
-        semantic_version: 2,
-        default_stack_access: StackAccess::Owned,
-        inputs: JOIN_INPUTS,
-        parameters: &[],
-        primary_parameter: None,
-        outputs: VIDEO_OUTPUTS,
-    },
-    prepare_join,
-    None,
-);
+    }
+}
 
-pub(crate) const GLUE: ProgramDefinition = body(
-    ProgramDescriptor {
-        name: "glue",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: &[],
-        parameters: &[],
-        primary_parameter: None,
-        outputs: VIDEO_OUTPUTS,
-    },
-    prepare_glue,
-    None,
-);
-
-pub(crate) const DURING: ProgramDefinition = body(
-    ProgramDescriptor {
-        name: "during",
-        semantic_version: 1,
-        default_stack_access: StackAccess::Owned,
-        inputs: DURING_INPUTS,
-        parameters: DURING_PARAMETERS,
-        primary_parameter: Some("range"),
-        outputs: VIDEO_OUTPUTS,
-    },
-    prepare_during,
-    Some(PostfixSyntax { parameter: "range" }),
-);
-
-const fn body(
+fn body(
     descriptor: ProgramDescriptor,
     prepare: crate::program::BodyPrepareFn,
     postfix: Option<PostfixSyntax>,
@@ -120,7 +124,7 @@ fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result
 }
 
 struct FinalizeConcatBody {
-    owner: &'static str,
+    owner: String,
     empty_code: &'static str,
     span: SourceSpan,
 }
@@ -128,7 +132,7 @@ struct FinalizeConcatBody {
 impl FinalizeConcatBody {
     fn for_call(call: &ResolvedCall, empty_code: &'static str) -> Self {
         Self {
-            owner: call.definition().descriptor.name,
+            owner: call.program_name().to_owned(),
             empty_code,
             span: call.origin().span.clone(),
         }
