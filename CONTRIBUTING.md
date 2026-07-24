@@ -35,7 +35,7 @@ Use Conventional Commits for commit messages, for example `feat: add trim progra
 ## Examples and fixtures
 
 Keep committed examples small, readable, and representative of public YAML.
-Update `docs/examples.md` when adding or changing a committed workflow.
+Update `docs/examples.md` when adding or changing a committed source program.
 
 Prefer deterministic text fixtures such as PPM images. Keep generated media,
 render outputs, manifests, and caches untracked. Use `local/` for personal media

@@ -1,15 +1,16 @@
-version: 1
+- program:
+    version: 1
 
-project:
-  video: {width: 320, height: 180, fps: 30}
+    project:
+      video: {width: 320, height: 180, fps: 30}
 
-clips:
-  card:
-    - image: {path: assets/green.ppm, duration: 500ms, fit: contain}
-    - repeat: 2
+    clips:
+      card:
+        - image: {path: assets/green.ppm, duration: 500ms, fit: contain}
+        - repeat: 2
 
-timeline:
-  - $card
-  - $card
+    output: generated/clips-and-references.mp4
 
-output: generated/clips-and-references.mp4
+- $card
+- $card
+- concat

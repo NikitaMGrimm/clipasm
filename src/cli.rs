@@ -19,20 +19,20 @@ enum Command {
     /// Parse, type-check, and infer source-independent video domains.
     Validate {
         /// Source program YAML file.
-        workflow: PathBuf,
+        source: PathBuf,
     },
-    /// Emit the canonical pure semantic compiled workflow.
+    /// Emit the canonical pure semantic compiled program.
     Compile {
         /// Source program YAML file.
-        workflow: PathBuf,
+        source: PathBuf,
         /// Write compiled JSON to this path instead of stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// Compile and render the workflow using `FFmpeg`.
+    /// Compile and render the source program using `FFmpeg`.
     Render {
         /// Source program YAML file. Relative media and output paths resolve from its directory.
-        workflow: PathBuf,
+        source: PathBuf,
     },
 }
 
@@ -49,8 +49,8 @@ pub(crate) fn run() -> ExitCode {
 
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Validate { workflow } => {
-            let compiled = compiler::compile_file(&workflow)?;
+        Command::Validate { source } => {
+            let compiled = compiler::compile_file(&source)?;
             if let Some(domain) = compiled.result_domain() {
                 println!(
                     "valid: {} semantic value(s), {} frame(s)",
@@ -64,8 +64,8 @@ fn execute(cli: Cli) -> Result<()> {
                 );
             }
         }
-        Command::Compile { workflow, output } => {
-            let compiled = compiler::compile_file(&workflow)?;
+        Command::Compile { source, output } => {
+            let compiled = compiler::compile_file(&source)?;
             let json = compiled.canonical_json()?;
             if let Some(output) = output {
                 fs::write(&output, json).map_err(|error| {
@@ -79,8 +79,8 @@ fn execute(cli: Cli) -> Result<()> {
                 println!("{json}");
             }
         }
-        Command::Render { workflow } => {
-            let compiled = compiler::compile_file(&workflow)?;
+        Command::Render { source } => {
+            let compiled = compiler::compile_file(&source)?;
             let prepared = preflight::preflight(&compiled)?;
             let report = render::render(&prepared)?;
             println!(

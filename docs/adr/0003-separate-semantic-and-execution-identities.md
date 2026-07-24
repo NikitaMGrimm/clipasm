@@ -19,6 +19,8 @@ order, project location, and internal numeric node IDs therefore do not define
 semantic identity. Authored source selection does: the pure authored image or
 video path belongs to compiled identity, while project relocation does not.
 References hash as aliases of their targets.
+The optional entrypoint output path is publication metadata and does not define
+the compiled semantic hash.
 
 Execution identity uses complete FFmpeg and FFprobe build fingerprints derived
 from canonical executable bytes and normalized full `-version` output,

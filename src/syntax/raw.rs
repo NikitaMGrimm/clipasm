@@ -50,7 +50,7 @@ pub(super) fn parse(path: &Path, source: &str) -> Result<RawNode> {
     if document_count != 1 {
         return Err(Diagnostic::new(
             "E_YAML_DOCUMENT_COUNT",
-            "a workflow must contain exactly one YAML document",
+            "a source program must contain exactly one YAML document",
             SourceSpan::file_start(path),
         ));
     }

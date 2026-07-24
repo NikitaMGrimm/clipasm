@@ -8,13 +8,13 @@
 //! use std::path::Path;
 //!
 //! let error = clipasm::syntax::parse_str(
-//!     Path::new("workflow.yaml"),
-//!     "version: 1\ntimeline: not-a-sequence\n",
+//!     Path::new("program.yaml"),
+//!     "- program:\n    version: 1\n\n- timeline:\n    body: not-a-sequence\n",
 //! )
-//! .expect_err("invalid workflow");
+//! .expect_err("invalid source program");
 //!
 //! assert_eq!(error.code, "E_EXPECTED_SEQUENCE");
-//! assert_eq!(error.span.line, 2);
+//! assert_eq!(error.span.line, 5);
 //! ```
 
 use std::fmt;
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// A location in the workflow source.
+/// A location in the source program.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SourceSpan {
     /// Path associated with the authored input or generated context.

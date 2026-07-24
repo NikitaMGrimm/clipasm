@@ -7,7 +7,11 @@ authoring semantics. Public YAML forms and program arguments are defined in
 
 ## Glossary
 
-- A **workflow** is one parsed versioned YAML document.
+- A **source program** is one parsed versioned YAML file. Its executable body
+  starts empty and returns exactly one Video.
+- A **program header** is the required first source item. It declares the
+  language version, project settings, named clips, and optional entrypoint
+  output path; it is not executable.
 - An **item** is one executable entry in a sequence body.
 - A **program** is a typed callable construct with declared inputs,
   parameters, and one output.
@@ -25,6 +29,10 @@ authoring semantics. Public YAML forms and program arguments are defined in
   executing one body.
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
+- A **result** is the single Video left by a successfully evaluated source
+  program.
+- An **inline input body** is an isolated body that supplies one explicit fixed
+  graph input to an invocation.
 - The **prepared plan** is the preflight result with reachable assets, tools,
   exact domains, and renderer primitives resolved.
 
@@ -34,16 +42,24 @@ Sequence order is executable order; YAML mapping order has no executable
 meaning. Missing fixed inputs consume the exact required suffix of the current
 local stack while preserving signature order. A missing variadic input consumes
 all remaining local occurrences in order. Explicit inputs read named values and
-consume nothing.
+consume nothing; a fixed input may instead evaluate an isolated inline input
+body.
 
 - A named clip starts with an empty local stack and must leave exactly one
   Video. It does not receive timeline finalization.
 - `join` starts its body with two preceding Videos in order and concatenates
   all Videos left by the body.
-- A nested or root `timeline` starts empty and concatenates leftover Videos in
-  order.
+- A nested `timeline` starts empty and concatenates leftover Videos in order.
 - `during` starts its body with only the selected range, requires one processed
   Video, and splices that result between the untouched prefix and suffix.
+
+A source-program body starts empty and must leave exactly one Video. It is not
+implicitly wrapped in `timeline`; authors use `concat` or a nested `timeline`
+when they want concatenation.
+
+An inline input body also starts empty, inherits the enclosing requested-frame
+context, and must leave exactly one value of its input port's declared type.
+Its stack is isolated from the enclosing invocation's local stack.
 
 A full-duration video source is quantized to the smallest integral project
 frame count that covers its complete source interval.

@@ -1,4 +1,4 @@
-//! Pure workflow compilation and semantic graph inspection.
+//! Pure source-program compilation and semantic graph inspection.
 //!
 //! Compilation binds typed program calls, evaluates local stacks, resolves
 //! references, infers source-independent video domains, and computes semantic
@@ -26,10 +26,10 @@ pub use crate::semantic::SourceOrigin;
 const COMPILED_FORMAT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Serialize)]
-/// A pure compiled workflow whose media-dependent facts may remain deferred.
+/// A pure compiled program whose media-dependent facts may remain deferred.
 ///
 /// Use [`result_domain`](Self::result_domain) to inspect a domain known from
-/// authored data, or pass the workflow to [`crate::preflight::preflight`] to
+/// authored data, or pass the program to [`crate::preflight::preflight`] to
 /// resolve assets and exact renderer primitives.
 pub struct CompiledProgram {
     format_version: u32,
@@ -62,8 +62,8 @@ impl CompiledProgram {
         serde_json::to_string_pretty(self).map_err(|error| {
             Diagnostic::new(
                 "E_PLAN_SERIALIZATION",
-                format!("could not serialize compiled workflow: {error}"),
-                SourceSpan::file_start("<compiled-workflow>"),
+                format!("could not serialize compiled program: {error}"),
+                SourceSpan::file_start("<compiled-program>"),
             )
         })
     }
@@ -91,11 +91,11 @@ impl CompiledProgram {
     /// ```
     /// use std::path::Path;
     ///
-    /// let workflow = clipasm::syntax::parse_str(
-    ///     Path::new("workflow.yaml"),
-    ///     "version: 1\ntimeline:\n  - image: {path: missing.png, duration: 1s}\n",
+    /// let program = clipasm::syntax::parse_str(
+    ///     Path::new("program.yaml"),
+    ///     "- program:\n    version: 1\n\n- image: {path: missing.png, duration: 1s}\n",
     /// )?;
-    /// let compiled = clipasm::compiler::compile(&workflow)?;
+    /// let compiled = clipasm::compiler::compile(&program)?;
     ///
     /// assert_eq!(compiled.result_domain().expect("authored domain").frames.0, 30);
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
@@ -105,7 +105,7 @@ impl CompiledProgram {
     }
 
     #[must_use]
-    /// Return source-oriented entries for user-visible workflow constructs.
+    /// Return source-oriented entries for user-visible program constructs.
     pub fn explain(&self) -> &[ExplainEntry] {
         &self.explain
     }
@@ -132,7 +132,7 @@ impl CompiledProgram {
 }
 
 #[derive(Clone, Debug, Serialize)]
-/// A user-visible workflow construct and the semantic value it produced.
+/// A user-visible source construct and the semantic value it produced.
 ///
 /// Explain entries preserve authoring constructs even when their lowering
 /// becomes one or more semantic operations.
@@ -157,7 +157,7 @@ impl ExplainEntry {
     }
 }
 
-/// Parse and purely compile a workflow file without reading media assets or
+/// Parse and purely compile a source-program file without reading media assets or
 /// invoking external tools.
 ///
 /// # Errors
@@ -168,18 +168,18 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
     compile(&workflow)
 }
 
-/// Purely compile an already parsed workflow.
+/// Purely compile an already parsed source program.
 ///
 /// Compilation can validate a video source even when the asset is unavailable:
 ///
 /// ```
 /// use std::path::Path;
 ///
-/// let workflow = clipasm::syntax::parse_str(
-///     Path::new("workflow.yaml"),
-///     "version: 1\ntimeline:\n  - video: unavailable.mp4\n",
+/// let program = clipasm::syntax::parse_str(
+///     Path::new("program.yaml"),
+///     "- program:\n    version: 1\n\n- video: unavailable.mp4\n",
 /// )?;
-/// let compiled = clipasm::compiler::compile(&workflow)?;
+/// let compiled = clipasm::compiler::compile(&program)?;
 ///
 /// assert!(compiled.result_domain().is_none());
 /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())

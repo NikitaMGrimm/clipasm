@@ -15,8 +15,8 @@
 //! ```no_run
 //! use std::path::Path;
 //!
-//! let workflow = clipasm::syntax::parse_file(Path::new("workflow.yaml"))?;
-//! let compiled = clipasm::compiler::compile(&workflow)?;
+//! let program = clipasm::syntax::parse_file(Path::new("program.yaml"))?;
+//! let compiled = clipasm::compiler::compile(&program)?;
 //! let prepared = clipasm::preflight::preflight(&compiled)?;
 //! let report = clipasm::render::render(&prepared)?;
 //! println!("{}", report.output.display());

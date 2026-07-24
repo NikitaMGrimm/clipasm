@@ -1,13 +1,14 @@
 # Examples
 
-The committed workflows under `examples/` are small executable demonstrations
-of the language. Run commands from the repository root. Validation is pure;
-rendering additionally requires FFmpeg, FFprobe, and any generated assets.
+The committed source programs under `examples/` are small executable
+demonstrations of the language. Run commands from the repository root.
+Validation is pure; rendering additionally requires FFmpeg, FFprobe, and any
+generated assets.
 
 ## Image sequence
 
-`examples/image-sequence.yaml` demonstrates still-image sources and ordered
-root-timeline concatenation.
+`examples/image-sequence.yaml` demonstrates still-image sources and an explicit
+`concat` source-program result.
 
 ```console
 cargo run -- validate examples/image-sequence.yaml
@@ -37,8 +38,8 @@ cargo run -- render examples/repeat-during.yaml
 
 ## Clips and references
 
-`examples/clips-and-references.yaml` demonstrates named clip declarations,
-immutable references, and value reuse.
+`examples/clips-and-references.yaml` demonstrates program-header clip
+declarations, immutable references, value reuse, and explicit concatenation.
 
 ```console
 cargo run -- validate examples/clips-and-references.yaml

@@ -32,7 +32,7 @@ impl ValueId {
     }
 
     #[must_use]
-    /// Return the stable numeric index within its compiled workflow.
+    /// Return the stable numeric index within its compiled program.
     pub const fn get(self) -> u32 {
         self.0
     }

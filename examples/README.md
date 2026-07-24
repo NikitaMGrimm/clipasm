@@ -2,8 +2,8 @@
 
 Run commands from the repository root.
 
-The canonical explanation of each workflow and its validation/render commands
-is in [the examples chapter](../docs/examples.md).
+The canonical explanation of each source program and its validation/render
+commands is in [the examples chapter](../docs/examples.md).
 
 The PPM image assets are committed as text. Generate the video asset with:
 

@@ -28,6 +28,7 @@ fn prepared_plan_serializes_one_distinguished_result() {
 
     assert!(document.get("result").is_some());
     assert!(document.get("root").is_none());
+    assert!(document.get("workflow_path").is_none());
     assert_eq!(document["format_version"], 4);
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,
@@ -139,39 +140,39 @@ fn output_extension_is_strictly_mp4() {
 }
 
 #[test]
-fn output_cannot_replace_the_workflow_file() {
+fn output_cannot_replace_the_source_program() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.mp4");
+    let source = directory.path().join("program.mp4");
     fs::write(
-        &workflow,
-        "- program:\n    version: 1\n    output: workflow.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        &source,
+        "- program:\n    version: 1\n    output: program.mp4\n\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
-    .expect("workflow");
+    .expect("source program");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("output"));
-    assert!(error.message.contains("workflow"));
+    assert!(error.message.contains("source program"));
 }
 
 #[test]
-fn manifest_cannot_replace_the_workflow_file() {
+fn manifest_cannot_replace_the_source_program() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("final.mp4.manifest.json");
+    let source = directory.path().join("final.mp4.manifest.json");
     fs::write(
-        &workflow,
+        &source,
         "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}",
     )
-    .expect("workflow");
+    .expect("source program");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("manifest collision");
     assert_eq!(error.code, "E_MANIFEST_COLLISION");
     assert!(error.message.contains("manifest"));
-    assert!(error.message.contains("workflow"));
+    assert!(error.message.contains("source program"));
 }
 
 #[test]

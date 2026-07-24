@@ -1,9 +1,9 @@
-//! Restricted YAML parsing and canonical workflow normalization.
+//! Restricted YAML parsing and canonical source-program normalization.
 //!
-//! Parsing validates YAML shape, workflow structure, registered surface forms,
-//! references, and source spans without opening media files. The normalized
-//! representation remains opaque; embedding applications pass [`SourceProgram`]
-//! directly to [`crate::compiler::compile`].
+//! Parsing validates YAML shape, source-program structure, registered surface
+//! forms, references, and source spans without opening media files. The
+//! normalized representation remains opaque; embedding applications pass
+//! [`SourceProgram`] directly to [`crate::compiler::compile`].
 
 mod ast;
 mod normalize;

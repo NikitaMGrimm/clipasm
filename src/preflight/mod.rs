@@ -1,4 +1,4 @@
-//! Media-aware preparation of compiled workflows for rendering.
+//! Media-aware preparation of compiled programs for rendering.
 //!
 //! Preflight is the first pipeline phase that performs I/O. It resolves
 //! result-reachable assets, verifies source contracts and tool capabilities,
@@ -8,7 +8,7 @@
 //! ```no_run
 //! use std::path::Path;
 //!
-//! let compiled = clipasm::compiler::compile_file(Path::new("workflow.yaml"))?;
+//! let compiled = clipasm::compiler::compile_file(Path::new("program.yaml"))?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
 //! let result = &plan.nodes()[plan.result().get() as usize];
 //! println!("prepared {} frames", result.domain().frames.0);
@@ -78,7 +78,7 @@ pub struct PreparedPlan {
     ffprobe: ToolIdentity,
     execution_namespace: String,
     #[serde(skip)]
-    workflow_path: PathBuf,
+    source_path: PathBuf,
 }
 
 impl PreparedPlan {
@@ -116,7 +116,7 @@ impl PreparedPlan {
     }
 
     #[must_use]
-    /// Return the absolute or workflow-relative-resolved MP4 destination.
+    /// Return the absolute or source-program-relative MP4 destination.
     pub fn output(&self) -> &Path {
         &self.output
     }
@@ -143,8 +143,8 @@ impl PreparedPlan {
         &self.execution_namespace
     }
 
-    pub(crate) fn workflow_path(&self) -> &Path {
-        &self.workflow_path
+    pub(crate) fn source_path(&self) -> &Path {
+        &self.source_path
     }
 }
 
@@ -340,14 +340,14 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         &output,
         "output",
         compiled.source_path(),
-        "workflow",
+        "source program",
         "E_OUTPUT_COLLISION",
     )?;
     reject_path_collision(
         &manifest,
         "manifest",
         compiled.source_path(),
-        "workflow",
+        "source program",
         "E_MANIFEST_COLLISION",
     )?;
     let video = compiled.video().clone();
@@ -410,6 +410,6 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         ffmpeg,
         ffprobe,
         execution_namespace,
-        workflow_path: compiled.source_path().to_path_buf(),
+        source_path: compiled.source_path().to_path_buf(),
     })
 }

@@ -3,13 +3,14 @@
 ```text
 restricted YAML
   -> syntax parsing and normalization
-Workflow
+Source program + executable body
   -> typed call binding and stack evaluation
-Semantic graph
+Semantic graph + one result
   -> preflight
-Prepared primitive plan
+Prepared primitive plan + one result
   -> renderer and cache
-MP4 + manifest
+Optional entrypoint publication
+  -> MP4 + manifest
 ```
 
 The reasons behind the load-bearing boundaries are recorded in the
@@ -17,17 +18,21 @@ The reasons behind the load-bearing boundaries are recorded in the
 
 ## Syntax
 
-`syntax` parses restricted YAML, retains source spans, and normalizes every
-executable item to either a reference or a registered program invocation.
-Body shorthand, postfix syntax, and the root `timeline` disappear during this
-normalization. Duplicate keys, anchors, aliases, custom tags, and multiple YAML
-documents are rejected. Parsing does not open media files.
+`syntax` parses restricted YAML, retains source spans, and requires a top-level
+sequence whose first item is the `program` header. The remaining source body,
+named-clip bodies, body-program bodies, and inline fixed-input bodies normalize
+to references and registered program invocations. Body shorthand and postfix
+syntax disappear during normalization. Duplicate keys, anchors, aliases,
+custom tags, and multiple YAML documents are rejected. Parsing does not open
+media files.
 
 ## Compilation
 
-`compiler` evaluates every program body as a typed postfix stack. One shared
-binder resolves explicit inputs, consumes missing inputs from the local stack,
-and converts authored parameters to their declared Rust types. Program
+`compiler` evaluates the source body and every nested body as a typed postfix
+stack. The source body starts empty and must return exactly one Video. One
+shared binder resolves explicit inputs in descriptor order, evaluates inline
+fixed-input bodies on isolated stacks, consumes missing inputs from the local
+stack, and converts authored parameters to their declared Rust types. Program
 implementations therefore receive a fully resolved call rather than
 syntax-layer arguments.
 
@@ -36,6 +41,8 @@ nodes, origins, graph construction, graph-local type checks, and semantic
 version propagation. Compilation retains references for dependency analysis,
 infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
+Entrypoint `output` metadata remains separate from the semantic result and its
+structure hash.
 
 ## Programs
 
@@ -63,11 +70,15 @@ on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
 implementations.
 
+The `program` header is source-definition syntax, not a registered invocation.
+The evaluator treats its body uniformly without granting any registered
+program, including `timeline`, a privileged source-file role.
+
 ## Preflight
 
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
-- resolves paths relative to the workflow
+- resolves paths relative to the source program
 - hashes reachable source files
 - validates image and video contracts
 - resolves video-source durations
@@ -76,14 +87,14 @@ implementations.
   renderer primitives
 - assigns content fingerprints and an execution namespace
 
-The prepared plan has exact domains for every node.
+The prepared plan has exact domains for every result-reachable node.
 
 ## Rendering
 
 `render` verifies source hashes again, reuses only verified cached artifacts,
 renders missing FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
 
-The cache lives under `.clipasm/cache/` beside the workflow. Output and
+The cache lives under `.clipasm/cache/` beside the source program. Output and
 manifest files are staged as temporary siblings and committed through one
 rollback-capable in-process publication transaction after verification.
 

@@ -18,7 +18,7 @@ use crate::syntax::raw::{RawKind, RawNode};
 /// # Errors
 ///
 /// Returns a source-located diagnostic when the file cannot be read or violates
-/// the restricted YAML or workflow grammar.
+/// the restricted YAML or source-program grammar.
 pub fn parse_file(path: &Path) -> Result<SourceProgram> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
@@ -26,20 +26,20 @@ pub fn parse_file(path: &Path) -> Result<SourceProgram> {
     parse_str_with_language(&source_path, &source, Language::default())
 }
 
-/// Parse workflow source supplied by tests or an embedding application.
+/// Parse source-program text supplied by tests or an embedding application.
 ///
 /// # Errors
 ///
-/// Returns a source-located diagnostic for invalid YAML or workflow syntax.
+/// Returns a source-located diagnostic for invalid YAML or source-program syntax.
 pub fn parse_str(path: &Path, source: &str) -> Result<SourceProgram> {
     parse_str_with_language(path, source, Language::default())
 }
 
-/// Parse workflow source with an explicit static language.
+/// Parse source-program text with an explicit static language.
 ///
 /// # Errors
 ///
-/// Returns a source-located diagnostic for invalid YAML or workflow syntax.
+/// Returns a source-located diagnostic for invalid YAML or source-program syntax.
 pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,

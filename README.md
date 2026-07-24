@@ -1,12 +1,13 @@
 # ClipAsm
 
-ClipAsm compiles a strict YAML workflow into a typed video graph, prepares
-reachable media with FFmpeg and FFprobe, and renders an MP4.
+ClipAsm compiles a strict YAML source program into a typed video graph,
+prepares result-reachable media with FFmpeg and FFprobe, and renders an MP4.
 
 Current features:
 
 - still-image and video-file sources
 - references and named clips
+- source-program results and isolated inline fixed inputs
 - concatenation and repetition
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
 - `during`, `join`, and nested `timeline`
@@ -22,34 +23,35 @@ Compilation and validation do not open media files or invoke external tools.
 ## Quick start
 
 ```yaml
-version: 1
+- program:
+    version: 1
 
-project:
-  video: {width: 1280, height: 720, fps: 30}
+    project:
+      video: {width: 1280, height: 720, fps: 30}
 
-timeline:
-  - image:
-      path: title.png
-      duration: 2s
-      fit: contain
-  - video: footage.mp4
+    output: final.mp4
 
-output: final.mp4
+- image:
+    path: title.png
+    duration: 2s
+    fit: contain
+- video: footage.mp4
+- concat
 ```
 
 ```console
-cargo run -- validate workflow.yaml
-cargo run -- compile workflow.yaml
-cargo run -- render workflow.yaml
+cargo run -- validate program.yaml
+cargo run -- compile program.yaml
+cargo run -- render program.yaml
 ```
 
-Paths are resolved relative to the workflow file. Rendering writes the MP4, a
+Paths are resolved relative to the source file. Rendering writes the MP4, a
 sibling `.manifest.json`, and cached intermediates under `.clipasm/cache/`
-beside the workflow.
+beside the source program.
 
 ## Documentation
 
-- [Workflow reference](docs/workflow-reference.md)
+- [Source-program reference](docs/workflow-reference.md)
 - [Architecture](docs/architecture.md)
 - [Architecture decisions](docs/adr/)
 - [Domain language and settled semantics](CONTEXT.md)
