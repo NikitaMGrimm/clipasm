@@ -18,6 +18,7 @@
 - [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
 - [Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
 - [Separate frontends from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
+- [Call authored source programs](adr/0009-call-authored-source-programs.md)
 
 # Development
 

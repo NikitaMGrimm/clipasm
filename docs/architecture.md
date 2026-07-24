@@ -3,7 +3,8 @@
 ```text
 authoring representation
   -> frontend parsing and desugaring
-Canonical source entrypoint + source program
+Canonical source package + linked source programs
+  -> program catalog linking and output-signature inference
   -> typed call binding and stack evaluation
 Semantic graph + ordered source outputs
   -> compiled JSON adapter (optional)
@@ -20,10 +21,10 @@ The reasons behind the load-bearing boundaries are recorded in the
 
 ## Frontends and canonical source
 
-`source` owns the representation-neutral authored model: source units,
-entrypoint project/publication settings, source programs, bodies, invocations,
-references, literals, and output bindings. The compiler consumes only this
-canonical model.
+`source` owns the representation-neutral authored model: linked source
+packages, source units, imports, root project/publication settings, source
+program signatures, bodies, invocations, references, literals, and output
+bindings. The compiler consumes only this canonical model.
 
 `frontend::yaml` parses restricted YAML and lowers it into canonical source.
 It owns YAML mappings, scalar styles, reserved fields, the `program` header,
@@ -33,6 +34,11 @@ compilation. Other frontends may provide different syntax and sugar without
 changing compiler behavior.
 
 ## Compilation
+
+Before evaluation, the compiler links each source unit's local program
+namespace and infers every authored program's ordered output types in import
+dependency order. Imported definitions and built-ins then share one runtime
+catalog and one call binder.
 
 `compiler` evaluates the source body and every nested body as a typed postfix
 stack program over one physical evaluation stack. Recursive body frames track a
@@ -66,10 +72,12 @@ layout.
 
 ## Programs
 
-All programs are static `ProgramDefinition` values in one crate-private
-registry. Each definition contains typed inputs, typed parameters, an ordered output sequence,
-a semantic version, an explicit default stack access, and either a direct
-lowerer or a body preparer.
+All programs are runtime `ProgramDefinition` values in one crate-private
+catalog. Each definition contains typed inputs, typed parameters, an ordered
+output sequence, a semantic version, and an explicit default stack access.
+Implementations are built-in direct lowerers, built-in body preparers, or
+authored source programs. Body programs additionally expose a declarative body
+contract used by common type inference.
 
 Direct programs lower immediately. Body programs prepare initial values and a
 requested-duration context. The evaluator opens one recursive frame on the
@@ -77,6 +85,13 @@ shared evaluation stack, executes the body once, extracts only that frame's
 owned suffix, and gives it to a program-owned finalizer that returns the
 definition's declared output sequence.
 Captured ownership propagates one frame outward when a body completes.
+
+An authored program uses the same caller-side binder. Its invocation then
+opens an isolated local scope and empty local stack. Bound graph inputs and
+scalar parameters become immutable local bindings. Local clips and `id`/`ids`
+bindings do not escape; only the complete ordered final owned suffix returns to
+the caller. Internal references use typed symbol identities, while public root
+names remain a separate compiled interface.
 
 Registered programs are:
 
@@ -99,6 +114,12 @@ The evaluator treats its body uniformly without granting any registered
 program, including `glue`, a privileged source-file role. Pure compilation may
 produce zero, one, or multiple ordered outputs. Preflight remains a publication
 boundary and requires exactly one Video output.
+
+`frontend::yaml` also owns file-backed package loading for the current
+representation: import paths are resolved relative to the importing file,
+parsed source units are deduplicated by canonical path, and import cycles are
+rejected. The resulting imports and source-program interfaces are canonical
+source data; compilation does not branch on YAML or open files.
 
 ## Preflight
 

@@ -38,7 +38,7 @@ deriving serialization from the internal compiler struct layout. Removing the
 old frontend version field changes that document incompatibly, so compiled
 format version 8 records this boundary.
 
-This decision does not add imports, callable authored-program registration,
-program signatures, native text syntax, or frontend plugins. Those features
-can now build on canonical source and source-unit context without introducing
-YAML-specific execution paths.
+This decision did not itself add imports, callable authored-program
+registration, or program signatures. Those capabilities were subsequently
+defined by [ADR 0009](0009-call-authored-source-programs.md). Native text syntax
+and frontend plugins remain outside this decision.

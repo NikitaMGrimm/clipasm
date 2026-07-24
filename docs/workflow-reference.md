@@ -16,6 +16,9 @@ canonical source:
         height: 720
         fps: 30
 
+    imports: {}
+    inputs: []
+    parameters: {}
     clips: {}
     output: final.mp4
 
@@ -24,12 +27,10 @@ canonical source:
 - concat
 ```
 
-`version` is required. `project`, `clips`, `output`, and `stack_access` are
-optional during compilation. Rendering the source file as the CLI entrypoint
-requires `output`, whose extension must be `.mp4`. Source programs explicitly
-default to `stack_access: owned`. At the current entrypoint there are no
-caller-visible values, so `owned` and `visible` have the same result for the
-source program itself.
+`version` is required. `project`, `imports`, `inputs`, `parameters`, `clips`,
+`output`, and `stack_access` are optional. Only the root file may declare
+`project` or `output`. Rendering requires `output`, whose extension must be
+`.mp4`. Source programs explicitly default to `stack_access: owned`.
 
 The source-program body owns no initial values and returns its complete final
 owned suffix in order. Zero, one, or multiple outputs are valid for `validate`
@@ -37,13 +38,77 @@ and `compile`. It is not implicitly wrapped in `glue`. When the header contains
 `output`, the source must produce exactly one Video; use `concat` or a nested
 `glue` when several Videos should become that render result.
 
-Relative media and output paths resolve from the YAML source unit's directory.
+Relative import, media, and output paths resolve from the YAML source unit's
+directory. A caller-supplied file parameter remains relative to the caller;
+an imported program's literal default remains relative to that imported file.
 Mapping order has no meaning. Sequence order is executable stack order.
 
-This frontend accepts one restricted YAML document. Duplicate keys, anchors,
+Each source unit is one restricted YAML document. Duplicate keys, anchors,
 aliases, custom tags, and multiple documents are rejected. Unknown
-program-header fields are rejected; source-program inputs, parameters,
-imports, and names are not yet supported.
+program-header fields are rejected.
+
+## Authored programs and imports
+
+One YAML file defines one callable source program. A root file imports another
+file under an explicit local alias:
+
+```yaml
+- program:
+    version: 1
+    imports:
+      repeat_twice: ./programs/repeat-twice.yaml
+
+- image: {path: title.png, duration: 1s}
+- repeat_twice
+```
+
+Aliases are local to the importing file, are not re-exported, and may not
+collide with built-in program names. Two aliases may point to the same file;
+the source definition is deduplicated while each invocation receives an
+independent local scope. Import cycles, including self-import and a triangle
+such as `yaml1 -> yaml2 -> yaml3 -> yaml1`, are rejected. Recursive authored
+programs are not supported.
+
+An authored interface declares ordered fixed Video inputs and scalar
+parameters:
+
+```yaml
+- program:
+    version: 1
+    inputs:
+      - video: Video
+    parameters:
+      count: Integer
+      overlay:
+        type: File
+        default: overlay.png
+      fit:
+        type: Keyword
+        values: [cover, contain, stretch]
+        default: cover
+
+- repeat:
+    video: $video
+    count: $count
+```
+
+`inputs` is a sequence because its order controls implicit stack binding.
+Initial authored inputs are fixed-cardinality `Video` values. Parameter types
+are the same shared types used by built-ins: `Integer`, `File`, `Duration`,
+`TimeRange`, and `Keyword`. A parameter without a default is required.
+
+An authored invocation uses the same explicit/implicit input binding,
+`stack_access`, parameter conversion, `id`, and `ids` rules as a built-in. The
+callee starts with an empty local stack. Its inputs are local graph-value
+bindings and its parameters are local scalar bindings. Therefore `$video` may
+be pushed as a body item, while standalone `$count` is an error; `$count` is
+valid in a compatible scalar parameter position such as `repeat.count`.
+
+Inputs, parameters, clips, and local output names share one local namespace.
+They cannot collide. Local names do not escape an invocation. Ordered outputs
+are inferred from the program body's complete final owned suffix; no
+`outputs:` declaration is required. Authored programs currently have no YAML
+primary shorthand, postfix syntax, variadic inputs, or caller-supplied body.
 
 ## Project video
 

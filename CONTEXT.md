@@ -14,11 +14,13 @@ authoring semantics. Public YAML forms and program arguments are defined in
   ClipAsm model consumed by the compiler.
 - A **source unit** identifies one authored input, its diagnostic name, and its
   optional filesystem base for relative paths.
+- A **source package** is one linked collection of source units with one root
+  unit. Imports expose another unit's source program under a local alias.
 - A **source program** is one callable canonical stack program. Its executable
   body starts empty and returns its ordered final owned suffix, including zero
   values.
-- A **source entrypoint** combines one source program with project and
-  publication settings for root compilation and rendering.
+- The **root source unit** may additionally declare project and publication
+  settings for compilation and rendering. Imported units may not.
 - A **program header** is the required first source item. It declares the
   language version, project settings, named clips, and optional entrypoint
   output path; it is not executable.
@@ -35,7 +37,8 @@ authoring semantics. Public YAML forms and program arguments are defined in
 - A **value** is an immutable typed graph result. A stack may contain multiple
   occurrences of the same value.
 - A **reference expression** is `$name`. It reads a named value without
-  consuming any stack occurrence.
+  consuming any stack occurrence. In a scalar parameter position it may also
+  forward a declared scalar parameter of the required type.
 - The **evaluation stack** is the ordered sequence of value occurrences used
   while compiling one source program.
 - A body's **visible suffix** is the part of the evaluation stack that its
@@ -107,7 +110,19 @@ not list execution order. References create semantic graph dependencies and
 never move, remove, or duplicate stack occurrences. Cycles, missing names, and
 duplicate names are compile errors.
 
+Each source-program invocation has an isolated local namespace containing its
+declared inputs, parameters, clips, and invocation output names. Inputs are
+local graph values; parameters are local scalar values. A scalar parameter is
+not a stack value, and a graph value is not a scalar parameter. Local names do
+not escape the invocation; only the program's ordered outputs return to the
+caller.
+
+Imports use explicit local aliases. They are not re-exported, may not shadow
+built-ins, and resolve relative to the importing source unit. Import cycles,
+including self-import and multi-file cycles, are rejected before compilation.
+Recursive source-program calls are therefore unsupported.
+
 Relative authored paths resolve from the source unit containing the authored
 value. Entrypoint publication and cache placement use the entrypoint source
-unit, while assets authored in future imported programs retain their own source
-bases.
+unit. Literal defaults authored in imported programs retain the imported
+unit's source base; caller-supplied values retain the caller's source base.
