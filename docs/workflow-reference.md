@@ -110,6 +110,41 @@ are inferred from the program body's complete final owned suffix; no
 `outputs:` declaration is required. Authored programs currently have no YAML
 primary shorthand, postfix syntax, variadic inputs, or caller-supplied body.
 
+### Root CLI bindings
+
+The root source program may receive its declared interface directly from every
+CLI pipeline command:
+
+```console
+clipasm validate template.yaml \
+  --input source=footage.mp4 \
+  --arg range=3s..8s \
+  --arg count=2
+
+clipasm compile template.yaml \
+  --input source=footage.mp4 \
+  --arg range=3s..8s \
+  --arg count=2
+
+clipasm render template.yaml \
+  --input source=footage.mp4 \
+  --arg range=3s..8s \
+  --arg count=2 \
+  --output final.mp4
+```
+
+`--input NAME=PATH` binds one declared root `Video` input as a normal full-file
+`video` source using the default `cover` fit. `--arg NAME=VALUE` binds one
+declared scalar parameter and applies its declared `Integer`, `File`,
+`Duration`, `TimeRange`, or `Keyword` conversion. Both options may be repeated.
+Missing, unknown, duplicate, and ill-typed bindings are errors.
+
+CLI-supplied video paths, `File` parameter values, and `render --output` paths
+resolve from the caller's working directory. Values authored in YAML continue
+to resolve from the source unit containing them. `render --output` overrides
+`program.output` for that invocation. The `compile --output` option remains the
+compiled-JSON destination rather than a render destination.
+
 ## Project video
 
 `project.video` defines the common dimensions and frame rate. Defaults are

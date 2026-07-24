@@ -47,6 +47,35 @@ cargo run -- compile program.yaml
 cargo run -- render program.yaml
 ```
 
+A root source program may expose reusable inputs and parameters:
+
+```yaml
+- program:
+    version: 1
+    inputs:
+      - source: Video
+    parameters:
+      range: TimeRange
+      count: Integer
+
+- trim:
+    video: $source
+    range: $range
+- repeat: $count
+```
+
+```console
+cargo run -- render template.yaml \
+  --input source=footage.mp4 \
+  --arg range=3s..8s \
+  --arg count=2 \
+  --output final.mp4
+```
+
+CLI-supplied media, `File` parameters, and render output paths resolve from the
+caller's working directory. Authored paths continue to resolve from their YAML
+source unit.
+
 Authored paths are resolved relative to the source unit containing them.
 Rendering writes the MP4, a
 sibling `.manifest.json`, and cached intermediates under `.clipasm/cache/`

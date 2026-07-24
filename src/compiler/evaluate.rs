@@ -3,15 +3,17 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry,
-    ResolvedCall,
+    BoundParameters, InputPort, ParameterType, ParameterValue, ProgramDefinition,
+    ProgramImplementation, ProgramRegistry, ResolvedCall,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::SourceSpan;
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
-    SourcePackage, SourceProgram, SourceUnitId,
+    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody, Reference,
+    SourcePackage, SourceProgram, SourceUnitId, Spanned,
 };
+
+use super::EntrypointBindings;
 
 use super::stack::{EvaluationStack, StackFrame};
 
@@ -57,6 +59,7 @@ pub(super) fn evaluate(
     package: &SourcePackage,
     video: &VideoSpec,
     registry: ProgramRegistry,
+    bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
     let mut evaluator = Evaluator {
         package,
@@ -68,7 +71,8 @@ pub(super) fn evaluate(
         public_symbols: BTreeMap::new(),
         surface: Vec::new(),
     };
-    let outputs = evaluator.evaluate_program(package.root, None, true)?;
+    let root_call = evaluator.bind_entrypoint_call(bindings)?;
+    let outputs = evaluator.evaluate_program(package.root, Some(&root_call), true)?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
@@ -98,6 +102,132 @@ struct EvalScope {
 }
 
 impl Evaluator<'_> {
+    fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
+        let program = self.package.root().program();
+        for (name, binding) in &bindings.video_inputs {
+            if !program.inputs().iter().any(|input| input.name == *name) {
+                return Err(Diagnostic::new(
+                    "E_UNKNOWN_PROGRAM_ARGUMENT",
+                    format!("root program has no input named `{name}`"),
+                    binding.span.clone(),
+                ));
+            }
+        }
+        for (name, binding) in &bindings.parameters {
+            if !program
+                .parameters()
+                .iter()
+                .any(|parameter| parameter.name.value == *name)
+            {
+                return Err(Diagnostic::new(
+                    "E_UNKNOWN_PROGRAM_ARGUMENT",
+                    format!("root program has no parameter named `{name}`"),
+                    binding.span.clone(),
+                ));
+            }
+        }
+
+        let mut inputs = BTreeMap::new();
+        for input in program.inputs() {
+            let binding = bindings.video_inputs.get(&input.name).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!("root program is missing input `{}`", input.name),
+                    program.span().clone(),
+                )
+            })?;
+            if input.value_type != ValueType::Video {
+                return Err(Diagnostic::new(
+                    "E_INVALID_PROGRAM_DEFINITION",
+                    format!(
+                        "CLI entrypoint binding does not support root input `{}` of type {}",
+                        input.name, input.value_type
+                    ),
+                    program.span().clone(),
+                ));
+            }
+            let value = self.lower_entrypoint_video(&input.name, binding)?;
+            inputs.insert(input.name.clone(), vec![value]);
+        }
+
+        let mut parameters = BoundParameters::new();
+        for parameter in program.parameters() {
+            let Some(binding) = bindings.parameters.get(&parameter.name.value) else {
+                continue;
+            };
+            let literal = match parameter.parameter_type {
+                ParameterType::Integer => binding.value.parse::<i64>().map_or_else(
+                    |_| Literal::String(binding.value.clone(), binding.span.clone()),
+                    |value| Literal::Integer(value, binding.span.clone()),
+                ),
+                ParameterType::File
+                | ParameterType::Duration
+                | ParameterType::TimeRange
+                | ParameterType::Keyword(_) => {
+                    Literal::String(binding.value.clone(), binding.span.clone())
+                }
+            };
+            let value = super::bind::bind_literal_value(
+                "root",
+                &parameter.name.value,
+                &parameter.parameter_type,
+                &literal,
+            )?;
+            parameters.insert(
+                parameter.name.value.clone(),
+                Spanned::new(value, binding.span.clone()),
+            );
+        }
+
+        Ok(ResolvedCall::new(
+            "root".to_owned(),
+            inputs,
+            parameters,
+            None,
+            SourceOrigin::new("root program", program.span().clone()),
+        ))
+    }
+
+    fn lower_entrypoint_video(
+        &mut self,
+        name: &str,
+        binding: &super::entrypoint::VideoInputBinding,
+    ) -> Result<ValueRef> {
+        let definition = self
+            .registry
+            .get("video")
+            .cloned()
+            .expect("native video program is registered");
+        let ProgramImplementation::Direct(lower) = definition.implementation else {
+            unreachable!("native video program is direct")
+        };
+        let origin = SourceOrigin::new(format!("entrypoint input `{name}`"), binding.span.clone());
+        let parameters = BTreeMap::from([(
+            "path".to_owned(),
+            Spanned::new(
+                ParameterValue::File(binding.path.clone()),
+                binding.span.clone(),
+            ),
+        )]);
+        let call = ResolvedCall::new(
+            "video".to_owned(),
+            BTreeMap::new(),
+            parameters,
+            None,
+            origin.clone(),
+        );
+        let mut builder = GraphBuilder::for_program(
+            &mut self.nodes,
+            self.video,
+            definition.descriptor.semantic_version,
+            origin,
+        );
+        let outputs = lower(&call, &mut builder)?;
+        let [value] = outputs.as_slice() else {
+            unreachable!("native video program has one declared output")
+        };
+        Ok(*value)
+    }
     #[allow(clippy::too_many_lines)]
     fn evaluate_program(
         &mut self,

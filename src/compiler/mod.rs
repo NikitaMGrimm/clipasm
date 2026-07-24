@@ -5,6 +5,7 @@
 //! identity. It never reads media files or invokes external tools.
 
 mod bind;
+mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod infer;
@@ -23,6 +24,7 @@ use crate::source::{SourceFile, SourceSpan, Spanned};
 use crate::source::{SourcePackage, SourceUnit};
 
 pub use crate::semantic::SourceOrigin;
+pub use entrypoint::EntrypointBindings;
 
 const COMPILED_FORMAT_VERSION: u32 = 9;
 
@@ -251,25 +253,60 @@ impl ExplainOutput {
 /// Returns a diagnostic for invalid programs, stack behavior, references,
 /// types, cycles, or frame domains.
 pub fn compile(package: &SourcePackage) -> Result<CompiledProgram> {
-    compile_with_registry(package, infer::build_catalog(package)?)
+    compile_with_bindings(package, &EntrypointBindings::new())
 }
 
+/// Purely compile a parsed source package with external root-program bindings.
+///
+/// Bindings are matched against the root program's declared `inputs` and
+/// `parameters`. Relative file paths use the source base carried by each
+/// binding span. An optional output binding overrides `program.output` for this
+/// compilation without changing the authored package.
+///
+/// # Errors
+///
+/// Returns a diagnostic for unknown, duplicate, missing, or ill-typed root
+/// bindings, or for any ordinary compilation failure.
+pub fn compile_with_bindings(
+    package: &SourcePackage,
+    bindings: &EntrypointBindings,
+) -> Result<CompiledProgram> {
+    compile_with_registry_and_bindings(package, infer::build_catalog(package)?, bindings)
+}
+
+#[cfg(test)]
 pub(crate) fn compile_with_registry(
     package: &SourcePackage,
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
+    compile_with_registry_and_bindings(package, registry, &EntrypointBindings::new())
+}
+
+fn compile_with_registry_and_bindings(
+    package: &SourcePackage,
+    registry: ProgramRegistry,
+    bindings: &EntrypointBindings,
+) -> Result<CompiledProgram> {
     let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(package, &video, registry)?;
-    validate_publication_output(entrypoint, &evaluation)?;
-    resolve::finalize(entrypoint, video, evaluation, COMPILED_FORMAT_VERSION)
+    let evaluation = evaluate::evaluate(package, &video, registry, bindings)?;
+    let output = bindings.output.as_ref().or_else(|| entrypoint.output());
+    validate_publication_output(entrypoint, output, &evaluation)?;
+    resolve::finalize(
+        entrypoint,
+        output.cloned(),
+        video,
+        evaluation,
+        COMPILED_FORMAT_VERSION,
+    )
 }
 
 fn validate_publication_output(
     entrypoint: &SourceUnit,
+    output: Option<&Spanned<PathBuf>>,
     evaluation: &evaluate::Evaluation,
 ) -> Result<()> {
-    if entrypoint.output().is_none() {
+    if output.is_none() {
         return Ok(());
     }
     let [output] = evaluation.outputs.as_slice() else {

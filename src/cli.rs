@@ -4,10 +4,10 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use clipasm::diagnostic::{Diagnostic, Result};
-use clipasm::source::SourceSpan;
+use clipasm::source::{SourceFile, SourceSpan};
 use clipasm::{compiler, frontend, preflight, render};
 
 #[derive(Debug, Parser)]
@@ -23,6 +23,8 @@ enum Command {
     Validate {
         /// Source program YAML file.
         source: PathBuf,
+        #[command(flatten)]
+        bindings: BindingArgs,
     },
     /// Emit the canonical pure semantic compiled program.
     Compile {
@@ -31,12 +33,29 @@ enum Command {
         /// Write compiled JSON to a new path instead of stdout. Existing files are preserved.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[command(flatten)]
+        bindings: BindingArgs,
     },
     /// Compile and render the source program using `FFmpeg`.
     Render {
-        /// Source program YAML file. Relative media and output paths resolve from its directory.
+        /// Source program YAML file. Authored relative paths resolve from its directory.
         source: PathBuf,
+        /// Override `program.output`. Relative paths resolve from the caller's working directory.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[command(flatten)]
+        bindings: BindingArgs,
     },
+}
+
+#[derive(Clone, Debug, Args)]
+struct BindingArgs {
+    /// Bind a declared root Video input as `NAME=VIDEO_PATH`. May be repeated.
+    #[arg(long = "input", value_name = "NAME=VIDEO_PATH")]
+    inputs: Vec<String>,
+    /// Bind a declared root scalar parameter as `NAME=VALUE`. May be repeated.
+    #[arg(long = "arg", value_name = "NAME=VALUE")]
+    arguments: Vec<String>,
 }
 
 #[must_use]
@@ -52,9 +71,10 @@ pub(crate) fn run() -> ExitCode {
 
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Validate { source } => {
+        Command::Validate { source, bindings } => {
             let authored = frontend::yaml::parse_file(&source)?;
-            let compiled = compiler::compile(&authored)?;
+            let bindings = entrypoint_bindings(bindings, None)?;
+            let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             if let [output] = compiled.outputs() {
                 if output.value_type() != clipasm::model::ValueType::Video {
                     println!(
@@ -82,9 +102,14 @@ fn execute(cli: Cli) -> Result<()> {
                 );
             }
         }
-        Command::Compile { source, output } => {
+        Command::Compile {
+            source,
+            output,
+            bindings,
+        } => {
             let authored = frontend::yaml::parse_file(&source)?;
-            let compiled = compiler::compile(&authored)?;
+            let bindings = entrypoint_bindings(bindings, None)?;
+            let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let json = compiled.canonical_json()?;
             if let Some(output) = output {
                 write_new_plan(&output, json.as_bytes())?;
@@ -92,9 +117,14 @@ fn execute(cli: Cli) -> Result<()> {
                 println!("{json}");
             }
         }
-        Command::Render { source } => {
+        Command::Render {
+            source,
+            output,
+            bindings,
+        } => {
             let authored = frontend::yaml::parse_file(&source)?;
-            let compiled = compiler::compile(&authored)?;
+            let bindings = entrypoint_bindings(bindings, output)?;
+            let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let prepared = preflight::preflight(&compiled)?;
             let report = render::render(&prepared)?;
             println!(
@@ -107,6 +137,71 @@ fn execute(cli: Cli) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn entrypoint_bindings(
+    arguments: BindingArgs,
+    output: Option<PathBuf>,
+) -> Result<compiler::EntrypointBindings> {
+    let current_directory = std::env::current_dir().map_err(|error| {
+        Diagnostic::new(
+            "E_PATH_RESOLUTION",
+            format!("could not determine the caller's working directory: {error}"),
+            SourceSpan::file_start("<command-line>"),
+        )
+    })?;
+    let source = SourceFile::with_base("<command-line>", Some(current_directory), "");
+    let mut bindings = compiler::EntrypointBindings::new();
+
+    for argument in arguments.inputs {
+        let (name, value) = split_binding(&argument, "--input", &source)?;
+        bindings.bind_video_input(
+            name,
+            PathBuf::from(value),
+            SourceSpan::source_start(source.clone()),
+        )?;
+    }
+    for argument in arguments.arguments {
+        let (name, value) = split_binding(&argument, "--arg", &source)?;
+        bindings.bind_parameter(name, value, SourceSpan::source_start(source.clone()))?;
+    }
+    if let Some(output) = output {
+        bindings.set_output(output, SourceSpan::source_start(source));
+    }
+    Ok(bindings)
+}
+
+fn split_binding<'a>(
+    value: &'a str,
+    option: &str,
+    source: &SourceFile,
+) -> Result<(&'a str, &'a str)> {
+    let Some((name, value)) = value.split_once('=') else {
+        return Err(invalid_cli_binding(option, "expected NAME=VALUE", source));
+    };
+    if name.is_empty() {
+        return Err(invalid_cli_binding(
+            option,
+            "binding name must not be empty",
+            source,
+        ));
+    }
+    if value.is_empty() {
+        return Err(invalid_cli_binding(
+            option,
+            "binding value must not be empty",
+            source,
+        ));
+    }
+    Ok((name, value))
+}
+
+fn invalid_cli_binding(option: &str, message: &str, source: &SourceFile) -> Diagnostic {
+    Diagnostic::new(
+        "E_INVALID_CLI_BINDING",
+        format!("invalid {option} binding: {message}"),
+        SourceSpan::source_start(source.clone()),
+    )
 }
 
 fn write_new_plan(path: &Path, contents: &[u8]) -> Result<()> {

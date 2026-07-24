@@ -5,7 +5,8 @@ use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SymbolId};
-use crate::source::SourceUnit;
+use crate::source::{SourceUnit, Spanned};
+use std::path::PathBuf;
 
 struct SymbolFrame {
     symbol: SymbolId,
@@ -14,6 +15,7 @@ struct SymbolFrame {
 
 pub(super) fn finalize(
     entrypoint: &SourceUnit,
+    output: Option<Spanned<PathBuf>>,
     video: VideoSpec,
     evaluation: Evaluation,
     format_version: u32,
@@ -95,7 +97,7 @@ pub(super) fn finalize(
         named_values,
         symbol_values,
         explain,
-        output: entrypoint.output().cloned(),
+        output,
         entrypoint_source: entrypoint.source().clone(),
     })
 }

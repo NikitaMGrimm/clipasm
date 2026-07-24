@@ -99,6 +99,12 @@ bindings do not escape; only the complete ordered final owned suffix returns to
 the caller. Internal references use typed symbol identities, while public root
 names remain a separate compiled interface.
 
+External root bindings enter compilation through `EntrypointBindings`. A bound
+root Video input is lowered through the native `video` program, and scalar text
+is converted by the shared parameter binder. Binding spans carry the caller's
+path base, so the CLI can resolve supplied media, `File` parameters, and output
+destinations from its working directory without rewriting canonical source.
+
 Registered programs are:
 
 - direct: `image`, `video`, `concat`, `repeat`, `trim`, `zoom`, `wobble`,
