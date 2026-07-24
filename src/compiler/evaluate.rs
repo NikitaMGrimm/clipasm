@@ -202,7 +202,7 @@ impl Evaluator<'_> {
             self.program.header_span().clone(),
         );
         self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
-        let values = stack.finish_body(&mut entrypoint, &source);
+        let values = stack.finish_body(&mut entrypoint, source);
         let [result] = values.as_slice() else {
             return Err(output_count_error(
                 "E_SOURCE_PROGRAM_OUTPUT_COUNT",
@@ -373,7 +373,7 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
-                let owned = stack.finish_body(frame, &child);
+                let owned = stack.finish_body(frame, child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     self.video,
@@ -553,8 +553,15 @@ mod tests {
     use crate::language::Language;
     use crate::model::{FrameCount, ImageFit};
     use crate::program::{
-        BodyFinalizer, BodyPlan, ProgramDefinition, ProgramDescriptor, ResolvedCall, StackAccess,
+        BodyFinalizer, BodyPlan, Cardinality, InputPort, ProgramDefinition, ProgramDescriptor,
+        ResolvedCall, StackAccess,
     };
+
+    const ONE_VIDEO: &[InputPort] = &[InputPort {
+        name: "video",
+        value_type: ValueType::Video,
+        cardinality: Cardinality::One,
+    }];
 
     #[allow(clippy::unnecessary_wraps)]
     fn prepare_root(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
@@ -579,6 +586,10 @@ mod tests {
 
     fn lower_source(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
         builder.image_video(PathBuf::from("source.png"), FrameCount(1), ImageFit::Cover)
+    }
+
+    fn lower_alias(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+        builder.concat(vec![call.one_input("video")?])
     }
 
     fn lower_wrong_type(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
@@ -718,9 +729,36 @@ mod tests {
         implementation: ProgramImplementation::Body(prepare_versioned_body),
         postfix: None,
     };
+    const VISIBLE_UNARY: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "visible_unary",
+            semantic_version: 1,
+            default_stack_access: StackAccess::Visible,
+            inputs: ONE_VIDEO,
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Direct(lower_alias),
+        postfix: None,
+    };
+    const VISIBLE_BODY: ProgramDefinition = ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: "visible_body",
+            semantic_version: 1,
+            default_stack_access: StackAccess::Visible,
+            inputs: &[],
+            parameters: &[],
+            primary_parameter: None,
+            output: ValueType::Video,
+        },
+        implementation: ProgramImplementation::Body(prepare_root),
+        postfix: None,
+    };
 
     static OUTPUT_PROGRAMS: &[ProgramDefinition] = &[ROOT, SOURCE, WRONG_DIRECT, WRONG_BODY];
     static VERSION_PROGRAMS: &[ProgramDefinition] = &[ROOT, VERSIONED_DIRECT, VERSIONED_BODY];
+    static VISIBLE_DEFAULT_PROGRAMS: &[ProgramDefinition] = &[SOURCE, VISIBLE_UNARY, VISIBLE_BODY];
 
     fn parse_with_registry(
         source: &str,
@@ -770,6 +808,25 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(body_nodes.len(), 2);
         assert!(body_nodes.iter().all(|node| node.semantic_version() == 17));
+    }
+
+    #[test]
+    fn descriptor_stack_access_defaults_apply_per_invocation_and_can_be_overridden() {
+        let (workflow, registry) = parse_with_registry(
+            "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary\n",
+            VISIBLE_DEFAULT_PROGRAMS,
+        );
+        crate::compiler::compile_with_registry(&workflow, registry)
+            .expect("visible descriptor defaults capture the source");
+
+        let (workflow, registry) = parse_with_registry(
+            "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary:\n        stack_access: owned\n",
+            VISIBLE_DEFAULT_PROGRAMS,
+        );
+        let error = crate::compiler::compile_with_registry(&workflow, registry)
+            .expect_err("owned override blocks capture");
+        assert_eq!(error.code, "E_STACK_UNDERFLOW");
+        assert!(error.message.contains("only 0 owned"));
     }
 
     #[test]

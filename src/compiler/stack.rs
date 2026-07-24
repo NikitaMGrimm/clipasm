@@ -146,11 +146,15 @@ impl EvaluationStack {
     pub(super) fn finish_body(
         &mut self,
         parent: &mut StackFrame,
-        child: &StackFrame,
+        child: StackFrame,
     ) -> Vec<ValueRef> {
-        debug_assert!(child.visible_start <= child.owned_start);
-        debug_assert!(child.owned_start <= self.values.len());
-        let captured_start = child.owned_start;
+        let StackFrame {
+            visible_start,
+            owned_start: captured_start,
+            boundary: _boundary,
+        } = child;
+        debug_assert!(visible_start <= captured_start);
+        debug_assert!(captured_start <= self.values.len());
         let values = self.values.split_off(captured_start);
         parent.owned_start = parent.owned_start.min(captured_start);
         values
@@ -302,50 +306,11 @@ mod tests {
             .expect("capture");
         stack.push(value(3));
 
-        let owned = stack.finish_body(&mut root, &child);
+        let owned = stack.finish_body(&mut root, child);
 
         assert_eq!(owned, vec![value(3)]);
         assert_eq!(root.owned_start, 0);
         assert!(stack.values().is_empty());
-    }
-
-    #[test]
-    fn nested_capture_propagates_when_each_body_finishes() {
-        let (mut stack, mut root) = root();
-        stack.extend([value(0), value(1)]);
-        root.owned_start = 1;
-
-        let mut middle = stack.enter_body(
-            &root,
-            StackAccess::Visible,
-            "middle",
-            SourceSpan::file_start("workflow.yaml"),
-        );
-        let mut inner = stack.enter_body(
-            &middle,
-            StackAccess::Visible,
-            "inner",
-            SourceSpan::file_start("workflow.yaml"),
-        );
-        let _ = stack
-            .take_fixed(
-                &mut inner,
-                StackAccess::Visible,
-                2,
-                "flash",
-                &SourceSpan::file_start("workflow.yaml"),
-            )
-            .expect("capture root values");
-        stack.push(value(2));
-
-        let inner_owned = stack.finish_body(&mut middle, &inner);
-        assert_eq!(inner_owned, vec![value(2)]);
-        assert_eq!(middle.owned_start, 0);
-        stack.extend(inner_owned);
-
-        let middle_owned = stack.finish_body(&mut root, &middle);
-        assert_eq!(middle_owned, vec![value(2)]);
-        assert_eq!(root.owned_start, 0);
     }
 
     #[test]
@@ -464,13 +429,13 @@ mod tests {
             .expect("deep capture");
         stack.push(value(4));
 
-        let child_values = stack.finish_body(&mut parent, &child);
+        let child_values = stack.finish_body(&mut parent, child);
         assert_eq!(child_values, vec![value(4)]);
         assert_eq!(parent.owned_start, 0);
         assert_eq!(root.owned_start, 1);
 
         stack.push(value(5));
-        let parent_values = stack.finish_body(&mut root, &parent);
+        let parent_values = stack.finish_body(&mut root, parent);
         assert_eq!(parent_values, vec![value(5)]);
         assert_eq!(root.owned_start, 0);
     }
