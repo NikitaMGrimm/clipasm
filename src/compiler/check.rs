@@ -489,7 +489,7 @@ fn infer_body(
                             .body_contract
                             .as_ref()
                             .expect("validated body program contract");
-                        let mut child = stack.enter_body(
+                        let mut child = EvaluationStack::<ValueType>::enter_body(
                             frame,
                             access,
                             invocation.program.value.clone(),
@@ -513,7 +513,7 @@ fn infer_body(
                             stack,
                             &mut child,
                         )?;
-                        let body_outputs = stack.finish_body(child);
+                        let body_outputs = stack.finish_body(&child);
                         validate_body_outputs(
                             &invocation.program.value,
                             &body_outputs,

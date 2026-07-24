@@ -14,8 +14,8 @@ use super::{
 struct PreparedNodeIdentity<'a> {
     semantic_version: u32,
     value_type: ValueType,
-    domain: &'a Option<VideoDomain>,
-    audio_domain: &'a Option<AudioDomain>,
+    domain: Option<VideoDomain>,
+    audio_domain: Option<AudioDomain>,
     has_audio: bool,
     operation: serde_json::Value,
     upstream: Vec<&'a str>,
@@ -25,7 +25,7 @@ struct PreparedNodeIdentity<'a> {
 struct PreparedPlanIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
-    audio: &'a AudioSpec,
+    audio: AudioSpec,
     result: &'a str,
     names: BTreeMap<&'a str, &'a str>,
 }
@@ -41,8 +41,8 @@ struct CacheIdentity<'a> {
 pub(super) fn node_fingerprint(
     kind: &PreparedNodeKind,
     value_type: ValueType,
-    domain: &Option<VideoDomain>,
-    audio_domain: &Option<AudioDomain>,
+    domain: Option<&VideoDomain>,
+    audio_domain: Option<&AudioDomain>,
     has_audio: bool,
     semantic_version: u32,
     existing: &[PreparedNode],
@@ -140,8 +140,8 @@ pub(super) fn node_fingerprint(
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
         value_type,
-        domain,
-        audio_domain,
+        domain: domain.cloned(),
+        audio_domain: audio_domain.copied(),
         has_audio,
         operation,
         upstream,
@@ -150,7 +150,7 @@ pub(super) fn node_fingerprint(
 
 pub(super) fn prepared_semantic_hash(
     video: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     result: NodeId,
     names: &BTreeMap<String, NodeId>,
     nodes: &[PreparedNode],

@@ -199,12 +199,20 @@ impl PreparedNode {
 
     #[must_use]
     /// Return exact duration, dimensions, and frame rate.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called for an Audio node.
     pub const fn domain(&self) -> &VideoDomain {
         self.domain.as_ref().expect("Video prepared node domain")
     }
 
     #[must_use]
     /// Return the exact domain of an Audio prepared node.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called for a Video node.
     pub const fn audio_domain(&self) -> &AudioDomain {
         self.audio_domain
             .as_ref()
@@ -468,7 +476,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         .collect::<BTreeMap<_, _>>();
     reject_asset_collisions(&output, &manifest, &lowerer.nodes)?;
     let semantic_hash =
-        prepared_semantic_hash(&video, &audio, result, &named_values, &lowerer.nodes)?;
+        prepared_semantic_hash(&video, audio, result, &named_values, &lowerer.nodes)?;
 
     Ok(PreparedPlan {
         format_version: PREPARED_FORMAT_VERSION,

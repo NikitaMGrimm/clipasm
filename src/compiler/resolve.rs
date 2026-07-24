@@ -44,7 +44,7 @@ pub(super) fn finalize(
         &evaluation,
         &domains,
         &video,
-        &audio,
+        audio,
         format_version,
         &order,
     )?;
@@ -280,7 +280,9 @@ fn infer_domains(
             SemanticNodeKind::ImageVideo { frames, .. } => {
                 DomainKnowledge::Known(project_domain(video, *frames))
             }
-            SemanticNodeKind::VideoSource { .. } => DomainKnowledge::Deferred,
+            SemanticNodeKind::VideoSource { .. } | SemanticNodeKind::AudioOnBlack { .. } => {
+                DomainKnowledge::Deferred
+            }
             SemanticNodeKind::AudioSource { .. } | SemanticNodeKind::ExtractAudio { .. } => {
                 DomainKnowledge::NotVideo
             }
@@ -302,7 +304,9 @@ fn infer_domains(
                     DomainKnowledge::NotVideo => DomainKnowledge::NotVideo,
                 }
             }
-            SemanticNodeKind::Zoom { input, .. } | SemanticNodeKind::Wobble { input, .. } => {
+            SemanticNodeKind::Zoom { input, .. }
+            | SemanticNodeKind::Wobble { input, .. }
+            | SemanticNodeKind::SetAudio { video: input, .. } => {
                 knowledge[input.id().get() as usize].clone()
             }
             SemanticNodeKind::FlashJoin {
@@ -351,10 +355,6 @@ fn infer_domains(
                     _ => DomainKnowledge::Deferred,
                 }
             }
-            SemanticNodeKind::SetAudio { video: input, .. } => {
-                knowledge[input.id().get() as usize].clone()
-            }
-            SemanticNodeKind::AudioOnBlack { .. } => DomainKnowledge::Deferred,
         };
     }
 

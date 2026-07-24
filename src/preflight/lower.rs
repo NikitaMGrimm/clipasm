@@ -384,8 +384,8 @@ impl PreflightLowerer<'_> {
         let fingerprint = node_fingerprint(
             &kind,
             value_type,
-            &domain,
-            &audio_domain,
+            domain.as_ref(),
+            audio_domain.as_ref(),
             has_audio,
             semantic_version,
             &self.nodes,

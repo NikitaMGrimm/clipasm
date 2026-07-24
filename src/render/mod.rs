@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments, clippy::trivially_copy_pass_by_ref)]
+
 //! Verified execution, caching, and rollback-capable publication of prepared plans.
 //!
 //! Rendering accepts only [`PreparedPlan`],

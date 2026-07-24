@@ -321,7 +321,7 @@ impl Evaluator<'_> {
 
         let (mut stack, parent) =
             EvaluationStack::isolated("authored program", program.span().clone());
-        let mut body_frame = stack.enter_body(
+        let mut body_frame = EvaluationStack::<ValueRef>::enter_body(
             &parent,
             program.stack_access(),
             "source program",
@@ -335,7 +335,7 @@ impl Evaluator<'_> {
             &mut body_frame,
             None,
         )?;
-        Ok(stack.finish_body(body_frame))
+        Ok(stack.finish_body(&body_frame))
     }
 
     fn fill_parameter_defaults(
@@ -763,7 +763,7 @@ impl Evaluator<'_> {
                     );
                     prepare(&call, &mut builder)?
                 };
-                let mut child = stack.enter_body(
+                let mut child = EvaluationStack::<ValueRef>::enter_body(
                     frame,
                     access,
                     definition.descriptor.name.clone(),
@@ -774,11 +774,10 @@ impl Evaluator<'_> {
                     .descriptor
                     .inputs
                     .iter()
-                    .filter_map(|port| {
-                        matches!(port.cardinality, crate::program::Cardinality::One).then(|| {
-                            call.one_input(&port.name)
-                                .map(|value| (port.name.clone(), value))
-                        })
+                    .filter(|port| matches!(port.cardinality, crate::program::Cardinality::One))
+                    .map(|port| {
+                        call.one_input(&port.name)
+                            .map(|value| (port.name.clone(), value))
                     })
                     .collect::<Result<BTreeMap<_, _>>>()?;
                 scope.body_values.push(body_values);
@@ -791,7 +790,7 @@ impl Evaluator<'_> {
                     plan.requested_frames.or(requested_frames),
                 )?;
                 scope.body_values.pop().expect("body input scope");
-                let owned = stack.finish_body(child);
+                let owned = stack.finish_body(&child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     self.video,

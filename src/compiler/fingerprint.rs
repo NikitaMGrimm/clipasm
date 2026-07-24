@@ -31,7 +31,7 @@ pub(super) fn compiled_structure_hash(
     evaluation: &Evaluation,
     domains: &[Option<VideoDomain>],
     video: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     format_version: u32,
     order: &[ValueRef],
 ) -> Result<String> {
@@ -65,7 +65,7 @@ pub(super) fn compiled_structure_hash(
     hash_serializable(&CompiledIdentity {
         format_version,
         video,
-        audio,
+        audio: &audio,
         outputs,
         names: &names,
     })
@@ -92,92 +92,8 @@ fn value_hashes(
             );
             continue;
         }
-        let upstream = match node.kind() {
-            SemanticNodeKind::ImageVideo { .. }
-            | SemanticNodeKind::VideoSource { .. }
-            | SemanticNodeKind::AudioSource { .. } => Vec::new(),
-            SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
-            SemanticNodeKind::Repeat { input, .. }
-            | SemanticNodeKind::Zoom { input, .. }
-            | SemanticNodeKind::Wobble { input, .. }
-            | SemanticNodeKind::Slice { input, .. }
-            | SemanticNodeKind::ExtractAudio { video: input }
-            | SemanticNodeKind::AudioOnBlack { audio: input } => {
-                vec![node_hash(*input, &hashes).to_owned()]
-            }
-            SemanticNodeKind::Concat { inputs } => inputs
-                .iter()
-                .map(|input| node_hash(*input, &hashes).to_owned())
-                .collect(),
-            SemanticNodeKind::FlashJoin { before, after, .. } => vec![
-                node_hash(*before, &hashes).to_owned(),
-                node_hash(*after, &hashes).to_owned(),
-            ],
-            SemanticNodeKind::ReplaceRange {
-                base, replacement, ..
-            } => vec![
-                node_hash(*base, &hashes).to_owned(),
-                node_hash(*replacement, &hashes).to_owned(),
-            ],
-            SemanticNodeKind::SetAudio { audio, video } => vec![
-                node_hash(*audio, &hashes).to_owned(),
-                node_hash(*video, &hashes).to_owned(),
-            ],
-        };
-        let operation = match node.kind() {
-            SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
-                "operation": "image_video",
-                "path": path,
-                "frames": frames,
-                "fit": fit,
-            }),
-            SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
-                "operation": "video_source",
-                "path": path,
-                "fit": fit,
-            }),
-            SemanticNodeKind::AudioSource { path } => serde_json::json!({
-                "operation": "audio_source",
-                "path": path,
-            }),
-            SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
-            SemanticNodeKind::Repeat { count, .. } => serde_json::json!({
-                "operation": "repeat",
-                "count": count,
-            }),
-            SemanticNodeKind::Zoom { percent, .. } => serde_json::json!({
-                "operation": "zoom",
-                "percent": percent,
-            }),
-            SemanticNodeKind::Wobble { pixels, .. } => serde_json::json!({
-                "operation": "wobble",
-                "pixels": pixels,
-            }),
-            SemanticNodeKind::FlashJoin { frames, .. } => serde_json::json!({
-                "operation": "flash_join",
-                "frames": frames,
-            }),
-            SemanticNodeKind::Concat { .. } => serde_json::json!({
-                "operation": "concat",
-            }),
-            SemanticNodeKind::Slice { range, .. } => serde_json::json!({
-                "operation": "slice",
-                "range": range,
-            }),
-            SemanticNodeKind::ReplaceRange { range, .. } => serde_json::json!({
-                "operation": "replace_range",
-                "range": range,
-            }),
-            SemanticNodeKind::ExtractAudio { .. } => serde_json::json!({
-                "operation": "extract_audio",
-            }),
-            SemanticNodeKind::SetAudio { .. } => serde_json::json!({
-                "operation": "set_audio",
-            }),
-            SemanticNodeKind::AudioOnBlack { .. } => serde_json::json!({
-                "operation": "audio_on_black",
-            }),
-        };
+        let upstream = upstream_hashes(node.kind(), &hashes);
+        let operation = operation_identity(node.kind());
         hashes[index] = Some(hash_serializable(&ValueIdentity {
             semantic_version: node.semantic_version(),
             value_type: node.value_type(),
@@ -187,6 +103,82 @@ fn value_hashes(
         })?);
     }
     Ok(hashes)
+}
+
+fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<String> {
+    match kind {
+        SemanticNodeKind::ImageVideo { .. }
+        | SemanticNodeKind::VideoSource { .. }
+        | SemanticNodeKind::AudioSource { .. } => Vec::new(),
+        SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
+        SemanticNodeKind::Repeat { input, .. }
+        | SemanticNodeKind::Zoom { input, .. }
+        | SemanticNodeKind::Wobble { input, .. }
+        | SemanticNodeKind::Slice { input, .. }
+        | SemanticNodeKind::ExtractAudio { video: input }
+        | SemanticNodeKind::AudioOnBlack { audio: input } => {
+            vec![node_hash(*input, hashes).to_owned()]
+        }
+        SemanticNodeKind::Concat { inputs } => inputs
+            .iter()
+            .map(|input| node_hash(*input, hashes).to_owned())
+            .collect(),
+        SemanticNodeKind::FlashJoin { before, after, .. } => vec![
+            node_hash(*before, hashes).to_owned(),
+            node_hash(*after, hashes).to_owned(),
+        ],
+        SemanticNodeKind::ReplaceRange {
+            base, replacement, ..
+        } => vec![
+            node_hash(*base, hashes).to_owned(),
+            node_hash(*replacement, hashes).to_owned(),
+        ],
+        SemanticNodeKind::SetAudio { audio, video } => vec![
+            node_hash(*audio, hashes).to_owned(),
+            node_hash(*video, hashes).to_owned(),
+        ],
+    }
+}
+
+fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
+    match kind {
+        SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
+            "operation": "image_video", "path": path, "frames": frames, "fit": fit,
+        }),
+        SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
+            "operation": "video_source", "path": path, "fit": fit,
+        }),
+        SemanticNodeKind::AudioSource { path } => {
+            serde_json::json!({"operation": "audio_source", "path": path})
+        }
+        SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
+        SemanticNodeKind::Repeat { count, .. } => {
+            serde_json::json!({"operation": "repeat", "count": count})
+        }
+        SemanticNodeKind::Zoom { percent, .. } => {
+            serde_json::json!({"operation": "zoom", "percent": percent})
+        }
+        SemanticNodeKind::Wobble { pixels, .. } => {
+            serde_json::json!({"operation": "wobble", "pixels": pixels})
+        }
+        SemanticNodeKind::FlashJoin { frames, .. } => {
+            serde_json::json!({"operation": "flash_join", "frames": frames})
+        }
+        SemanticNodeKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
+        SemanticNodeKind::Slice { range, .. } => {
+            serde_json::json!({"operation": "slice", "range": range})
+        }
+        SemanticNodeKind::ReplaceRange { range, .. } => {
+            serde_json::json!({"operation": "replace_range", "range": range})
+        }
+        SemanticNodeKind::ExtractAudio { .. } => {
+            serde_json::json!({"operation": "extract_audio"})
+        }
+        SemanticNodeKind::SetAudio { .. } => serde_json::json!({"operation": "set_audio"}),
+        SemanticNodeKind::AudioOnBlack { .. } => {
+            serde_json::json!({"operation": "audio_on_black"})
+        }
+    }
 }
 
 fn node_hash(value: ValueRef, hashes: &[Option<String>]) -> &str {

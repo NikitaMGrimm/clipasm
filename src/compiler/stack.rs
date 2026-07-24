@@ -81,7 +81,6 @@ impl<T> EvaluationStack<T> {
     }
 
     pub(super) fn enter_body(
-        &self,
         parent: &StackFrame,
         access: StackAccess,
         owner: impl Into<String>,
@@ -102,7 +101,7 @@ impl<T> EvaluationStack<T> {
         }
     }
 
-    pub(super) fn finish_body(&mut self, child: StackFrame) -> Vec<T> {
+    pub(super) fn finish_body(&mut self, child: &StackFrame) -> Vec<T> {
         let mut owned = Vec::new();
         let mut retained_values = Vec::with_capacity(self.values.len());
         let mut retained_owners = Vec::with_capacity(self.owners.len());
@@ -148,7 +147,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         span: &SourceSpan,
     ) -> Result<T, Diagnostic> {
         let Some(index) = (0..self.values.len()).rev().find(|index| {
-            self.accessible(self.owners[*index], frame, access)
+            Self::accessible(self.owners[*index], frame, access)
                 && self.values[*index].value_type() == required
         }) else {
             return Err(self.underflow(
@@ -165,6 +164,8 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         Ok(self.values.remove(index))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn take_all_matching(
         &mut self,
         frame: &StackFrame,
@@ -177,7 +178,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
     ) -> Result<Vec<T>, Diagnostic> {
         let indices = (0..self.values.len())
             .filter(|index| {
-                self.accessible(self.owners[*index], frame, access)
+                Self::accessible(self.owners[*index], frame, access)
                     && self.values[*index].value_type() == required
             })
             .collect::<Vec<_>>();
@@ -203,6 +204,8 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         Ok(values)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn underflow(
         &self,
         frame: &StackFrame,
@@ -228,7 +231,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
                 .copied()
                 .zip(self.owners.iter().copied())
                 .filter(|(value, owner)| {
-                    self.accessible(*owner, frame, StackAccess::Visible)
+                    Self::accessible(*owner, frame, StackAccess::Visible)
                         && value.value_type() == required
                 })
                 .count();
@@ -250,7 +253,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         diagnostic
     }
 
-    fn accessible(&self, owner: usize, frame: &StackFrame, access: StackAccess) -> bool {
+    fn accessible(owner: usize, frame: &StackFrame, access: StackAccess) -> bool {
         match access {
             StackAccess::Owned => owner == frame.depth,
             StackAccess::Visible => owner >= frame.visible_depth && owner <= frame.depth,
@@ -275,7 +278,7 @@ mod tests {
     fn owned_binding_consumes_only_values_owned_by_the_current_body() {
         let (mut stack, root) = root();
         stack.extend(&root, [value(0), value(1)]);
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "body",
@@ -302,7 +305,7 @@ mod tests {
     fn visible_binding_can_consume_ancestor_values_without_capturing_neighbors() {
         let (mut stack, root) = root();
         stack.extend(&root, [value(0), value(1)]);
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "body",
@@ -339,7 +342,7 @@ mod tests {
     fn finishing_a_child_returns_only_child_owned_values() {
         let (mut stack, root) = root();
         stack.extend(&root, [value(0), value(1)]);
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "body",
@@ -347,7 +350,7 @@ mod tests {
         );
         stack.push(&child, value(2));
 
-        let owned = stack.finish_body(child);
+        let owned = stack.finish_body(&child);
 
         assert_eq!(owned, vec![value(2)]);
         assert_eq!(stack.values(), &[value(0), value(1)]);
@@ -357,7 +360,7 @@ mod tests {
     fn owned_body_establishes_a_new_visibility_boundary() {
         let (mut stack, root) = root();
         stack.push(&root, value(0));
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Owned,
             "during",
@@ -394,7 +397,7 @@ mod tests {
     fn owned_variadic_underflow_reports_visible_values_outside_ownership() {
         let (mut stack, root) = root();
         stack.push(&root, value(0));
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "glue",
@@ -427,7 +430,7 @@ mod tests {
     fn visible_variadic_consumes_all_matching_values_in_physical_order() {
         let (mut stack, root) = root();
         stack.extend(&root, [value(0), value(1)]);
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "glue",
@@ -476,14 +479,14 @@ mod tests {
     fn nested_visible_bodies_share_the_nearest_visibility_boundary() {
         let (mut stack, root) = root();
         stack.push(&root, value(0));
-        let parent = stack.enter_body(
+        let parent = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
             "parent",
             SourceSpan::file_start("workflow.yaml"),
         );
         stack.push(&parent, value(1));
-        let child = stack.enter_body(
+        let child = EvaluationStack::<ValueRef>::enter_body(
             &parent,
             StackAccess::Visible,
             "child",
