@@ -385,10 +385,7 @@ mod tests {
                 frame: &mut frame,
                 access: StackAccess::Owned,
                 requested_frames: None,
-                origin: SourceOrigin {
-                    construct: "typed",
-                    span: span(),
-                },
+                origin: SourceOrigin::new("typed", span()),
             },
             |_, _| unreachable!("typed program has no inputs"),
         )

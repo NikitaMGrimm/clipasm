@@ -219,10 +219,7 @@ mod tests {
             &mut nodes,
             &VideoSpec::default(),
             7,
-            SourceOrigin {
-                construct: "source",
-                span: span.clone(),
-            },
+            SourceOrigin::new("source", span.clone()),
         )
         .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
         .expect("source");
@@ -230,10 +227,7 @@ mod tests {
             &mut nodes,
             &VideoSpec::default(),
             1,
-            SourceOrigin {
-                construct: "reference",
-                span,
-            },
+            SourceOrigin::new("reference", span),
         )
         .reference("source".to_owned(), ValueType::Video)
         .expect("reference");
@@ -272,10 +266,7 @@ mod tests {
             &mut nodes,
             &video,
             1,
-            SourceOrigin {
-                construct: "test",
-                span: span.clone(),
-            },
+            SourceOrigin::new("test", span.clone()),
         );
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
@@ -326,10 +317,7 @@ mod tests {
                 &mut nodes,
                 &video,
                 2,
-                SourceOrigin {
-                    construct: "repeat",
-                    span,
-                },
+                SourceOrigin::new("repeat", span),
             );
             let source = builder
                 .image_video("source.png".into(), FrameCount(5), ImageFit::Cover)

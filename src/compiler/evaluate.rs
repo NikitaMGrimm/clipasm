@@ -318,10 +318,7 @@ impl Evaluator<'_> {
         let value_type = symbol
             .value_type
             .expect("symbol types are resolved before evaluation");
-        let origin = SourceOrigin {
-            construct: "reference",
-            span: span.clone(),
-        };
+        let origin = SourceOrigin::new("reference", span.clone());
         GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
             .reference(name.to_owned(), value_type)
     }
@@ -338,10 +335,7 @@ impl Evaluator<'_> {
             .registry
             .get(&invocation.program.value)
             .ok_or_else(|| unknown_program(invocation))?;
-        let origin = SourceOrigin {
-            construct: definition.descriptor.name,
-            span: span.clone(),
-        };
+        let origin = SourceOrigin::new(definition.descriptor.name, span.clone());
         let access = invocation
             .stack_access
             .as_ref()

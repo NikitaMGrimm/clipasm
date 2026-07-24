@@ -443,10 +443,7 @@ mod tests {
     use crate::semantic::{GraphBuilder, SourceOrigin};
 
     fn origin() -> SourceOrigin {
-        SourceOrigin {
-            construct: "test",
-            span: SourceSpan::file_start("test.yaml"),
-        }
+        SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))
     }
 
     fn symbol(value: ValueRef) -> Symbol {

@@ -108,18 +108,23 @@ pub(crate) enum SemanticNodeKind {
 /// such as `reference` are also stable identifiers.
 pub struct SourceOrigin {
     /// Registered program name or stable compiler-generated construct label.
-    pub construct: &'static str,
+    pub construct: String,
     /// Most relevant authored source location.
     pub span: SourceSpan,
 }
 
 impl SourceOrigin {
     #[must_use]
-    pub(crate) fn clone_with_construct(&self, construct: &'static str) -> Self {
+    pub(crate) fn new(construct: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            construct,
-            span: self.span.clone(),
+            construct: construct.into(),
+            span,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn clone_with_construct(&self, construct: impl Into<String>) -> Self {
+        Self::new(construct, self.span.clone())
     }
 }
 
@@ -181,10 +186,7 @@ impl<'a> GraphBuilder<'a> {
             nodes: &mut *self.nodes,
             video: self.video,
             semantic_version: self.semantic_version,
-            origin: SourceOrigin {
-                construct: self.origin.construct,
-                span,
-            },
+            origin: SourceOrigin::new(self.origin.construct.clone(), span),
         }
     }
 
@@ -348,7 +350,7 @@ impl<'a> GraphBuilder<'a> {
         require_value_type(
             value,
             expected,
-            self.origin.construct,
+            &self.origin.construct,
             port,
             &self.origin.span,
         )
@@ -392,10 +394,7 @@ mod tests {
     use super::*;
 
     fn origin(construct: &'static str, line: usize) -> SourceOrigin {
-        SourceOrigin {
-            construct,
-            span: SourceSpan::new("test.yaml", line, 1),
-        }
+        SourceOrigin::new(construct, SourceSpan::new("test.yaml", line, 1))
     }
 
     #[test]
