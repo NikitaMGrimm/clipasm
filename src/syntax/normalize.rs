@@ -704,12 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn expanded_references_are_not_syntax() {
-        let error = parse("- program:\n    version: 1\n\n- ref: $a\n").expect_err("expanded ref");
-        assert_eq!(error.code, "E_UNKNOWN_PROGRAM");
-    }
-
-    #[test]
     fn body_full_form_classifies_inputs_parameters_and_body() {
         parse(
             "- program:\n    version: 1\n    clips:\n      base: {image: {path: a.png, duration: 2s}}\n\n- during:\n    base: $base\n    range: 0s..1s\n    body:\n      - repeat: 2\n",

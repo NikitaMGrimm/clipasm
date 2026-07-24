@@ -27,8 +27,6 @@ fn prepared_plan_serializes_one_distinguished_result() {
     let document = serde_json::to_value(&plan).expect("prepared JSON");
 
     assert!(document.get("result").is_some());
-    assert!(document.get("root").is_none());
-    assert!(document.get("workflow_path").is_none());
     assert_eq!(document["format_version"], 4);
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,

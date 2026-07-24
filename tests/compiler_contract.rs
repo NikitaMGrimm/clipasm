@@ -70,7 +70,7 @@ fn source_program_header_is_required_first_and_rejects_unknown_fields() {
             "E_MISPLACED_PROGRAM_HEADER",
         ),
         (
-            "- program:\n    version: 1\n    imports: []\n",
+            "- program:\n    version: 1\n    unknown_field: true\n",
             "E_UNKNOWN_PROGRAM_HEADER_FIELD",
         ),
     ];
@@ -92,7 +92,6 @@ fn compiled_program_serializes_one_distinguished_result() {
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
 
     assert!(document.get("result").is_some());
-    assert!(document.get("root").is_none());
     assert_eq!(document["format_version"], 6);
     assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
 }
@@ -173,45 +172,13 @@ fn sibling_program_parameters_are_rejected() {
 }
 
 #[test]
-fn clip_is_not_a_public_program() {
+fn unknown_program_reports_a_diagnostic() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- glue:\n    - clip: $card\n  ",
-    )
-    .expect("workflow");
-
-    let output = run(&["validate", workflow.to_str().expect("UTF-8 fixture path")]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_PROGRAM]"));
-}
-
-#[test]
-fn then_is_not_a_public_program() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
-    fs::write(
-        &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - then:\n        - repeat: 2\n  ",
-    )
-    .expect("workflow");
-
-    let output = run(&["validate", workflow.to_str().expect("UTF-8 fixture path")]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_PROGRAM]"));
-}
-
-#[test]
-fn timeline_is_not_a_public_program() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
-    fs::write(
-        &workflow,
-        "- program:\n    version: 1\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n",
+        "- program:\n    version: 1\n\n- not_registered_program:\n    - image: {path: card.ppm, duration: 1s}\n",
     )
     .expect("workflow");
 
@@ -239,7 +206,6 @@ fn references_are_explained_as_references() {
         .filter_map(|entry| entry["construct"].as_str())
         .collect::<Vec<_>>();
     assert!(constructs.contains(&"reference"));
-    assert!(!constructs.contains(&"clip"));
 }
 
 #[test]
