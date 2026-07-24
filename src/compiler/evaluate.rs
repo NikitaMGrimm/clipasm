@@ -4,7 +4,7 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueStack, ValueType, VideoSpec};
 use crate::program::{ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
-use crate::syntax::{Invocation, Item, ItemKind, ProgramBody, Reference, Workflow};
+use crate::syntax::{Invocation, Item, ItemKind, ProgramBody, Reference, SourceProgram};
 
 #[derive(Clone, Debug)]
 pub(super) enum DeclaredValueType {
@@ -37,7 +37,7 @@ pub(super) struct Evaluation {
 }
 
 pub(super) fn evaluate(
-    workflow: &Workflow,
+    workflow: &SourceProgram,
     video: &VideoSpec,
     registry: ProgramRegistry,
 ) -> Result<Evaluation> {
@@ -62,7 +62,7 @@ pub(super) fn evaluate(
 }
 
 struct Evaluator<'a> {
-    workflow: &'a Workflow,
+    workflow: &'a SourceProgram,
     video: &'a VideoSpec,
     registry: ProgramRegistry,
     nodes: Vec<DraftNode>,
@@ -83,7 +83,7 @@ impl Evaluator<'_> {
         for clip in self.workflow.clips() {
             self.collect_body_names(&clip.body)?;
         }
-        self.collect_item_names(self.workflow.root())?;
+        self.collect_body_names(self.workflow.body())?;
         resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
         self.symbol_order.sort();
         Ok(())
@@ -183,16 +183,25 @@ impl Evaluator<'_> {
             });
         }
 
-        let mut root_stack = ValueStack::new();
-        self.evaluate_item(self.workflow.root(), &mut root_stack, None)?;
-        let [root] = root_stack.as_slice() else {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_ROOT_OUTPUT",
-                "root program did not produce exactly one value",
-                self.workflow.root().span.clone(),
-            ));
+        let mut stack = ValueStack::new();
+        self.evaluate_body(self.workflow.body(), &mut stack, None)?;
+        let [result] = stack.as_slice() else {
+            return Err(output_count_error(
+                "E_SOURCE_PROGRAM_OUTPUT_COUNT",
+                "source program",
+                stack.len(),
+                self.workflow.header_span(),
+            )
+            .note("combine multiple Videos explicitly with `concat` or a nested `timeline`"));
         };
-        Ok(*root)
+        require_value_type(
+            *result,
+            ValueType::Video,
+            "source program",
+            "result",
+            self.workflow.header_span(),
+        )?;
+        Ok(*result)
     }
 
     fn evaluate_body(
@@ -622,7 +631,7 @@ mod tests {
     fn parse_with_registry(
         source: &str,
         definitions: &'static [ProgramDefinition],
-    ) -> (Workflow, ProgramRegistry) {
+    ) -> (SourceProgram, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
         let language = Language::new(registry).expect("language");
         let workflow =
@@ -634,8 +643,8 @@ mod tests {
     #[test]
     fn direct_and_body_outputs_must_match_their_declarations() {
         for source in [
-            "version: 1\ntimeline: [wrong_direct]\n",
-            "version: 1\ntimeline:\n  - wrong_body: [source]\n",
+            "- program:\n    version: 1\n\n- wrong_direct\n",
+            "- program:\n    version: 1\n\n- wrong_body: [source]\n",
         ] {
             let (workflow, registry) = parse_with_registry(source, OUTPUT_PROGRAMS);
             let error =
@@ -647,7 +656,7 @@ mod tests {
     #[test]
     fn scoped_builders_propagate_program_semantic_versions() {
         let (workflow, registry) = parse_with_registry(
-            "version: 1\ntimeline:\n  - versioned_direct\n  - versioned_body: []\n",
+            "- program:\n    version: 1\n    clips:\n      unused: versioned_direct\n\n- versioned_body: []\n",
             VERSION_PROGRAMS,
         );
         let compiled =

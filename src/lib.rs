@@ -2,8 +2,8 @@
 
 //! Embed the `ClipAsm` typed YAML video compiler and renderer.
 //!
-//! `ClipAsm` separates authoring from execution. Parse a [`syntax::Workflow`],
-//! compile it into a pure [`compiler::CompiledWorkflow`], resolve media and
+//! `ClipAsm` separates authoring from execution. Parse a [`syntax::SourceProgram`],
+//! compile it into a pure [`compiler::CompiledProgram`], resolve media and
 //! tools into a [`preflight::PreparedPlan`], then execute that plan with
 //! [`render::render`].
 //!

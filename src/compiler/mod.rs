@@ -19,7 +19,7 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
 use crate::semantic::CompiledNode;
-use crate::syntax::Workflow;
+use crate::syntax::SourceProgram;
 
 pub use crate::semantic::SourceOrigin;
 
@@ -31,9 +31,9 @@ const COMPILED_FORMAT_VERSION: u32 = 5;
 /// Use [`root_domain`](Self::root_domain) to inspect a domain known from
 /// authored data, or pass the workflow to [`crate::preflight::preflight`] to
 /// resolve assets and exact renderer primitives.
-pub struct CompiledWorkflow {
+pub struct CompiledProgram {
     format_version: u32,
-    workflow_version: u64,
+    program_version: u64,
     engine_version: String,
     structure_hash: String,
     video: VideoSpec,
@@ -46,7 +46,7 @@ pub struct CompiledWorkflow {
     source_path: PathBuf,
 }
 
-impl CompiledWorkflow {
+impl CompiledProgram {
     /// Return the number of semantic values in the compiled graph.
     #[must_use]
     pub fn value_count(&self) -> usize {
@@ -163,7 +163,7 @@ impl ExplainEntry {
 /// # Errors
 ///
 /// Returns a source-located syntax or compilation diagnostic.
-pub fn compile_file(path: &Path) -> Result<CompiledWorkflow> {
+pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
     let workflow = crate::syntax::parse_file(path)?;
     compile(&workflow)
 }
@@ -189,20 +189,20 @@ pub fn compile_file(path: &Path) -> Result<CompiledWorkflow> {
 ///
 /// Returns a diagnostic for invalid programs, stack behavior, references,
 /// types, cycles, or frame domains.
-pub fn compile(workflow: &Workflow) -> Result<CompiledWorkflow> {
+pub fn compile(workflow: &SourceProgram) -> Result<CompiledProgram> {
     compile_with_registry(workflow, ProgramRegistry::default())
 }
 
 pub(crate) fn compile_with_registry(
-    workflow: &Workflow,
+    workflow: &SourceProgram,
     registry: ProgramRegistry,
-) -> Result<CompiledWorkflow> {
+) -> Result<CompiledProgram> {
     let video = resolve_video_spec(workflow)?;
     let evaluation = evaluate::evaluate(workflow, &video, registry)?;
     resolve::finalize(workflow, video, evaluation, COMPILED_FORMAT_VERSION)
 }
 
-fn resolve_video_spec(workflow: &Workflow) -> Result<VideoSpec> {
+fn resolve_video_spec(workflow: &SourceProgram) -> Result<VideoSpec> {
     let mut spec = VideoSpec::default();
     if let Some(width) = &workflow.video().width {
         spec.width = width.value;

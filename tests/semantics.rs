@@ -6,7 +6,7 @@ use std::path::Path;
 use clipasm::compiler;
 use tempfile::TempDir;
 
-fn project(source: &str) -> (TempDir, clipasm::syntax::Workflow) {
+fn project(source: &str) -> (TempDir, clipasm::syntax::SourceProgram) {
     let directory = tempfile::tempdir().expect("temporary directory");
     fs::write(directory.path().join("a.ppm"), b"P3\n1 1\n255\n255 0 0\n").expect("a image");
     fs::write(directory.path().join("b.ppm"), b"P3\n1 1\n255\n0 255 0\n").expect("b image");
@@ -19,14 +19,14 @@ fn project(source: &str) -> (TempDir, clipasm::syntax::Workflow) {
     (directory, workflow)
 }
 
-fn compiled_json(compiled: &compiler::CompiledWorkflow) -> serde_json::Value {
+fn compiled_json(compiled: &compiler::CompiledProgram) -> serde_json::Value {
     serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON value")
 }
 
 #[test]
 fn repeat_reuses_one_upstream_value() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  doubled:\n    - $later\n    - repeat: 3\n  later:\n    image:\n      path: a.ppm\n      duration: 1s\ntimeline:\n  - $doubled\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      doubled:\n        - $later\n        - repeat: 3\n      later:\n        image:\n          path: a.ppm\n          duration: 1s\n\n- timeline:\n    - $doubled\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
@@ -45,7 +45,7 @@ fn repeat_reuses_one_upstream_value() {
 #[test]
 fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - zoom\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - zoom\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
@@ -68,7 +68,7 @@ fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
 fn omitted_and_explicit_default_zoom_have_equal_identity() {
     let source = |zoom: &str| {
         format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 64, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - {zoom}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 64, fps: 10}}\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1s}}\n    - {zoom}\n  "
         )
     };
     let (_omitted_directory, omitted) = project(&source("zoom"));
@@ -86,7 +86,7 @@ fn omitted_and_explicit_default_zoom_have_equal_identity() {
 fn zoom_rejects_nonpositive_or_unrepresentable_percentages() {
     for percent in [-1, 0, i64::from(u32::MAX) + 1] {
         let (_directory, workflow) = project(&format!(
-            "version: 1\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - zoom: {percent}\n"
+            "- program:\n    version: 1\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1s}}\n    - zoom: {percent}\n  "
         ));
         let error = compiler::compile(&workflow).expect_err("invalid zoom percent");
         assert_eq!(error.code, "E_INVALID_ZOOM_PERCENT");
@@ -97,7 +97,7 @@ fn zoom_rejects_nonpositive_or_unrepresentable_percentages() {
 #[test]
 fn zoom_consumes_only_the_top_video() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - zoom: 12\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - zoom: 12\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
@@ -116,7 +116,7 @@ fn zoom_consumes_only_the_top_video() {
 #[test]
 fn wobble_defaults_to_three_pixels_and_preserves_the_video_domain() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - wobble\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - wobble\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     let domain = compiled.root_domain().expect("known domain");
@@ -139,7 +139,7 @@ fn wobble_defaults_to_three_pixels_and_preserves_the_video_domain() {
 fn wobble_default_normalizes_identity_and_changed_pixels_change_it() {
     let source = |wobble: &str| {
         format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - {wobble}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1s}}\n    - {wobble}\n  "
         )
     };
     let (_omitted_directory, omitted) = project(&source("wobble"));
@@ -163,7 +163,7 @@ fn wobble_rejects_invalid_or_dimension_unsafe_amplitudes() {
         (u32::MAX, u32::MAX, 1),
     ] {
         let (_directory, workflow) = project(&format!(
-            "version: 1\nproject:\n  video: {{width: {width}, height: {height}, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - wobble: {pixels}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: {width}, height: {height}, fps: 10}}\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1s}}\n    - wobble: {pixels}\n  "
         ));
         let error = compiler::compile(&workflow).expect_err("invalid wobble pixels");
         assert_eq!(error.code, "E_INVALID_WOBBLE_PIXELS");
@@ -174,7 +174,7 @@ fn wobble_rejects_invalid_or_dimension_unsafe_amplitudes() {
 #[test]
 fn zoom_and_wobble_accept_values_above_the_old_policy_ceilings() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 1024, height: 768, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - zoom: 101\n  - wobble: 65\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 1024, height: 768, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - zoom: 101\n    - wobble: 65\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
@@ -183,7 +183,7 @@ fn zoom_and_wobble_accept_values_above_the_old_policy_ceilings() {
 #[test]
 fn wobble_consumes_only_the_top_video() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - wobble: 4\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - wobble: 4\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
@@ -202,7 +202,7 @@ fn wobble_consumes_only_the_top_video() {
 #[test]
 fn flash_inside_join_binds_in_order_and_preserves_the_summed_domain() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - join:\n      - flash\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - flash\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
@@ -223,7 +223,7 @@ fn flash_inside_join_binds_in_order_and_preserves_the_summed_domain() {
 #[test]
 fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 48, fps: 10}\nclips:\n  x: {image: {path: x.ppm, duration: 1s}}\n  y: {image: {path: y.ppm, duration: 1s}}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - flash:\n      before: $x\n      after: $y\n      frames: 2\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - flash:\n        before: $x\n        after: $y\n        frames: 2\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 40);
@@ -242,7 +242,7 @@ fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
 fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
     let source = |before: &str, after: &str, frames: &str| {
         format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\nclips:\n  a: {{image: {{path: a.ppm, duration: 1s}}}}\n  b: {{image: {{path: b.ppm, duration: 1s}}}}\ntimeline:\n  - flash:\n      before: ${before}\n      after: ${after}\n{frames}"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n    clips:\n      a: {{image: {{path: a.ppm, duration: 1s}}}}\n      b: {{image: {{path: b.ppm, duration: 1s}}}}\n\n- timeline:\n    - flash:\n        before: ${before}\n        after: ${after}\n  {frames}"
         )
     };
     let (_omitted_directory, omitted) = project(&source("a", "b", ""));
@@ -263,7 +263,7 @@ fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
 fn flash_rejects_nonpositive_or_known_excessive_frame_counts() {
     for frames in [-1, 0, 11] {
         let (_directory, workflow) = project(&format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: 10}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1s}}\n  - image: {{path: b.ppm, duration: 1s}}\n  - flash: {frames}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1s}}\n    - image: {{path: b.ppm, duration: 1s}}\n    - flash: {frames}\n  "
         ));
         let error = compiler::compile(&workflow).expect_err("invalid flash frames");
         assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
@@ -274,7 +274,7 @@ fn flash_rejects_nonpositive_or_known_excessive_frame_counts() {
 fn default_flash_frames_are_the_smallest_count_covering_160_milliseconds() {
     for (fps, expected) in [("1", 1_u64), ("30000/1001", 5)] {
         let (_directory, workflow) = project(&format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 48, fps: {fps}}}\ntimeline:\n  - image: {{path: a.ppm, duration: 1001s}}\n  - image: {{path: b.ppm, duration: 1001s}}\n  - flash\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: {fps}}}\n\n- timeline:\n    - image: {{path: a.ppm, duration: 1001s}}\n    - image: {{path: b.ppm, duration: 1001s}}\n    - flash\n  "
         ));
         let compiled = compiler::compile(&workflow).expect("compile");
         let json = compiled_json(&compiled);
@@ -291,7 +291,7 @@ fn default_flash_frames_are_the_smallest_count_covering_160_milliseconds() {
 #[test]
 fn during_changes_duration() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n  - repeat: 2\n    during: 4s..6s\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 10s\n    - repeat: 2\n      during: 4s..6s\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 120);
@@ -308,7 +308,7 @@ fn during_changes_duration() {
 #[test]
 fn trim_selects_an_authored_time_range() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 3s\n  - trim: 1s..2s\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 3s\n    - trim: 1s..2s\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 10);
@@ -327,7 +327,7 @@ fn trim_selects_an_authored_time_range() {
 
 #[test]
 fn empty_concat_bodies_report_their_owner() {
-    let (_directory, workflow) = project("version: 1\ntimeline: []\n");
+    let (_directory, workflow) = project("- program:\n    version: 1\n\n- timeline: []\n");
     let error = compiler::compile(&workflow).expect_err("empty timeline");
     assert_eq!(error.code, "E_EMPTY_TIMELINE");
     assert!(error.message.contains("timeline"));
@@ -336,7 +336,7 @@ fn empty_concat_bodies_report_their_owner() {
 #[test]
 fn nested_timeline_starts_empty_and_does_not_consume_outer_values() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - timeline:\n      - image: {path: b.ppm, duration: 1s}\n      - image: {path: c.ppm, duration: 1s}\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - timeline:\n        - image: {path: b.ppm, duration: 1s}\n        - image: {path: c.ppm, duration: 1s}\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
@@ -346,12 +346,12 @@ fn nested_timeline_starts_empty_and_does_not_consume_outer_values() {
 fn explicit_and_postfix_during_have_the_same_semantics() {
     let source = |during: &str| {
         format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 64, fps: 10}}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n{during}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 64, fps: 10}}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 10s\n{during}\n"
         )
     };
-    let (_postfix_directory, postfix) = project(&source("  - repeat: 2\n    during: 4s..6s"));
+    let (_postfix_directory, postfix) = project(&source("    - repeat: 2\n      during: 4s..6s"));
     let (_explicit_directory, explicit) = project(&source(
-        "  - during:\n      range: 4s..6s\n      body:\n        - repeat: 2",
+        "    - during:\n        range: 4s..6s\n        body:\n          - repeat: 2",
     ));
     assert_eq!(
         compiler::compile(&postfix)
@@ -366,7 +366,7 @@ fn explicit_and_postfix_during_have_the_same_semantics() {
 #[test]
 fn postfix_id_names_the_outer_during_result() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n  - repeat: 2\n    during: 4s..6s\n    id: edited\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 10s\n    - repeat: 2\n      during: 4s..6s\n      id: edited\n  ",
     );
     let document = compiled_json(&compiler::compile(&workflow).expect("compile"));
     let edited = usize::try_from(
@@ -384,7 +384,7 @@ fn postfix_id_names_the_outer_during_result() {
 #[test]
 fn during_does_not_hide_selected_input_from_a_source() {
     let (_directory, workflow) = project(
-        "version: 1\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 10s\n  - image:\n      path: b.ppm\n      duration: 2s\n    during: 4s..6s\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 10s\n    - image:\n        path: b.ppm\n        duration: 2s\n      during: 4s..6s\n  ",
     );
     let error = compiler::compile(&workflow).expect_err("selected plus source");
     assert_eq!(error.code, "E_BODY_OUTPUT_COUNT");
@@ -393,7 +393,7 @@ fn during_does_not_hide_selected_input_from_a_source() {
 #[test]
 fn join_concatenates_leftover_body_videos_in_order() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - join:\n      - wobble\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - wobble\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
@@ -416,7 +416,7 @@ fn join_concatenates_leftover_body_videos_in_order() {
 #[test]
 fn join_reduces_only_the_top_two_outer_values() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - image:\n      path: b.ppm\n      duration: 1s\n  - image:\n      path: c.ppm\n      duration: 1s\n  - join:\n      - concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - image:\n        path: c.ppm\n        duration: 1s\n    - join:\n        - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
@@ -435,7 +435,7 @@ fn join_reduces_only_the_top_two_outer_values() {
 #[test]
 fn explicit_inputs_do_not_consume_join_stack_occurrences() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  x: {image: {path: x.ppm, duration: 1s}}\n  y: {image: {path: y.ppm, duration: 1s}}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - image:\n      path: b.ppm\n      duration: 1s\n  - join:\n      - concat:\n          videos: [$x, $y]\n      - concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - join:\n        - concat:\n            videos: [$x, $y]\n        - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 40);
@@ -444,7 +444,7 @@ fn explicit_inputs_do_not_consume_join_stack_occurrences() {
 #[test]
 fn explicit_join_inputs_preserve_the_outer_stack() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  x: {image: {path: x.ppm, duration: 1s}}\n  y: {image: {path: y.ppm, duration: 1s}}\ntimeline:\n  - image: {path: a.ppm, duration: 1s}\n  - image: {path: b.ppm, duration: 1s}\n  - join:\n      before: $x\n      after: $y\n      body:\n        - concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- timeline:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        before: $x\n        after: $y\n        body:\n          - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 40);
@@ -453,7 +453,7 @@ fn explicit_join_inputs_preserve_the_outer_stack() {
 #[test]
 fn partial_explicit_join_binding_uses_the_preceding_value() {
     let (_directory, workflow) = project(
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\nclips:\n  y:\n    image:\n      path: y.ppm\n      duration: 1s\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n  - join:\n      after: $y\n      body:\n        - concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      y:\n        image:\n          path: y.ppm\n          duration: 1s\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - join:\n        after: $y\n        body:\n          - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.root_domain().expect("known domain").frames.0, 20);
@@ -462,7 +462,7 @@ fn partial_explicit_join_binding_uses_the_preceding_value() {
 #[test]
 fn named_clip_does_not_receive_timeline_finalization() {
     let (_directory, workflow) = project(
-        "version: 1\nclips:\n  pair:\n    - {image: {path: a.ppm, duration: 1s}}\n    - {image: {path: b.ppm, duration: 1s}}\ntimeline:\n  - $pair\n",
+        "- program:\n    version: 1\n    clips:\n      pair:\n        - {image: {path: a.ppm, duration: 1s}}\n        - {image: {path: b.ppm, duration: 1s}}\n\n- timeline:\n    - $pair\n  ",
     );
     let error = compiler::compile(&workflow).expect_err("leftovers");
     assert_eq!(error.code, "E_CLIP_OUTPUT_COUNT");
@@ -470,8 +470,9 @@ fn named_clip_does_not_receive_timeline_finalization() {
 
 #[test]
 fn reports_readable_named_cycle() {
-    let (_directory, workflow) =
-        project("version: 1\nclips:\n  a: $b\n  b: $a\ntimeline:\n  - $a\n");
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    clips:\n      a: $b\n      b: $a\n\n- timeline:\n    - $a\n  ",
+    );
     let error = compiler::compile(&workflow).expect_err("cycle");
     assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
     assert!(error.message.contains("a -> b -> a"));
@@ -480,10 +481,10 @@ fn reports_readable_named_cycle() {
 #[test]
 fn mapping_order_does_not_change_compiled_structure() {
     let (_first_dir, first) = project(
-        "version: 1\nclips:\n  a: {image: {path: a.ppm, duration: 1s}}\n  b: {image: {path: b.ppm, duration: 1s}}\ntimeline: [$a, $b]\n",
+        "- program:\n    version: 1\n    clips:\n      a: {image: {path: a.ppm, duration: 1s}}\n      b: {image: {path: b.ppm, duration: 1s}}\n\n- timeline: [$a, $b]\n",
     );
     let (_second_dir, second) = project(
-        "version: 1\nclips:\n  b: {image: {duration: 1s, path: b.ppm}}\n  a: {image: {duration: 1s, path: a.ppm}}\ntimeline: [$a, $b]\n",
+        "- program:\n    version: 1\n    clips:\n      b: {image: {duration: 1s, path: b.ppm}}\n      a: {image: {duration: 1s, path: a.ppm}}\n\n- timeline: [$a, $b]\n",
     );
     let first_compiled = compiler::compile(&first).expect("first");
     let second_compiled = compiler::compile(&second).expect("second");
@@ -497,11 +498,11 @@ fn mapping_order_does_not_change_compiled_structure() {
 fn postfix_mapping_order_does_not_change_wrapper_direction() {
     let source = |item: &str| {
         format!(
-            "version: 1\nproject:\n  video: {{width: 64, height: 64, fps: 10}}\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 3s\n{item}\n"
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 64, fps: 10}}\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 3s\n{item}\n"
         )
     };
-    let (_first_directory, first) = project(&source("  - repeat: 2\n    during: 1s..2s"));
-    let (_second_directory, second) = project(&source("  - during: 1s..2s\n    repeat: 2"));
+    let (_first_directory, first) = project(&source("    - repeat: 2\n      during: 1s..2s"));
+    let (_second_directory, second) = project(&source("    - during: 1s..2s\n      repeat: 2"));
     let first = compiler::compile(&first).expect("head first");
     let second = compiler::compile(&second).expect("wrapper first");
     assert_eq!(first.root_domain(), second.root_domain());
@@ -509,23 +510,22 @@ fn postfix_mapping_order_does_not_change_wrapper_direction() {
 }
 
 #[test]
-fn root_and_nested_timeline_have_the_same_semantics() {
-    let clips = "clips:\n  a: {image: {path: a.ppm, duration: 1s}}\n  b: {image: {path: b.ppm, duration: 1s}}\n";
-    let (_root_directory, root) =
-        project(&format!("version: 1\n{clips}timeline:\n  - $a\n  - $b\n"));
-    let (_nested_directory, nested) = project(&format!(
-        "version: 1\n{clips}timeline:\n  - timeline:\n      - $a\n      - $b\n"
-    ));
-    let root = compiler::compile(&root).expect("root timeline");
+fn explicit_concat_and_nested_timeline_have_the_same_semantics() {
+    let header = "- program:\n    version: 1\n    clips:\n      a: {image: {path: a.ppm, duration: 1s}}\n      b: {image: {path: b.ppm, duration: 1s}}\n\n";
+    let (_concat_directory, concat) = project(&format!("{header}- $a\n- $b\n- concat\n"));
+    let (_nested_directory, nested) =
+        project(&format!("{header}- timeline:\n    - $a\n    - $b\n"));
+    let concat = compiler::compile(&concat).expect("explicit concat");
     let nested = compiler::compile(&nested).expect("nested timeline");
-    assert_eq!(root.root_domain(), nested.root_domain());
-    assert_eq!(root.structure_hash(), nested.structure_hash());
+    assert_eq!(concat.root_domain(), nested.root_domain());
+    assert_eq!(concat.structure_hash(), nested.structure_hash());
 }
 
 #[test]
 fn compile_file_accepts_an_outputless_validation_workflow() {
-    let (directory, _workflow) =
-        project("version: 1\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n");
+    let (directory, _workflow) = project(
+        "- program:\n    version: 1\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n  ",
+    );
     compiler::compile_file(&directory.path().join(Path::new("workflow.yaml"))).expect("compile");
 }
 
@@ -535,12 +535,12 @@ fn comments_do_not_change_structure_hash() {
     let path = directory.path().join("workflow.yaml");
     let first = clipasm::syntax::parse_str(
         &path,
-        "version: 1\ntimeline:\n  - image:\n      path: a.ppm\n      duration: 1s\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - image:\n        path: a.ppm\n        duration: 1s\n  ",
     )
     .expect("first parse");
     let second = clipasm::syntax::parse_str(
         &path,
-        "# formatting is not semantic\nversion: 1\ntimeline:\n  - image:\n      duration: 1s\n      path: a.ppm\n",
+        "# formatting is not semantic\n- program:\n    version: 1\n\n- timeline:\n    - image:\n        duration: 1s\n        path: a.ppm\n  ",
     )
     .expect("second parse");
     assert_eq!(
@@ -557,7 +557,9 @@ fn authored_source_paths_change_compiled_identity() {
         ("video", "a.mp4", "b.mp4", ""),
     ] {
         let source = |asset: &str| {
-            format!("version: 1\ntimeline:\n  - {program}: {{path: {asset}{suffix}}}\n")
+            format!(
+                "- program:\n    version: 1\n\n- timeline:\n    - {program}: {{path: {asset}{suffix}}}\n  "
+            )
         };
         let first = clipasm::syntax::parse_str(path, &source(first_path)).expect("first");
         let second = clipasm::syntax::parse_str(path, &source(second_path)).expect("second");

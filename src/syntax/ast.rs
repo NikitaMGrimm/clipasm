@@ -3,30 +3,31 @@ use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{SourceSpan, Spanned};
 
-/// A parser-owned, syntax-valid workflow.
+/// A parser-owned, syntax-valid source program.
 ///
-/// Fields are intentionally private so compilation cannot receive a workflow
+/// Fields are intentionally private so compilation cannot receive a program
 /// that bypassed syntax validation.
 ///
 /// ```compile_fail
-/// use clipasm::syntax::Workflow;
+/// use clipasm::syntax::SourceProgram;
 ///
-/// let invalid = Workflow {
+/// let invalid = SourceProgram {
 ///     version: 999,
 ///     ..todo!()
 /// };
 /// ```
 #[derive(Clone, Debug)]
-pub struct Workflow {
+pub struct SourceProgram {
     pub(super) source_path: PathBuf,
     pub(super) version: u64,
     pub(super) video: VideoSettings,
     pub(super) clips: Vec<NamedClip>,
-    pub(super) root: Item,
+    pub(super) body: ProgramBody,
+    pub(super) header_span: SourceSpan,
     pub(super) output: Option<Spanned<PathBuf>>,
 }
 
-impl Workflow {
+impl SourceProgram {
     #[must_use]
     pub(crate) fn source_path(&self) -> &Path {
         &self.source_path
@@ -48,8 +49,13 @@ impl Workflow {
     }
 
     #[must_use]
-    pub(crate) const fn root(&self) -> &Item {
-        &self.root
+    pub(crate) const fn body(&self) -> &ProgramBody {
+        &self.body
+    }
+
+    #[must_use]
+    pub(crate) const fn header_span(&self) -> &SourceSpan {
+        &self.header_span
     }
 
     #[must_use]

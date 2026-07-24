@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::compiler::CompiledWorkflow;
+use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
@@ -12,7 +12,7 @@ use crate::semantic::SourceOrigin;
 use super::tools::{ToolIdentity, verify_image_decodable, verify_video_decodable};
 use super::{PreparedAsset, PreparedNode, PreparedNodeKind};
 
-pub(super) fn prepare_output_path(compiled: &CompiledWorkflow) -> Result<PathBuf> {
+pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf> {
     let output = compiled.output().ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_OUTPUT",

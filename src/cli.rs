@@ -18,12 +18,12 @@ struct Cli {
 enum Command {
     /// Parse, type-check, and infer source-independent video domains.
     Validate {
-        /// Workflow YAML file.
+        /// SourceProgram YAML file.
         workflow: PathBuf,
     },
     /// Emit the canonical pure semantic compiled workflow.
     Compile {
-        /// Workflow YAML file.
+        /// SourceProgram YAML file.
         workflow: PathBuf,
         /// Write compiled JSON to this path instead of stdout.
         #[arg(short, long)]
@@ -31,7 +31,7 @@ enum Command {
     },
     /// Compile and render the workflow using `FFmpeg`.
     Render {
-        /// Workflow YAML file. Relative media and output paths resolve from its directory.
+        /// SourceProgram YAML file. Relative media and output paths resolve from its directory.
         workflow: PathBuf,
     },
 }

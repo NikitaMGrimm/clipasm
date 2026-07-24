@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::compiler::CompiledWorkflow;
+use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, FrameRange, ImageFit, NodeId, VideoDomain, VideoSpec};
 use crate::semantic::SourceOrigin;
@@ -331,7 +331,7 @@ enum ExportPixelFormat {
 ///
 /// Returns a diagnostic for invalid output configuration, unavailable tool
 /// capabilities, inaccessible/undecodable assets, or preparation failures.
-pub fn preflight(compiled: &CompiledWorkflow) -> Result<PreparedPlan> {
+pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let output = prepare_output_path(compiled)?;
     let manifest = manifest_path(&output);
     validate_destination(&output, "output", "E_INVALID_OUTPUT_DESTINATION")?;

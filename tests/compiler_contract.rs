@@ -27,12 +27,68 @@ fn compile_json(workflow: &Path) -> serde_json::Value {
 }
 
 #[test]
+fn source_program_body_returns_one_video_without_an_implicit_timeline() {
+    let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
+    let program = clipasm::syntax::parse_str(Path::new("program.yaml"), source)
+        .expect("source program syntax");
+    let compiled = clipasm::compiler::compile(&program).expect("source program result");
+
+    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
+}
+
+#[test]
+fn source_program_requires_exactly_one_final_value() {
+    let empty = clipasm::syntax::parse_str(Path::new("empty.yaml"), "- program:\n    version: 1\n")
+        .expect("empty source syntax");
+    let error = clipasm::compiler::compile(&empty).expect_err("zero results");
+    assert_eq!(error.code, "E_SOURCE_PROGRAM_OUTPUT_COUNT");
+    assert!(error.message.contains("0 values remain"));
+
+    let multiple = clipasm::syntax::parse_str(
+        Path::new("multiple.yaml"),
+        "- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n- image: {path: b.png, duration: 1s}\n",
+    )
+    .expect("multiple-value source syntax");
+    let error = clipasm::compiler::compile(&multiple).expect_err("multiple results");
+    assert_eq!(error.code, "E_SOURCE_PROGRAM_OUTPUT_COUNT");
+    assert!(error.message.contains("2 values remain"));
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("`concat`") && note.contains("`timeline`"))
+    );
+}
+
+#[test]
+fn source_program_header_is_required_first_and_rejects_unknown_fields() {
+    let cases = [
+        ("version: 1\ntimeline: []\n", "E_EXPECTED_SOURCE_PROGRAM"),
+        ("- image: card.png\n", "E_MISSING_PROGRAM_HEADER"),
+        (
+            "- program:\n    version: 1\n\n- program:\n    version: 1\n",
+            "E_MISPLACED_PROGRAM_HEADER",
+        ),
+        (
+            "- program:\n    version: 1\n    imports: []\n",
+            "E_UNKNOWN_PROGRAM_HEADER_FIELD",
+        ),
+    ];
+
+    for (source, expected_code) in cases {
+        let error = clipasm::syntax::parse_str(Path::new("invalid.yaml"), source)
+            .expect_err("invalid source program");
+        assert_eq!(error.code, expected_code);
+    }
+}
+
+#[test]
 fn pure_compile_does_not_require_assets_to_exist() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - image:\n      path: missing.png\n      duration: 1s\noutput: final.mp4\n",
+        "- program:\n    version: 1\n    output: final.mp4\n\n\n- timeline:\n    - image:\n        path: missing.png\n        duration: 1s",
     )
     .expect("workflow");
 
@@ -54,7 +110,7 @@ fn sibling_program_parameters_are_rejected() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - image: card.ppm\n    duration: 1s\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - image: card.ppm\n      duration: 1s\n  ",
     )
     .expect("workflow");
 
@@ -74,7 +130,7 @@ fn clip_is_not_a_public_program() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\nclips:\n  card:\n    image:\n      path: card.ppm\n      duration: 1s\ntimeline:\n  - clip: $card\n",
+        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- timeline:\n    - clip: $card\n  ",
     )
     .expect("workflow");
 
@@ -90,7 +146,7 @@ fn then_is_not_a_public_program() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - image: {path: card.ppm, duration: 1s}\n  - then:\n      - repeat: 2\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - image: {path: card.ppm, duration: 1s}\n    - then:\n        - repeat: 2\n  ",
     )
     .expect("workflow");
 
@@ -106,7 +162,7 @@ fn references_are_explained_as_references() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\nclips:\n  card:\n    image:\n      path: card.ppm\n      duration: 1s\ntimeline:\n  - $card\n",
+        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- timeline:\n    - $card\n  ",
     )
     .expect("workflow");
 
@@ -128,7 +184,7 @@ fn reducible_frame_rate_is_canonical() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 60/2}\ntimeline:\n  - image:\n      path: card.ppm\n      duration: 1s\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 60/2}\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
     )
     .expect("workflow");
 
@@ -143,7 +199,7 @@ fn unused_definitions_are_still_compiled_and_validated() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\nclips:\n  invalid:\n    image: unused.png\ntimeline:\n  - image:\n      path: used.png\n      duration: 1s\n",
+        "- program:\n    version: 1\n    clips:\n      invalid:\n        image: unused.png\n\n- timeline:\n    - image:\n        path: used.png\n        duration: 1s\n  ",
     )
     .expect("workflow");
     let error = clipasm::compiler::compile_file(&workflow).expect_err("unused invalid clip");
@@ -156,7 +212,7 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\nproject:\n  video: {width: 64, height: 64, fps: 10}\ntimeline:\n  - video: missing.mp4\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- timeline:\n    - video: missing.mp4\n  ",
     )
     .expect("workflow");
 
@@ -175,7 +231,7 @@ fn video_sources_do_not_accept_an_authored_duration() {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - video:\n      path: source.mp4\n      duration: 1s\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - video:\n        path: source.mp4\n        duration: 1s\n  ",
     )
     .expect("workflow");
 

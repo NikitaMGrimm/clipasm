@@ -341,11 +341,11 @@ mod tests {
     use super::*;
     use crate::semantic::SemanticNodeKind;
 
-    fn compile_repeat(count: u64) -> crate::compiler::CompiledWorkflow {
+    fn compile_repeat(count: u64) -> crate::compiler::CompiledProgram {
         let workflow = crate::syntax::parse_str(
             Path::new("repeat.yaml"),
             &format!(
-                "version: 1\nproject:\n  video: {{fps: 10}}\ntimeline:\n  - image: {{path: card.png, duration: 1s}}\n  - repeat: {count}\n"
+                "- program:\n    version: 1\n    project:\n      video: {{fps: 10}}\n\n- image: {{path: card.png, duration: 1s}}\n- repeat: {count}\n"
             ),
         )
         .expect("workflow");

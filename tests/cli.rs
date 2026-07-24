@@ -13,7 +13,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let workflow = directory.path().join("workflow.yaml");
     fs::write(
         &workflow,
-        "version: 1\ntimeline:\n  - image:\n      path: card.ppm\n      duration: 1s\n",
+        "- program:\n    version: 1\n\n- timeline:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
     )
     .expect("workflow");
     (directory, workflow)
@@ -52,7 +52,11 @@ fn compile_writes_an_explicit_plan_path() {
 #[test]
 fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
-    fs::write(&workflow, "version: 1\ntimeline:\n  - repeat: 2\n").expect("invalid workflow");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n\n- timeline:\n    - repeat: 2\n  ",
+    )
+    .expect("invalid workflow");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])
         .output()
@@ -66,7 +70,11 @@ fn diagnostics_produce_a_failure_exit_code() {
 fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("workflow.yaml");
-    fs::write(&workflow, "version: 1\ntimeline:\n  - video: missing.mp4\n").expect("workflow");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n\n- timeline:\n    - video: missing.mp4\n  ",
+    )
+    .expect("workflow");
 
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])

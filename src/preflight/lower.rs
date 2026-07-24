@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::compiler::CompiledWorkflow;
+use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, FrameRange, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
@@ -11,7 +11,7 @@ use super::tools::ToolIdentity;
 use super::{PreparedNode, PreparedNodeKind};
 
 pub(super) struct PreflightLowerer<'a> {
-    pub(super) compiled: &'a CompiledWorkflow,
+    pub(super) compiled: &'a CompiledProgram,
     pub(super) ffmpeg: &'a ToolIdentity,
     pub(super) ffprobe: &'a ToolIdentity,
     pub(super) nodes: Vec<PreparedNode>,

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::compiler::evaluate::Evaluation;
-use crate::compiler::{CompiledWorkflow, ExplainEntry};
+use crate::compiler::{CompiledProgram, ExplainEntry};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind};
-use crate::syntax::Workflow;
+use crate::syntax::SourceProgram;
 
 struct SymbolFrame {
     name: String,
@@ -13,11 +13,11 @@ struct SymbolFrame {
 }
 
 pub(super) fn finalize(
-    workflow: &Workflow,
+    workflow: &SourceProgram,
     video: VideoSpec,
     evaluation: Evaluation,
     format_version: u32,
-) -> Result<CompiledWorkflow> {
+) -> Result<CompiledProgram> {
     validate_references(&evaluation)?;
     detect_cycles(&evaluation)?;
     let names = evaluation
@@ -75,9 +75,9 @@ pub(super) fn finalize(
             span: record.span,
         })
         .collect::<Vec<_>>();
-    Ok(CompiledWorkflow {
+    Ok(CompiledProgram {
         format_version,
-        workflow_version: workflow.version(),
+        program_version: workflow.version(),
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         structure_hash,
         video,

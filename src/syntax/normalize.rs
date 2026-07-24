@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::scanner::TScalarStyle;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
-use crate::language::{BODY_FIELD, ID_FIELD, Language, ROOT_PROGRAM};
+use crate::language::{BODY_FIELD, ID_FIELD, Language, PROGRAM_HEADER_FIELD};
 use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry};
 use crate::syntax::ast::{
-    Argument, Invocation, Item, ItemKind, NamedClip, ProgramBody, Reference, VideoSettings,
-    Workflow,
+    Argument, Invocation, Item, ItemKind, NamedClip, ProgramBody, Reference, SourceProgram,
+    VideoSettings,
 };
 use crate::syntax::raw::{RawKind, RawNode};
 
@@ -19,7 +19,7 @@ use crate::syntax::raw::{RawKind, RawNode};
 ///
 /// Returns a source-located diagnostic when the file cannot be read or violates
 /// the restricted YAML or workflow grammar.
-pub fn parse_file(path: &Path) -> Result<Workflow> {
+pub fn parse_file(path: &Path) -> Result<SourceProgram> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
     let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -31,7 +31,7 @@ pub fn parse_file(path: &Path) -> Result<Workflow> {
 /// # Errors
 ///
 /// Returns a source-located diagnostic for invalid YAML or workflow syntax.
-pub fn parse_str(path: &Path, source: &str) -> Result<Workflow> {
+pub fn parse_str(path: &Path, source: &str) -> Result<SourceProgram> {
     parse_str_with_language(path, source, Language::default())
 }
 
@@ -44,29 +44,52 @@ pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,
     language: Language,
-) -> Result<Workflow> {
-    parse_workflow(
+) -> Result<SourceProgram> {
+    parse_source_program(
         path.to_path_buf(),
         super::raw::parse(path, source)?,
         language,
     )
 }
 
-fn parse_workflow(source_path: PathBuf, root: RawNode, language: Language) -> Result<Workflow> {
+fn parse_source_program(
+    source_path: PathBuf,
+    root: RawNode,
+    language: Language,
+) -> Result<SourceProgram> {
     let root_span = root.span.clone();
-    let entries = into_mapping(root, "the workflow root")?;
+    let RawKind::Sequence(mut items) = root.kind else {
+        return Err(Diagnostic::new(
+            "E_EXPECTED_SOURCE_PROGRAM",
+            "a ClipAsm source program must be a YAML sequence beginning with `program`",
+            root_span,
+        ));
+    };
+    if items.is_empty() {
+        return Err(Diagnostic::new(
+            "E_MISSING_PROGRAM_HEADER",
+            "a source program must begin with a `program` header",
+            root_span,
+        ));
+    }
+    let header = items.remove(0);
+    let header_span = header.span.clone();
+    let mut header_entries = into_mapping(header, "the source program header item")?;
+    if header_entries.len() != 1 || header_entries[0].0 != PROGRAM_HEADER_FIELD {
+        return Err(Diagnostic::new(
+            "E_MISSING_PROGRAM_HEADER",
+            "the first source item must be exactly the `program` header",
+            header_span,
+        ));
+    }
+    let (_, _, definition) = header_entries.remove(0);
+    let entries = into_mapping(definition, "the `program` header")?;
     let mut version = None;
     let mut video = VideoSettings::default();
     let mut clips = Vec::new();
-    let mut timeline = None;
     let mut output = None;
 
     for (key, key_span, value) in entries {
-        if key == ROOT_PROGRAM {
-            let body = parse_body(value, "the root program body", language)?;
-            timeline = Some((key_span, body));
-            continue;
-        }
         match key.as_str() {
             "version" => {
                 let (text, _) = scalar(&value, "`version`")?;
@@ -86,8 +109,8 @@ fn parse_workflow(source_path: PathBuf, root: RawNode, language: Language) -> Re
             }
             _ => {
                 return Err(Diagnostic::new(
-                    "E_UNKNOWN_TOP_LEVEL_FIELD",
-                    format!("unknown top-level field `{key}`"),
+                    "E_UNKNOWN_PROGRAM_HEADER_FIELD",
+                    format!("unknown program header field `{key}`"),
                     key_span,
                 ));
             }
@@ -97,41 +120,31 @@ fn parse_workflow(source_path: PathBuf, root: RawNode, language: Language) -> Re
     let version = version.ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_VERSION",
-            "missing required top-level field `version`",
-            root_span.clone(),
+            "missing required program header field `version`",
+            header_span.clone(),
         )
     })?;
     if version != 1 {
         return Err(Diagnostic::new(
             "E_UNSUPPORTED_VERSION",
-            format!("unsupported workflow version {version}; this engine supports version 1"),
-            root_span.clone(),
+            format!("unsupported source program version {version}; this engine supports version 1"),
+            header_span.clone(),
         ));
     }
-    let (timeline_span, timeline) = timeline.ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_TIMELINE",
-            format!("missing required top-level field `{ROOT_PROGRAM}`"),
-            root_span,
-        )
-    })?;
-
-    let root = Item {
-        kind: ItemKind::Invocation(Invocation {
-            program: Spanned::new(ROOT_PROGRAM.to_owned(), timeline_span.clone()),
-            arguments: BTreeMap::new(),
-            body: Some(timeline),
-        }),
-        id: None,
-        span: timeline_span,
+    let body = ProgramBody {
+        items: items
+            .into_iter()
+            .map(|item| parse_item(item, language))
+            .collect::<Result<Vec<_>>>()?,
     };
 
-    Ok(Workflow {
+    Ok(SourceProgram {
         source_path,
         version,
         video,
         clips,
-        root,
+        body,
+        header_span,
         output,
     })
 }
@@ -268,7 +281,19 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
                 ))
             }
         }
-        RawKind::Mapping(entries) => parse_invocation(entries, item_span, language),
+        RawKind::Mapping(entries) => {
+            if entries
+                .iter()
+                .any(|(name, _, _)| name == PROGRAM_HEADER_FIELD)
+            {
+                return Err(Diagnostic::new(
+                    "E_MISPLACED_PROGRAM_HEADER",
+                    "the `program` header is only allowed as the first source item",
+                    item_span,
+                ));
+            }
+            parse_invocation(entries, item_span, language)
+        }
         RawKind::Sequence(_) => Err(Diagnostic::new(
             "E_INVALID_SEQUENCE_ITEM",
             "a sequence item must be a program invocation or reference",
@@ -550,49 +575,43 @@ mod tests {
     };
     use crate::semantic::GraphBuilder;
 
-    fn parse(source: &str) -> Result<Workflow> {
+    fn parse(source: &str) -> Result<SourceProgram> {
         parse_str(Path::new("workflow.yaml"), source)
     }
 
     #[test]
     fn normalizes_reference_and_full_arguments() {
-        let workflow = parse(
-            "version: 1\nclips:\n  a:\n    image:\n      path: a.png\n      duration: 1s\ntimeline:\n  - $a\n",
+        let program = parse(
+            "- program:\n    version: 1\n    clips:\n      a:\n        image:\n          path: a.png\n          duration: 1s\n\n- $a\n",
         )
-        .expect("workflow");
-        let ItemKind::Invocation(root) = &workflow.root.kind else {
-            panic!("root invocation");
-        };
-        assert_eq!(root.program.value, "timeline");
+        .expect("source program");
         assert!(matches!(
-            root.body.as_ref().expect("root body").items[0].kind,
+            program.body.items[0].kind,
             ItemKind::Reference(Reference { .. })
         ));
-        assert_eq!(workflow.clips[0].body.items.len(), 1);
+        assert_eq!(program.clips[0].body.items.len(), 1);
     }
 
     #[test]
     fn rejects_duplicate_keys() {
-        let error = parse("version: 1\nversion: 1\ntimeline: []\n").expect_err("duplicate");
+        let error = parse("- program:\n    version: 1\n    version: 1\n").expect_err("duplicate");
         assert_eq!(error.code, "E_DUPLICATE_YAML_KEY");
     }
 
     #[test]
     fn rejects_aliases() {
-        let error = parse("version: 1\nclips: &clips {}\ntimeline: *clips\n").expect_err("aliases");
+        let error = parse("- program:\n    version: 1\n    clips: &clips {}\n\n- *clips\n")
+            .expect_err("aliases");
         assert!(matches!(error.code, "E_YAML_ANCHOR" | "E_YAML_ALIAS"));
     }
 
     #[test]
     fn postfix_program_normalizes_to_an_outer_invocation() {
-        let workflow = parse(
-            "version: 1\ntimeline:\n  - image:\n      path: a.png\n      duration: 2s\n    during: 0s..1s\n",
+        let program = parse(
+            "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n  during: 0s..1s\n",
         )
-        .expect("workflow");
-        let ItemKind::Invocation(root) = &workflow.root.kind else {
-            panic!("root invocation");
-        };
-        let outer = &root.body.as_ref().expect("root body").items[0];
+        .expect("source program");
+        let outer = &program.body.items[0];
         let ItemKind::Invocation(during) = &outer.kind else {
             panic!("during invocation");
         };
@@ -602,14 +621,14 @@ mod tests {
 
     #[test]
     fn expanded_references_are_not_syntax() {
-        let error = parse("version: 1\ntimeline:\n  - ref: $a\n").expect_err("expanded ref");
+        let error = parse("- program:\n    version: 1\n\n- ref: $a\n").expect_err("expanded ref");
         assert_eq!(error.code, "E_UNKNOWN_PROGRAM");
     }
 
     #[test]
     fn body_full_form_classifies_inputs_parameters_and_body() {
         parse(
-            "version: 1\nclips:\n  base: {image: {path: a.png, duration: 2s}}\ntimeline:\n  - during:\n      base: $base\n      range: 0s..1s\n      body:\n        - repeat: 2\n",
+            "- program:\n    version: 1\n    clips:\n      base: {image: {path: a.png, duration: 2s}}\n\n- during:\n    base: $base\n    range: 0s..1s\n    body:\n      - repeat: 2\n",
         )
         .expect("full body form");
     }
@@ -617,13 +636,13 @@ mod tests {
     #[test]
     fn semantic_parameter_errors_belong_to_compilation() {
         let workflow = parse(
-            "version: 1\ntimeline:\n  - image:\n      path: a.png\n      duration: 1s\n  - repeat: wrong\n",
+            "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 1s\n- repeat: wrong\n",
         )
         .expect("syntax normalization");
         let error = crate::compiler::compile(&workflow).expect_err("parameter type");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
 
-        let workflow = parse("version: 1\ntimeline:\n  - image:\n      duration: 1s\n")
+        let workflow = parse("- program:\n    version: 1\n\n- image:\n    duration: 1s\n")
             .expect("syntax normalization");
         let error = crate::compiler::compile(&workflow).expect_err("missing path");
         assert_eq!(error.code, "E_MISSING_ARGUMENT");
@@ -649,7 +668,7 @@ mod tests {
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    fn prepare_synthetic_root(
+    fn prepare_synthetic_body(
         call: &ResolvedCall,
         _builder: &mut GraphBuilder<'_>,
     ) -> Result<BodyPlan> {
@@ -705,14 +724,14 @@ mod tests {
     };
     const SYNTHETIC_BODY: ProgramDefinition = ProgramDefinition {
         descriptor: ProgramDescriptor {
-            name: ROOT_PROGRAM,
+            name: "synthetic_body",
             semantic_version: 1,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
             output: ValueType::Video,
         },
-        implementation: ProgramImplementation::Body(prepare_synthetic_root),
+        implementation: ProgramImplementation::Body(prepare_synthetic_body),
         postfix: None,
     };
     const SYNTHETIC_POSTFIX: ProgramDefinition = ProgramDefinition {
@@ -737,7 +756,7 @@ mod tests {
         let language = Language::new(registry).expect("synthetic language");
         let workflow = parse_str_with_language(
             Path::new("workflow.yaml"),
-            "version: 1\ntimeline:\n  - synthetic_direct: asset.any\n    synthetic_postfix: 0s..1s\n",
+            "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n",
             language,
         )
         .expect("generic parse");

@@ -1,10 +1,9 @@
 use crate::diagnostic::Result;
-use crate::model::ValueType;
 use crate::program::{ProgramImplementation, ProgramRegistry, definition_error};
 
-pub(crate) const ROOT_PROGRAM: &str = "timeline";
 pub(crate) const ID_FIELD: &str = "id";
 pub(crate) const BODY_FIELD: &str = "body";
+pub(crate) const PROGRAM_HEADER_FIELD: &str = "program";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Language {
@@ -19,52 +18,18 @@ impl Default for Language {
 
 impl Language {
     pub(crate) fn new(programs: ProgramRegistry) -> Result<Self> {
-        validate_root_program(programs)?;
         validate_syntax_collisions(programs)?;
         Ok(Self { programs })
     }
 }
 
-fn validate_root_program(programs: ProgramRegistry) -> Result<()> {
-    let root = programs.get(ROOT_PROGRAM).ok_or_else(|| {
-        definition_error(format!(
-            "required root program `{ROOT_PROGRAM}` is not registered"
-        ))
-    })?;
-    if !matches!(root.implementation, ProgramImplementation::Body(_)) {
-        return Err(definition_error(format!(
-            "root program `{ROOT_PROGRAM}` must be a body program"
-        )));
-    }
-    if !root.descriptor.inputs.is_empty() {
-        return Err(definition_error(format!(
-            "root program `{ROOT_PROGRAM}` must not declare value inputs"
-        )));
-    }
-    if root.postfix.is_some() {
-        return Err(definition_error(format!(
-            "root program `{ROOT_PROGRAM}` must not declare postfix syntax"
-        )));
-    }
-    if !root.descriptor.parameters.is_empty() {
-        return Err(definition_error(format!(
-            "root program `{ROOT_PROGRAM}` must not declare parameters"
-        )));
-    }
-    if root.descriptor.output != ValueType::Video {
-        return Err(definition_error(format!(
-            "root program `{ROOT_PROGRAM}` must output Video"
-        )));
-    }
-    Ok(())
-}
-
 fn validate_syntax_collisions(programs: ProgramRegistry) -> Result<()> {
     for definition in programs.definitions() {
         let descriptor = &definition.descriptor;
-        if descriptor.name == ID_FIELD {
+        if matches!(descriptor.name, ID_FIELD | PROGRAM_HEADER_FIELD) {
             return Err(definition_error(format!(
-                "program name `{ID_FIELD}` collides with item syntax"
+                "program name `{}` collides with source syntax",
+                descriptor.name
             )));
         }
         if !matches!(definition.implementation, ProgramImplementation::Body(_)) {
@@ -104,20 +69,10 @@ mod tests {
     };
     use crate::semantic::GraphBuilder;
 
-    const VIDEO_INPUT: &[InputPort] = &[InputPort {
-        name: "input",
-        value_type: ValueType::Video,
-        cardinality: Cardinality::One,
-    }];
     const BODY_INPUT: &[InputPort] = &[InputPort {
         name: BODY_FIELD,
         value_type: ValueType::Video,
         cardinality: Cardinality::One,
-    }];
-    const PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
-        name: "range",
-        parameter_type: ParameterType::TimeRange,
-        required: false,
     }];
     const BODY_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
         name: BODY_FIELD,
@@ -155,91 +110,24 @@ mod tests {
         }
     }
 
-    fn timeline() -> ProgramDefinition {
-        definition(
-            ROOT_PROGRAM,
-            ProgramImplementation::Body(prepare),
-            &[],
-            &[],
-            ValueType::Video,
-            None,
-        )
-    }
-
     fn language_with(extra: ProgramDefinition) -> Result<Language> {
-        let definitions = Box::leak(vec![timeline(), extra].into_boxed_slice());
+        let definitions = Box::leak(vec![extra].into_boxed_slice());
         Language::new(ProgramRegistry::from_definitions(definitions)?)
     }
 
     #[test]
-    fn rejects_every_invalid_root_contract() {
-        let cases = [
-            Vec::new(),
-            vec![definition(
-                ROOT_PROGRAM,
+    fn rejects_only_real_syntax_collisions() {
+        for name in [ID_FIELD, PROGRAM_HEADER_FIELD] {
+            language_with(definition(
+                name,
                 ProgramImplementation::Direct(direct),
                 &[],
                 &[],
                 ValueType::Video,
                 None,
-            )],
-            vec![definition(
-                ROOT_PROGRAM,
-                ProgramImplementation::Body(prepare),
-                VIDEO_INPUT,
-                &[],
-                ValueType::Video,
-                None,
-            )],
-            vec![definition(
-                ROOT_PROGRAM,
-                ProgramImplementation::Body(prepare),
-                &[],
-                PARAMETER,
-                ValueType::Video,
-                None,
-            )],
-            vec![definition(
-                ROOT_PROGRAM,
-                ProgramImplementation::Body(prepare),
-                &[],
-                &[],
-                ValueType::Test,
-                None,
-            )],
-            vec![definition(
-                ROOT_PROGRAM,
-                ProgramImplementation::Body(prepare),
-                &[],
-                PARAMETER,
-                ValueType::Video,
-                Some(PostfixSyntax { parameter: "range" }),
-            )],
-        ];
-
-        for definitions in cases {
-            let definitions = Box::leak(definitions.into_boxed_slice());
-            let registry = ProgramRegistry::from_definitions(definitions).expect("valid registry");
-            let error = Language::new(registry).expect_err("invalid root");
-            assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+            ))
+            .expect_err("source syntax collision");
         }
-    }
-
-    #[test]
-    fn rejects_only_real_syntax_collisions() {
-        let id = definition(
-            ID_FIELD,
-            ProgramImplementation::Direct(direct),
-            &[],
-            &[],
-            ValueType::Video,
-            None,
-        );
-        Language::new(
-            ProgramRegistry::from_definitions(Box::leak(vec![timeline(), id].into_boxed_slice()))
-                .expect("valid registry"),
-        )
-        .expect_err("id collision");
 
         for collision in [
             definition(
