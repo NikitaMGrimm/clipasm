@@ -3,7 +3,7 @@
 //! Embed the `ClipAsm` typed video compiler and renderer.
 //!
 //! `ClipAsm` separates authoring from execution. Parse a
-//! [`source::SourceEntryPoint`] through a frontend,
+//! [`source::SourcePackage`] through a frontend,
 //! compile it into a pure [`compiler::CompiledProgram`], resolve media and
 //! tools into a [`preflight::PreparedPlan`], then execute that plan with
 //! [`render::render`].

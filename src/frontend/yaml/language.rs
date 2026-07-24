@@ -121,6 +121,7 @@ mod tests {
                 outputs: vec![output],
             },
             implementation,
+            body_contract: None,
             postfix,
         }
     }

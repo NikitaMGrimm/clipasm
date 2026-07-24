@@ -5,31 +5,63 @@ mod location;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::program::StackAccess;
+use crate::program::{InputPort, ParameterType, StackAccess};
 
 pub(crate) use location::Spanned;
 pub use location::{SourceFile, SourceSpan};
 
 pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
 
-/// One root compilation unit containing project and publication configuration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct SourceUnitId(pub(crate) usize);
+
+/// One linked collection of authored source programs.
 #[derive(Clone, Debug)]
-pub struct SourceEntryPoint {
+pub struct SourcePackage {
+    pub(crate) root: SourceUnitId,
+    pub(crate) units: Vec<SourceUnit>,
+}
+
+impl SourcePackage {
+    #[must_use]
+    pub(crate) fn root(&self) -> &SourceUnit {
+        &self.units[self.root.0]
+    }
+
+    #[must_use]
+    pub(crate) fn units(&self) -> &[SourceUnit] {
+        &self.units
+    }
+}
+
+/// One linked authored source unit.
+#[derive(Clone, Debug)]
+pub struct SourceUnit {
     pub(crate) source: SourceFile,
-    pub(crate) project: ProjectSettings,
+    pub(crate) imports: Vec<ResolvedImport>,
+    pub(crate) project: Option<Spanned<ProjectSettings>>,
     pub(crate) program: SourceProgram,
     pub(crate) output: Option<Spanned<PathBuf>>,
 }
 
-impl SourceEntryPoint {
+#[derive(Clone, Debug)]
+pub(crate) struct UnlinkedSourceUnit {
+    pub(crate) source: SourceFile,
+    pub(crate) imports: Vec<SourceImport>,
+    pub(crate) project: Option<Spanned<ProjectSettings>>,
+    pub(crate) program: SourceProgram,
+    pub(crate) output: Option<Spanned<PathBuf>>,
+}
+
+impl SourceUnit {
     #[must_use]
     pub(crate) const fn source(&self) -> &SourceFile {
         &self.source
     }
 
     #[must_use]
-    pub(crate) const fn project(&self) -> &ProjectSettings {
-        &self.project
+    pub(crate) const fn project(&self) -> Option<&Spanned<ProjectSettings>> {
+        self.project.as_ref()
     }
 
     #[must_use]
@@ -43,9 +75,23 @@ impl SourceEntryPoint {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SourceImport {
+    pub(crate) alias: Spanned<String>,
+    pub(crate) path: Spanned<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedImport {
+    pub(crate) alias: Spanned<String>,
+    pub(crate) target: SourceUnitId,
+}
+
 /// One callable authored `ClipAsm` stack program.
 #[derive(Clone, Debug)]
 pub struct SourceProgram {
+    pub(crate) inputs: Vec<InputPort>,
+    pub(crate) parameters: Vec<SourceParameter>,
     pub(crate) clips: Vec<NamedClip>,
     pub(crate) body: ProgramBody,
     pub(crate) span: SourceSpan,
@@ -53,6 +99,16 @@ pub struct SourceProgram {
 }
 
 impl SourceProgram {
+    #[must_use]
+    pub(crate) fn inputs(&self) -> &[InputPort] {
+        &self.inputs
+    }
+
+    #[must_use]
+    pub(crate) fn parameters(&self) -> &[SourceParameter] {
+        &self.parameters
+    }
+
     #[must_use]
     pub(crate) fn clips(&self) -> &[NamedClip] {
         &self.clips
@@ -72,6 +128,13 @@ impl SourceProgram {
     pub(crate) const fn stack_access(&self) -> StackAccess {
         self.stack_access
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SourceParameter {
+    pub(crate) name: Spanned<String>,
+    pub(crate) parameter_type: ParameterType,
+    pub(crate) default: Option<Literal>,
 }
 
 #[derive(Clone, Debug, Default)]

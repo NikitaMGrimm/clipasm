@@ -25,6 +25,10 @@ pub(super) fn bind_call(
     invocation: &Invocation,
     context: BindContext<'_>,
     mut resolve_input_value: impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
+    mut resolve_parameter_value: impl FnMut(
+        &crate::source::Spanned<String>,
+        &ParameterDescriptor,
+    ) -> Result<Spanned<ParameterValue>>,
 ) -> Result<ResolvedCall> {
     let BindContext {
         stack,
@@ -120,7 +124,7 @@ pub(super) fn bind_call(
         })
         .collect::<Result<BTreeMap<_, _>>>()?;
 
-    let parameters = bind_parameters(definition, invocation)?;
+    let parameters = bind_parameters(definition, invocation, &mut resolve_parameter_value)?;
     Ok(ResolvedCall::new(
         descriptor.name.clone(),
         inputs,
@@ -133,14 +137,21 @@ pub(super) fn bind_call(
 fn bind_parameters(
     definition: &ProgramDefinition,
     invocation: &Invocation,
+    resolve_parameter_value: &mut impl FnMut(
+        &crate::source::Spanned<String>,
+        &ParameterDescriptor,
+    ) -> Result<Spanned<ParameterValue>>,
 ) -> Result<BoundParameters> {
     let mut parameters = BTreeMap::new();
     for descriptor in &definition.descriptor.parameters {
         if let Some(argument) = invocation.arguments.get(&descriptor.name) {
-            parameters.insert(
-                descriptor.name.clone(),
-                bind_parameter(&definition.descriptor.name, descriptor, argument)?,
-            );
+            let value = match argument {
+                ArgumentValue::Reference(reference) => {
+                    resolve_parameter_value(reference, descriptor)?
+                }
+                _ => bind_parameter(&definition.descriptor.name, descriptor, argument)?,
+            };
+            parameters.insert(descriptor.name.clone(), value);
         } else if descriptor.required {
             return Err(Diagnostic::new(
                 "E_MISSING_ARGUMENT",
@@ -170,7 +181,22 @@ fn bind_parameter(
             argument.span().clone(),
         ));
     };
-    let value = match (&descriptor.parameter_type, argument) {
+    let value = bind_literal_value(
+        program,
+        &descriptor.name,
+        &descriptor.parameter_type,
+        argument,
+    )?;
+    Ok(Spanned::new(value, argument.span().clone()))
+}
+
+pub(super) fn bind_literal_value(
+    program: &str,
+    parameter: &str,
+    parameter_type: &ParameterType,
+    argument: &Literal,
+) -> Result<ParameterValue> {
+    let value = match (parameter_type, argument) {
         (ParameterType::Integer, Literal::Integer(value, _)) => ParameterValue::Integer(*value),
         (ParameterType::File, Literal::String(value, _)) => ParameterValue::File(value.into()),
         (ParameterType::Duration, Literal::String(value, span)) => {
@@ -188,7 +214,7 @@ fn bind_parameter(
                         "E_INVALID_ARGUMENT_VALUE",
                         format!(
                             "parameter `{program}.{}` must be one of: {}",
-                            descriptor.name,
+                            parameter,
                             allowed.join(", ")
                         ),
                         span.clone(),
@@ -199,15 +225,26 @@ fn bind_parameter(
         _ => {
             return Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "parameter `{}.{}` has the wrong value type",
-                    program, descriptor.name
-                ),
+                format!("parameter `{program}.{parameter}` has the wrong value type"),
                 argument.span().clone(),
             ));
         }
     };
-    Ok(Spanned::new(value, argument.span().clone()))
+    Ok(value)
+}
+
+pub(super) fn parameter_value_matches(
+    parameter_type: &ParameterType,
+    value: &ParameterValue,
+) -> bool {
+    matches!(
+        (parameter_type, value),
+        (ParameterType::Integer, ParameterValue::Integer(_))
+            | (ParameterType::File, ParameterValue::File(_))
+            | (ParameterType::Duration, ParameterValue::Duration(_))
+            | (ParameterType::TimeRange, ParameterValue::TimeRange(_))
+            | (ParameterType::Keyword(_), ParameterValue::Keyword(_))
+    )
 }
 
 fn resolve_explicit_input(
@@ -357,6 +394,7 @@ mod tests {
                 outputs: vec![ValueType::Video],
             },
             implementation: ProgramImplementation::Direct(lower_stub),
+            body_contract: None,
             postfix: None,
         }
     }
@@ -398,6 +436,7 @@ mod tests {
                 origin: SourceOrigin::new("typed", span()),
             },
             |_, _| unreachable!("typed program has no inputs"),
+            |_, _| unreachable!("typed test parameters use literals"),
         )
     }
 

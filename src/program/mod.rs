@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
-use crate::source::{SourceSpan, Spanned};
+use crate::source::{SourceSpan, SourceUnitId, Spanned};
 
 pub(crate) use builtins::builtin_programs;
 
@@ -98,6 +98,19 @@ pub(crate) struct PostfixSyntax {
     pub(crate) parameter: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BodyContract {
+    pub(crate) initial_values: Vec<ValueType>,
+    pub(crate) outputs: BodyOutputConstraint,
+    pub(crate) count_error_code: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum BodyOutputConstraint {
+    Exactly(Vec<ValueType>),
+    Variadic { value_type: ValueType, min: usize },
+}
+
 pub(crate) type ProgramOutputs = Vec<ValueRef>;
 pub(crate) type DirectLowerFn =
     for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<ProgramOutputs>;
@@ -108,6 +121,7 @@ pub(crate) type BodyPrepareFn =
 pub(crate) enum ProgramImplementation {
     Direct(DirectLowerFn),
     Body(BodyPrepareFn),
+    Authored(SourceUnitId),
 }
 
 impl std::fmt::Debug for ProgramImplementation {
@@ -115,6 +129,7 @@ impl std::fmt::Debug for ProgramImplementation {
         formatter.write_str(match self {
             Self::Direct(_) => "Direct",
             Self::Body(_) => "Body",
+            Self::Authored(_) => "Authored",
         })
     }
 }
@@ -123,6 +138,7 @@ impl std::fmt::Debug for ProgramImplementation {
 pub(crate) struct ProgramDefinition {
     pub(crate) descriptor: ProgramDescriptor,
     pub(crate) implementation: ProgramImplementation,
+    pub(crate) body_contract: Option<BodyContract>,
     pub(crate) postfix: Option<PostfixSyntax>,
 }
 
@@ -179,6 +195,16 @@ impl ResolvedCall {
     #[must_use]
     pub(crate) const fn origin(&self) -> &SourceOrigin {
         &self.origin
+    }
+
+    #[must_use]
+    pub(crate) fn inputs(&self) -> &BTreeMap<String, Vec<ValueRef>> {
+        &self.inputs
+    }
+
+    #[must_use]
+    pub(crate) fn parameters(&self) -> &BoundParameters {
+        &self.parameters
     }
 
     pub(crate) fn one_input(&self, name: &str) -> Result<ValueRef> {
@@ -291,6 +317,7 @@ impl ResolvedCall {
 struct ProgramCatalogData {
     definitions: Vec<ProgramDefinition>,
     names: BTreeMap<String, ProgramId>,
+    namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
 }
 
 #[derive(Clone, Debug)]
@@ -318,7 +345,36 @@ impl ProgramRegistry {
             })
             .collect();
         Ok(Self {
-            data: Arc::new(ProgramCatalogData { definitions, names }),
+            data: Arc::new(ProgramCatalogData {
+                definitions,
+                names,
+                namespaces: BTreeMap::new(),
+            }),
+        })
+    }
+
+    pub(crate) fn from_linked(
+        definitions: Vec<ProgramDefinition>,
+        builtin_count: usize,
+        namespaces: BTreeMap<SourceUnitId, BTreeMap<String, ProgramId>>,
+    ) -> Result<Self> {
+        validate_definitions(&definitions)?;
+        let names = definitions[..builtin_count]
+            .iter()
+            .enumerate()
+            .map(|(index, definition)| {
+                (
+                    definition.descriptor.name.clone(),
+                    ProgramId::new(u32::try_from(index).expect("program catalog fits in u32")),
+                )
+            })
+            .collect();
+        Ok(Self {
+            data: Arc::new(ProgramCatalogData {
+                definitions,
+                names,
+                namespaces,
+            }),
         })
     }
 
@@ -341,8 +397,20 @@ impl ProgramRegistry {
     pub(crate) fn definitions(&self) -> &[ProgramDefinition] {
         &self.data.definitions
     }
+
+    #[must_use]
+    pub(crate) fn get_for(&self, unit: SourceUnitId, name: &str) -> Option<&ProgramDefinition> {
+        self.get(name).or_else(|| {
+            self.data
+                .namespaces
+                .get(&unit)
+                .and_then(|namespace| namespace.get(name))
+                .map(|id| self.definition(*id))
+        })
+    }
 }
 
+#[allow(clippy::too_many_lines)]
 fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
     let mut programs = BTreeSet::new();
     for definition in definitions {
@@ -405,10 +473,38 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
             )));
         }
 
-        match (definition.implementation, &definition.postfix) {
-            (ProgramImplementation::Direct(_), Some(_)) => {
+        match (definition.implementation, &definition.body_contract) {
+            (ProgramImplementation::Body(_), None) => {
                 return Err(definition_error(format!(
-                    "direct program `{}` cannot declare postfix syntax",
+                    "body program `{}` is missing a body contract",
+                    descriptor.name
+                )));
+            }
+            (ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_), Some(_)) => {
+                return Err(definition_error(format!(
+                    "non-body program `{}` cannot declare a body contract",
+                    descriptor.name
+                )));
+            }
+            (
+                _,
+                Some(BodyContract {
+                    outputs: BodyOutputConstraint::Variadic { min: 0, .. },
+                    ..
+                }),
+            ) => {
+                return Err(definition_error(format!(
+                    "body program `{}` has a variadic body output minimum of zero",
+                    descriptor.name
+                )));
+            }
+            _ => {}
+        }
+
+        match (definition.implementation, &definition.postfix) {
+            (ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_), Some(_)) => {
+                return Err(definition_error(format!(
+                    "non-body program `{}` cannot declare postfix syntax",
                     descriptor.name
                 )));
             }
@@ -491,6 +587,7 @@ mod tests {
                 outputs: vec![ValueType::Video],
             },
             implementation,
+            body_contract: None,
             postfix,
         }
     }

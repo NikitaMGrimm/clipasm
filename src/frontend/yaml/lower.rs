@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use yaml_rust2::scanner::TScalarStyle;
@@ -9,42 +8,48 @@ use super::language::{
 };
 use super::raw::{RawKind, RawNode};
 use crate::diagnostic::{Diagnostic, Result};
-use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess};
+use crate::program::{
+    Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation,
+    ProgramRegistry, StackAccess,
+};
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
-    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceEntryPoint,
-    SourceProgram, VideoSettings,
+    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceImport, SourcePackage,
+    SourceParameter, SourceProgram, SourceUnit, SourceUnitId, UnlinkedSourceUnit, VideoSettings,
 };
 use crate::source::{SourceFile, SourceSpan, Spanned};
-
-/// Parse and normalize a restricted `ClipAsm` YAML document.
-///
-/// # Errors
-///
-/// Returns a source-located diagnostic when the file cannot be read or violates
-/// the restricted YAML or source-program grammar.
-pub fn parse_file(path: &Path) -> Result<SourceEntryPoint> {
-    let source =
-        fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
-    let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let language = Language::default();
-    parse_source_with_language(SourceFile::new(source_path, source), &language)
-}
 
 /// Parse source-program text supplied by tests or an embedding application.
 ///
 /// # Errors
 ///
 /// Returns a source-located diagnostic for invalid YAML or source-program syntax.
-pub fn parse_str(path: &Path, source: &str) -> Result<SourceEntryPoint> {
+pub fn parse_str(path: &Path, source: &str) -> Result<SourcePackage> {
     let language = Language::default();
-    parse_source_with_language(
+    let unit = parse_source_with_language(
         SourceFile::new(path.to_path_buf(), source.to_owned()),
         &language,
-    )
+    )?;
+    if let Some(import) = unit.imports.first() {
+        return Err(Diagnostic::new(
+            "E_IMPORT_REQUIRES_FILE",
+            "imports require `parse_file` so relative source files can be loaded",
+            import.path.span.clone(),
+        ));
+    }
+    Ok(SourcePackage {
+        root: SourceUnitId(0),
+        units: vec![SourceUnit {
+            source: unit.source,
+            imports: Vec::new(),
+            project: unit.project,
+            program: unit.program,
+            output: unit.output,
+        }],
+    })
 }
 
-/// Parse source-program text with an explicit static language.
+/// Parse source-program text with an explicit language.
 ///
 /// # Errors
 ///
@@ -54,23 +59,44 @@ pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,
     language: &Language,
-) -> Result<SourceEntryPoint> {
-    parse_source_with_language(
+) -> Result<SourcePackage> {
+    let unit = parse_source_with_language(
         SourceFile::new(path.to_path_buf(), source.to_owned()),
         language,
-    )
+    )?;
+    if let Some(import) = unit.imports.first() {
+        return Err(Diagnostic::new(
+            "E_IMPORT_REQUIRES_FILE",
+            "imports require file-backed package loading",
+            import.path.span.clone(),
+        ));
+    }
+    Ok(SourcePackage {
+        root: SourceUnitId(0),
+        units: vec![SourceUnit {
+            source: unit.source,
+            imports: Vec::new(),
+            project: unit.project,
+            program: unit.program,
+            output: unit.output,
+        }],
+    })
 }
 
-fn parse_source_with_language(source: SourceFile, language: &Language) -> Result<SourceEntryPoint> {
+pub(crate) fn parse_source_with_language(
+    source: SourceFile,
+    language: &Language,
+) -> Result<UnlinkedSourceUnit> {
     let root = super::raw::parse(&source)?;
     parse_source_program(source, root, language)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_source_program(
     source: SourceFile,
     root: RawNode,
     language: &Language,
-) -> Result<SourceEntryPoint> {
+) -> Result<UnlinkedSourceUnit> {
     let root_span = root.span.clone();
     let RawKind::Sequence(mut items) = root.kind else {
         return Err(Diagnostic::new(
@@ -99,7 +125,10 @@ fn parse_source_program(
     let (_, _, definition) = header_entries.remove(0);
     let entries = into_mapping(definition, "the `program` header")?;
     let mut version = None;
-    let mut video = VideoSettings::default();
+    let mut project = None;
+    let mut imports = Vec::new();
+    let mut inputs = Vec::new();
+    let mut parameters = Vec::new();
     let mut clips = Vec::new();
     let mut output = None;
     let mut stack_access = SOURCE_PROGRAM_DEFAULT_STACK_ACCESS;
@@ -116,7 +145,18 @@ fn parse_source_program(
                     )
                 })?);
             }
-            "project" => video = parse_project(value)?,
+            "project" => {
+                let span = value.span.clone();
+                project = Some(Spanned::new(
+                    ProjectSettings {
+                        video: parse_project(value)?,
+                    },
+                    span,
+                ));
+            }
+            "imports" => imports = parse_imports(value)?,
+            "inputs" => inputs = parse_inputs(value)?,
+            "parameters" => parameters = parse_parameters(value)?,
             "clips" => clips = parse_clips(value, language)?,
             "output" => {
                 let (text, _) = scalar(&value, "`output`")?;
@@ -155,10 +195,13 @@ fn parse_source_program(
         span: root_span,
     };
 
-    Ok(SourceEntryPoint {
+    Ok(UnlinkedSourceUnit {
         source,
-        project: ProjectSettings { video },
+        imports,
+        project,
         program: SourceProgram {
+            inputs,
+            parameters,
             clips,
             body,
             span: header_span,
@@ -166,6 +209,169 @@ fn parse_source_program(
         },
         output,
     })
+}
+
+fn parse_imports(node: RawNode) -> Result<Vec<SourceImport>> {
+    into_mapping(node, "`imports`")?
+        .into_iter()
+        .map(|(alias, alias_span, value)| {
+            validate_name(&alias, &alias_span)?;
+            let (path, _) = scalar(&value, "an import path")?;
+            Ok(SourceImport {
+                alias: Spanned::new(alias, alias_span),
+                path: Spanned::new(PathBuf::from(path), value.span),
+            })
+        })
+        .collect()
+}
+
+fn parse_inputs(node: RawNode) -> Result<Vec<InputPort>> {
+    let span = node.span.clone();
+    let RawKind::Sequence(values) = node.kind else {
+        return Err(Diagnostic::new(
+            "E_EXPECTED_SEQUENCE",
+            "`inputs` must be a sequence because input order controls stack binding",
+            span,
+        ));
+    };
+    values
+        .into_iter()
+        .map(|value| {
+            let entry_span = value.span.clone();
+            let mut entries = into_mapping(value, "an `inputs` entry")?;
+            if entries.len() != 1 {
+                return Err(Diagnostic::new(
+                    "E_INVALID_PROGRAM_INPUT",
+                    "each `inputs` entry must contain exactly one `name: Video` pair",
+                    entry_span,
+                ));
+            }
+            let (name, name_span, value_type) = entries.remove(0);
+            validate_name(&name, &name_span)?;
+            let type_span = value_type.span.clone();
+            let (value_type, _) = scalar(&value_type, "an input type")?;
+            if value_type != "Video" {
+                return Err(Diagnostic::new(
+                    "E_UNKNOWN_VALUE_TYPE",
+                    format!("unknown input type `{value_type}`; expected `Video`"),
+                    type_span,
+                ));
+            }
+            Ok(InputPort {
+                name,
+                value_type: crate::model::ValueType::Video,
+                cardinality: Cardinality::One,
+            })
+        })
+        .collect()
+}
+
+fn parse_parameters(node: RawNode) -> Result<Vec<SourceParameter>> {
+    into_mapping(node, "`parameters`")?
+        .into_iter()
+        .map(|(name, name_span, value)| {
+            validate_name(&name, &name_span)?;
+            let (parameter_type, default) = parse_parameter_declaration(value)?;
+            Ok(SourceParameter {
+                name: Spanned::new(name, name_span),
+                parameter_type,
+                default,
+            })
+        })
+        .collect()
+}
+
+fn parse_parameter_declaration(node: RawNode) -> Result<(ParameterType, Option<Literal>)> {
+    if matches!(node.kind, RawKind::Scalar { .. }) {
+        let (name, _) = scalar(&node, "a parameter type")?;
+        return Ok((parse_parameter_type(name, None, &node.span)?, None));
+    }
+    let declaration_span = node.span.clone();
+    let mut type_name = None;
+    let mut values = None;
+    let mut default = None;
+    for (field, field_span, value) in into_mapping(node, "a parameter declaration")? {
+        match field.as_str() {
+            "type" => type_name = Some(scalar(&value, "`type`")?.0.to_owned()),
+            "values" => {
+                let values_span = value.span.clone();
+                let RawKind::Sequence(entries) = value.kind else {
+                    return Err(Diagnostic::new(
+                        "E_EXPECTED_SEQUENCE",
+                        "keyword `values` must be a sequence",
+                        values_span,
+                    ));
+                };
+                values = Some(
+                    entries
+                        .into_iter()
+                        .map(|entry| {
+                            scalar(&entry, "a keyword value").map(|(value, _)| value.to_owned())
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                );
+            }
+            "default" => default = Some(parse_literal(&value)?),
+            _ => {
+                return Err(Diagnostic::new(
+                    "E_UNKNOWN_PARAMETER_FIELD",
+                    format!("unknown parameter declaration field `{field}`"),
+                    field_span,
+                ));
+            }
+        }
+    }
+    let type_name = type_name.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_PARAMETER_TYPE",
+            "a parameter declaration mapping requires `type`",
+            declaration_span.clone(),
+        )
+    })?;
+    Ok((
+        parse_parameter_type(&type_name, values, &declaration_span)?,
+        default,
+    ))
+}
+
+fn parse_parameter_type(
+    name: &str,
+    values: Option<Vec<String>>,
+    span: &SourceSpan,
+) -> Result<ParameterType> {
+    match name {
+        "Integer" => Ok(ParameterType::Integer),
+        "File" => Ok(ParameterType::File),
+        "Duration" => Ok(ParameterType::Duration),
+        "TimeRange" => Ok(ParameterType::TimeRange),
+        "Keyword" => {
+            let values = values.filter(|values| !values.is_empty()).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_MISSING_KEYWORD_VALUES",
+                    "a `Keyword` parameter requires a nonempty `values` sequence",
+                    span.clone(),
+                )
+            })?;
+            Ok(ParameterType::Keyword(values))
+        }
+        _ => Err(Diagnostic::new(
+            "E_UNKNOWN_PARAMETER_TYPE",
+            format!("unknown parameter type `{name}`"),
+            span.clone(),
+        )),
+    }
+}
+
+fn parse_literal(node: &RawNode) -> Result<Literal> {
+    let span = node.span.clone();
+    let (value, style) = scalar(node, "a parameter default")?;
+    if style == TScalarStyle::Plain
+        && let Ok(value) = value.parse::<i64>()
+    {
+        Ok(Literal::Integer(value, span))
+    } else {
+        Ok(Literal::String(value.to_owned(), span))
+    }
 }
 
 fn parse_project(node: RawNode) -> Result<VideoSettings> {
@@ -277,19 +483,9 @@ fn parse_item(node: RawNode, language: &Language) -> Result<Item> {
                     span: item_span,
                 })
             } else if style == TScalarStyle::Plain {
-                let definition = language.programs.get(&value).ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_UNKNOWN_PROGRAM",
-                        format!("unknown program `{value}`"),
-                        item_span.clone(),
-                    )
-                })?;
                 Ok(Item {
                     kind: ItemKind::Invocation(Invocation {
-                        program: Spanned::new(
-                            definition.descriptor.name.clone(),
-                            item_span.clone(),
-                        ),
+                        program: Spanned::new(value, item_span.clone()),
                         stack_access: None,
                         arguments: BTreeMap::new(),
                         body: None,
@@ -390,15 +586,20 @@ fn parse_invocation(
 
     if program_entries.len() == 1 {
         let (program, program_span, value) = program_entries.remove(0);
-        let definition = require_program(&language.programs, &program, &program_span)?;
-        let invocation = normalize_invocation(definition, program_span.clone(), value, language)?;
-        if definition.postfix.is_some() && invocation.body.is_none() {
-            return Err(Diagnostic::new(
-                "E_POSTFIX_REQUIRES_EXPRESSION",
-                format!("postfix program `{program}` requires an expression to wrap"),
-                program_span,
-            ));
-        }
+        let invocation = if let Some(definition) = language.programs.get(&program) {
+            let invocation =
+                normalize_invocation(definition, program_span.clone(), value, language)?;
+            if definition.postfix.is_some() && invocation.body.is_none() {
+                return Err(Diagnostic::new(
+                    "E_POSTFIX_REQUIRES_EXPRESSION",
+                    format!("postfix program `{program}` requires an expression to wrap"),
+                    program_span,
+                ));
+            }
+            invocation
+        } else {
+            normalize_generic_invocation(program, program_span, value, language)?
+        };
         return Ok(Item {
             kind: ItemKind::Invocation(invocation),
             output_bindings,
@@ -467,6 +668,51 @@ fn parse_invocation(
         kind: ItemKind::Invocation(wrapper_invocation),
         output_bindings,
         span,
+    })
+}
+
+fn normalize_generic_invocation(
+    program: String,
+    program_span: SourceSpan,
+    value: RawNode,
+    language: &Language,
+) -> Result<Invocation> {
+    let mut arguments = BTreeMap::new();
+    let mut stack_access = None;
+    let mut body = None;
+    if is_empty_scalar(&value) {
+        // Missing inputs are bound from the invocation's accessible stack suffix.
+    } else if matches!(value.kind, RawKind::Mapping(_)) {
+        for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
+            if name == STACK_ACCESS_FIELD {
+                stack_access = Some(parse_stack_access(&value)?);
+            } else if arguments
+                .insert(name.clone(), parse_argument_value(value, language)?)
+                .is_some()
+            {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_ARGUMENT",
+                    format!("duplicate argument `{name}`"),
+                    name_span,
+                ));
+            }
+        }
+    } else if matches!(value.kind, RawKind::Sequence(_)) {
+        body = Some(parse_body(value, &format!("`{program}` body"), language)?);
+    } else {
+        return Err(Diagnostic::new(
+            "E_INVALID_PRIMARY_ARGUMENT",
+            format!(
+                "authored program `{program}` has no representation-specific primary shorthand"
+            ),
+            value.span,
+        ));
+    }
+    Ok(Invocation {
+        program: Spanned::new(program, program_span),
+        stack_access,
+        arguments,
+        body,
     })
 }
 
@@ -707,7 +953,7 @@ mod tests {
     };
     use crate::semantic::GraphBuilder;
 
-    fn parse(source: &str) -> Result<SourceEntryPoint> {
+    fn parse(source: &str) -> Result<SourcePackage> {
         parse_str(Path::new("workflow.yaml"), source)
     }
 
@@ -718,10 +964,10 @@ mod tests {
         )
         .expect("source program");
         assert!(matches!(
-            program.program.body.items[0].kind,
+            program.root().program.body.items[0].kind,
             ItemKind::Reference(Reference { .. })
         ));
-        assert_eq!(program.program.clips[0].body.items.len(), 1);
+        assert_eq!(program.root().program.clips[0].body.items.len(), 1);
     }
 
     #[test]
@@ -730,8 +976,8 @@ mod tests {
             "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: a.png\n    duration: 1s\n    stack_access: visible\n",
         )
         .expect("source program");
-        assert_eq!(program.program.stack_access, StackAccess::Visible);
-        let ItemKind::Invocation(invocation) = &program.program.body.items[0].kind else {
+        assert_eq!(program.root().program.stack_access, StackAccess::Visible);
+        let ItemKind::Invocation(invocation) = &program.root().program.body.items[0].kind else {
             panic!("image invocation");
         };
         assert_eq!(
@@ -745,10 +991,10 @@ mod tests {
         let program = parse("- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n")
             .expect("source program");
         assert_eq!(
-            program.program.stack_access,
+            program.root().program.stack_access,
             SOURCE_PROGRAM_DEFAULT_STACK_ACCESS
         );
-        assert_eq!(program.program.stack_access, StackAccess::Owned);
+        assert_eq!(program.root().program.stack_access, StackAccess::Owned);
     }
 
     #[test]
@@ -781,7 +1027,7 @@ mod tests {
             "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n  during: 0s..1s\n",
         )
         .expect("source program");
-        let outer = &program.program.body.items[0];
+        let outer = &program.root().program.body.items[0];
         let ItemKind::Invocation(during) = &outer.kind else {
             panic!("during invocation");
         };
@@ -795,7 +1041,7 @@ mod tests {
             "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n    stack_access: visible\n  during:\n    range: 0s..1s\n    stack_access: visible\n",
         )
         .expect("source program");
-        let ItemKind::Invocation(during) = &program.program.body.items[0].kind else {
+        let ItemKind::Invocation(during) = &program.root().program.body.items[0].kind else {
             panic!("during invocation");
         };
         assert_eq!(
@@ -915,6 +1161,7 @@ mod tests {
                     outputs: vec![ValueType::Video],
                 },
                 implementation: ProgramImplementation::Direct(lower_synthetic_source),
+                body_contract: None,
                 postfix: None,
             },
             ProgramDefinition {
@@ -928,6 +1175,11 @@ mod tests {
                     outputs: vec![ValueType::Video],
                 },
                 implementation: ProgramImplementation::Body(prepare_synthetic_body),
+                body_contract: Some(crate::program::BodyContract {
+                    initial_values: Vec::new(),
+                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![ValueType::Video]),
+                    count_error_code: "E_BODY_OUTPUT_COUNT",
+                }),
                 postfix: None,
             },
             ProgramDefinition {
@@ -945,6 +1197,11 @@ mod tests {
                     outputs: vec![ValueType::Video],
                 },
                 implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
+                body_contract: Some(crate::program::BodyContract {
+                    initial_values: Vec::new(),
+                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![ValueType::Video]),
+                    count_error_code: "E_BODY_OUTPUT_COUNT",
+                }),
                 postfix: Some(PostfixSyntax {
                     parameter: "range".to_owned(),
                 }),
@@ -963,7 +1220,8 @@ mod tests {
             &language,
         )
         .expect("generic parse");
-        let OutputBindings::Many(names, _) = &workflow.program.body.items[0].output_bindings else {
+        let OutputBindings::Many(names, _) = &workflow.root().program.body.items[0].output_bindings
+        else {
             panic!("outer ids");
         };
         assert_eq!(

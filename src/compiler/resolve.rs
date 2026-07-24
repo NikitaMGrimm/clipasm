@@ -4,37 +4,38 @@ use crate::compiler::evaluate::Evaluation;
 use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
-use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind};
-use crate::source::SourceEntryPoint;
+use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SymbolId};
+use crate::source::SourceUnit;
 
 struct SymbolFrame {
-    name: String,
+    symbol: SymbolId,
     next_target: usize,
 }
 
 pub(super) fn finalize(
-    entrypoint: &SourceEntryPoint,
+    entrypoint: &SourceUnit,
     video: VideoSpec,
     evaluation: Evaluation,
     format_version: u32,
 ) -> Result<CompiledProgram> {
     validate_references(&evaluation)?;
     detect_cycles(&evaluation)?;
-    let names = evaluation
+    let symbol_values = evaluation
         .symbols
         .iter()
-        .map(|(name, symbol)| {
+        .map(|(id, symbol)| {
             (
-                name.clone(),
+                *id,
                 symbol.value.expect("every collected symbol is evaluated"),
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let roots = names
+    let roots = evaluation
+        .public_symbols
         .values()
-        .copied()
+        .map(|symbol| symbol_values[symbol])
         .chain(evaluation.outputs.iter().copied());
-    let order = super::traversal::topological_order(&evaluation.nodes, &names, roots)?;
+    let order = super::traversal::topological_order(&evaluation.nodes, &symbol_values, roots)?;
     let domains = infer_domains(&evaluation, &video, &order)?;
     let structure_hash = super::fingerprint::compiled_structure_hash(
         &evaluation,
@@ -57,12 +58,12 @@ pub(super) fn finalize(
         })
         .collect();
     let named_values = evaluation
-        .symbol_order
+        .public_symbols
         .iter()
-        .map(|name| {
+        .map(|(name, key)| {
             (
                 name.clone(),
-                evaluation.symbols[name]
+                evaluation.symbols[key]
                     .value
                     .expect("every collected symbol is evaluated"),
             )
@@ -92,6 +93,7 @@ pub(super) fn finalize(
         nodes,
         outputs: evaluation.outputs,
         named_values,
+        symbol_values,
         explain,
         output: entrypoint.output().cloned(),
         entrypoint_source: entrypoint.source().clone(),
@@ -100,29 +102,30 @@ pub(super) fn finalize(
 
 fn validate_references(evaluation: &Evaluation) -> Result<()> {
     for node in &evaluation.nodes {
-        if let SemanticNodeKind::Reference { name } = node.kind() {
-            let Some(symbol) = evaluation.symbols.get(name) else {
+        if let SemanticNodeKind::Reference { symbol } = node.kind() {
+            let Some(binding) = evaluation.symbols.get(symbol) else {
                 return Err(Diagnostic::new(
                     "E_MISSING_REFERENCE",
-                    format!("reference `${name}` does not name any clip or invocation id"),
+                    format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 ));
             };
-            if symbol.value.is_none() {
+            if binding.value.is_none() {
                 return Err(Diagnostic::new(
                     "E_MISSING_REFERENCE",
-                    format!("name `{name}` has no compiled value"),
+                    format!("name `{}` has no compiled value", binding.name),
                     node.origin().span.clone(),
                 ));
             }
-            let symbol_type = symbol
+            let symbol_type = binding
                 .value_type
                 .expect("symbol types are resolved before evaluation");
             if symbol_type != node.value_type() {
                 return Err(Diagnostic::new(
                     "E_TYPE_MISMATCH",
                     format!(
-                        "reference `${name}` has type {}, but its expression was recorded as {}",
+                        "reference `${}` has type {}, but its expression was recorded as {}",
+                        binding.name,
                         symbol_type,
                         node.value_type()
                     ),
@@ -135,49 +138,52 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
 }
 
 fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
-    let mut edges = BTreeMap::<String, Vec<String>>::new();
-    for name in &evaluation.symbol_order {
-        let value = evaluation.symbols[name]
+    let mut edges = BTreeMap::<SymbolId, Vec<SymbolId>>::new();
+    for symbol in &evaluation.symbol_order {
+        let value = evaluation.symbols[symbol]
             .value
             .expect("every collected symbol is evaluated");
         let mut references = BTreeSet::new();
         collect_direct_references(value, &evaluation.nodes, &mut references);
-        edges.insert(name.clone(), references.into_iter().collect());
+        edges.insert(*symbol, references.into_iter().collect());
     }
-    let mut states = BTreeMap::<String, u8>::new();
-    let mut path = Vec::<String>::new();
-    let mut positions = BTreeMap::<String, usize>::new();
+    let mut states = BTreeMap::<SymbolId, u8>::new();
+    let mut path = Vec::<SymbolId>::new();
+    let mut positions = BTreeMap::<SymbolId, usize>::new();
     let mut stack = Vec::<SymbolFrame>::new();
 
     for root in &evaluation.symbol_order {
         if states.get(root).copied().unwrap_or(0) != 0 {
             continue;
         }
-        states.insert(root.clone(), 1);
-        positions.insert(root.clone(), 0);
-        path.push(root.clone());
+        states.insert(*root, 1);
+        positions.insert(*root, 0);
+        path.push(*root);
         stack.push(SymbolFrame {
-            name: root.clone(),
+            symbol: *root,
             next_target: 0,
         });
 
         while let Some(frame) = stack.last_mut() {
-            if let Some(target) = edges[&frame.name].get(frame.next_target).cloned() {
+            if let Some(target) = edges[&frame.symbol].get(frame.next_target).copied() {
                 frame.next_target += 1;
                 match states.get(&target).copied().unwrap_or(0) {
                     0 => {
-                        states.insert(target.clone(), 1);
-                        positions.insert(target.clone(), path.len());
-                        path.push(target.clone());
+                        states.insert(target, 1);
+                        positions.insert(target, path.len());
+                        path.push(target);
                         stack.push(SymbolFrame {
-                            name: target,
+                            symbol: target,
                             next_target: 0,
                         });
                     }
                     1 => {
                         let start = positions[&target];
-                        let mut cycle = path[start..].to_vec();
-                        cycle.push(target.clone());
+                        let mut cycle = path[start..]
+                            .iter()
+                            .map(|symbol| evaluation.symbols[symbol].name.clone())
+                            .collect::<Vec<_>>();
+                        cycle.push(evaluation.symbols[&target].name.clone());
                         return Err(Diagnostic::new(
                             "E_DEPENDENCY_CYCLE",
                             format!("named-value dependency cycle: {}", cycle.join(" -> ")),
@@ -190,16 +196,20 @@ fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
             } else {
                 let frame = stack.pop().expect("active cycle frame");
                 let popped = path.pop().expect("active cycle path");
-                debug_assert_eq!(popped, frame.name);
-                positions.remove(&frame.name);
-                states.insert(frame.name, 2);
+                debug_assert_eq!(popped, frame.symbol);
+                positions.remove(&frame.symbol);
+                states.insert(frame.symbol, 2);
             }
         }
     }
     Ok(())
 }
 
-fn collect_direct_references(value: ValueRef, nodes: &[DraftNode], output: &mut BTreeSet<String>) {
+fn collect_direct_references(
+    value: ValueRef,
+    nodes: &[DraftNode],
+    output: &mut BTreeSet<SymbolId>,
+) {
     let mut visited = vec![false; nodes.len()];
     let mut stack = vec![value];
     while let Some(value) = stack.pop() {
@@ -210,8 +220,8 @@ fn collect_direct_references(value: ValueRef, nodes: &[DraftNode], output: &mut 
         visited[index] = true;
         match nodes[index].kind() {
             SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {}
-            SemanticNodeKind::Reference { name } => {
-                output.insert(name.clone());
+            SemanticNodeKind::Reference { symbol } => {
+                output.insert(*symbol);
             }
             SemanticNodeKind::Repeat { input, .. }
             | SemanticNodeKind::Zoom { input, .. }
@@ -258,8 +268,8 @@ fn infer_domains(
                 DomainKnowledge::Known(project_domain(video, *frames))
             }
             SemanticNodeKind::VideoSource { .. } => DomainKnowledge::Deferred,
-            SemanticNodeKind::Reference { name } => {
-                let target = evaluation.symbols[name]
+            SemanticNodeKind::Reference { symbol } => {
+                let target = evaluation.symbols[symbol]
                     .value
                     .expect("references were resolved before domain inference");
                 knowledge[target.id().get() as usize].clone()
@@ -446,8 +456,9 @@ mod tests {
         SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))
     }
 
-    fn symbol(value: ValueRef) -> Symbol {
+    fn symbol(name: String, value: ValueRef) -> Symbol {
         Symbol {
+            name,
             declared_at: SourceSpan::file_start("test.yaml"),
             value: Some(value),
             declared_type: DeclaredValueType::Known(ValueType::Video),
@@ -457,14 +468,15 @@ mod tests {
 
     fn make_evaluation(
         nodes: Vec<DraftNode>,
-        symbols: BTreeMap<String, Symbol>,
-        symbol_order: Vec<String>,
+        symbols: BTreeMap<SymbolId, Symbol>,
+        symbol_order: Vec<SymbolId>,
         root: ValueRef,
     ) -> Evaluation {
         Evaluation {
             nodes,
             symbols,
             symbol_order,
+            public_symbols: BTreeMap::new(),
             surface: Vec::<SurfaceRecord>::new(),
             outputs: vec![root],
         }
@@ -480,14 +492,16 @@ mod tests {
         let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
         let mut root = None;
         for index in 0..NAMES {
+            let symbol_id = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
+            let target =
+                SymbolId::new(u32::try_from((index + 1) % NAMES).expect("test target symbol ID"));
             let name = format!("name_{index:05}");
-            let target = format!("name_{:05}", (index + 1) % NAMES);
             let value = builder
                 .reference(target, ValueType::Video)
                 .expect("reference");
             root.get_or_insert(value);
-            symbol_order.push(name.clone());
-            symbols.insert(name, symbol(value));
+            symbol_order.push(symbol_id);
+            symbols.insert(symbol_id, symbol(name, value));
         }
         let evaluation = make_evaluation(nodes, symbols, symbol_order, root.expect("root"));
 

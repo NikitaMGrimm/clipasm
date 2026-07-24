@@ -11,7 +11,7 @@ fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledPr
     compiler::compile(&source)
 }
 
-fn project(source: &str) -> (TempDir, clipasm::source::SourceEntryPoint) {
+fn project(source: &str) -> (TempDir, clipasm::source::SourcePackage) {
     let directory = tempfile::tempdir().expect("temporary directory");
     fs::write(directory.path().join("a.ppm"), b"P3\n1 1\n255\n255 0 0\n").expect("a image");
     fs::write(directory.path().join("b.ppm"), b"P3\n1 1\n255\n0 255 0\n").expect("b image");

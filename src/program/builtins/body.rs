@@ -1,9 +1,9 @@
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
-    BodyFinalizer, BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType,
-    PostfixSyntax, ProgramDefinition, ProgramDescriptor, ProgramImplementation, ProgramOutputs,
-    ResolvedCall, StackAccess,
+    BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
+    ParameterDescriptor, ParameterType, PostfixSyntax, ProgramDefinition, ProgramDescriptor,
+    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
@@ -20,6 +20,14 @@ pub(crate) fn join() -> ProgramDefinition {
             None,
         ),
         prepare_join,
+        BodyContract {
+            initial_values: vec![VIDEO, VIDEO],
+            outputs: BodyOutputConstraint::Variadic {
+                value_type: VIDEO,
+                min: 1,
+            },
+            count_error_code: "E_EMPTY_JOIN",
+        },
         None,
     )
 }
@@ -28,6 +36,14 @@ pub(crate) fn glue() -> ProgramDefinition {
     body(
         descriptor("glue", 1, vec![], vec![], None),
         prepare_glue,
+        BodyContract {
+            initial_values: vec![],
+            outputs: BodyOutputConstraint::Variadic {
+                value_type: VIDEO,
+                min: 1,
+            },
+            count_error_code: "E_EMPTY_GLUE",
+        },
         None,
     )
 }
@@ -46,6 +62,11 @@ pub(crate) fn during() -> ProgramDefinition {
             Some("range"),
         ),
         prepare_during,
+        BodyContract {
+            initial_values: vec![VIDEO],
+            outputs: BodyOutputConstraint::Exactly(vec![VIDEO]),
+            count_error_code: "E_BODY_OUTPUT_COUNT",
+        },
         Some(PostfixSyntax {
             parameter: "range".to_owned(),
         }),
@@ -81,11 +102,13 @@ fn input(name: &str) -> InputPort {
 fn body(
     descriptor: ProgramDescriptor,
     prepare: crate::program::BodyPrepareFn,
+    body_contract: BodyContract,
     postfix: Option<PostfixSyntax>,
 ) -> ProgramDefinition {
     ProgramDefinition {
         descriptor,
         implementation: ProgramImplementation::Body(prepare),
+        body_contract: Some(body_contract),
         postfix,
     }
 }

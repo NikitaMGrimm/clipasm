@@ -44,10 +44,10 @@ pub(super) fn compiled_structure_hash(
         })
         .collect::<Vec<_>>();
     let names = evaluation
-        .symbol_order
+        .public_symbols
         .iter()
-        .map(|name| {
-            let value = evaluation.symbols[name]
+        .map(|(name, key)| {
+            let value = evaluation.symbols[key]
                 .value
                 .expect("every collected symbol is evaluated");
             (
@@ -77,8 +77,8 @@ fn value_hashes(
     for value in order {
         let index = value.id().get() as usize;
         let node = &evaluation.nodes[index];
-        if let SemanticNodeKind::Reference { name } = node.kind() {
-            let target = evaluation.symbols[name]
+        if let SemanticNodeKind::Reference { symbol } = node.kind() {
+            let target = evaluation.symbols[symbol]
                 .value
                 .expect("references are resolved before fingerprinting");
             hashes[index] = Some(
@@ -191,7 +191,7 @@ mod tests {
     use super::*;
     use crate::compiler::evaluate::{DeclaredValueType, Evaluation, Symbol};
     use crate::model::{FrameCount, ImageFit, ValueId, ValueType, VideoDomain, VideoSpec};
-    use crate::semantic::{GraphBuilder, SourceOrigin};
+    use crate::semantic::{GraphBuilder, SourceOrigin, SymbolId};
     use crate::source::SourceSpan;
 
     #[test]
@@ -206,9 +206,11 @@ mod tests {
             frame_rate: VideoSpec::default().fps,
         };
         let mut symbols = BTreeMap::new();
+        let source_symbol = SymbolId::new(0);
         symbols.insert(
-            "source".to_owned(),
+            source_symbol,
             Symbol {
+                name: "source".to_owned(),
                 declared_at: span.clone(),
                 value: Some(target),
                 declared_type: DeclaredValueType::Known(ValueType::Video),
@@ -230,12 +232,13 @@ mod tests {
             1,
             SourceOrigin::new("reference", span),
         )
-        .reference("source".to_owned(), ValueType::Video)
+        .reference(source_symbol, ValueType::Video)
         .expect("reference");
         let evaluation = Evaluation {
             nodes,
             symbols,
-            symbol_order: vec!["source".to_owned()],
+            symbol_order: vec![source_symbol],
+            public_symbols: BTreeMap::new(),
             surface: Vec::new(),
             outputs: vec![reference],
         };
@@ -275,19 +278,21 @@ mod tests {
         let mut root = source;
         let mut order = vec![source];
         for index in 0..ALIASES {
+            let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
             let name = format!("alias_{index:05}");
             symbols.insert(
-                name.clone(),
+                symbol,
                 Symbol {
+                    name,
                     declared_at: span.clone(),
                     value: Some(root),
                     declared_type: DeclaredValueType::Known(ValueType::Video),
                     value_type: Some(ValueType::Video),
                 },
             );
-            symbol_order.push(name.clone());
+            symbol_order.push(symbol);
             root = builder
-                .reference(name, ValueType::Video)
+                .reference(symbol, ValueType::Video)
                 .expect("reference");
             order.push(root);
         }
@@ -295,6 +300,7 @@ mod tests {
             nodes,
             symbols,
             symbol_order,
+            public_symbols: BTreeMap::new(),
             surface: Vec::new(),
             outputs: vec![root],
         };
@@ -326,6 +332,7 @@ mod tests {
                 nodes,
                 symbols: BTreeMap::new(),
                 symbol_order: Vec::new(),
+                public_symbols: BTreeMap::new(),
                 surface: Vec::new(),
                 outputs: vec![root],
             };

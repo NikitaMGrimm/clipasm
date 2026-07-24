@@ -386,7 +386,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     };
     let order = crate::compiler::traversal::topological_order(
         compiled.nodes(),
-        compiled.named_values(),
+        compiled.symbol_values(),
         [render_output],
     )?;
     for value in order {

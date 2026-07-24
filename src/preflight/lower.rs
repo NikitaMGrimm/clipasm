@@ -60,8 +60,14 @@ impl PreflightLowerer<'_> {
                     compiled_node.origin().clone(),
                 )?
             }
-            SemanticNodeKind::Reference { name } => {
-                let target = self.compiled.named_values()[name];
+            SemanticNodeKind::Reference { symbol } => {
+                let target = self.compiled.symbol_value(*symbol).ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_MISSING_REFERENCE",
+                        format!("reference names unknown symbol {}", symbol.index()),
+                        compiled_node.origin().span.clone(),
+                    )
+                })?;
                 self.prepared_dependency(target, compiled_node.origin())?
             }
             SemanticNodeKind::Repeat { input, count } => {

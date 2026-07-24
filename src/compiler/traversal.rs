@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueRef;
-use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SourceOrigin};
+use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SourceOrigin, SymbolId};
 
 pub(crate) trait SemanticNodeView {
     fn kind(&self) -> &SemanticNodeKind;
@@ -36,7 +36,7 @@ struct Frame {
 
 pub(crate) fn topological_order<N: SemanticNodeView>(
     nodes: &[N],
-    names: &BTreeMap<String, ValueRef>,
+    symbols: &BTreeMap<SymbolId, ValueRef>,
     roots: impl IntoIterator<Item = ValueRef>,
 ) -> Result<Vec<ValueRef>> {
     let mut states = vec![0_u8; nodes.len()];
@@ -57,7 +57,8 @@ pub(crate) fn topological_order<N: SemanticNodeView>(
             if states[index] == 0 {
                 states[index] = 1;
             }
-            if let Some(dependency) = dependency_at(&nodes[index], names, frame.next_dependency)? {
+            if let Some(dependency) = dependency_at(&nodes[index], symbols, frame.next_dependency)?
+            {
                 frame.next_dependency += 1;
                 let dependency_index = node_index(dependency, nodes)?;
                 match states[dependency_index] {
@@ -88,15 +89,15 @@ pub(crate) fn topological_order<N: SemanticNodeView>(
 
 fn dependency_at<N: SemanticNodeView>(
     node: &N,
-    names: &BTreeMap<String, ValueRef>,
+    symbols: &BTreeMap<SymbolId, ValueRef>,
     index: usize,
 ) -> Result<Option<ValueRef>> {
     Ok(match node.kind() {
-        SemanticNodeKind::Reference { name } if index == 0 => {
-            Some(*names.get(name).ok_or_else(|| {
+        SemanticNodeKind::Reference { symbol } if index == 0 => {
+            Some(*symbols.get(symbol).ok_or_else(|| {
                 Diagnostic::new(
                     "E_MISSING_REFERENCE",
-                    format!("reference `${name}` does not name any clip or invocation id"),
+                    format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 )
             })?)
@@ -157,21 +158,21 @@ mod tests {
         const ALIASES: usize = 20_001;
         let video = VideoSpec::default();
         let mut nodes = Vec::with_capacity(ALIASES + 1);
-        let mut names = BTreeMap::new();
+        let mut symbols = BTreeMap::new();
         let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
             .expect("source");
         let mut root = source;
         for index in 0..ALIASES {
-            let name = format!("alias_{index:05}");
-            names.insert(name.clone(), root);
+            let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
+            symbols.insert(symbol, root);
             root = builder
-                .reference(name, ValueType::Video)
+                .reference(symbol, ValueType::Video)
                 .expect("reference");
         }
 
-        let order = topological_order(&nodes, &names, [root]).expect("topological order");
+        let order = topological_order(&nodes, &symbols, [root]).expect("topological order");
 
         assert_eq!(order.len(), ALIASES + 1);
         assert_eq!(order[0], source);
@@ -183,22 +184,15 @@ mod tests {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
         let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
-        let a = builder
-            .reference("b".to_owned(), ValueType::Video)
-            .expect("a");
-        let b = builder
-            .reference("c".to_owned(), ValueType::Video)
-            .expect("b");
-        let c = builder
-            .reference("a".to_owned(), ValueType::Video)
-            .expect("c");
-        let names = BTreeMap::from([
-            ("a".to_owned(), a),
-            ("b".to_owned(), b),
-            ("c".to_owned(), c),
-        ]);
+        let a_symbol = SymbolId::new(0);
+        let b_symbol = SymbolId::new(1);
+        let c_symbol = SymbolId::new(2);
+        let a = builder.reference(b_symbol, ValueType::Video).expect("a");
+        let b = builder.reference(c_symbol, ValueType::Video).expect("b");
+        let c = builder.reference(a_symbol, ValueType::Video).expect("c");
+        let symbols = BTreeMap::from([(a_symbol, a), (b_symbol, b), (c_symbol, c)]);
 
-        let error = topological_order(&nodes, &names, [a]).expect_err("cycle");
+        let error = topological_order(&nodes, &symbols, [a]).expect_err("cycle");
 
         assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
     }

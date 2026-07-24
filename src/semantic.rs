@@ -9,6 +9,22 @@ use crate::model::{
 };
 use crate::source::SourceSpan;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub(crate) struct SymbolId(u32);
+
+impl SymbolId {
+    #[must_use]
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledNode {
     id: ValueId,
@@ -69,7 +85,7 @@ pub(crate) enum SemanticNodeKind {
         fit: ImageFit,
     },
     Reference {
-        name: String,
+        symbol: SymbolId,
     },
     Repeat {
         input: ValueRef,
@@ -308,8 +324,12 @@ impl<'a> GraphBuilder<'a> {
         self.push(SemanticNodeKind::Concat { inputs }, ValueType::Video)
     }
 
-    pub(crate) fn reference(&mut self, name: String, value_type: ValueType) -> Result<ValueRef> {
-        self.push(SemanticNodeKind::Reference { name }, value_type)
+    pub(crate) fn reference(
+        &mut self,
+        symbol: SymbolId,
+        value_type: ValueType,
+    ) -> Result<ValueRef> {
+        self.push(SemanticNodeKind::Reference { symbol }, value_type)
     }
 
     pub(crate) fn replace_range(

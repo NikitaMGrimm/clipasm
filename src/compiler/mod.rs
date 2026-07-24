@@ -7,6 +7,7 @@
 mod bind;
 mod evaluate;
 pub(crate) mod fingerprint;
+mod infer;
 mod resolve;
 mod stack;
 pub(crate) mod traversal;
@@ -17,13 +18,13 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
-use crate::semantic::CompiledNode;
-use crate::source::SourceEntryPoint;
+use crate::semantic::{CompiledNode, SymbolId};
 use crate::source::{SourceFile, SourceSpan, Spanned};
+use crate::source::{SourcePackage, SourceUnit};
 
 pub use crate::semantic::SourceOrigin;
 
-const COMPILED_FORMAT_VERSION: u32 = 8;
+const COMPILED_FORMAT_VERSION: u32 = 9;
 
 #[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -39,6 +40,7 @@ pub struct CompiledProgram {
     nodes: Vec<CompiledNode>,
     outputs: Vec<ValueRef>,
     named_values: BTreeMap<String, ValueRef>,
+    symbol_values: BTreeMap<SymbolId, ValueRef>,
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     entrypoint_source: SourceFile,
@@ -158,6 +160,14 @@ impl CompiledProgram {
         &self.named_values
     }
 
+    pub(crate) fn symbol_value(&self, symbol: SymbolId) -> Option<ValueRef> {
+        self.symbol_values.get(&symbol).copied()
+    }
+
+    pub(crate) fn symbol_values(&self) -> &BTreeMap<SymbolId, ValueRef> {
+        &self.symbol_values
+    }
+
     pub(crate) fn output(&self) -> Option<&Spanned<PathBuf>> {
         self.output.as_ref()
     }
@@ -240,22 +250,23 @@ impl ExplainOutput {
 ///
 /// Returns a diagnostic for invalid programs, stack behavior, references,
 /// types, cycles, or frame domains.
-pub fn compile(entrypoint: &SourceEntryPoint) -> Result<CompiledProgram> {
-    compile_with_registry(entrypoint, ProgramRegistry::default())
+pub fn compile(package: &SourcePackage) -> Result<CompiledProgram> {
+    compile_with_registry(package, infer::build_catalog(package)?)
 }
 
 pub(crate) fn compile_with_registry(
-    entrypoint: &SourceEntryPoint,
+    package: &SourcePackage,
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
+    let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(entrypoint.program(), &video, registry)?;
+    let evaluation = evaluate::evaluate(package, &video, registry)?;
     validate_publication_output(entrypoint, &evaluation)?;
     resolve::finalize(entrypoint, video, evaluation, COMPILED_FORMAT_VERSION)
 }
 
 fn validate_publication_output(
-    entrypoint: &SourceEntryPoint,
+    entrypoint: &SourceUnit,
     evaluation: &evaluate::Evaluation,
 ) -> Result<()> {
     if entrypoint.output().is_none() {
@@ -284,15 +295,18 @@ fn validate_publication_output(
     Ok(())
 }
 
-fn resolve_video_spec(entrypoint: &SourceEntryPoint) -> Result<VideoSpec> {
+fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
     let mut spec = VideoSpec::default();
-    if let Some(width) = &entrypoint.project().video.width {
+    let Some(project) = entrypoint.project() else {
+        return Ok(spec);
+    };
+    if let Some(width) = &project.value.video.width {
         spec.width = width.value;
     }
-    if let Some(height) = &entrypoint.project().video.height {
+    if let Some(height) = &project.value.video.height {
         spec.height = height.value;
     }
-    if let Some(fps) = &entrypoint.project().video.fps {
+    if let Some(fps) = &project.value.video.fps {
         spec.fps = crate::model::FrameRate::parse(&fps.value, &fps.span)?;
     }
     Ok(spec)
@@ -307,7 +321,7 @@ mod tests {
     use crate::program::StackAccess;
     use crate::source::{
         ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
-        ProjectSettings, SourceProgram,
+        ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -336,28 +350,37 @@ mod tests {
                 )),
             ),
         ]);
-        let direct = SourceEntryPoint {
-            source,
-            project: ProjectSettings::default(),
-            program: SourceProgram {
-                clips: Vec::new(),
-                body: ProgramBody {
-                    items: vec![Item {
-                        kind: ItemKind::Invocation(Invocation {
-                            program: Spanned::new("image".to_owned(), item_span.clone()),
-                            stack_access: None,
-                            arguments,
-                            body: None,
-                        }),
-                        output_bindings: OutputBindings::None,
-                        span: item_span,
-                    }],
-                    span: SourceSpan::at(program_span.source().clone(), 1, 1),
+        let direct = SourcePackage {
+            root: SourceUnitId(0),
+            units: vec![SourceUnit {
+                source,
+                imports: Vec::new(),
+                project: Some(Spanned::new(
+                    ProjectSettings::default(),
+                    program_span.clone(),
+                )),
+                program: SourceProgram {
+                    inputs: Vec::new(),
+                    parameters: Vec::new(),
+                    clips: Vec::new(),
+                    body: ProgramBody {
+                        items: vec![Item {
+                            kind: ItemKind::Invocation(Invocation {
+                                program: Spanned::new("image".to_owned(), item_span.clone()),
+                                stack_access: None,
+                                arguments,
+                                body: None,
+                            }),
+                            output_bindings: OutputBindings::None,
+                            span: item_span,
+                        }],
+                        span: SourceSpan::at(program_span.source().clone(), 1, 1),
+                    },
+                    span: program_span,
+                    stack_access: StackAccess::Owned,
                 },
-                span: program_span,
-                stack_access: StackAccess::Owned,
-            },
-            output: None,
+                output: None,
+            }],
         };
 
         assert_eq!(

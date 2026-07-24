@@ -25,7 +25,7 @@ struct CompiledDocument<'a> {
 #[derive(Serialize)]
 struct CompiledNodeDocument<'a> {
     id: ValueId,
-    kind: &'a SemanticNodeKind,
+    kind: serde_json::Value,
     value_type: ValueType,
     domain: Option<&'a VideoDomain>,
     semantic_version: u32,
@@ -51,7 +51,11 @@ pub(crate) fn compiled_program(program: &CompiledProgram) -> Result<String> {
         engine_version: program.engine_version(),
         structure_hash: program.structure_hash(),
         video: program.video(),
-        nodes: program.nodes().iter().map(node_document).collect(),
+        nodes: program
+            .nodes()
+            .iter()
+            .map(|node| node_document(program, node))
+            .collect::<Result<Vec<_>>>()?,
         outputs: program.outputs(),
         named_values: program.named_values(),
         explain: program.explain().iter().map(explain_document).collect(),
@@ -66,15 +70,91 @@ pub(crate) fn compiled_program(program: &CompiledProgram) -> Result<String> {
     })
 }
 
-fn node_document(node: &CompiledNode) -> CompiledNodeDocument<'_> {
-    CompiledNodeDocument {
+fn node_document<'a>(
+    program: &CompiledProgram,
+    node: &'a CompiledNode,
+) -> Result<CompiledNodeDocument<'a>> {
+    Ok(CompiledNodeDocument {
         id: node.id(),
-        kind: node.kind(),
+        kind: operation_document(program, node)?,
         value_type: node.value_type(),
         domain: node.domain(),
         semantic_version: node.semantic_version(),
         origin: node.origin(),
-    }
+    })
+}
+
+fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<serde_json::Value> {
+    Ok(match node.kind() {
+        SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
+            "operation": "image_video",
+            "path": path,
+            "frames": frames,
+            "fit": fit,
+        }),
+        SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
+            "operation": "video_source",
+            "path": path,
+            "fit": fit,
+        }),
+        SemanticNodeKind::Reference { symbol } => {
+            let target = program.symbol_value(*symbol).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_PLAN_SERIALIZATION",
+                    format!("reference names unknown symbol {}", symbol.index()),
+                    node.origin().span.clone(),
+                )
+            })?;
+            serde_json::json!({
+                "operation": "reference",
+                "target": target,
+            })
+        }
+        SemanticNodeKind::Repeat { input, count } => serde_json::json!({
+            "operation": "repeat",
+            "input": input,
+            "count": count,
+        }),
+        SemanticNodeKind::Zoom { input, percent } => serde_json::json!({
+            "operation": "zoom",
+            "input": input,
+            "percent": percent,
+        }),
+        SemanticNodeKind::Wobble { input, pixels } => serde_json::json!({
+            "operation": "wobble",
+            "input": input,
+            "pixels": pixels,
+        }),
+        SemanticNodeKind::FlashJoin {
+            before,
+            after,
+            frames,
+        } => serde_json::json!({
+            "operation": "flash_join",
+            "before": before,
+            "after": after,
+            "frames": frames,
+        }),
+        SemanticNodeKind::Concat { inputs } => serde_json::json!({
+            "operation": "concat",
+            "inputs": inputs,
+        }),
+        SemanticNodeKind::Slice { input, range } => serde_json::json!({
+            "operation": "slice",
+            "input": input,
+            "range": range,
+        }),
+        SemanticNodeKind::ReplaceRange {
+            base,
+            replacement,
+            range,
+        } => serde_json::json!({
+            "operation": "replace_range",
+            "base": base,
+            "replacement": replacement,
+            "range": range,
+        }),
+    })
 }
 
 fn explain_document(entry: &ExplainEntry) -> ExplainDocument<'_> {

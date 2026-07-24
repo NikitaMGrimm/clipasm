@@ -180,12 +180,13 @@ fn direct(
     ProgramDefinition {
         descriptor,
         implementation: ProgramImplementation::Direct(lower),
+        body_contract: None,
         postfix: None,
     }
 }
 
 fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    let (path, _) = call.file_parameter("path")?;
+    let (path, path_span) = call.file_parameter("path")?;
     let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
         FrameCount(duration.to_frames(builder.video_spec().fps, span)?)
     } else {
@@ -205,12 +206,21 @@ fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
         ));
     }
     let fit = image_fit(call)?;
-    one_output(builder.image_video(path.to_path_buf(), frames, fit))
+    one_output(
+        builder
+            .at_span(path_span.clone())
+            .image_video(path.to_path_buf(), frames, fit),
+    )
 }
 
 fn lower_video(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    let (path, _) = call.file_parameter("path")?;
-    one_output(builder.video_source(path.to_path_buf(), image_fit(call)?))
+    let (path, path_span) = call.file_parameter("path")?;
+    let fit = image_fit(call)?;
+    one_output(
+        builder
+            .at_span(path_span.clone())
+            .video_source(path.to_path_buf(), fit),
+    )
 }
 
 fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {

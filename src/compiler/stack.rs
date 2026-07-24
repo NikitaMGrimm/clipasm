@@ -44,11 +44,11 @@ impl StackFrame {
 }
 
 #[derive(Debug)]
-pub(super) struct EvaluationStack {
-    values: Vec<ValueRef>,
+pub(super) struct EvaluationStack<T = ValueRef> {
+    values: Vec<T>,
 }
 
-impl EvaluationStack {
+impl<T> EvaluationStack<T> {
     pub(super) fn isolated(owner: impl Into<String>, span: SourceSpan) -> (Self, StackFrame) {
         let boundary = VisibilityBoundary::new(owner, span);
         (Self { values: Vec::new() }, StackFrame::root(boundary))
@@ -59,15 +59,15 @@ impl EvaluationStack {
     }
 
     #[cfg(test)]
-    pub(super) fn push(&mut self, value: ValueRef) {
+    pub(super) fn push(&mut self, value: T) {
         self.values.push(value);
     }
 
-    pub(super) fn extend(&mut self, values: impl IntoIterator<Item = ValueRef>) {
+    pub(super) fn extend(&mut self, values: impl IntoIterator<Item = T>) {
         self.values.extend(values);
     }
 
-    pub(super) fn values(&self) -> &[ValueRef] {
+    pub(super) fn values(&self) -> &[T] {
         &self.values
     }
 
@@ -100,7 +100,7 @@ impl EvaluationStack {
         count: usize,
         program: &str,
         span: &SourceSpan,
-    ) -> Result<Vec<ValueRef>, Diagnostic> {
+    ) -> Result<Vec<T>, Diagnostic> {
         let start = self.accessible_start(frame, access);
         let available = self.values.len().saturating_sub(start);
         if available < count {
@@ -127,7 +127,7 @@ impl EvaluationStack {
         program: &str,
         port: &str,
         span: &SourceSpan,
-    ) -> Result<Vec<ValueRef>, Diagnostic> {
+    ) -> Result<Vec<T>, Diagnostic> {
         let start = self.accessible_start(frame, access);
         let available = self.values.len().saturating_sub(start);
         if available < min {
@@ -145,11 +145,7 @@ impl EvaluationStack {
         Ok(values)
     }
 
-    pub(super) fn finish_body(
-        &mut self,
-        parent: &mut StackFrame,
-        child: StackFrame,
-    ) -> Vec<ValueRef> {
+    pub(super) fn finish_body(&mut self, parent: &mut StackFrame, child: StackFrame) -> Vec<T> {
         let StackFrame {
             visible_start,
             owned_start: captured_start,

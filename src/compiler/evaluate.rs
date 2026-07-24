@@ -2,12 +2,15 @@ use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
-use crate::program::{InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry};
-use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
+use crate::program::{
+    BoundParameters, InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry,
+    ResolvedCall,
+};
+use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::SourceSpan;
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
-    SourceProgram,
+    SourcePackage, SourceProgram, SourceUnitId,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -15,11 +18,13 @@ use super::stack::{EvaluationStack, StackFrame};
 #[derive(Clone, Debug)]
 pub(super) enum DeclaredValueType {
     Known(ValueType),
-    Alias(String),
+    Alias(SymbolId),
+    AliasName(String),
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct Symbol {
+    pub(super) name: String,
     pub(super) declared_at: SourceSpan,
     pub(super) value: Option<ValueRef>,
     pub(super) declared_type: DeclaredValueType,
@@ -41,174 +46,136 @@ pub(super) struct SurfaceOutput {
 
 pub(super) struct Evaluation {
     pub(super) nodes: Vec<DraftNode>,
-    pub(super) symbols: BTreeMap<String, Symbol>,
-    pub(super) symbol_order: Vec<String>,
+    pub(super) symbols: BTreeMap<SymbolId, Symbol>,
+    pub(super) symbol_order: Vec<SymbolId>,
+    pub(super) public_symbols: BTreeMap<String, SymbolId>,
     pub(super) surface: Vec<SurfaceRecord>,
     pub(super) outputs: Vec<ValueRef>,
 }
 
 pub(super) fn evaluate(
-    program: &SourceProgram,
+    package: &SourcePackage,
     video: &VideoSpec,
     registry: ProgramRegistry,
 ) -> Result<Evaluation> {
     let mut evaluator = Evaluator {
-        program,
+        package,
         video,
         registry,
         nodes: Vec::new(),
         symbols: BTreeMap::new(),
         symbol_order: Vec::new(),
+        public_symbols: BTreeMap::new(),
         surface: Vec::new(),
     };
-    evaluator.collect_names()?;
-    let outputs = evaluator.evaluate_all()?;
+    let outputs = evaluator.evaluate_program(package.root, None, true)?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
         symbol_order: evaluator.symbol_order,
+        public_symbols: evaluator.public_symbols,
         surface: evaluator.surface,
         outputs,
     })
 }
 
 struct Evaluator<'a> {
-    program: &'a SourceProgram,
+    package: &'a SourcePackage,
     video: &'a VideoSpec,
     registry: ProgramRegistry,
     nodes: Vec<DraftNode>,
-    symbols: BTreeMap<String, Symbol>,
-    symbol_order: Vec<String>,
+    symbols: BTreeMap<SymbolId, Symbol>,
+    symbol_order: Vec<SymbolId>,
+    public_symbols: BTreeMap<String, SymbolId>,
     surface: Vec<SurfaceRecord>,
 }
 
+struct EvalScope {
+    unit: SourceUnitId,
+    values: BTreeMap<String, SymbolId>,
+    parameters: BoundParameters,
+    public: bool,
+}
+
 impl Evaluator<'_> {
-    fn collect_names(&mut self) -> Result<()> {
-        for clip in self.program.clips() {
-            self.add_symbol(
+    #[allow(clippy::too_many_lines)]
+    fn evaluate_program(
+        &mut self,
+        unit: SourceUnitId,
+        call: Option<&ResolvedCall>,
+        public: bool,
+    ) -> Result<Vec<ValueRef>> {
+        let program = self.package.units()[unit.0].program().clone();
+        let mut scope = EvalScope {
+            unit,
+            values: BTreeMap::new(),
+            parameters: call
+                .map(|call| call.parameters().clone())
+                .unwrap_or_default(),
+            public,
+        };
+
+        if let Some(call) = call {
+            for input in program.inputs() {
+                let values = call.inputs().get(&input.name).ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_INTERNAL_BINDING",
+                        format!("authored program input `{}` was not bound", input.name),
+                        program.span().clone(),
+                    )
+                })?;
+                let [value] = values.as_slice() else {
+                    return Err(Diagnostic::new(
+                        "E_INTERNAL_BINDING",
+                        format!(
+                            "authored program input `{}` requires exactly one value",
+                            input.name
+                        ),
+                        program.span().clone(),
+                    ));
+                };
+                let key = self.add_scope_symbol(
+                    &mut scope,
+                    &input.name,
+                    program.span(),
+                    DeclaredValueType::Known(input.value_type),
+                )?;
+                self.symbols
+                    .get_mut(&key)
+                    .expect("new input symbol")
+                    .value_type = Some(input.value_type);
+                self.bind_symbol(key, *value)?;
+            }
+        } else if let Some(input) = program.inputs().first() {
+            return Err(Diagnostic::new(
+                "E_MISSING_REQUIRED_INPUT",
+                format!("root program is missing input `{}`", input.name),
+                program.span().clone(),
+            ));
+        }
+        Self::fill_parameter_defaults(&program, &mut scope, public)?;
+
+        for clip in program.clips() {
+            self.add_scope_symbol(
+                &mut scope,
                 &clip.name,
                 &clip.span,
                 DeclaredValueType::Known(ValueType::Video),
             )?;
         }
-        for clip in self.program.clips() {
-            self.collect_body_names(&clip.body)?;
+        for clip in program.clips() {
+            self.collect_body_names(&clip.body, &mut scope)?;
         }
-        self.collect_body_names(self.program.body())?;
+        self.collect_body_names(program.body(), &mut scope)?;
+        self.link_scope_aliases(&scope)?;
         resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
-        self.symbol_order.sort();
-        Ok(())
-    }
 
-    fn collect_body_names(&mut self, body: &ProgramBody) -> Result<()> {
-        for item in &body.items {
-            self.collect_item_names(item)?;
-        }
-        Ok(())
-    }
-
-    fn collect_item_names(&mut self, item: &Item) -> Result<()> {
-        let output_types = self.item_output_types(&item.kind)?;
-        match &item.output_bindings {
-            OutputBindings::None => {}
-            OutputBindings::One(id) => {
-                let [output_type] = output_types.as_slice() else {
-                    return Err(output_binding_count_error(
-                        &item.kind,
-                        output_types.len(),
-                        "`id` requires exactly one output",
-                        &id.span,
-                    ));
-                };
-                self.add_symbol(&id.value, &id.span, output_type.clone())?;
-            }
-            OutputBindings::Many(ids, span) => {
-                if output_types.len() <= 1 || ids.len() != output_types.len() {
-                    return Err(output_binding_count_error(
-                        &item.kind,
-                        output_types.len(),
-                        &format!("`ids` contains {} name(s)", ids.len()),
-                        span,
-                    ));
-                }
-                for (id, output_type) in ids.iter().zip(output_types) {
-                    self.add_symbol(&id.value, &id.span, output_type)?;
-                }
-            }
-        }
-        if let ItemKind::Invocation(invocation) = &item.kind {
-            if let Some(body) = &invocation.body {
-                self.collect_body_names(body)?;
-            }
-            for argument in invocation.arguments.values() {
-                if let ArgumentValue::Body(body) = argument {
-                    self.collect_body_names(body)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn item_output_types(&self, kind: &ItemKind) -> Result<Vec<DeclaredValueType>> {
-        match kind {
-            ItemKind::Reference(reference) => {
-                Ok(vec![DeclaredValueType::Alias(reference.name.value.clone())])
-            }
-            ItemKind::Invocation(invocation) => self
-                .registry
-                .get(&invocation.program.value)
-                .map(|definition| {
-                    definition
-                        .descriptor
-                        .outputs
-                        .iter()
-                        .copied()
-                        .map(DeclaredValueType::Known)
-                        .collect()
-                })
-                .ok_or_else(|| unknown_program(invocation)),
-        }
-    }
-
-    fn add_symbol(
-        &mut self,
-        name: &str,
-        span: &SourceSpan,
-        declared_type: DeclaredValueType,
-    ) -> Result<()> {
-        if let Some(previous) = self.symbols.get(name) {
-            return Err(Diagnostic::new(
-                "E_DUPLICATE_NAME",
-                format!("duplicate user-visible name `{name}`"),
-                span.clone(),
-            )
-            .note(format!(
-                "the first `{name}` was declared at {}:{}:{}",
-                previous.declared_at.file().display(),
-                previous.declared_at.line,
-                previous.declared_at.column
-            )));
-        }
-        self.symbol_order.push(name.to_owned());
-        self.symbols.insert(
-            name.to_owned(),
-            Symbol {
-                declared_at: span.clone(),
-                value: None,
-                declared_type,
-                value_type: None,
-            },
-        );
-        Ok(())
-    }
-
-    fn evaluate_all(&mut self) -> Result<Vec<ValueRef>> {
-        let mut clips = self.program.clips().iter().collect::<Vec<_>>();
+        let mut clips = program.clips().iter().collect::<Vec<_>>();
         clips.sort_by(|left, right| left.name.cmp(&right.name));
         for clip in clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(&clip.body, &mut stack, &mut frame, None)?;
+            self.evaluate_body(&clip.body, &mut scope, &mut stack, &mut frame, None)?;
             let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
@@ -224,7 +191,8 @@ impl Evaluator<'_> {
                 "output",
                 &clip.span,
             )?;
-            self.bind_symbol(&clip.name, *output)?;
+            let key = scope.values[&clip.name];
+            self.bind_symbol(key, *output)?;
             self.surface.push(SurfaceRecord {
                 construct: "named clip".to_owned(),
                 outputs: vec![SurfaceOutput {
@@ -235,27 +203,220 @@ impl Evaluator<'_> {
             });
         }
 
-        let (mut stack, mut entrypoint) =
-            EvaluationStack::isolated("entrypoint", self.program.span().clone());
-        let mut source = stack.enter_body(
-            &entrypoint,
-            self.program.stack_access(),
+        let (mut stack, mut parent) =
+            EvaluationStack::isolated("authored program", program.span().clone());
+        let mut body_frame = stack.enter_body(
+            &parent,
+            program.stack_access(),
             "source program",
-            self.program.span().clone(),
+            program.span().clone(),
         );
-        self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
-        Ok(stack.finish_body(&mut entrypoint, source))
+        self.evaluate_body(
+            program.body(),
+            &mut scope,
+            &mut stack,
+            &mut body_frame,
+            None,
+        )?;
+        Ok(stack.finish_body(&mut parent, body_frame))
+    }
+
+    fn fill_parameter_defaults(
+        program: &SourceProgram,
+        scope: &mut EvalScope,
+        root: bool,
+    ) -> Result<()> {
+        for parameter in program.parameters() {
+            if scope.parameters.contains_key(&parameter.name.value) {
+                continue;
+            }
+            let Some(default) = &parameter.default else {
+                return Err(Diagnostic::new(
+                    if root {
+                        "E_MISSING_ARGUMENT"
+                    } else {
+                        "E_INTERNAL_BINDING"
+                    },
+                    if root {
+                        format!(
+                            "root program is missing parameter `{}`",
+                            parameter.name.value
+                        )
+                    } else {
+                        format!(
+                            "authored program parameter `{}` was not bound",
+                            parameter.name.value
+                        )
+                    },
+                    parameter.name.span.clone(),
+                ));
+            };
+            let value = super::bind::bind_literal_value(
+                "root",
+                &parameter.name.value,
+                &parameter.parameter_type,
+                default,
+            )?;
+            scope.parameters.insert(
+                parameter.name.value.clone(),
+                crate::source::Spanned::new(value, default.span().clone()),
+            );
+        }
+        Ok(())
+    }
+
+    fn collect_body_names(&mut self, body: &ProgramBody, scope: &mut EvalScope) -> Result<()> {
+        for item in &body.items {
+            self.collect_item_names(item, scope)?;
+        }
+        Ok(())
+    }
+
+    fn collect_item_names(&mut self, item: &Item, scope: &mut EvalScope) -> Result<()> {
+        match &item.output_bindings {
+            OutputBindings::None => {}
+            OutputBindings::One(id) => {
+                let output_types = self.item_output_types(&item.kind, scope)?;
+                let [output_type] = output_types.as_slice() else {
+                    return Err(output_binding_count_error(
+                        &item.kind,
+                        output_types.len(),
+                        "`id` requires exactly one output",
+                        &id.span,
+                    ));
+                };
+                self.add_scope_symbol(scope, &id.value, &id.span, output_type.clone())?;
+            }
+            OutputBindings::Many(ids, span) => {
+                let output_types = self.item_output_types(&item.kind, scope)?;
+                if output_types.len() <= 1 || ids.len() != output_types.len() {
+                    return Err(output_binding_count_error(
+                        &item.kind,
+                        output_types.len(),
+                        &format!("`ids` contains {} name(s)", ids.len()),
+                        span,
+                    ));
+                }
+                for (id, output_type) in ids.iter().zip(output_types) {
+                    self.add_scope_symbol(scope, &id.value, &id.span, output_type)?;
+                }
+            }
+        }
+        if let ItemKind::Invocation(invocation) = &item.kind {
+            if let Some(body) = &invocation.body {
+                self.collect_body_names(body, scope)?;
+            }
+            for argument in invocation.arguments.values() {
+                if let ArgumentValue::Body(body) = argument {
+                    self.collect_body_names(body, scope)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn item_output_types(
+        &self,
+        kind: &ItemKind,
+        scope: &EvalScope,
+    ) -> Result<Vec<DeclaredValueType>> {
+        match kind {
+            ItemKind::Reference(reference) => Ok(vec![DeclaredValueType::AliasName(
+                reference.name.value.clone(),
+            )]),
+            ItemKind::Invocation(invocation) => self
+                .registry
+                .get_for(scope.unit, &invocation.program.value)
+                .map(|definition| {
+                    definition
+                        .descriptor
+                        .outputs
+                        .iter()
+                        .copied()
+                        .map(DeclaredValueType::Known)
+                        .collect()
+                })
+                .ok_or_else(|| unknown_program(invocation)),
+        }
+    }
+
+    fn add_scope_symbol(
+        &mut self,
+        scope: &mut EvalScope,
+        name: &str,
+        span: &SourceSpan,
+        declared_type: DeclaredValueType,
+    ) -> Result<SymbolId> {
+        if scope.parameters.contains_key(name) || scope.values.contains_key(name) {
+            return Err(Diagnostic::new(
+                "E_DUPLICATE_NAME",
+                format!("duplicate local name `{name}`"),
+                span.clone(),
+            ));
+        }
+        let symbol = self.add_symbol(name, span, declared_type)?;
+        scope.values.insert(name.to_owned(), symbol);
+        if scope.public {
+            self.public_symbols.insert(name.to_owned(), symbol);
+        }
+        Ok(symbol)
+    }
+
+    fn link_scope_aliases(&mut self, scope: &EvalScope) -> Result<()> {
+        for symbol in scope.values.values() {
+            let DeclaredValueType::AliasName(target_name) =
+                self.symbols[symbol].declared_type.clone()
+            else {
+                continue;
+            };
+            let target = scope.values.get(&target_name).copied().ok_or_else(|| {
+                Self::reference_lookup_error(scope, &target_name, &self.symbols[symbol].declared_at)
+            })?;
+            self.symbols
+                .get_mut(symbol)
+                .expect("scope symbol was collected")
+                .declared_type = DeclaredValueType::Alias(target);
+        }
+        Ok(())
+    }
+
+    fn add_symbol(
+        &mut self,
+        name: &str,
+        span: &SourceSpan,
+        declared_type: DeclaredValueType,
+    ) -> Result<SymbolId> {
+        let symbol = SymbolId::new(u32::try_from(self.symbols.len()).map_err(|_| {
+            Diagnostic::new(
+                "E_GRAPH_TOO_LARGE",
+                "too many named values were declared",
+                span.clone(),
+            )
+        })?);
+        self.symbol_order.push(symbol);
+        self.symbols.insert(
+            symbol,
+            Symbol {
+                name: name.to_owned(),
+                declared_at: span.clone(),
+                value: None,
+                declared_type,
+                value_type: None,
+            },
+        );
+        Ok(symbol)
     }
 
     fn evaluate_body(
         &mut self,
         body: &ProgramBody,
+        scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         for item in &body.items {
-            self.evaluate_item(item, stack, frame, requested_frames)?;
+            self.evaluate_item(item, scope, stack, frame, requested_frames)?;
         }
         Ok(())
     }
@@ -263,17 +424,25 @@ impl Evaluator<'_> {
     fn evaluate_item(
         &mut self,
         item: &Item,
+        scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         let (outputs, construct) = match &item.kind {
             ItemKind::Reference(reference) => (
-                vec![self.evaluate_reference(reference)?],
+                vec![self.evaluate_reference(reference, scope)?],
                 "reference".to_owned(),
             ),
             ItemKind::Invocation(invocation) => (
-                self.evaluate_invocation(invocation, stack, frame, requested_frames, &item.span)?,
+                self.evaluate_invocation(
+                    invocation,
+                    scope,
+                    stack,
+                    frame,
+                    requested_frames,
+                    &item.span,
+                )?,
                 invocation.program.value.clone(),
             ),
         };
@@ -288,7 +457,12 @@ impl Evaluator<'_> {
         debug_assert_eq!(outputs.len(), output_names.len());
         for (output, name) in outputs.iter().copied().zip(&output_names) {
             if let Some(name) = name {
-                self.bind_symbol(name, output)?;
+                let key = scope
+                    .values
+                    .get(name)
+                    .copied()
+                    .expect("output names are collected before evaluation");
+                self.bind_symbol(key, output)?;
             }
         }
         stack.extend(outputs.iter().copied());
@@ -304,29 +478,53 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn evaluate_reference(&mut self, reference: &Reference) -> Result<ValueRef> {
-        self.evaluate_reference_name(&reference.name.value, &reference.name.span)
+    fn evaluate_reference(&mut self, reference: &Reference, scope: &EvalScope) -> Result<ValueRef> {
+        self.evaluate_reference_name(&reference.name.value, &reference.name.span, scope)
     }
 
-    fn evaluate_reference_name(&mut self, name: &str, span: &SourceSpan) -> Result<ValueRef> {
-        let symbol = self.symbols.get(name).ok_or_else(|| {
-            Diagnostic::new(
-                "E_MISSING_REFERENCE",
-                format!("reference `${name}` does not name any clip or invocation id"),
-                span.clone(),
-            )
-        })?;
+    fn evaluate_reference_name(
+        &mut self,
+        name: &str,
+        span: &SourceSpan,
+        scope: &EvalScope,
+    ) -> Result<ValueRef> {
+        let key = scope
+            .values
+            .get(name)
+            .ok_or_else(|| Self::reference_lookup_error(scope, name, span))?;
+        let symbol = self
+            .symbols
+            .get(key)
+            .expect("scope value points to a collected symbol");
         let value_type = symbol
             .value_type
             .expect("symbol types are resolved before evaluation");
         let origin = SourceOrigin::new("reference", span.clone());
         GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
-            .reference(name.to_owned(), value_type)
+            .reference(*key, value_type)
     }
 
+    fn reference_lookup_error(scope: &EvalScope, name: &str, span: &SourceSpan) -> Diagnostic {
+        if scope.parameters.contains_key(name) {
+            Diagnostic::new(
+                "E_PARAMETER_NOT_VALUE",
+                format!("parameter `${name}` is not a graph value"),
+                span.clone(),
+            )
+        } else {
+            Diagnostic::new(
+                "E_MISSING_REFERENCE",
+                format!("reference `${name}` does not name a local input, clip, or id"),
+                span.clone(),
+            )
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
         invocation: &Invocation,
+        scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
@@ -334,16 +532,18 @@ impl Evaluator<'_> {
     ) -> Result<Vec<ValueRef>> {
         let definition = self
             .registry
-            .get(&invocation.program.value)
+            .get_for(scope.unit, &invocation.program.value)
             .cloned()
             .ok_or_else(|| unknown_program(invocation))?;
-        let origin = SourceOrigin::new(definition.descriptor.name.clone(), span.clone());
+        let origin = SourceOrigin::new(invocation.program.value.clone(), span.clone());
         let access = invocation
             .stack_access
             .as_ref()
             .map_or(definition.descriptor.default_stack_access, |access| {
                 access.value
             });
+        let parameter_bindings = scope.parameters.clone();
+        let value_names = scope.values.keys().cloned().collect::<Vec<_>>();
         let call = super::bind::bind_call(
             &definition,
             invocation,
@@ -358,9 +558,41 @@ impl Evaluator<'_> {
                 self.evaluate_input_value(
                     expression,
                     port,
-                    &definition.descriptor.name,
+                    &invocation.program.value,
                     requested_frames,
+                    scope,
                 )
+            },
+            |reference, descriptor| {
+                let value = parameter_bindings.get(&reference.value).ok_or_else(|| {
+                    if value_names.contains(&reference.value) {
+                        Diagnostic::new(
+                            "E_INVALID_ARGUMENT_TYPE",
+                            format!(
+                                "graph value `${}` cannot be used as scalar parameter `{}.{}`",
+                                reference.value, invocation.program.value, descriptor.name
+                            ),
+                            reference.span.clone(),
+                        )
+                    } else {
+                        Diagnostic::new(
+                            "E_MISSING_REFERENCE",
+                            format!("unknown parameter reference `${}`", reference.value),
+                            reference.span.clone(),
+                        )
+                    }
+                })?;
+                if !super::bind::parameter_value_matches(&descriptor.parameter_type, &value.value) {
+                    return Err(Diagnostic::new(
+                        "E_INVALID_ARGUMENT_TYPE",
+                        format!(
+                            "parameter `${}` is not compatible with `{}.{}`",
+                            reference.value, invocation.program.value, descriptor.name
+                        ),
+                        reference.span.clone(),
+                    ));
+                }
+                Ok(value.clone())
             },
         );
         let call = call?;
@@ -404,6 +636,7 @@ impl Evaluator<'_> {
                 stack.extend(plan.initial_values);
                 self.evaluate_body(
                     body,
+                    scope,
                     stack,
                     &mut child,
                     plan.requested_frames.or(requested_frames),
@@ -417,6 +650,19 @@ impl Evaluator<'_> {
                 );
                 plan.finalizer.finish(owned, &mut builder)?
             }
+            ProgramImplementation::Authored(unit) => {
+                if invocation.body.is_some() {
+                    return Err(Diagnostic::new(
+                        "E_UNEXPECTED_PROGRAM_BODY",
+                        format!(
+                            "authored program `{}` does not accept a caller-supplied body",
+                            invocation.program.value
+                        ),
+                        invocation.program.span.clone(),
+                    ));
+                }
+                self.evaluate_program(unit, Some(&call), false)?
+            }
         };
 
         validate_program_outputs(&definition, outputs, span)
@@ -428,24 +674,26 @@ impl Evaluator<'_> {
         port: &InputPort,
         program: &str,
         requested_frames: Option<FrameCount>,
+        scope: &mut EvalScope,
     ) -> Result<Vec<ValueRef>> {
         match value {
-            ArgumentValue::Reference(reference) => {
-                Ok(vec![self.evaluate_reference_name(
-                    &reference.value,
-                    &reference.span,
-                )?])
-            }
+            ArgumentValue::Reference(reference) => Ok(vec![self.evaluate_reference_name(
+                &reference.value,
+                &reference.span,
+                scope,
+            )?]),
             ArgumentValue::References(references, _) => references
                 .iter()
-                .map(|reference| self.evaluate_reference_name(&reference.value, &reference.span))
+                .map(|reference| {
+                    self.evaluate_reference_name(&reference.value, &reference.span, scope)
+                })
                 .collect(),
             ArgumentValue::Body(body) => {
                 let (mut local, mut frame) = EvaluationStack::isolated(
                     format!("inline input body for `{program}.{}`", port.name),
                     body.span.clone(),
                 );
-                self.evaluate_body(body, &mut local, &mut frame, requested_frames)?;
+                self.evaluate_body(body, scope, &mut local, &mut frame, requested_frames)?;
                 let [result] = local.values() else {
                     return Err(output_count_error(
                         "E_INPUT_BODY_OUTPUT_COUNT",
@@ -465,10 +713,10 @@ impl Evaluator<'_> {
         }
     }
 
-    fn bind_symbol(&mut self, name: &str, value: ValueRef) -> Result<()> {
+    fn bind_symbol(&mut self, id: SymbolId, value: ValueRef) -> Result<()> {
         let symbol = self
             .symbols
-            .get_mut(name)
+            .get_mut(&id)
             .expect("all symbols are collected before evaluation");
         let declared_type = symbol
             .value_type
@@ -477,7 +725,8 @@ impl Evaluator<'_> {
             return Err(Diagnostic::new(
                 "E_TYPE_MISMATCH",
                 format!(
-                    "name `{name}` was declared as {}, but its value is {}",
+                    "name `{}` was declared as {}, but its value is {}",
+                    symbol.name,
                     declared_type,
                     value.value_type()
                 ),
@@ -487,7 +736,7 @@ impl Evaluator<'_> {
         if symbol.value.replace(value).is_some() {
             return Err(Diagnostic::new(
                 "E_DUPLICATE_NAME",
-                format!("name `{name}` was bound more than once"),
+                format!("name `{}` was bound more than once", symbol.name),
                 symbol.declared_at.clone(),
             ));
         }
@@ -543,49 +792,49 @@ fn validate_program_outputs(
 }
 
 fn resolve_symbol_types(
-    symbols: &mut BTreeMap<String, Symbol>,
-    symbol_order: &[String],
+    symbols: &mut BTreeMap<SymbolId, Symbol>,
+    symbol_order: &[SymbolId],
 ) -> Result<()> {
-    for name in symbol_order {
-        resolve_symbol_type(name, symbols)?;
+    for symbol in symbol_order {
+        resolve_symbol_type(*symbol, symbols)?;
     }
     Ok(())
 }
 
-fn resolve_symbol_type(name: &str, symbols: &mut BTreeMap<String, Symbol>) -> Result<ValueType> {
-    if let Some(value_type) = symbols.get(name).and_then(|symbol| symbol.value_type) {
+fn resolve_symbol_type(
+    symbol: SymbolId,
+    symbols: &mut BTreeMap<SymbolId, Symbol>,
+) -> Result<ValueType> {
+    if let Some(value_type) = symbols.get(&symbol).and_then(|symbol| symbol.value_type) {
         return Ok(value_type);
     }
 
-    let mut path = Vec::<String>::new();
-    let mut positions = BTreeMap::<String, usize>::new();
-    let mut current = name.to_owned();
+    let mut path = Vec::<SymbolId>::new();
+    let mut positions = BTreeMap::<SymbolId, usize>::new();
+    let mut current = symbol;
     let value_type = loop {
         if let Some(value_type) = symbols[&current].value_type {
             break value_type;
         }
         if let Some(start) = positions.get(&current).copied() {
-            let mut cycle = path[start..].to_vec();
-            cycle.push(current.clone());
+            let mut cycle = path[start..]
+                .iter()
+                .map(|symbol| symbols[symbol].name.clone())
+                .collect::<Vec<_>>();
+            cycle.push(symbols[&current].name.clone());
             return Err(Diagnostic::new(
                 "E_DEPENDENCY_CYCLE",
                 format!("named-value dependency cycle: {}", cycle.join(" -> ")),
                 symbols[&current].declared_at.clone(),
             ));
         }
-        positions.insert(current.clone(), path.len());
-        path.push(current.clone());
+        positions.insert(current, path.len());
+        path.push(current);
         match symbols[&current].declared_type.clone() {
             DeclaredValueType::Known(value_type) => break value_type,
-            DeclaredValueType::Alias(target) => {
-                if !symbols.contains_key(&target) {
-                    return Err(Diagnostic::new(
-                        "E_MISSING_REFERENCE",
-                        format!("reference `${target}` does not name any clip or invocation id"),
-                        symbols[&current].declared_at.clone(),
-                    ));
-                }
-                current = target;
+            DeclaredValueType::Alias(target) => current = target,
+            DeclaredValueType::AliasName(_) => {
+                unreachable!("scope aliases are linked before type resolution")
             }
         }
     };
@@ -756,6 +1005,13 @@ mod tests {
         outputs: Vec<ValueType>,
         implementation: ProgramImplementation,
     ) -> ProgramDefinition {
+        let body_contract = matches!(implementation, ProgramImplementation::Body(_)).then(|| {
+            crate::program::BodyContract {
+                initial_values: Vec::new(),
+                outputs: crate::program::BodyOutputConstraint::Exactly(outputs.clone()),
+                count_error_code: "E_BODY_OUTPUT_COUNT",
+            }
+        });
         ProgramDefinition {
             descriptor: ProgramDescriptor {
                 name: name.to_owned(),
@@ -767,6 +1023,7 @@ mod tests {
                 outputs,
             },
             implementation,
+            body_contract,
             postfix: None,
         }
     }
@@ -881,7 +1138,7 @@ mod tests {
     fn parse_with_registry(
         source: &str,
         definitions: Vec<ProgramDefinition>,
-    ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
+    ) -> (crate::source::SourcePackage, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
         let language = Language::new(registry.clone()).expect("language");
         let workflow = crate::frontend::yaml::parse_str_with_language(
@@ -895,7 +1152,7 @@ mod tests {
 
     fn parse_with_synthetic_outputs(
         source: &str,
-    ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
+    ) -> (crate::source::SourcePackage, ProgramRegistry) {
         let mut definitions = crate::program::builtin_programs();
         definitions.push(definition(
             "two_output",
@@ -1064,16 +1321,20 @@ mod tests {
         let mut symbols = BTreeMap::new();
         let mut order = Vec::with_capacity(ALIASES);
         for index in 0..ALIASES {
+            let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
             let name = format!("alias_{index:05}");
             let declared_type = if index + 1 == ALIASES {
                 DeclaredValueType::Known(ValueType::Video)
             } else {
-                DeclaredValueType::Alias(format!("alias_{:05}", index + 1))
+                DeclaredValueType::Alias(SymbolId::new(
+                    u32::try_from(index + 1).expect("test target symbol ID"),
+                ))
             };
-            order.push(name.clone());
+            order.push(symbol);
             symbols.insert(
-                name,
+                symbol,
                 Symbol {
+                    name,
                     declared_at: span.clone(),
                     value: None,
                     declared_type,
