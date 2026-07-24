@@ -84,23 +84,15 @@ pub(super) fn bind_call(
         let Cardinality::Variadic { min } = port.cardinality else {
             continue;
         };
-        let values = stack.take_variadic(
+        let values = stack.take_all_matching(
             frame,
             access,
+            port.value_type,
             min,
             &descriptor.name,
             &port.name,
             &origin.span,
         )?;
-        for value in &values {
-            require_value_type(
-                *value,
-                port.value_type,
-                &descriptor.name,
-                &port.name,
-                &origin.span,
-            )?;
-        }
         slots[index] = Some(values);
     }
 
@@ -315,9 +307,15 @@ fn bind_missing_fixed(
             slots[*index].is_none() && matches!(port.cardinality, Cardinality::One)
         })
         .collect::<Vec<_>>();
-    let implicit = stack.take_fixed(frame, access, missing.len(), program, span)?;
-    for ((index, port), value) in missing.into_iter().zip(implicit) {
-        require_value_type(value, port.value_type, program, &port.name, span)?;
+    for (index, port) in missing.into_iter().rev() {
+        let value = stack.take_one_matching(
+            frame,
+            access,
+            port.value_type,
+            program,
+            &port.name,
+            span,
+        )?;
         slots[index] = Some(vec![value]);
     }
     Ok(())
@@ -447,7 +445,7 @@ mod tests {
         let mut slots = vec![None, Some(vec![video(9)]), None];
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
-        stack.extend([video(1), video(3)]);
+        stack.extend(&frame, [video(1), video(3)]);
         bind_missing_fixed(
             "combine",
             &ports,
@@ -463,13 +461,14 @@ mod tests {
     }
 
     #[test]
-    fn incompatible_top_value_is_not_skipped() {
+    fn incompatible_top_value_is_skipped_without_being_consumed() {
         let ports = ports();
         let mut slots = vec![None];
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
-        stack.extend([video(1), ValueRef::new(ValueId::new(2), ValueType::Test)]);
-        let error = bind_missing_fixed(
+        let test = ValueRef::new(ValueId::new(2), ValueType::Test);
+        stack.extend(&frame, [video(1), test]);
+        bind_missing_fixed(
             "consume",
             &ports[..1],
             &mut slots,
@@ -478,8 +477,9 @@ mod tests {
             StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
         )
-        .expect_err("type mismatch");
-        assert_eq!(error.code, "E_TYPE_MISMATCH");
+        .expect("matching value below top");
+        assert_eq!(slots[0], Some(vec![video(1)]));
+        assert_eq!(stack.values(), &[test]);
     }
 
     #[test]

@@ -316,7 +316,7 @@ impl Evaluator<'_> {
             });
         }
 
-        let (mut stack, mut parent) =
+        let (mut stack, parent) =
             EvaluationStack::isolated("authored program", program.span().clone());
         let mut body_frame = stack.enter_body(
             &parent,
@@ -332,7 +332,7 @@ impl Evaluator<'_> {
             &mut body_frame,
             None,
         )?;
-        Ok(stack.finish_body(&mut parent, body_frame))
+        Ok(stack.finish_body(body_frame))
     }
 
     fn fill_parameter_defaults(
@@ -599,7 +599,7 @@ impl Evaluator<'_> {
                 self.bind_symbol(key, output)?;
             }
         }
-        stack.extend(outputs.iter().copied());
+        stack.extend(frame, outputs.iter().copied());
         self.surface.push(SurfaceRecord {
             construct,
             outputs: outputs
@@ -758,7 +758,7 @@ impl Evaluator<'_> {
                     definition.descriptor.name.clone(),
                     invocation.program.span.clone(),
                 );
-                stack.extend(plan.initial_values);
+                stack.extend(&child, plan.initial_values);
                 self.evaluate_body(
                     body,
                     checked_body,
@@ -767,7 +767,7 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
-                let owned = stack.finish_body(frame, child);
+                let owned = stack.finish_body(child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     self.video,

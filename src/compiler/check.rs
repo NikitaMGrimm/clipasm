@@ -384,7 +384,7 @@ fn infer_body(
         let checked = match &item.kind {
             ItemKind::Reference(reference) => {
                 let output = value_local(locals, &reference.name.value, &reference.name.span)?;
-                stack.extend([output]);
+                stack.extend(frame, [output]);
                 CheckedItem {
                     output_types: vec![output],
                     kind: CheckedItemKind::Reference,
@@ -431,38 +431,31 @@ fn infer_body(
                         let Cardinality::Variadic { min } = port.cardinality else {
                             unreachable!("validated variadic descriptor")
                         };
-                        let values = stack.take_variadic(
+                        stack.take_all_matching(
                             frame,
                             access,
+                            port.value_type,
                             min,
                             &invocation.program.value,
                             &port.name,
                             &item.span,
                         )?;
-                        ensure_types(&values, port, &item.span)?;
                     } else {
-                        let values = stack.take_fixed(
-                            frame,
-                            access,
-                            missing,
-                            &invocation.program.value,
-                            &item.span,
-                        )?;
-                        for (port, value) in definition
+                        for port in definition
                             .descriptor
                             .inputs
                             .iter()
                             .filter(|port| !invocation.arguments.contains_key(&port.name))
-                            .zip(values)
+                            .rev()
                         {
-                            if value != port.value_type {
-                                return Err(type_error(
-                                    &invocation.program.value,
-                                    port,
-                                    value,
-                                    &item.span,
-                                ));
-                            }
+                            stack.take_one_matching(
+                                frame,
+                                access,
+                                port.value_type,
+                                &invocation.program.value,
+                                &port.name,
+                                &item.span,
+                            )?;
                         }
                     }
                 }
@@ -502,7 +495,7 @@ fn infer_body(
                             invocation.program.value.clone(),
                             invocation.program.span.clone(),
                         );
-                        stack.extend(contract.initial_values.iter().copied());
+                        stack.extend(&child, contract.initial_values.iter().copied());
                         let checked_body = infer_body(
                             body,
                             locals,
@@ -513,7 +506,7 @@ fn infer_body(
                             stack,
                             &mut child,
                         )?;
-                        let body_outputs = stack.finish_body(frame, child);
+                        let body_outputs = stack.finish_body(child);
                         validate_body_outputs(
                             &invocation.program.value,
                             &body_outputs,
@@ -525,7 +518,7 @@ fn infer_body(
                     }
                 };
                 let output_types = definition.descriptor.outputs.clone();
-                stack.extend(output_types.iter().copied());
+                stack.extend(frame, output_types.iter().copied());
                 CheckedItem {
                     output_types,
                     kind: CheckedItemKind::Invocation {
