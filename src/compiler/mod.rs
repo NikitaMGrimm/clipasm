@@ -23,12 +23,12 @@ use crate::syntax::SourceProgram;
 
 pub use crate::semantic::SourceOrigin;
 
-const COMPILED_FORMAT_VERSION: u32 = 5;
+const COMPILED_FORMAT_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Serialize)]
 /// A pure compiled workflow whose media-dependent facts may remain deferred.
 ///
-/// Use [`root_domain`](Self::root_domain) to inspect a domain known from
+/// Use [`result_domain`](Self::result_domain) to inspect a domain known from
 /// authored data, or pass the workflow to [`crate::preflight::preflight`] to
 /// resolve assets and exact renderer primitives.
 pub struct CompiledProgram {
@@ -38,7 +38,7 @@ pub struct CompiledProgram {
     structure_hash: String,
     video: VideoSpec,
     nodes: Vec<CompiledNode>,
-    root: ValueRef,
+    result: ValueRef,
     named_values: BTreeMap<String, ValueRef>,
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
@@ -84,7 +84,7 @@ impl CompiledProgram {
     }
 
     #[must_use]
-    /// Return the root Video domain when it is knowable without reading media.
+    /// Return the result Video domain when it is knowable without reading media.
     ///
     /// Video-file source durations remain deferred until preflight.
     ///
@@ -97,11 +97,11 @@ impl CompiledProgram {
     /// )?;
     /// let compiled = clipasm::compiler::compile(&workflow)?;
     ///
-    /// assert_eq!(compiled.root_domain().expect("authored domain").frames.0, 30);
+    /// assert_eq!(compiled.result_domain().expect("authored domain").frames.0, 30);
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
     /// ```
-    pub fn root_domain(&self) -> Option<&VideoDomain> {
-        self.nodes[self.root.id().get() as usize].domain()
+    pub fn result_domain(&self) -> Option<&VideoDomain> {
+        self.nodes[self.result.id().get() as usize].domain()
     }
 
     #[must_use]
@@ -114,8 +114,8 @@ impl CompiledProgram {
         &self.nodes
     }
 
-    pub(crate) const fn root(&self) -> ValueRef {
-        self.root
+    pub(crate) const fn result(&self) -> ValueRef {
+        self.result
     }
 
     pub(crate) fn named_values(&self) -> &BTreeMap<String, ValueRef> {
@@ -181,7 +181,7 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
 /// )?;
 /// let compiled = clipasm::compiler::compile(&workflow)?;
 ///
-/// assert!(compiled.root_domain().is_none());
+/// assert!(compiled.result_domain().is_none());
 /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 /// ```
 ///

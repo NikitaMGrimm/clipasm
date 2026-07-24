@@ -33,7 +33,7 @@ fn source_program_body_returns_one_video_without_an_implicit_timeline() {
         .expect("source program syntax");
     let compiled = clipasm::compiler::compile(&program).expect("source program result");
 
-    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 30);
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
 }
 
 #[test]
@@ -80,6 +80,43 @@ fn source_program_header_is_required_first_and_rejects_unknown_fields() {
             .expect_err("invalid source program");
         assert_eq!(error.code, expected_code);
     }
+}
+
+#[test]
+fn compiled_program_serializes_one_distinguished_result() {
+    let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
+    let program =
+        clipasm::syntax::parse_str(Path::new("program.yaml"), source).expect("source program");
+    let compiled = clipasm::compiler::compile(&program).expect("compiled program");
+    let document: serde_json::Value =
+        serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
+
+    assert!(document.get("result").is_some());
+    assert!(document.get("root").is_none());
+    assert_eq!(document["format_version"], 6);
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+}
+
+#[test]
+fn entrypoint_output_does_not_change_compiled_semantics() {
+    let source = |output: &str| {
+        format!(
+            "- program:\n    version: 1\n    output: {output}\n\n- image: {{path: card.ppm, duration: 1s}}\n"
+        )
+    };
+    let first = clipasm::syntax::parse_str(Path::new("program.yaml"), &source("first.mp4"))
+        .expect("first source program");
+    let second = clipasm::syntax::parse_str(Path::new("program.yaml"), &source("second.mp4"))
+        .expect("second source program");
+
+    assert_eq!(
+        clipasm::compiler::compile(&first)
+            .expect("first compile")
+            .structure_hash(),
+        clipasm::compiler::compile(&second)
+            .expect("second compile")
+            .structure_hash()
+    );
 }
 
 #[test]
@@ -217,7 +254,7 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
     .expect("workflow");
 
     let compiled = clipasm::compiler::compile_file(&workflow).expect("pure compile");
-    assert!(compiled.root_domain().is_none());
+    assert!(compiled.result_domain().is_none());
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
     assert_eq!(document["nodes"][0]["kind"]["operation"], "video_source");

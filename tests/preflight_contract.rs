@@ -12,6 +12,30 @@ fn write_image(directory: &Path, name: &str, color: &str) {
 }
 
 #[test]
+fn prepared_plan_serializes_one_distinguished_result() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let source = directory.path().join("program.yaml");
+    fs::write(
+        &source,
+        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n",
+    )
+    .expect("source program");
+
+    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    let document = serde_json::to_value(&plan).expect("prepared JSON");
+
+    assert!(document.get("result").is_some());
+    assert!(document.get("root").is_none());
+    assert_eq!(document["format_version"], 4);
+    assert_eq!(
+        plan.nodes()[plan.result().get() as usize].domain().frames.0,
+        30
+    );
+}
+
+#[test]
 fn relocated_identical_projects_have_equal_semantic_hashes() {
     let first = tempfile::tempdir().expect("first directory");
     let second = tempfile::tempdir().expect("second directory");
@@ -337,7 +361,7 @@ fn prepared_repeat_keeps_one_upstream_edge() {
         input,
         count,
         frames,
-    } = plan.nodes()[plan.root().get() as usize].kind()
+    } = plan.nodes()[plan.result().get() as usize].kind()
     else {
         panic!("prepared repeat");
     };
@@ -358,15 +382,15 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
     .expect("workflow");
 
     let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
-    let input_domain = compiled.root_domain().expect("known zoom domain").clone();
+    let input_domain = compiled.result_domain().expect("known zoom domain").clone();
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let root = &plan.nodes()[plan.root().get() as usize];
-    let PreparedNodeKind::Zoom { input, percent } = root.kind() else {
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let PreparedNodeKind::Zoom { input, percent } = result.kind() else {
         panic!("prepared zoom");
     };
     assert_eq!(input.get(), 0);
     assert_eq!(*percent, 12);
-    assert_eq!(root.domain(), &input_domain);
+    assert_eq!(result.domain(), &input_domain);
 }
 
 #[test]
@@ -381,16 +405,19 @@ fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
     .expect("workflow");
 
     let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
-    let input_domain = compiled.root_domain().expect("known wobble domain").clone();
+    let input_domain = compiled
+        .result_domain()
+        .expect("known wobble domain")
+        .clone();
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let root = &plan.nodes()[plan.root().get() as usize];
-    let PreparedNodeKind::Wobble { input, pixels } = root.kind() else {
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let PreparedNodeKind::Wobble { input, pixels } = result.kind() else {
         panic!("prepared wobble");
     };
     assert_eq!(input.get(), 0);
     assert_eq!(*pixels, 4);
-    assert_eq!(root.domain(), &input_domain);
-    assert_ne!(root.fingerprint(), plan.nodes()[0].fingerprint());
+    assert_eq!(result.domain(), &input_domain);
+    assert_ne!(result.fingerprint(), plan.nodes()[0].fingerprint());
 }
 
 #[test]
@@ -407,19 +434,19 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
 
     let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let root = &plan.nodes()[plan.root().get() as usize];
+    let result = &plan.nodes()[plan.result().get() as usize];
     let PreparedNodeKind::FlashJoin {
         before,
         after,
         frames,
-    } = root.kind()
+    } = result.kind()
     else {
         panic!("prepared flash");
     };
     assert_eq!(before.get(), 0);
     assert_eq!(after.get(), 1);
     assert_eq!(frames.0, 4);
-    assert_eq!(root.domain().frames.0, 20);
+    assert_eq!(result.domain().frames.0, 20);
 }
 
 #[test]
@@ -457,7 +484,7 @@ fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
     .expect("workflow");
 
     let compiled = clipasm::compiler::compile_file(&workflow).expect("deferred compile");
-    assert!(compiled.root_domain().is_none());
+    assert!(compiled.result_domain().is_none());
     let error = clipasm::preflight::preflight(&compiled).expect_err("excessive flash frames");
     assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
     assert!(error.message.contains("11"));

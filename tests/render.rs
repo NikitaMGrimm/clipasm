@@ -70,7 +70,7 @@ fn renders_during_with_an_exact_duration_change() {
     )
     .expect("workflow");
     let compiled = compiler::compile_file(&workflow_path).expect("compile");
-    assert_eq!(compiled.root_domain().expect("known domain").frames.0, 12);
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 12);
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render during");
     assert!(report.output.is_file());
@@ -127,7 +127,7 @@ fn renders_and_normalizes_a_video_source() {
     .expect("workflow");
 
     let compiled = compiler::compile_file(&workflow_path).expect("compile");
-    assert!(compiled.root_domain().is_none());
+    assert!(compiled.result_domain().is_none());
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert!(matches!(
         plan.nodes()[1].kind(),
@@ -135,7 +135,7 @@ fn renders_and_normalizes_a_video_source() {
     ));
     assert_eq!(plan.nodes()[1].domain().frames.0, 20);
     assert_eq!(
-        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        plan.nodes()[plan.result().get() as usize].domain().frames.0,
         30
     );
     let first = render::render(&plan).expect("first render");
@@ -183,7 +183,7 @@ fn video_source_duration_is_quantized_by_coverage() {
     let compiled = compiler::compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
-        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        plan.nodes()[plan.result().get() as usize].domain().frames.0,
         30
     );
     let report = render::render(&plan).expect("render");
@@ -226,7 +226,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
     let compiled = compiler::compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
-        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        plan.nodes()[plan.result().get() as usize].domain().frames.0,
         1
     );
     let report = render::render(&plan).expect("render");
@@ -467,7 +467,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     let compiled = compiler::compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
-        plan.nodes()[plan.root().get() as usize].domain().frames.0,
+        plan.nodes()[plan.result().get() as usize].domain().frames.0,
         20
     );
     let report = render::render(&plan).expect("render flash");

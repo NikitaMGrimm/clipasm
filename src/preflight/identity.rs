@@ -22,7 +22,7 @@ struct PreparedNodeIdentity<'a> {
 struct PreparedPlanIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
-    root: &'a str,
+    result: &'a str,
     names: BTreeMap<&'a str, &'a str>,
 }
 
@@ -121,7 +121,7 @@ pub(super) fn node_fingerprint(
 
 pub(super) fn prepared_semantic_hash(
     video: &VideoSpec,
-    root: NodeId,
+    result: NodeId,
     names: &BTreeMap<String, NodeId>,
     nodes: &[PreparedNode],
 ) -> Result<String> {
@@ -132,7 +132,7 @@ pub(super) fn prepared_semantic_hash(
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
         format_version: PREPARED_FORMAT_VERSION,
         video,
-        root: &nodes[root.get() as usize].fingerprint,
+        result: &nodes[result.get() as usize].fingerprint,
         names,
     })
 }

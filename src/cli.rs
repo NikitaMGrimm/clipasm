@@ -51,7 +51,7 @@ fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { workflow } => {
             let compiled = compiler::compile_file(&workflow)?;
-            if let Some(domain) = compiled.root_domain() {
+            if let Some(domain) = compiled.result_domain() {
                 println!(
                     "valid: {} semantic value(s), {} frame(s)",
                     compiled.value_count(),

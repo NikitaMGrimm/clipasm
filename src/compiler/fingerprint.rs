@@ -12,7 +12,7 @@ use crate::semantic::SemanticNodeKind;
 struct CompiledIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
-    root: &'a str,
+    result: &'a str,
     names: &'a BTreeMap<&'a str, String>,
 }
 
@@ -33,9 +33,9 @@ pub(super) fn compiled_structure_hash(
     order: &[ValueRef],
 ) -> Result<String> {
     let hashes = value_hashes(evaluation, domains, order)?;
-    let root = hashes[evaluation.root.id().get() as usize]
+    let result = hashes[evaluation.result.id().get() as usize]
         .as_deref()
-        .expect("topological order includes the root");
+        .expect("topological order includes the result");
     let names = evaluation
         .symbol_order
         .iter()
@@ -56,7 +56,7 @@ pub(super) fn compiled_structure_hash(
     hash_serializable(&CompiledIdentity {
         format_version,
         video,
-        root,
+        result,
         names: &names,
     })
 }
@@ -236,7 +236,7 @@ mod tests {
             symbols,
             symbol_order: vec!["source".to_owned()],
             surface: Vec::new(),
-            root: reference,
+            result: reference,
         };
         let domains = vec![Some(domain.clone()), Some(domain)];
         let hashes =
@@ -298,7 +298,7 @@ mod tests {
             symbols,
             symbol_order,
             surface: Vec::new(),
-            root,
+            result: root,
         };
         let domains = vec![Some(domain); ALIASES + 1];
 
@@ -336,7 +336,7 @@ mod tests {
                 symbols: BTreeMap::new(),
                 symbol_order: Vec::new(),
                 surface: Vec::new(),
-                root,
+                result: root,
             };
             let domains = vec![
                 Some(VideoDomain {

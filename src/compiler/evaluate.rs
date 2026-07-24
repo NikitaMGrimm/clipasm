@@ -33,7 +33,7 @@ pub(super) struct Evaluation {
     pub(super) symbols: BTreeMap<String, Symbol>,
     pub(super) symbol_order: Vec<String>,
     pub(super) surface: Vec<SurfaceRecord>,
-    pub(super) root: ValueRef,
+    pub(super) result: ValueRef,
 }
 
 pub(super) fn evaluate(
@@ -51,13 +51,13 @@ pub(super) fn evaluate(
         surface: Vec::new(),
     };
     evaluator.collect_names()?;
-    let root = evaluator.evaluate_all()?;
+    let result = evaluator.evaluate_all()?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
         symbol_order: evaluator.symbol_order,
         surface: evaluator.surface,
-        root,
+        result,
     })
 }
 

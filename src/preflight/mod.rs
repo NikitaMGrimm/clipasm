@@ -1,7 +1,7 @@
 //! Media-aware preparation of compiled workflows for rendering.
 //!
 //! Preflight is the first pipeline phase that performs I/O. It resolves
-//! root-reachable assets, verifies source contracts and tool capabilities,
+//! result-reachable assets, verifies source contracts and tool capabilities,
 //! derives exact media domains, and lowers semantic operations into a
 //! [`PreparedPlan`] containing renderer primitives.
 //!
@@ -10,8 +10,8 @@
 //!
 //! let compiled = clipasm::compiler::compile_file(Path::new("workflow.yaml"))?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
-//! let root = &plan.nodes()[plan.root().get() as usize];
-//! println!("prepared {} frames", root.domain().frames.0);
+//! let result = &plan.nodes()[plan.result().get() as usize];
+//! println!("prepared {} frames", result.domain().frames.0);
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 
@@ -40,7 +40,7 @@ use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
 use tools::{ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
-const PREPARED_FORMAT_VERSION: u32 = 3;
+const PREPARED_FORMAT_VERSION: u32 = 4;
 const CACHE_FORMAT_VERSION: u32 = 2;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale",
@@ -70,7 +70,7 @@ pub struct PreparedPlan {
     video: VideoSpec,
     media_policy: RenderMediaPolicy,
     nodes: Vec<PreparedNode>,
-    root: NodeId,
+    result: NodeId,
     named_values: BTreeMap<String, NodeId>,
     output: PathBuf,
     manifest: PathBuf,
@@ -105,12 +105,12 @@ impl PreparedPlan {
 
     #[must_use]
     /// Return the node that produces the exported video.
-    pub const fn root(&self) -> NodeId {
-        self.root
+    pub const fn result(&self) -> NodeId {
+        self.result
     }
 
     #[must_use]
-    /// Return root-reachable user names and their prepared node IDs.
+    /// Return result-reachable user names and their prepared node IDs.
     pub fn named_values(&self) -> &BTreeMap<String, NodeId> {
         &self.named_values
     }
@@ -324,7 +324,7 @@ enum ExportPixelFormat {
     Yuv420p,
 }
 
-/// Resolve and verify assets/tools, lower root-reachable primitives, and build
+/// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
 /// # Errors
@@ -376,12 +376,12 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let order = crate::compiler::traversal::topological_order(
         compiled.nodes(),
         compiled.named_values(),
-        [compiled.root()],
+        [compiled.result()],
     )?;
     for value in order {
         lowerer.lower(value)?;
     }
-    let root = lowerer.lowered[&compiled.root().id()];
+    let result = lowerer.lowered[&compiled.result().id()];
     let named_values = compiled
         .named_values()
         .iter()
@@ -394,7 +394,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         })
         .collect::<BTreeMap<_, _>>();
     reject_asset_collisions(&output, &manifest, &lowerer.nodes)?;
-    let semantic_hash = prepared_semantic_hash(&video, root, &named_values, &lowerer.nodes)?;
+    let semantic_hash = prepared_semantic_hash(&video, result, &named_values, &lowerer.nodes)?;
 
     Ok(PreparedPlan {
         format_version: PREPARED_FORMAT_VERSION,
@@ -403,7 +403,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         video,
         media_policy,
         nodes: lowerer.nodes,
-        root,
+        result,
         named_values,
         output,
         manifest,

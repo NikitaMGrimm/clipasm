@@ -168,11 +168,11 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         artifacts.push(artifact);
     }
 
-    let root_node = &plan.nodes()[plan.root().get() as usize];
-    let root_artifact = artifacts.get(plan.root().get() as usize).ok_or_else(|| {
+    let result_node = &plan.nodes()[plan.result().get() as usize];
+    let result_artifact = artifacts.get(plan.result().get() as usize).ok_or_else(|| {
         Diagnostic::new(
             "E_INVALID_PLAN",
-            "prepared root does not identify a primitive artifact",
+            "prepared result does not identify a primitive artifact",
             SourceSpan::file_start(plan.workflow_path()),
         )
     })?;
@@ -191,10 +191,10 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
 
     let publication = PublicationTransaction::new(plan.output(), plan.manifest());
     stage_export(
-        root_artifact,
+        result_artifact,
         publication.staged_output(),
         plan.video(),
-        root_node.domain(),
+        result_node.domain(),
         plan.media_policy(),
         plan.ffmpeg().executable(),
         plan.ffprobe().executable(),
