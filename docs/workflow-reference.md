@@ -234,6 +234,19 @@ unambiguous scalar invocation or reference supplies a one-item body. IDs inside
 inline bodies use the same global namespace as named clips and all other item
 IDs.
 
+```yaml
+- flash:
+    before:
+      - image: {path: before.png, duration: 2s}
+      - zoom:
+        id: reusable_before
+    after:
+      image: {path: after.png, duration: 2s}
+
+- $reusable_before
+- wobble
+```
+
 Only fixed inputs support inline bodies. Variadic inputs accept one `$reference`
 or a list of `$references`.
 

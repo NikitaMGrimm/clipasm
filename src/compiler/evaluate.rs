@@ -39,12 +39,12 @@ pub(super) struct Evaluation {
 }
 
 pub(super) fn evaluate(
-    workflow: &SourceProgram,
+    program: &SourceProgram,
     video: &VideoSpec,
     registry: ProgramRegistry,
 ) -> Result<Evaluation> {
     let mut evaluator = Evaluator {
-        workflow,
+        program,
         video,
         registry,
         nodes: Vec::new(),
@@ -64,7 +64,7 @@ pub(super) fn evaluate(
 }
 
 struct Evaluator<'a> {
-    workflow: &'a SourceProgram,
+    program: &'a SourceProgram,
     video: &'a VideoSpec,
     registry: ProgramRegistry,
     nodes: Vec<DraftNode>,
@@ -75,17 +75,17 @@ struct Evaluator<'a> {
 
 impl Evaluator<'_> {
     fn collect_names(&mut self) -> Result<()> {
-        for clip in self.workflow.clips() {
+        for clip in self.program.clips() {
             self.add_symbol(
                 &clip.name,
                 &clip.span,
                 DeclaredValueType::Known(ValueType::Video),
             )?;
         }
-        for clip in self.workflow.clips() {
+        for clip in self.program.clips() {
             self.collect_body_names(&clip.body)?;
         }
-        self.collect_body_names(self.workflow.body())?;
+        self.collect_body_names(self.program.body())?;
         resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
         self.symbol_order.sort();
         Ok(())
@@ -161,7 +161,7 @@ impl Evaluator<'_> {
     }
 
     fn evaluate_all(&mut self) -> Result<ValueRef> {
-        let mut clips = self.workflow.clips().iter().collect::<Vec<_>>();
+        let mut clips = self.program.clips().iter().collect::<Vec<_>>();
         clips.sort_by(|left, right| left.name.cmp(&right.name));
         for clip in clips {
             let mut stack = ValueStack::new();
@@ -191,13 +191,13 @@ impl Evaluator<'_> {
         }
 
         let mut stack = ValueStack::new();
-        self.evaluate_body(self.workflow.body(), &mut stack, None)?;
+        self.evaluate_body(self.program.body(), &mut stack, None)?;
         let [result] = stack.as_slice() else {
             return Err(output_count_error(
                 "E_SOURCE_PROGRAM_OUTPUT_COUNT",
                 "source program",
                 stack.len(),
-                self.workflow.header_span(),
+                self.program.header_span(),
             )
             .note("combine multiple Videos explicitly with `concat` or a nested `timeline`"));
         };
@@ -206,7 +206,7 @@ impl Evaluator<'_> {
             ValueType::Video,
             "source program",
             "result",
-            self.workflow.header_span(),
+            self.program.header_span(),
         )?;
         Ok(*result)
     }

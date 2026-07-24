@@ -13,7 +13,7 @@ struct SymbolFrame {
 }
 
 pub(super) fn finalize(
-    workflow: &SourceProgram,
+    program: &SourceProgram,
     video: VideoSpec,
     evaluation: Evaluation,
     format_version: u32,
@@ -77,7 +77,7 @@ pub(super) fn finalize(
         .collect::<Vec<_>>();
     Ok(CompiledProgram {
         format_version,
-        program_version: workflow.version(),
+        program_version: program.version(),
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         structure_hash,
         video,
@@ -85,8 +85,8 @@ pub(super) fn finalize(
         result: evaluation.result,
         named_values,
         explain,
-        output: workflow.output().cloned(),
-        source_path: workflow.source_path().to_path_buf(),
+        output: program.output().cloned(),
+        source_path: program.source_path().to_path_buf(),
     })
 }
 

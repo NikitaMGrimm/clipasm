@@ -328,6 +328,16 @@ fn ids_inside_inline_inputs_use_the_global_named_value_namespace() {
 }
 
 #[test]
+fn ids_inside_named_clip_bodies_are_visible_to_the_source_body() {
+    let (_directory, program) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    clips:\n      decorated:\n        - image: {path: a.ppm, duration: 1s}\n          id: reusable\n        - zoom\n\n- $reusable\n- wobble\n",
+    );
+    let compiled = compiler::compile(&program).expect("global named-clip id");
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 10);
+    assert!(compiled_json(&compiled)["named_values"]["reusable"].is_object());
+}
+
+#[test]
 fn duplicate_names_cross_inline_input_boundaries() {
     let (_directory, duplicate) = project(
         "- program:\n    version: 1\n\n- flash:\n    before:\n      - image: {path: a.ppm, duration: 1s}\n        id: duplicate\n    after:\n      image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 1s}\n  id: duplicate\n- concat\n",

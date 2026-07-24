@@ -16,7 +16,7 @@ pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf>
     let output = compiled.output().ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_OUTPUT",
-            "`render` requires the top-level `output` field",
+            "`render` requires `program.output`",
             SourceSpan::file_start(compiled.source_path()),
         )
     })?;
