@@ -143,6 +143,11 @@ impl PreparedPlan {
         &self.execution_namespace
     }
 
+    pub(crate) fn verify_tool_identities(&self) -> Result<()> {
+        tools::verify_tool_identity(&self.ffmpeg, "FFmpeg")?;
+        tools::verify_tool_identity(&self.ffprobe, "FFprobe")
+    }
+
     pub(crate) fn source_path(&self) -> &Path {
         &self.source_path
     }

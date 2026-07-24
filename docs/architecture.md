@@ -91,8 +91,9 @@ The prepared plan has exact domains for every result-reachable node.
 
 ## Rendering
 
-`render` verifies source hashes again, reuses only verified cached artifacts,
-renders missing FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
+`render` verifies the prepared FFmpeg and FFprobe build identities and source
+hashes again, reuses only verified cached artifacts, renders missing
+FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
 
 The cache lives under `.clipasm/cache/` beside the source program. Output and
 manifest files are staged as temporary siblings and committed through one

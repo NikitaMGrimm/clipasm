@@ -97,6 +97,21 @@ fn compiled_program_serializes_one_distinguished_result() {
 }
 
 #[test]
+fn explain_entries_expose_authored_names_and_source_locations() {
+    let source =
+        "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n  id: card\n";
+    let program =
+        clipasm::syntax::parse_str(Path::new("program.yaml"), source).expect("source program");
+    let compiled = clipasm::compiler::compile(&program).expect("compiled program");
+    let entry = compiled.explain().last().expect("explain entry");
+
+    assert_eq!(entry.construct(), "image");
+    assert_eq!(entry.id(), Some("card"));
+    assert_eq!(entry.span().file, Path::new("program.yaml"));
+    assert_eq!(entry.span().line, 4);
+}
+
+#[test]
 fn entrypoint_output_does_not_change_compiled_semantics() {
     let source = |output: &str| {
         format!(

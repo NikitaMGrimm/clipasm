@@ -50,6 +50,46 @@ fn compile_writes_an_explicit_plan_path() {
 }
 
 #[test]
+fn compile_refuses_to_replace_an_existing_file() {
+    let (_directory, workflow) = fixture();
+    let original = fs::read(&workflow).expect("original workflow");
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args([
+            "compile",
+            workflow.to_str().expect("UTF-8 path"),
+            "--output",
+            workflow.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run clipasm");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_PLAN_EXISTS]"));
+    assert_eq!(fs::read(&workflow).expect("preserved workflow"), original);
+}
+
+#[test]
+fn compile_preserves_an_existing_plan_destination() {
+    let (directory, workflow) = fixture();
+    let plan = directory.path().join("plan.json");
+    fs::write(&plan, b"existing plan").expect("existing plan");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args([
+            "compile",
+            workflow.to_str().expect("UTF-8 path"),
+            "--output",
+            plan.to_str().expect("UTF-8 path"),
+        ])
+        .output()
+        .expect("run clipasm");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_PLAN_EXISTS]"));
+    assert_eq!(fs::read(&plan).expect("preserved plan"), b"existing plan");
+}
+
+#[test]
 fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
     fs::write(

@@ -39,6 +39,21 @@ impl ToolIdentity {
     }
 }
 
+pub(crate) fn verify_tool_identity(tool: &ToolIdentity, role: &str) -> Result<()> {
+    let current = inspect_tool_identity(tool.executable(), "E_TOOL_CHANGED")?;
+    if current.build_fingerprint() == tool.build_fingerprint() {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "E_TOOL_CHANGED",
+        format!(
+            "{role} executable `{}` changed after preflight; prepare the program again",
+            tool.executable().display()
+        ),
+        SourceSpan::file_start(tool.executable()),
+    ))
+}
+
 pub(super) fn inspect_ffmpeg() -> Result<ToolIdentity> {
     inspect_ffmpeg_at(&resolve_executable("ffmpeg", "E_FFMPEG")?)
 }
@@ -682,6 +697,20 @@ mod tests {
             first_identity.build_fingerprint,
             relocated_identity.build_fingerprint
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn render_identity_check_rejects_a_tool_changed_after_preflight() {
+        let _guard = fake_tool_test_lock();
+        let (_directory, tool) = executable_script("#!/bin/sh\necho 'tool 1'\n");
+        let identity = inspect_tool_identity(&tool, "E_TOOL").expect("initial identity");
+
+        fs::write(&tool, "#!/bin/sh\necho 'tool 2'\n").expect("replace tool");
+        let error = verify_tool_identity(&identity, "test tool").expect_err("changed tool");
+
+        assert_eq!(error.code, "E_TOOL_CHANGED");
+        assert!(error.message.contains("prepare the program again"));
     }
 
     #[test]

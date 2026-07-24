@@ -83,6 +83,7 @@ struct ProbeStream {
 /// violations, or publication failures.
 #[allow(clippy::too_many_lines)]
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
+    plan.verify_tool_identities()?;
     let source_directory = plan
         .source_path()
         .parent()

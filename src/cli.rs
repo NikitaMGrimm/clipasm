@@ -1,5 +1,7 @@
-use std::fs;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -25,7 +27,7 @@ enum Command {
     Compile {
         /// Source program YAML file.
         source: PathBuf,
-        /// Write compiled JSON to this path instead of stdout.
+        /// Write compiled JSON to a new path instead of stdout. Existing files are preserved.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -68,13 +70,7 @@ fn execute(cli: Cli) -> Result<()> {
             let compiled = compiler::compile_file(&source)?;
             let json = compiled.canonical_json()?;
             if let Some(output) = output {
-                fs::write(&output, json).map_err(|error| {
-                    Diagnostic::new(
-                        "E_PLAN_IO",
-                        format!("could not write plan `{}`: {error}", output.display()),
-                        SourceSpan::file_start(&output),
-                    )
-                })?;
+                write_new_plan(&output, json.as_bytes())?;
             } else {
                 println!("{json}");
             }
@@ -91,6 +87,44 @@ fn execute(cli: Cli) -> Result<()> {
                 report.manifest.display()
             );
         }
+    }
+    Ok(())
+}
+
+fn write_new_plan(path: &Path, contents: &[u8]) -> Result<()> {
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(Diagnostic::new(
+                "E_PLAN_EXISTS",
+                format!(
+                    "refusing to replace existing plan destination `{}`",
+                    path.display()
+                ),
+                SourceSpan::file_start(path),
+            ));
+        }
+        Err(error) => {
+            return Err(Diagnostic::new(
+                "E_PLAN_IO",
+                format!("could not create plan `{}`: {error}", path.display()),
+                SourceSpan::file_start(path),
+            ));
+        }
+    };
+    if let Err(error) = file.write_all(contents) {
+        let diagnostic = Diagnostic::new(
+            "E_PLAN_IO",
+            format!("could not write plan `{}`: {error}", path.display()),
+            SourceSpan::file_start(path),
+        );
+        return match std::fs::remove_file(path) {
+            Ok(()) => Err(diagnostic),
+            Err(cleanup_error) => Err(diagnostic.note(format!(
+                "could not remove incomplete plan `{}`: {cleanup_error}",
+                path.display()
+            ))),
+        };
     }
     Ok(())
 }

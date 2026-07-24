@@ -155,6 +155,18 @@ impl ExplainEntry {
     pub const fn output(&self) -> ValueRef {
         self.output
     }
+
+    #[must_use]
+    /// Return the optional user-authored name attached with `id` or declared by a named clip.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    #[must_use]
+    /// Return the source location of this authored construct.
+    pub const fn span(&self) -> &SourceSpan {
+        &self.span
+    }
 }
 
 /// Parse and purely compile a source-program file without reading media assets or

@@ -391,11 +391,13 @@ output path does not change compiled semantic identity.
 `validate` parses, type-checks, and infers every source-independent domain.
 
 `compile` emits canonical JSON without opening assets or invoking tools.
-Video-source durations may remain unresolved.
+Video-source durations may remain unresolved. With `--output`, it creates a new
+file and refuses to replace an existing path.
 
 `render` performs preflight, resolves result-reachable assets and video
-durations, checks FFmpeg capabilities, renders verified lossless intermediates,
-and exports H.264/yuv420p MP4.
+durations, checks FFmpeg capabilities, verifies that the prepared FFmpeg and
+FFprobe builds have not changed, renders verified lossless intermediates, and
+exports H.264/yuv420p MP4.
 
 ```console
 cargo run -- validate program.yaml
