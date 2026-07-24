@@ -34,6 +34,8 @@ authoring semantics. Public YAML forms and program arguments are defined in
 - A **direct program** produces its output without evaluating a nested body.
 - A **body program** evaluates one nested body with a program-defined initial
   value sequence and finalization rule.
+- An **external program** is a typed registered program whose semantic node is
+  compiled purely and whose trusted executable runs only during rendering.
 - A **clip** is any finite Video value. A Video carries picture plus optional
   synchronized audio.
 - **Audio** is a finite standalone normalized audio timeline.
@@ -159,3 +161,18 @@ value. Entrypoint publication and cache placement use the entrypoint source
 unit. Literal defaults authored in imported programs retain the imported
 unit's source base; caller-supplied values retain the caller's source base.
 Every linked source program is checked even when the root does not invoke it.
+
+## External programs
+
+Canonical source packages may contain external program specifications and
+source-unit-local aliases to them. External calls use the ordinary descriptor,
+binder, stack, reference, output, and semantic-version rules. YAML exposes the
+alias mapping through `program.externals`, but the catalog belongs to canonical
+source so future frontends can construct the same registrations.
+
+The initial external protocol supports fixed Video or Audio inputs, Integer and
+Keyword parameters, and one Video output whose exact domain and meaningful-audio
+state preserve one declared Video input. Compilation does not resolve or run the
+command. Preflight resolves and hashes it; rendering executes it directly with a
+versioned JSON request and verifies the produced artifact. No implicit shell is
+used. External executables are trusted native code.

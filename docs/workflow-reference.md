@@ -114,6 +114,105 @@ Every linked authored program is checked, including unused imports. Invalid
 parameter defaults, bodies, names, references, or output contracts therefore
 fail compilation even when the root never invokes that program.
 
+## External programs
+
+A source unit may register trusted executable programs under local aliases:
+
+```yaml
+- program:
+    version: 1
+    externals:
+      brighten: ./programs/brighten/program.json
+
+- video: footage.mp4
+- brighten:
+    amount: 15
+```
+
+Manifest paths resolve relative to the YAML file declaring them. Aliases share
+the imported-program namespace, are local to that source unit, and may not
+collide with built-ins or authored imports. `parse_str` cannot load manifests;
+file-backed loading is required.
+
+The initial JSON manifest format is:
+
+```json
+{
+  "format_version": 1,
+  "protocol_version": 1,
+  "semantic_version": 1,
+  "command": "./brighten.py",
+  "inputs": [
+    {"name": "video", "type": "Video"}
+  ],
+  "parameters": [
+    {"name": "amount", "type": "Integer", "required": true}
+  ],
+  "output": {"type": "Video", "preserve": "video"}
+}
+```
+
+`command` is either a directly executable path relative to the manifest or one
+executable name resolved from `PATH`. It is not a shell command and accepts no
+inline argument string. The initial manifest supports fixed `Video` or `Audio`
+inputs and `Integer` or `Keyword` parameters. Keyword parameters require a
+nonempty `values` list. The one output must be `Video`; `preserve` names the
+Video input whose exact frame domain and meaningful-audio state the output must
+retain.
+
+External calls use ordinary explicit and implicit input binding, parameter
+validation, stack access, IDs, references, and output checks. YAML currently
+uses the full mapping form because its external descriptors are discovered from
+the same header; manifest `primary_parameter` metadata is available to other
+frontends but does not add YAML scalar shorthand.
+
+Validation and compilation read the manifest but do not resolve or execute its
+command. Preflight resolves the executable and records a content hash. Rendering
+starts it directly and writes one JSON request to standard input:
+
+```json
+{
+  "protocol_version": 1,
+  "inputs": {
+    "video": {
+      "path": "/absolute/cache/input.mkv",
+      "value_type": "Video",
+      "domain": {
+        "frames": 60,
+        "width": 320,
+        "height": 180,
+        "frame_rate": {"numerator": 30, "denominator": 1}
+      },
+      "audio_domain": null,
+      "has_audio": true
+    }
+  },
+  "parameters": {"amount": 15},
+  "output": "/absolute/cache/temporary.mkv",
+  "project": {
+    "video": {
+      "width": 320,
+      "height": 180,
+      "fps": {"numerator": 30, "denominator": 1}
+    },
+    "audio": {"sample_rate": 48000, "channels": 2}
+  },
+  "tools": {
+    "ffmpeg": "/absolute/path/to/ffmpeg",
+    "ffprobe": "/absolute/path/to/ffprobe"
+  }
+}
+```
+
+The executable must write the requested output and exit successfully. The
+working Video must contain exactly one project-sized Video stream and one
+canonical Audio stream, retain the preserved input's exact frame count, and use
+the renderer's working media contract. ClipAsm probes the result before cache
+commit. Standard error is included in failure diagnostics.
+
+External executables are trusted native code. Render only projects and manifests
+you trust. Compilation itself remains media- and execution-pure.
+
 ### Root CLI bindings
 
 The root source program may receive its declared interface directly from every

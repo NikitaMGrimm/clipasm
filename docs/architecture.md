@@ -97,9 +97,9 @@ layout.
 All programs are runtime `ProgramDefinition` values in one crate-private
 catalog. Each definition contains typed inputs, typed parameters, an ordered
 output sequence, a semantic version, and an explicit default stack access.
-Implementations are built-in direct lowerers, built-in body preparers, or
-authored source programs. Body programs additionally expose a declarative body
-contract used by common type inference.
+Implementations are built-in direct lowerers, built-in body preparers,
+authored source programs, or registered external processes. Body programs
+additionally expose a declarative body contract used by common type inference.
 
 Direct programs lower immediately. Body programs prepare initial values and a
 requested-duration context. Their resolved fixed graph inputs are exposed in
@@ -152,6 +152,26 @@ representation: import paths are resolved relative to the importing file,
 parsed source units are deduplicated by canonical path, and import cycles are
 rejected. The resulting imports and source-program interfaces are canonical
 source data; compilation does not branch on YAML or open files.
+
+### External programs
+
+A canonical source package may carry external program specifications and local
+source-unit aliases. The YAML loader obtains them from JSON manifests, but the
+compiler consumes the representation-neutral package catalog. Each specification
+is converted into an ordinary runtime program definition, so checking and
+binding remain shared with every other implementation.
+
+External evaluation adds a pure semantic node. Preflight is the first phase that
+resolves the executable, verifies executable permissions, hashes its bytes, and
+turns the node into an exact prepared primitive. The first protocol declares that
+one Video input supplies the output domain and meaningful-audio state. Rendering
+reverifies the executable hash, sends one JSON request over standard input, and
+verifies the resulting working artifact before cache commit.
+
+The renderer starts the executable directly with `Command`; it does not construct
+a shell command. Executable content belongs to prepared identity, while the
+authored command, parameters, and graph inputs belong to compiled semantic
+identity.
 
 ## Preflight
 

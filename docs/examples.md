@@ -53,6 +53,26 @@ cargo run -- validate examples/imported-program.yaml
 cargo run -- render examples/imported-program.yaml
 ```
 
+
+## External brighten program
+
+`examples/external-brighten.yaml` registers the JSON manifest under
+`examples/programs/brighten/` as the local `brighten` program. The executable
+Python script reads ClipAsm's one-shot JSON request and invokes the supplied
+FFmpeg executable with a minimal brightness filter. It demonstrates that custom
+program logic, inputs, and parameters can live outside the Rust binary while
+still using ordinary typed binding, preflight identity, cache behavior, and
+artifact verification.
+
+```console
+cargo run -- validate examples/external-brighten.yaml
+cargo run -- compile examples/external-brighten.yaml
+cargo run -- render examples/external-brighten.yaml
+```
+
+The script requires Python 3 in addition to the normal FFmpeg and FFprobe render
+requirements. External programs execute trusted native code during rendering.
+
 ## Root bindings
 
 `examples/root-bindings.yaml` is a reusable entrypoint with one declared Video

@@ -9,6 +9,7 @@ Current features:
 - still-image and video-file sources
 - references and named clips
 - imported callable source programs with Video or Audio inputs and typed parameters
+- registered external executables using the same typed program binder
 - ordered source-program results and isolated inline fixed inputs
 - type-preserving trimming, concatenation, repetition, and stack dropping
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
@@ -22,6 +23,8 @@ Current features:
 - FFmpeg and FFprobe on `PATH` for rendering
 
 Compilation and validation do not open media files or invoke external tools.
+Rendering a workflow with registered external programs executes trusted native
+code declared by that workflow.
 
 ## Quick start
 
