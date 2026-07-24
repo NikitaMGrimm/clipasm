@@ -30,9 +30,11 @@ default to `stack_access: owned`. At the current entrypoint there are no
 caller-visible values, so `owned` and `visible` have the same result for the
 source program itself.
 
-The source-program body owns no initial values and must finish with exactly one
-Video. It is not implicitly wrapped in `glue`. If multiple Videos should become
-the result, use `concat` or a nested `glue` explicitly.
+The source-program body owns no initial values and returns its complete final
+owned suffix in order. Zero, one, or multiple outputs are valid for `validate`
+and `compile`. It is not implicitly wrapped in `glue`. When the header contains
+`output`, the source must produce exactly one Video; use `concat` or a nested
+`glue` when several Videos should become that render result.
 
 Relative media and output paths resolve from the source file's directory.
 Mapping order has no meaning. Sequence order is executable stack order.
@@ -295,9 +297,9 @@ isolated, starts empty, and must finish with exactly one Video.
 Clips are definitions, not media storage. Unreferenced clips are still compiled
 and validated but are not prepared or rendered.
 
-### Item IDs
+### Item output names
 
-`id` binds an item's result:
+`id` binds the single output of a one-output item:
 
 ```yaml
 - video: footage.mp4
@@ -305,8 +307,21 @@ and validated but are not prepared or rendered.
 - $source
 ```
 
-Clip names and item IDs share one namespace. Forward references are allowed.
-Missing references, duplicate names, and cycles are errors.
+Clip names and item output names share one namespace. Forward references are
+allowed. Missing references, duplicate names, and cycles are errors.
+
+`ids` completely names a multi-output item in output order:
+
+```yaml
+- split: 2s
+  ids: [before, after]
+```
+
+If the stack was `[A, B, C]`, and the invocation produces `[before, after]`,
+the resulting stack is `[A, B, C, before, after]`. `after` is the top value.
+`ids` must contain exactly as many names as the item produces. `id` and `ids`
+cannot be combined. Zero-output items cannot be named. Omitting both annotations
+leaves every output on the stack unnamed.
 
 ### References
 
@@ -317,7 +332,8 @@ Plain reference:
 ```
 
 References read immutable values and consume nothing from the evaluation stack.
-References cannot carry `id`; named clips are the explicit alias mechanism.
+References produce one value and may use `id`. Named clips remain the explicit
+declaration mechanism for reusable clip bodies.
 
 ## Body programs
 
@@ -396,7 +412,8 @@ Both forms repeat only the selected middle range and normalize identically.
 An explicit `base: $name` reads that named value without consuming the outer
 stack.
 
-`id` is the only item annotation. A postfix-capable program such as `during`
+`id` and `ids` are item output annotations. A postfix-capable program such as
+`during`
 may appear beside one head invocation. Its scalar value remains shorthand for
 the wrapper parameter, or its mapping may contain ordinary wrapper parameters
 and generic metadata:
@@ -425,7 +442,7 @@ stack occurrences. Inline fixed inputs execute on isolated stacks.
 
 | Scope | Initial owned values | Finalization |
 |---|---|---|
-| source program | empty | exactly one Video |
+| source program | empty | return the complete ordered owned suffix |
 | named clip | empty, isolated | exactly one Video |
 | inline fixed input | empty, isolated | exactly one value of the port type |
 | `join` | two bound Videos | concatenate owned Videos in order |
@@ -439,15 +456,16 @@ visible descendant cannot reach through it. Settings are per invocation and do
 not inherit.
 
 There is no hidden replacement, parent-stack lookup, or source-level reduction.
-Named clips, inline inputs, the source program, and `during` require exactly one
-result. Only `join` and `glue` explicitly concatenate their owned Videos.
+Named clips, inline inputs, and `during` still require exactly one result. The
+source program returns zero or more outputs literally. Only `join` and `glue`
+explicitly concatenate their owned Videos.
 
 ## Entrypoint publication and rendering
 
-The source program always returns its semantic Video result. When invoked as
-the CLI entrypoint, `render` additionally publishes that result to the
-configured `output`. Publication is not a semantic graph operation, and the
-output path does not change compiled semantic identity.
+The source program returns its ordered semantic outputs. A configured `output`
+path turns the source into a render entrypoint and therefore requires exactly
+one Video output. `render` publishes that Video. Publication is not a semantic
+graph operation, and the output path does not change compiled semantic identity.
 
 `validate` parses, type-checks, and infers every source-independent domain.
 

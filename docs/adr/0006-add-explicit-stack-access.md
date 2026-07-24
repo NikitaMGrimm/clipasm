@@ -5,8 +5,9 @@ status: accepted
 # Add explicit stack access
 
 This record refines the local-stack wording in ADRs 0002 and 0005. Their
-program lifecycle, source-program result, and isolation decisions remain in
-force; nested registered bodies now use scoped views over one evaluation stack.
+program lifecycle and isolation decisions remain in force; nested registered
+bodies now use scoped views over one evaluation stack. ADR 0007 later replaces
+the single source result with an ordered output suffix.
 
 ClipAsm evaluates nested bodies over one physical typed evaluation stack. Each
 body frame tracks a visible suffix and an owned suffix. Programs consume missing
@@ -31,9 +32,9 @@ grandchildren cannot pierce.
 
 The compiler centralizes these rules in an invariant-owning evaluation-stack
 abstraction. Program implementations still receive fully resolved typed calls
-and never manipulate frame indices. Body finalizers receive only the body's
-owned suffix and continue to return one typed output. Multiple program outputs
-remain a separate future change.
+and never manipulate frame indices. Body finalizers receive only the body's owned suffix. ADR 0007 generalizes
+their return type to an ordered declared output sequence while preserving every
+existing body's one-output behavior.
 
 The alternative of making every nested body unrestricted was rejected because
 existing `glue`, `join`, `during`, named-clip, and inline-input meanings would

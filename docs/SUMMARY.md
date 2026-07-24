@@ -16,6 +16,7 @@
 - [Quantize source duration by coverage](adr/0004-quantize-source-duration-by-coverage.md)
 - [Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
 - [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
+- [Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
 
 # Development
 

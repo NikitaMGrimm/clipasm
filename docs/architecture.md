@@ -5,7 +5,7 @@ restricted YAML
   -> syntax parsing and normalization
 Source program + executable body
   -> typed call binding and stack evaluation
-Semantic graph + one result
+Semantic graph + ordered source outputs
   -> preflight
 Prepared primitive plan + one result
   -> renderer and cache
@@ -31,7 +31,7 @@ media files.
 `compiler` evaluates the source body and every nested body as a typed postfix
 stack program over one physical evaluation stack. Recursive body frames track a
 visible suffix and an owned suffix by index. The source body starts empty and
-must return exactly one Video. One shared binder resolves explicit inputs in
+returns its complete final owned suffix. One shared binder resolves explicit inputs in
 descriptor order, evaluates inline fixed-input bodies on isolated evaluation
 stacks, consumes missing inputs from the invocation's accessible suffix, and
 converts authored parameters to their declared Rust types. Program
@@ -56,14 +56,15 @@ structure hash.
 ## Programs
 
 All programs are static `ProgramDefinition` values in one crate-private
-registry. Each definition contains typed inputs, typed parameters, one output,
+registry. Each definition contains typed inputs, typed parameters, an ordered output sequence,
 a semantic version, an explicit default stack access, and either a direct
 lowerer or a body preparer.
 
 Direct programs lower immediately. Body programs prepare initial values and a
 requested-duration context. The evaluator opens one recursive frame on the
 shared evaluation stack, executes the body once, extracts only that frame's
-owned suffix, and gives it to a program-owned finalizer that returns one value.
+owned suffix, and gives it to a program-owned finalizer that returns the
+definition's declared output sequence.
 Captured ownership propagates one frame outward when a body completes.
 
 Registered programs are:
@@ -84,7 +85,9 @@ implementations.
 
 The `program` header is source-definition syntax, not a registered invocation.
 The evaluator treats its body uniformly without granting any registered
-program, including `glue`, a privileged source-file role.
+program, including `glue`, a privileged source-file role. Pure compilation may
+produce zero, one, or multiple ordered outputs. Preflight remains a publication
+boundary and requires exactly one Video output.
 
 ## Preflight
 

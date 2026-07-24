@@ -8,13 +8,15 @@ authoring semantics. Public YAML forms and program arguments are defined in
 ## Glossary
 
 - A **source program** is one parsed versioned YAML file. Its executable body
-  starts empty and returns exactly one Video.
+  starts empty and returns its ordered final owned suffix, including zero
+  values.
 - A **program header** is the required first source item. It declares the
   language version, project settings, named clips, and optional entrypoint
   output path; it is not executable.
 - An **item** is one executable entry in a sequence body.
 - A **program** is a typed callable construct with declared inputs,
-  parameters, and one output.
+  parameters, and an ordered output sequence. Every current built-in declares
+  exactly one Video output.
 - A **direct program** produces its output without evaluating a nested body.
 - A **body program** evaluates one nested body with a program-defined initial
   value sequence and finalization rule.
@@ -35,8 +37,9 @@ authoring semantics. Public YAML forms and program arguments are defined in
   `visible`. It does not propagate to child invocations.
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
-- A **result** is the single Video left by a successfully evaluated source
-  program.
+- A source program's **outputs** are the ordered values in its final owned
+  suffix. An entrypoint configured with `output` must have exactly one Video
+  output, which is its render result.
 - An **inline input body** is an isolated body that supplies one explicit fixed
   graph input to an invocation.
 - The **prepared plan** is the preflight result with reachable assets, tools,
@@ -67,9 +70,11 @@ default.
 - `during` starts its body with only the selected range, requires one processed
   owned Video, and splices that result between the untouched prefix and suffix.
 
-A source-program body starts empty and must leave exactly one Video. It is not
-implicitly wrapped in `glue`; authors use `concat` or a nested `glue`
-when they want concatenation.
+A source-program body starts empty and returns its complete final owned suffix
+without implicit reduction. Zero, one, or multiple outputs are valid for pure
+validation and compilation. A header `output` path requires exactly one Video;
+authors use `concat` or a nested `glue` when several Videos should become that
+render result.
 
 An inline input body also starts empty, inherits the enclosing requested-frame
 context, and must leave exactly one value of its input port's declared type.
@@ -84,7 +89,9 @@ the current evaluation stack and cannot cross the nearest visibility boundary.
 
 ## Names, references, and dependencies
 
-Clip names and invocation `id` values share one namespace. Forward references
-affect dependency resolution, not list execution order. References create
-semantic graph dependencies and never move, remove, or duplicate stack
-occurrences. Cycles, missing names, and duplicate names are compile errors.
+Clip names and invocation output names share one namespace. `id` names the
+single output of a one-output item. `ids` completely names a multi-output item
+in bottom-to-top stack order. Forward references affect dependency resolution,
+not list execution order. References create semantic graph dependencies and
+never move, remove, or duplicate stack occurrences. Cycles, missing names, and
+duplicate names are compile errors.
