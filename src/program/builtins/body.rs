@@ -2,12 +2,13 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyFinalizer, BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType,
-    PostfixSyntax, ProgramDefinition, ProgramDescriptor, ProgramImplementation, ResolvedCall,
-    StackAccess,
+    PostfixSyntax, ProgramDefinition, ProgramDescriptor, ProgramImplementation, ProgramOutputs,
+    ResolvedCall, StackAccess,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 
 const VIDEO: ValueType = ValueType::Video;
+const VIDEO_OUTPUTS: &[ValueType] = &[VIDEO];
 const JOIN_INPUTS: &[InputPort] = &[
     InputPort {
         name: "before",
@@ -38,7 +39,7 @@ pub(crate) const JOIN: ProgramDefinition = body(
         inputs: JOIN_INPUTS,
         parameters: &[],
         primary_parameter: None,
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     prepare_join,
     None,
@@ -52,7 +53,7 @@ pub(crate) const GLUE: ProgramDefinition = body(
         inputs: &[],
         parameters: &[],
         primary_parameter: None,
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     prepare_glue,
     None,
@@ -66,7 +67,7 @@ pub(crate) const DURING: ProgramDefinition = body(
         inputs: DURING_INPUTS,
         parameters: DURING_PARAMETERS,
         primary_parameter: Some("range"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     prepare_during,
     Some(PostfixSyntax { parameter: "range" }),
@@ -138,7 +139,7 @@ impl BodyFinalizer for FinalizeConcatBody {
         self: Box<Self>,
         stack: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
-    ) -> Result<ValueRef> {
+    ) -> Result<ProgramOutputs> {
         if stack.is_empty() {
             return Err(Diagnostic::new(
                 self.empty_code,
@@ -146,7 +147,7 @@ impl BodyFinalizer for FinalizeConcatBody {
                 self.span,
             ));
         }
-        builder.concat(stack)
+        Ok(vec![builder.concat(stack)?])
     }
 }
 
@@ -161,9 +162,13 @@ impl BodyFinalizer for FinalizeDuring {
         self: Box<Self>,
         stack: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
-    ) -> Result<ValueRef> {
+    ) -> Result<ProgramOutputs> {
         let replacement = take_one_video("during", stack, &self.span)?;
-        builder.replace_range(self.base, self.range, replacement)
+        Ok(vec![builder.replace_range(
+            self.base,
+            self.range,
+            replacement,
+        )?])
     }
 }
 

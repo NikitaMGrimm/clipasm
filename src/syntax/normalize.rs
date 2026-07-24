@@ -833,9 +833,13 @@ mod tests {
     fn lower_synthetic_source(
         call: &ResolvedCall,
         builder: &mut GraphBuilder<'_>,
-    ) -> Result<ValueRef> {
+    ) -> Result<Vec<ValueRef>> {
         let (path, _) = call.file_parameter("path")?;
-        builder.image_video(path.to_path_buf(), FrameCount(1), ImageFit::Cover)
+        Ok(vec![builder.image_video(
+            path.to_path_buf(),
+            FrameCount(1),
+            ImageFit::Cover,
+        )?])
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -869,7 +873,7 @@ mod tests {
             self: Box<Self>,
             stack: Vec<ValueRef>,
             _builder: &mut GraphBuilder<'_>,
-        ) -> Result<ValueRef> {
+        ) -> Result<Vec<ValueRef>> {
             let [value] = stack.as_slice() else {
                 return Err(Diagnostic::new(
                     "E_TEST_OUTPUT",
@@ -877,7 +881,7 @@ mod tests {
                     SourceSpan::file_start("workflow.yaml"),
                 ));
             };
-            Ok(*value)
+            Ok(vec![*value])
         }
     }
 
@@ -889,7 +893,7 @@ mod tests {
             inputs: &[],
             parameters: SOURCE_PARAMETERS,
             primary_parameter: Some("path"),
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_synthetic_source),
         postfix: None,
@@ -902,7 +906,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_synthetic_body),
         postfix: None,
@@ -915,7 +919,7 @@ mod tests {
             inputs: &[],
             parameters: POSTFIX_PARAMETERS,
             primary_parameter: Some("range"),
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
         postfix: Some(PostfixSyntax { parameter: "range" }),

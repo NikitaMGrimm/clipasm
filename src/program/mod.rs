@@ -73,7 +73,7 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) inputs: &'static [InputPort],
     pub(crate) parameters: &'static [ParameterDescriptor],
     pub(crate) primary_parameter: Option<&'static str>,
-    pub(crate) output: ValueType,
+    pub(crate) outputs: &'static [ValueType],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,8 +81,9 @@ pub(crate) struct PostfixSyntax {
     pub(crate) parameter: &'static str,
 }
 
+pub(crate) type ProgramOutputs = Vec<ValueRef>;
 pub(crate) type DirectLowerFn =
-    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<ValueRef>;
+    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<ProgramOutputs>;
 pub(crate) type BodyPrepareFn =
     for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<BodyPlan>;
 
@@ -119,7 +120,7 @@ pub(crate) trait BodyFinalizer {
         self: Box<Self>,
         values: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
-    ) -> Result<ValueRef>;
+    ) -> Result<ProgramOutputs>;
 }
 
 #[derive(Debug)]
@@ -420,7 +421,7 @@ pub(crate) fn definition_error(message: impl Into<String>) -> Diagnostic {
 mod tests {
     use super::*;
 
-    fn direct_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    fn direct_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
         unreachable!("validation does not execute programs")
     }
 
@@ -444,7 +445,7 @@ mod tests {
                 inputs,
                 parameters,
                 primary_parameter,
-                output: ValueType::Video,
+                outputs: &[ValueType::Video],
             },
             implementation,
             postfix,

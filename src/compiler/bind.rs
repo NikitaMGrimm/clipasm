@@ -329,7 +329,7 @@ mod tests {
     fn lower_stub(
         _call: &ResolvedCall,
         _builder: &mut crate::semantic::GraphBuilder<'_>,
-    ) -> Result<ValueRef> {
+    ) -> Result<Vec<ValueRef>> {
         unreachable!("binding tests do not lower programs")
     }
 
@@ -341,7 +341,7 @@ mod tests {
             inputs: &[],
             parameters: PARAMETERS,
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_stub),
         postfix: None,

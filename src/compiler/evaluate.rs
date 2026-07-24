@@ -125,7 +125,10 @@ impl Evaluator<'_> {
             ItemKind::Invocation(invocation) => self
                 .registry
                 .get(&invocation.program.value)
-                .map(|definition| DeclaredValueType::Known(definition.descriptor.output))
+                .and_then(|definition| match definition.descriptor.outputs {
+                    [output] => Some(DeclaredValueType::Known(*output)),
+                    _ => None,
+                })
                 .ok_or_else(|| unknown_program(invocation)),
         }
     }
@@ -242,22 +245,33 @@ impl Evaluator<'_> {
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
-        let (output, construct) = match &item.kind {
-            ItemKind::Reference(reference) => {
-                (self.evaluate_reference(reference)?, "reference".to_owned())
-            }
+        let (outputs, construct) = match &item.kind {
+            ItemKind::Reference(reference) => (
+                vec![self.evaluate_reference(reference)?],
+                "reference".to_owned(),
+            ),
             ItemKind::Invocation(invocation) => (
                 self.evaluate_invocation(invocation, stack, frame, requested_frames, &item.span)?,
                 invocation.program.value.clone(),
             ),
         };
-        stack.push(output);
+        let [output] = outputs.as_slice() else {
+            return Err(Diagnostic::new(
+                "E_ITEM_OUTPUT_COUNT",
+                format!(
+                    "items currently require exactly one output, but `{construct}` produced {}",
+                    outputs.len()
+                ),
+                item.span.clone(),
+            ));
+        };
+        stack.push(*output);
         if let Some(id) = &item.id {
-            self.bind_symbol(&id.value, output)?;
+            self.bind_symbol(&id.value, *output)?;
         }
         self.surface.push(SurfaceRecord {
             construct,
-            value: output,
+            value: *output,
             id: item.id.as_ref().map(|id| id.value.clone()),
             span: item.span.clone(),
         });
@@ -294,7 +308,7 @@ impl Evaluator<'_> {
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
-    ) -> Result<ValueRef> {
+    ) -> Result<Vec<ValueRef>> {
         let definition = self
             .registry
             .get(&invocation.program.value)
@@ -330,7 +344,7 @@ impl Evaluator<'_> {
         );
         let call = call?;
 
-        let output = match definition.implementation {
+        let outputs = match definition.implementation {
             ProgramImplementation::Direct(lower) => {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
@@ -384,19 +398,38 @@ impl Evaluator<'_> {
             }
         };
 
-        if output.value_type() != definition.descriptor.output {
+        if outputs.len() != definition.descriptor.outputs.len() {
             return Err(Diagnostic::new(
-                "E_PROGRAM_OUTPUT_TYPE",
+                "E_PROGRAM_OUTPUT_COUNT",
                 format!(
-                    "program `{}` declares output {}, but its implementation returned {}",
+                    "program `{}` declares {} output(s), but its implementation returned {}",
                     definition.descriptor.name,
-                    definition.descriptor.output,
-                    output.value_type()
+                    definition.descriptor.outputs.len(),
+                    outputs.len()
                 ),
                 span.clone(),
             ));
         }
-        Ok(output)
+        for (index, (output, expected)) in outputs
+            .iter()
+            .zip(definition.descriptor.outputs)
+            .enumerate()
+        {
+            if output.value_type() != *expected {
+                return Err(Diagnostic::new(
+                    "E_PROGRAM_OUTPUT_TYPE",
+                    format!(
+                        "program `{}` declares output {} as {}, but its implementation returned {}",
+                        definition.descriptor.name,
+                        index + 1,
+                        expected,
+                        output.value_type()
+                    ),
+                    span.clone(),
+                ));
+            }
+        }
+        Ok(outputs)
     }
 
     fn evaluate_input_expression(
@@ -579,21 +612,28 @@ mod tests {
             self: Box<Self>,
             stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
-        ) -> Result<ValueRef> {
-            builder.concat(stack)
+        ) -> Result<Vec<ValueRef>> {
+            Ok(vec![builder.concat(stack)?])
         }
     }
 
-    fn lower_source(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-        builder.image_video(PathBuf::from("source.png"), FrameCount(1), ImageFit::Cover)
+    fn lower_source(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
+        Ok(vec![builder.image_video(
+            PathBuf::from("source.png"),
+            FrameCount(1),
+            ImageFit::Cover,
+        )?])
     }
 
-    fn lower_alias(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-        builder.concat(vec![call.one_input("video")?])
+    fn lower_alias(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
+        Ok(vec![builder.concat(vec![call.one_input("video")?])?])
     }
 
-    fn lower_wrong_type(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-        builder.test_value()
+    fn lower_wrong_type(
+        _call: &ResolvedCall,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<Vec<ValueRef>> {
+        Ok(vec![builder.test_value()?])
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -615,8 +655,8 @@ mod tests {
             self: Box<Self>,
             _stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
-        ) -> Result<ValueRef> {
-            builder.test_value()
+        ) -> Result<Vec<ValueRef>> {
+            Ok(vec![builder.test_value()?])
         }
     }
 
@@ -643,11 +683,11 @@ mod tests {
             self: Box<Self>,
             stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
-        ) -> Result<ValueRef> {
+        ) -> Result<Vec<ValueRef>> {
             let [value] = stack.as_slice() else {
                 panic!("versioned body starts with one value");
             };
-            builder.concat(vec![*value, *value])
+            Ok(vec![builder.concat(vec![*value, *value])?])
         }
     }
 
@@ -659,7 +699,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_root),
         postfix: None,
@@ -672,7 +712,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_source),
         postfix: None,
@@ -685,7 +725,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_wrong_type),
         postfix: None,
@@ -698,7 +738,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_wrong_body),
         postfix: None,
@@ -711,7 +751,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_source),
         postfix: None,
@@ -724,7 +764,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_versioned_body),
         postfix: None,
@@ -737,7 +777,7 @@ mod tests {
             inputs: ONE_VIDEO,
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Direct(lower_alias),
         postfix: None,
@@ -750,7 +790,7 @@ mod tests {
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
-            output: ValueType::Video,
+            outputs: &[ValueType::Video],
         },
         implementation: ProgramImplementation::Body(prepare_root),
         postfix: None,

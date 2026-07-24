@@ -4,11 +4,12 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
-    ProgramDescriptor, ProgramImplementation, ResolvedCall, StackAccess,
+    ProgramDescriptor, ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
 };
 use crate::semantic::GraphBuilder;
 
 const VIDEO: ValueType = ValueType::Video;
+const VIDEO_OUTPUTS: &[ValueType] = &[VIDEO];
 const NO_INPUTS: &[InputPort] = &[];
 const ONE_VIDEO: &[InputPort] = &[InputPort {
     name: "video",
@@ -98,7 +99,7 @@ pub(crate) const IMAGE: ProgramDefinition = direct(
         inputs: NO_INPUTS,
         parameters: IMAGE_PARAMETERS,
         primary_parameter: Some("path"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_image,
 );
@@ -111,7 +112,7 @@ pub(crate) const VIDEO_SOURCE: ProgramDefinition = direct(
         inputs: NO_INPUTS,
         parameters: VIDEO_PARAMETERS,
         primary_parameter: Some("path"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_video,
 );
@@ -124,7 +125,7 @@ pub(crate) const CONCAT: ProgramDefinition = direct(
         inputs: VIDEOS,
         parameters: &[],
         primary_parameter: None,
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_concat,
 );
@@ -137,7 +138,7 @@ pub(crate) const REPEAT: ProgramDefinition = direct(
         inputs: ONE_VIDEO,
         parameters: REPEAT_PARAMETERS,
         primary_parameter: Some("count"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_repeat,
 );
@@ -150,7 +151,7 @@ pub(crate) const TRIM: ProgramDefinition = direct(
         inputs: ONE_VIDEO,
         parameters: TRIM_PARAMETERS,
         primary_parameter: Some("range"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_trim,
 );
@@ -163,7 +164,7 @@ pub(crate) const ZOOM: ProgramDefinition = direct(
         inputs: ONE_VIDEO,
         parameters: ZOOM_PARAMETERS,
         primary_parameter: Some("percent"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_zoom,
 );
@@ -176,7 +177,7 @@ pub(crate) const WOBBLE: ProgramDefinition = direct(
         inputs: ONE_VIDEO,
         parameters: WOBBLE_PARAMETERS,
         primary_parameter: Some("pixels"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_wobble,
 );
@@ -189,7 +190,7 @@ pub(crate) const FLASH: ProgramDefinition = direct(
         inputs: TWO_VIDEOS,
         parameters: FLASH_PARAMETERS,
         primary_parameter: Some("frames"),
-        output: VIDEO,
+        outputs: VIDEO_OUTPUTS,
     },
     lower_flash,
 );
@@ -205,7 +206,7 @@ const fn direct(
     }
 }
 
-fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let (path, _) = call.file_parameter("path")?;
     let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
         FrameCount(duration.to_frames(builder.video_spec().fps, span)?)
@@ -226,12 +227,12 @@ fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Va
         ));
     }
     let fit = image_fit(call)?;
-    builder.image_video(path.to_path_buf(), frames, fit)
+    one_output(builder.image_video(path.to_path_buf(), frames, fit))
 }
 
-fn lower_video(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_video(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let (path, _) = call.file_parameter("path")?;
-    builder.video_source(path.to_path_buf(), image_fit(call)?)
+    one_output(builder.video_source(path.to_path_buf(), image_fit(call)?))
 }
 
 fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
@@ -243,11 +244,11 @@ fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
     })
 }
 
-fn lower_concat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
-    builder.concat(call.variadic_input("videos")?.to_vec())
+fn lower_concat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    one_output(builder.concat(call.variadic_input("videos")?.to_vec()))
 }
 
-fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let video = call.one_input("video")?;
     let (count, span) = call.integer_parameter("count")?;
     let count = u64::try_from(count)
@@ -260,17 +261,17 @@ fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<V
                 span.clone(),
             )
         })?;
-    builder.repeat(video, count)
+    one_output(builder.repeat(video, count))
 }
 
-fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let video = call.one_input("video")?;
     let (range, span) = call.time_range_parameter("range")?;
     let range = range.to_frames(builder.video_spec().fps, span)?;
-    builder.at_span(span.clone()).slice(video, range)
+    one_output(builder.at_span(span.clone()).slice(video, range))
 }
 
-fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let video = call.one_input("video")?;
     let percent = match call.optional_integer_parameter("percent")? {
         Some((percent, span)) => u32::try_from(percent)
@@ -285,10 +286,10 @@ fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Val
             })?,
         None => u32::from(DEFAULT_ZOOM_PERCENT),
     };
-    builder.zoom(video, percent)
+    one_output(builder.zoom(video, percent))
 }
 
-fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let video = call.one_input("video")?;
     let (pixels, span) = match call.optional_integer_parameter("pixels")? {
         Some((pixels, span)) => (pixels, span.clone()),
@@ -313,10 +314,10 @@ fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<V
                 span,
             )
         })?;
-    builder.wobble(video, pixels)
+    one_output(builder.wobble(video, pixels))
 }
 
-fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let before = call.one_input("before")?;
     let after = call.one_input("after")?;
     let frames = match call.optional_integer_parameter("frames")? {
@@ -339,7 +340,11 @@ fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Va
             &call.origin().span,
         )?,
     };
-    builder.flash_join(before, after, frames)
+    one_output(builder.flash_join(before, after, frames))
+}
+
+fn one_output(output: Result<ValueRef>) -> Result<ProgramOutputs> {
+    output.map(|value| vec![value])
 }
 
 #[cfg(test)]

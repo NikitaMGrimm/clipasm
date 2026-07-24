@@ -115,7 +115,7 @@ mod tests {
         unreachable!("language validation does not execute programs")
     }
 
-    fn direct(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<ValueRef> {
+    fn direct(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
         unreachable!("language validation does not execute programs")
     }
 
@@ -135,7 +135,7 @@ mod tests {
                 inputs,
                 parameters,
                 primary_parameter: None,
-                output,
+                outputs: Box::leak(vec![output].into_boxed_slice()),
             },
             implementation,
             postfix,
