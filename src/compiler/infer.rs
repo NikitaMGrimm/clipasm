@@ -284,7 +284,7 @@ impl PassState {
     }
 }
 
-pub(super) fn resolve_local_types(
+pub(super) fn infer_local_types(
     program: &SourceProgram,
     locals: &mut BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
@@ -299,7 +299,7 @@ pub(super) fn resolve_local_types(
             LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
             LocalType::Parameter(_) => LocalSlot::Parameter,
             LocalType::Alias(_) => LocalSlot::Value(arena.allocate(ValueConstraint::Any)),
-            LocalType::Deferred(deferred) => {
+            LocalType::GenericDeclaration(deferred) => {
                 let definition = &definitions[deferred.program.index()];
                 let constraint = definition
                     .descriptor

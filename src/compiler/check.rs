@@ -20,11 +20,11 @@ pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
     Alias(String),
-    Deferred(DeferredLocalType),
+    GenericDeclaration(GenericLocalDeclaration),
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct DeferredLocalType {
+pub(super) struct GenericLocalDeclaration {
     pub(super) program: ProgramId,
     pub(super) invocation: crate::source::Invocation,
     pub(super) span: crate::source::SourceSpan,
@@ -258,8 +258,8 @@ fn check_program(
         builtins,
         namespace,
     )?;
-    super::infer::resolve_local_types(&program, &mut locals, definitions, builtins, namespace)?;
-    resolve_local_types(&mut locals, unit, definitions, builtins, namespace)?;
+    super::infer::infer_local_types(&program, &mut locals, definitions, builtins, namespace)?;
+    ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
 
     let mut checked_clips = Vec::with_capacity(program.clips().len());
     for clip in program.clips() {
@@ -408,7 +408,7 @@ fn item_output_types(
                     ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
                     ValueTypeSpec::Generic => selected.map_or_else(
                         || {
-                            LocalType::Deferred(DeferredLocalType {
+                            LocalType::GenericDeclaration(GenericLocalDeclaration {
                                 program,
                                 invocation: invocation.clone(),
                                 span: item.span.clone(),
@@ -1159,7 +1159,7 @@ fn validate_parameter_argument(
                 ),
                 reference.span.clone(),
             )),
-            Some(LocalType::Value(_) | LocalType::Deferred(_)) => Err(Diagnostic::new(
+            Some(LocalType::Value(_) | LocalType::GenericDeclaration(_)) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
                     "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
@@ -1218,7 +1218,7 @@ fn insert_local(
     Ok(())
 }
 
-fn resolve_local_types(
+fn ensure_local_types_resolved(
     locals: &mut BTreeMap<String, LocalType>,
     _unit: SourceUnitId,
     definitions: &[ProgramDefinition],
@@ -1274,7 +1274,7 @@ fn ensure_local_type_resolved(
                 &local_inference_span(Some(&local)),
             ))
         }
-        LocalType::Deferred(deferred) => {
+        LocalType::GenericDeclaration(deferred) => {
             path.push(name.to_owned());
             for dependency in deferred_dependencies(&deferred, definitions, builtins, namespace)? {
                 if !locals.contains_key(&dependency) {
@@ -1307,13 +1307,13 @@ fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagno
 
 fn local_inference_span(local: Option<&LocalType>) -> crate::source::SourceSpan {
     match local {
-        Some(LocalType::Deferred(deferred)) => deferred.span.clone(),
+        Some(LocalType::GenericDeclaration(deferred)) => deferred.span.clone(),
         _ => crate::source::SourceSpan::file_start("<source-inference>"),
     }
 }
 
 fn deferred_dependencies(
-    deferred: &DeferredLocalType,
+    deferred: &GenericLocalDeclaration,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
@@ -1430,7 +1430,7 @@ fn value_local(
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        Some(LocalType::Alias(_) | LocalType::Deferred(_)) => Err(Diagnostic::new(
+        Some(LocalType::Alias(_) | LocalType::GenericDeclaration(_)) => Err(Diagnostic::new(
             "E_UNRESOLVED_LOCAL_TYPE",
             format!("named value `${name}` has not finished type inference"),
             span.clone(),
