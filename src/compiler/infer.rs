@@ -853,8 +853,7 @@ fn lookup_value(
     lexical
         .get(name)
         .copied()
-        .map(Ok)
-        .unwrap_or_else(|| value_slot(globals, name, span))
+        .map_or_else(|| value_slot(globals, name, span), Ok)
 }
 
 fn value_slot(

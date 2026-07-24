@@ -27,7 +27,6 @@ pub(super) enum LocalType {
 pub(super) struct DeferredLocalType {
     pub(super) program: ProgramId,
     pub(super) invocation: crate::source::Invocation,
-    pub(super) output_index: usize,
     pub(super) span: crate::source::SourceSpan,
 }
 
@@ -270,7 +269,7 @@ fn check_program(
         );
         let checked = infer_body(
             &clip.body,
-            &mut locals,
+            &locals,
             unit,
             definitions,
             builtins,
@@ -308,7 +307,7 @@ fn check_program(
     );
     let checked_body = infer_body(
         &program.body,
-        &mut locals,
+        &locals,
         unit,
         definitions,
         builtins,
@@ -405,15 +404,13 @@ fn item_output_types(
                 .outputs
                 .iter()
                 .copied()
-                .enumerate()
-                .map(|(output_index, output)| match output {
+                .map(|output| match output {
                     ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
                     ValueTypeSpec::Generic => selected.map_or_else(
                         || {
                             LocalType::Deferred(DeferredLocalType {
                                 program,
                                 invocation: invocation.clone(),
-                                output_index,
                                 span: item.span.clone(),
                             })
                         },
@@ -654,7 +651,7 @@ fn validate_explicit_input_types(
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_body(
     body: &ProgramBody,
-    locals: &mut BTreeMap<String, LocalType>,
+    locals: &BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
@@ -804,7 +801,7 @@ fn infer_body(
                         }
                         let checked_body = infer_body(
                             body,
-                            &mut body_locals,
+                            &body_locals,
                             unit,
                             definitions,
                             builtins,
@@ -856,7 +853,6 @@ fn infer_body(
                 }
             }
         };
-        update_output_bindings(locals, &item.output_bindings, &checked.output_types);
         checked_items.push(checked);
     }
     Ok(CheckedBody {
@@ -981,10 +977,9 @@ fn validate_input_argument(
                 ),
                 body.span.clone(),
             );
-            let mut body_locals = locals.clone();
             let checked = infer_body(
                 body,
-                &mut body_locals,
+                locals,
                 unit,
                 definitions,
                 builtins,
@@ -1225,37 +1220,33 @@ fn insert_local(
 
 fn resolve_local_types(
     locals: &mut BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    _unit: SourceUnitId,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<()> {
     let names = locals.keys().cloned().collect::<Vec<_>>();
-    let mut path = Vec::new();
     for name in names {
-        resolve_local_type(
+        ensure_local_type_resolved(
             &name,
             locals,
-            unit,
             definitions,
             builtins,
             namespace,
-            &mut path,
+            &mut Vec::new(),
         )?;
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn resolve_local_type(
+fn ensure_local_type_resolved(
     name: &str,
-    locals: &mut BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    locals: &BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
     path: &mut Vec<String>,
-) -> Result<LocalType> {
+) -> Result<()> {
     if let Some(start) = path.iter().position(|entry| entry == name) {
         let mut cycle = path[start..].to_vec();
         cycle.push(name.to_owned());
@@ -1273,21 +1264,15 @@ fn resolve_local_type(
         )
     })?;
     match local {
-        LocalType::Value(_) | LocalType::Parameter(_) => Ok(local),
-        LocalType::Alias(target) => {
+        LocalType::Value(_) | LocalType::Parameter(_) => Ok(()),
+        LocalType::Alias(ref target) => {
             path.push(name.to_owned());
-            let resolved = resolve_local_type(
-                &target,
-                locals,
-                unit,
-                definitions,
-                builtins,
-                namespace,
-                path,
-            )?;
+            ensure_local_type_resolved(target, locals, definitions, builtins, namespace, path)?;
             path.pop();
-            locals.insert(name.to_owned(), resolved.clone());
-            Ok(resolved)
+            Err(unresolved_local_type(
+                name,
+                &local_inference_span(Some(&local)),
+            ))
         }
         LocalType::Deferred(deferred) => {
             path.push(name.to_owned());
@@ -1295,30 +1280,29 @@ fn resolve_local_type(
                 if !locals.contains_key(&dependency) {
                     return Err(missing_reference(&dependency, &deferred.span));
                 }
-                resolve_local_type(
+                ensure_local_type_resolved(
                     &dependency,
                     locals,
-                    unit,
                     definitions,
                     builtins,
                     namespace,
                     path,
                 )?;
             }
-            let value_type = infer_deferred_local_type(
-                &deferred,
-                locals,
-                unit,
-                definitions,
-                builtins,
-                namespace,
-            )?;
             path.pop();
-            let resolved = LocalType::Value(value_type);
-            locals.insert(name.to_owned(), resolved.clone());
-            Ok(resolved)
+            Err(unresolved_local_type(name, &deferred.span))
         }
     }
+}
+
+fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_TYPE_INFERENCE_DEPENDENCY",
+        format!(
+            "cannot infer the type of named value `${name}` from available constraints; add `type: Video` or `type: Audio`"
+        ),
+        span.clone(),
+    )
 }
 
 fn local_inference_span(local: Option<&LocalType>) -> crate::source::SourceSpan {
@@ -1434,167 +1418,6 @@ fn collect_invocation_dependencies(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn infer_deferred_local_type(
-    deferred: &DeferredLocalType,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-) -> Result<ValueType> {
-    let definition = &definitions[deferred.program.index()];
-    let invocation = &deferred.invocation;
-    let validated = validate_explicit_arguments(
-        invocation,
-        definition,
-        locals,
-        unit,
-        definitions,
-        builtins,
-        namespace,
-    )?;
-    let access = invocation
-        .stack_access
-        .as_ref()
-        .map_or(definition.descriptor.default_stack_access, |access| {
-            access.value
-        });
-    let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
-        format!("named output from `{}` inference", invocation.program.value),
-        deferred.span.clone(),
-    );
-    let signature = match resolve_invocation_signature(
-        definition,
-        invocation,
-        &validated,
-        &stack,
-        &frame,
-        access,
-        &deferred.span,
-    ) {
-        Ok(signature) => signature,
-        Err(error) if error.code == "E_STACK_UNDERFLOW" => {
-            return Err(generic_output_type_required(definition, invocation));
-        }
-        Err(error) => return Err(error),
-    };
-
-    let signature = if let Some(signature) = signature {
-        signature
-    } else {
-        infer_deferred_body_signature(
-            definition,
-            invocation,
-            locals,
-            unit,
-            definitions,
-            builtins,
-            namespace,
-            &mut stack,
-            &mut frame,
-        )?
-    };
-
-    signature
-        .outputs
-        .get(deferred.output_index)
-        .copied()
-        .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INTERNAL_OUTPUT_SIGNATURE",
-                "named output index is outside the resolved program signature",
-                deferred.span.clone(),
-            )
-        })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn infer_deferred_body_signature(
-    definition: &ProgramDefinition,
-    invocation: &crate::source::Invocation,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    stack: &mut EvaluationStack<ValueType>,
-    frame: &mut super::stack::StackFrame,
-) -> Result<ResolvedSignature> {
-    let body = invocation.body.as_ref().ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_PROGRAM_BODY",
-            format!(
-                "body program `{}` requires a `body`",
-                invocation.program.value
-            ),
-            invocation.program.span.clone(),
-        )
-    })?;
-    let contract = definition
-        .body_contract
-        .as_ref()
-        .expect("validated body program contract");
-    stack.extend(
-        frame,
-        contract
-            .exact_initial_values()
-            .expect("body-inferred generic contracts cannot require generic initial values"),
-    );
-    let mut body_locals = locals.clone();
-    for input in &definition.descriptor.inputs {
-        if let Some(value_type) = input.value_type.exact()
-            && matches!(input.cardinality, Cardinality::One)
-        {
-            body_locals.insert(input.name.clone(), LocalType::Value(value_type));
-        }
-    }
-    infer_body(
-        body,
-        &mut body_locals,
-        unit,
-        definitions,
-        builtins,
-        namespace,
-        stack,
-        frame,
-    )?;
-    let outputs = stack.values().to_vec();
-    let type_parameter = definition
-        .descriptor
-        .type_parameter
-        .as_ref()
-        .expect("deferred body signature is generic");
-    let value_type = infer_body_generic_type(
-        &invocation.program.value,
-        &outputs,
-        type_parameter.constraint,
-        contract.count_error_code,
-        &body.span,
-    )?;
-    Ok(definition.descriptor.resolve_signature(Some(value_type)))
-}
-
-fn generic_output_type_required(
-    definition: &ProgramDefinition,
-    invocation: &crate::source::Invocation,
-) -> Diagnostic {
-    let selector = &definition
-        .descriptor
-        .type_parameter
-        .as_ref()
-        .expect("generic output belongs to a generic descriptor")
-        .selector;
-    Diagnostic::new(
-        "E_GENERIC_OUTPUT_TYPE_REQUIRED",
-        format!(
-            "named output from generic program `{}` depends on caller stack state; provide an explicit generic input or `{selector}: Video|Audio`",
-            invocation.program.value
-        ),
-        invocation.program.span.clone(),
-    )
-}
-
 fn value_local(
     locals: &BTreeMap<String, LocalType>,
     name: &str,
@@ -1613,28 +1436,6 @@ fn value_local(
             span.clone(),
         )),
         None => Err(missing_reference(name, span)),
-    }
-}
-
-fn update_output_bindings(
-    locals: &mut BTreeMap<String, LocalType>,
-    bindings: &OutputBindings,
-    outputs: &[ValueType],
-) {
-    match bindings {
-        OutputBindings::None => {}
-        OutputBindings::One(name) => {
-            let [output] = outputs else {
-                unreachable!("checked one-output binding has one output")
-            };
-            locals.insert(name.value.clone(), LocalType::Value(*output));
-        }
-        OutputBindings::Many(names, _) => {
-            debug_assert_eq!(names.len(), outputs.len());
-            for (name, output) in names.iter().zip(outputs) {
-                locals.insert(name.value.clone(), LocalType::Value(*output));
-            }
-        }
     }
 }
 
