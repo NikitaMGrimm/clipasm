@@ -6,7 +6,12 @@ use std::path::Path;
 use clipasm::compiler;
 use tempfile::TempDir;
 
-fn project(source: &str) -> (TempDir, clipasm::syntax::SourceProgram) {
+fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
+    let source = clipasm::frontend::yaml::parse_file(path)?;
+    compiler::compile(&source)
+}
+
+fn project(source: &str) -> (TempDir, clipasm::source::SourceEntryPoint) {
     let directory = tempfile::tempdir().expect("temporary directory");
     fs::write(directory.path().join("a.ppm"), b"P3\n1 1\n255\n255 0 0\n").expect("a image");
     fs::write(directory.path().join("b.ppm"), b"P3\n1 1\n255\n0 255 0\n").expect("b image");
@@ -15,7 +20,7 @@ fn project(source: &str) -> (TempDir, clipasm::syntax::SourceProgram) {
     fs::write(directory.path().join("y.ppm"), b"P3\n1 1\n255\n0 255 255\n").expect("y image");
     let path = directory.path().join("workflow.yaml");
     fs::write(&path, source).expect("workflow");
-    let workflow = clipasm::syntax::parse_file(&path).expect("parse workflow");
+    let workflow = clipasm::frontend::yaml::parse_file(&path).expect("parse workflow");
     (directory, workflow)
 }
 
@@ -739,19 +744,19 @@ fn compile_file_accepts_an_outputless_validation_workflow() {
     let (directory, _workflow) = project(
         "- program:\n    version: 1\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n  ",
     );
-    compiler::compile_file(&directory.path().join(Path::new("workflow.yaml"))).expect("compile");
+    compile_yaml(&directory.path().join(Path::new("workflow.yaml"))).expect("compile");
 }
 
 #[test]
 fn comments_do_not_change_structure_hash() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let path = directory.path().join("workflow.yaml");
-    let first = clipasm::syntax::parse_str(
+    let first = clipasm::frontend::yaml::parse_str(
         &path,
         "- program:\n    version: 1\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n  ",
     )
     .expect("first parse");
-    let second = clipasm::syntax::parse_str(
+    let second = clipasm::frontend::yaml::parse_str(
         &path,
         "# formatting is not semantic\n- program:\n    version: 1\n\n- glue:\n    - image:\n        duration: 1s\n        path: a.ppm\n  ",
     )
@@ -774,8 +779,8 @@ fn authored_source_paths_change_compiled_identity() {
                 "- program:\n    version: 1\n\n- glue:\n    - {program}: {{path: {asset}{suffix}}}\n  "
             )
         };
-        let first = clipasm::syntax::parse_str(path, &source(first_path)).expect("first");
-        let second = clipasm::syntax::parse_str(path, &source(second_path)).expect("second");
+        let first = clipasm::frontend::yaml::parse_str(path, &source(first_path)).expect("first");
+        let second = clipasm::frontend::yaml::parse_str(path, &source(second_path)).expect("second");
         assert_ne!(
             compiler::compile(&first).expect("first").structure_hash(),
             compiler::compile(&second).expect("second").structure_hash(),

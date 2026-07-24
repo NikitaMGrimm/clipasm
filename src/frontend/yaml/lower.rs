@@ -5,18 +5,16 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::scanner::TScalarStyle;
 
 use crate::diagnostic::{Diagnostic, Result, SourceFile, SourceSpan, Spanned};
-use crate::language::{
+use super::language::{
     BODY_FIELD, ID_FIELD, IDS_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD,
 };
-use crate::program::{
-    Cardinality, ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess,
+use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess};
+use crate::source::{
+    ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
+    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceEntryPoint,
+    SourceProgram, VideoSettings,
 };
-use crate::syntax::ast::{
-    Argument, InputExpression, Invocation, Item, ItemKind, NamedClip, OutputBindings,
-    ParameterArgument, ProgramBody, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceProgram,
-    VideoSettings,
-};
-use crate::syntax::raw::{RawKind, RawNode};
+use super::raw::{RawKind, RawNode};
 
 /// Parse and normalize a restricted `ClipAsm` YAML document.
 ///
@@ -24,7 +22,7 @@ use crate::syntax::raw::{RawKind, RawNode};
 ///
 /// Returns a source-located diagnostic when the file cannot be read or violates
 /// the restricted YAML or source-program grammar.
-pub fn parse_file(path: &Path) -> Result<SourceProgram> {
+pub fn parse_file(path: &Path) -> Result<SourceEntryPoint> {
     let source =
         fs::read_to_string(path).map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
     let source_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
@@ -36,7 +34,7 @@ pub fn parse_file(path: &Path) -> Result<SourceProgram> {
 /// # Errors
 ///
 /// Returns a source-located diagnostic for invalid YAML or source-program syntax.
-pub fn parse_str(path: &Path, source: &str) -> Result<SourceProgram> {
+pub fn parse_str(path: &Path, source: &str) -> Result<SourceEntryPoint> {
     parse_source_with_language(
         SourceFile::new(path.to_path_buf(), source.to_owned()),
         Language::default(),
@@ -53,11 +51,11 @@ pub(crate) fn parse_str_with_language(
     path: &Path,
     source: &str,
     language: Language,
-) -> Result<SourceProgram> {
+) -> Result<SourceEntryPoint> {
     parse_source_with_language(SourceFile::new(path.to_path_buf(), source.to_owned()), language)
 }
 
-fn parse_source_with_language(source: SourceFile, language: Language) -> Result<SourceProgram> {
+fn parse_source_with_language(source: SourceFile, language: Language) -> Result<SourceEntryPoint> {
     let root = super::raw::parse(&source)?;
     parse_source_program(source, root, language)
 }
@@ -66,7 +64,7 @@ fn parse_source_program(
     source: SourceFile,
     root: RawNode,
     language: Language,
-) -> Result<SourceProgram> {
+) -> Result<SourceEntryPoint> {
     let root_span = root.span.clone();
     let RawKind::Sequence(mut items) = root.kind else {
         return Err(Diagnostic::new(
@@ -151,15 +149,16 @@ fn parse_source_program(
         span: root_span,
     };
 
-    Ok(SourceProgram {
-        source_path: source.display_path().to_path_buf(),
-        version,
-        video,
-        clips,
-        body,
-        header_span,
+    Ok(SourceEntryPoint {
+        source,
+        project: ProjectSettings { video },
+        program: SourceProgram {
+            clips,
+            body,
+            span: header_span,
+            stack_access,
+        },
         output,
-        stack_access,
     })
 }
 
@@ -500,16 +499,7 @@ fn normalize_invocation(
             {
                 body = Some(parse_body(value, &format!("`{program}` body"), language)?);
             } else {
-                let argument = if let Some(input) = definition
-                    .descriptor
-                    .inputs
-                    .iter()
-                    .find(|input| input.name == name)
-                {
-                    Argument::Input(parse_input_expression(value, input.cardinality, language)?)
-                } else {
-                    Argument::Parameter(parse_parameter_argument(value)?)
-                };
+                let argument = parse_argument_value(value, language)?;
                 if arguments.insert(name.clone(), argument).is_some() {
                     return Err(Diagnostic::new(
                         "E_DUPLICATE_ARGUMENT",
@@ -533,7 +523,7 @@ fn normalize_invocation(
         };
         arguments.insert(
             primary.to_owned(),
-            Argument::Parameter(parse_parameter_argument(value)?),
+            parse_argument_value(value, language)?,
         );
     }
     Ok(Invocation {
@@ -561,66 +551,35 @@ fn parse_stack_access(node: &RawNode) -> Result<Spanned<StackAccess>> {
     Ok(Spanned::new(value, span))
 }
 
-fn parse_parameter_argument(node: RawNode) -> Result<ParameterArgument> {
+fn parse_argument_value(node: RawNode, language: Language) -> Result<ArgumentValue> {
     let span = node.span.clone();
     match node.kind {
         RawKind::Scalar { value, style } => {
-            if style == TScalarStyle::Plain {
-                if let Ok(value) = value.parse::<i64>() {
-                    Ok(ParameterArgument::Integer(value, span))
-                } else {
-                    Ok(ParameterArgument::String(value, span))
-                }
-            } else {
-                Ok(ParameterArgument::String(value, span))
-            }
-        }
-        RawKind::Sequence(_) | RawKind::Mapping(_) => Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT",
-            "scalar parameters must be authored as scalar values",
-            span,
-        )),
-    }
-}
-
-fn parse_input_expression(
-    node: RawNode,
-    cardinality: Cardinality,
-    language: Language,
-) -> Result<InputExpression> {
-    let span = node.span.clone();
-    match cardinality {
-        Cardinality::One => match &node.kind {
-            RawKind::Scalar { value, style }
-                if *style == TScalarStyle::Plain && value.starts_with('$') =>
-            {
-                Ok(InputExpression::Reference(Spanned::new(
-                    parse_reference(value, &span)?,
-                    span,
-                )))
-            }
-            RawKind::Scalar { .. } | RawKind::Mapping(_) => {
-                Ok(InputExpression::Body(ProgramBody {
-                    items: vec![parse_item(node, language)?],
-                    span,
-                }))
-            }
-            RawKind::Sequence(_) => Ok(InputExpression::Body(parse_body(
-                node,
-                "an inline input body",
-                language,
-            )?)),
-        },
-        Cardinality::Variadic { .. } => match node.kind {
-            RawKind::Scalar { value, style }
-                if style == TScalarStyle::Plain && value.starts_with('$') =>
-            {
-                Ok(InputExpression::Reference(Spanned::new(
+            if style == TScalarStyle::Plain && value.starts_with('$') {
+                Ok(ArgumentValue::Reference(Spanned::new(
                     parse_reference(&value, &span)?,
                     span,
                 )))
+            } else if style == TScalarStyle::Plain {
+                if let Ok(value) = value.parse::<i64>() {
+                    Ok(ArgumentValue::Literal(Literal::Integer(value, span)))
+                } else {
+                    Ok(ArgumentValue::Literal(Literal::String(value, span)))
+                }
+            } else {
+                Ok(ArgumentValue::Literal(Literal::String(value, span)))
             }
-            RawKind::Sequence(values) => {
+        }
+        RawKind::Sequence(values) => {
+            if values.iter().all(|value| {
+                matches!(
+                    &value.kind,
+                    RawKind::Scalar {
+                        value,
+                        style: TScalarStyle::Plain,
+                    } if value.starts_with('$')
+                )
+            }) {
                 let references = values
                     .into_iter()
                     .map(|value| {
@@ -642,14 +601,28 @@ fn parse_input_expression(
                         ))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                Ok(InputExpression::ReferenceList(references, span))
+                Ok(ArgumentValue::References(references, span))
+            } else {
+                Ok(ArgumentValue::Body(parse_body(
+                    RawNode {
+                        kind: RawKind::Sequence(values),
+                        span: span.clone(),
+                    },
+                    "an inline argument body",
+                    language,
+                )?))
             }
-            _ => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                "explicit variadic inputs must be `$name` references",
-                span,
-            )),
-        },
+        }
+        RawKind::Mapping(entries) => Ok(ArgumentValue::Body(ProgramBody {
+            items: vec![parse_item(
+                RawNode {
+                    kind: RawKind::Mapping(entries),
+                    span: span.clone(),
+                },
+                language,
+            )?],
+            span,
+        })),
     }
 }
 
@@ -731,7 +704,7 @@ mod tests {
     };
     use crate::semantic::GraphBuilder;
 
-    fn parse(source: &str) -> Result<SourceProgram> {
+    fn parse(source: &str) -> Result<SourceEntryPoint> {
         parse_str(Path::new("workflow.yaml"), source)
     }
 
@@ -742,10 +715,10 @@ mod tests {
         )
         .expect("source program");
         assert!(matches!(
-            program.body.items[0].kind,
+            program.program.body.items[0].kind,
             ItemKind::Reference(Reference { .. })
         ));
-        assert_eq!(program.clips[0].body.items.len(), 1);
+        assert_eq!(program.program.clips[0].body.items.len(), 1);
     }
 
     #[test]
@@ -754,8 +727,8 @@ mod tests {
             "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: a.png\n    duration: 1s\n    stack_access: visible\n",
         )
         .expect("source program");
-        assert_eq!(program.stack_access, StackAccess::Visible);
-        let ItemKind::Invocation(invocation) = &program.body.items[0].kind else {
+        assert_eq!(program.program.stack_access, StackAccess::Visible);
+        let ItemKind::Invocation(invocation) = &program.program.body.items[0].kind else {
             panic!("image invocation");
         };
         assert_eq!(
@@ -768,8 +741,8 @@ mod tests {
     fn source_stack_access_defaults_explicitly_to_owned() {
         let program = parse("- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n")
             .expect("source program");
-        assert_eq!(program.stack_access, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS);
-        assert_eq!(program.stack_access, StackAccess::Owned);
+        assert_eq!(program.program.stack_access, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS);
+        assert_eq!(program.program.stack_access, StackAccess::Owned);
     }
 
     #[test]
@@ -802,7 +775,7 @@ mod tests {
             "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n  during: 0s..1s\n",
         )
         .expect("source program");
-        let outer = &program.body.items[0];
+        let outer = &program.program.body.items[0];
         let ItemKind::Invocation(during) = &outer.kind else {
             panic!("during invocation");
         };
@@ -816,7 +789,7 @@ mod tests {
             "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n    stack_access: visible\n  during:\n    range: 0s..1s\n    stack_access: visible\n",
         )
         .expect("source program");
-        let ItemKind::Invocation(during) = &program.body.items[0].kind else {
+        let ItemKind::Invocation(during) = &program.program.body.items[0].kind else {
             panic!("during invocation");
         };
         assert_eq!(
@@ -983,7 +956,7 @@ mod tests {
             language,
         )
         .expect("generic parse");
-        let OutputBindings::Many(names, _) = &workflow.body.items[0].output_bindings else {
+        let OutputBindings::Many(names, _) = &workflow.program.body.items[0].output_bindings else {
             panic!("outer ids");
         };
         assert_eq!(

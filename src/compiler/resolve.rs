@@ -5,7 +5,7 @@ use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind};
-use crate::syntax::SourceProgram;
+use crate::source::SourceEntryPoint;
 
 struct SymbolFrame {
     name: String,
@@ -13,7 +13,7 @@ struct SymbolFrame {
 }
 
 pub(super) fn finalize(
-    program: &SourceProgram,
+    entrypoint: &SourceEntryPoint,
     video: VideoSpec,
     evaluation: Evaluation,
     format_version: u32,
@@ -86,7 +86,6 @@ pub(super) fn finalize(
         .collect::<Vec<_>>();
     Ok(CompiledProgram {
         format_version,
-        program_version: program.version(),
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         structure_hash,
         video,
@@ -94,8 +93,8 @@ pub(super) fn finalize(
         outputs: evaluation.outputs,
         named_values,
         explain,
-        output: program.output().cloned(),
-        source_path: program.source_path().to_path_buf(),
+        output: entrypoint.output().cloned(),
+        source_path: entrypoint.source().display_path().to_path_buf(),
     })
 }
 

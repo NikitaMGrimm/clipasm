@@ -20,11 +20,11 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
 use crate::model::{ValueRef, VideoDomain, VideoSpec};
 use crate::program::ProgramRegistry;
 use crate::semantic::CompiledNode;
-use crate::syntax::SourceProgram;
+use crate::source::SourceEntryPoint;
 
 pub use crate::semantic::SourceOrigin;
 
-const COMPILED_FORMAT_VERSION: u32 = 7;
+const COMPILED_FORMAT_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Serialize)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -34,7 +34,6 @@ const COMPILED_FORMAT_VERSION: u32 = 7;
 /// resolve assets and exact renderer primitives.
 pub struct CompiledProgram {
     format_version: u32,
-    program_version: u64,
     engine_version: String,
     structure_hash: String,
     video: VideoSpec,
@@ -93,7 +92,7 @@ impl CompiledProgram {
     /// ```
     /// use std::path::Path;
     ///
-    /// let program = clipasm::syntax::parse_str(
+    /// let program = clipasm::frontend::yaml::parse_str(
     ///     Path::new("program.yaml"),
     ///     "- program:\n    version: 1\n\n- image: {path: missing.png, duration: 1s}\n",
     /// )?;
@@ -220,17 +219,6 @@ impl ExplainOutput {
     }
 }
 
-/// Parse and purely compile a source-program file without reading media assets or
-/// invoking external tools.
-///
-/// # Errors
-///
-/// Returns a source-located syntax or compilation diagnostic.
-pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
-    let program = crate::syntax::parse_file(path)?;
-    compile(&program)
-}
-
 /// Purely compile an already parsed source program.
 ///
 /// Compilation can validate a video source even when the asset is unavailable:
@@ -238,7 +226,7 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
 /// ```
 /// use std::path::Path;
 ///
-/// let program = clipasm::syntax::parse_str(
+/// let program = clipasm::frontend::yaml::parse_str(
 ///     Path::new("program.yaml"),
 ///     "- program:\n    version: 1\n\n- video: unavailable.mp4\n",
 /// )?;
@@ -252,29 +240,128 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram> {
 ///
 /// Returns a diagnostic for invalid programs, stack behavior, references,
 /// types, cycles, or frame domains.
-pub fn compile(program: &SourceProgram) -> Result<CompiledProgram> {
-    compile_with_registry(program, ProgramRegistry::default())
+pub fn compile(entrypoint: &SourceEntryPoint) -> Result<CompiledProgram> {
+    compile_with_registry(entrypoint, ProgramRegistry::default())
 }
 
 pub(crate) fn compile_with_registry(
-    program: &SourceProgram,
+    entrypoint: &SourceEntryPoint,
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
-    let video = resolve_video_spec(program)?;
-    let evaluation = evaluate::evaluate(program, &video, registry)?;
-    resolve::finalize(program, video, evaluation, COMPILED_FORMAT_VERSION)
+    let video = resolve_video_spec(entrypoint)?;
+    let evaluation = evaluate::evaluate(entrypoint.program(), &video, registry)?;
+    validate_publication_output(entrypoint, &evaluation)?;
+    resolve::finalize(entrypoint, video, evaluation, COMPILED_FORMAT_VERSION)
 }
 
-fn resolve_video_spec(program: &SourceProgram) -> Result<VideoSpec> {
+fn validate_publication_output(
+    entrypoint: &SourceEntryPoint,
+    evaluation: &evaluate::Evaluation,
+) -> Result<()> {
+    if entrypoint.output().is_none() {
+        return Ok(());
+    }
+    let [output] = evaluation.outputs.as_slice() else {
+        return Err(Diagnostic::new(
+            "E_ENTRYPOINT_OUTPUT_COUNT",
+            format!(
+                "a source program with `output` must produce exactly one value, but {} values remain",
+                evaluation.outputs.len()
+            ),
+            entrypoint.program().span().clone(),
+        ));
+    };
+    if output.value_type() != crate::model::ValueType::Video {
+        return Err(Diagnostic::new(
+            "E_ENTRYPOINT_OUTPUT_TYPE",
+            format!(
+                "a source program with `output` must produce one Video, but produced {}",
+                output.value_type()
+            ),
+            entrypoint.program().span().clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_video_spec(entrypoint: &SourceEntryPoint) -> Result<VideoSpec> {
     let mut spec = VideoSpec::default();
-    if let Some(width) = &program.video().width {
+    if let Some(width) = &entrypoint.project().video.width {
         spec.width = width.value;
     }
-    if let Some(height) = &program.video().height {
+    if let Some(height) = &entrypoint.project().video.height {
         spec.height = height.value;
     }
-    if let Some(fps) = &program.video().fps {
+    if let Some(fps) = &entrypoint.project().video.fps {
         spec.fps = crate::model::FrameRate::parse(&fps.value, &fps.span)?;
     }
     Ok(spec)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::diagnostic::{SourceFile, SourceSpan, Spanned};
+    use crate::program::StackAccess;
+    use crate::source::{
+        ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
+        ProjectSettings, SourceProgram,
+    };
+
+    #[test]
+    fn compilation_is_independent_of_the_yaml_frontend() {
+        let text = "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n";
+        let yaml = crate::frontend::yaml::parse_str(Path::new("program.yaml"), text)
+            .expect("YAML source");
+
+        let source = SourceFile::new("program.yaml", text);
+        let program_span = SourceSpan::at(source.clone(), 1, 9);
+        let item_span = SourceSpan::at(source.clone(), 4, 8);
+        let arguments = BTreeMap::from([
+            (
+                "duration".to_owned(),
+                ArgumentValue::Literal(Literal::String(
+                    "1s".to_owned(),
+                    SourceSpan::at(source.clone(), 4, 42),
+                )),
+            ),
+            (
+                "path".to_owned(),
+                ArgumentValue::Literal(Literal::String(
+                    "card.png".to_owned(),
+                    SourceSpan::at(source.clone(), 4, 22),
+                )),
+            ),
+        ]);
+        let direct = SourceEntryPoint {
+            source,
+            project: ProjectSettings::default(),
+            program: SourceProgram {
+                clips: Vec::new(),
+                body: ProgramBody {
+                    items: vec![Item {
+                        kind: ItemKind::Invocation(Invocation {
+                            program: Spanned::new("image".to_owned(), item_span.clone()),
+                            stack_access: None,
+                            arguments,
+                            body: None,
+                        }),
+                        output_bindings: OutputBindings::None,
+                        span: item_span,
+                    }],
+                    span: SourceSpan::at(program_span.source().clone(), 1, 1),
+                },
+                span: program_span,
+                stack_access: StackAccess::Owned,
+            },
+            output: None,
+        };
+
+        assert_eq!(
+            compile(&yaml).expect("YAML compile").structure_hash(),
+            compile(&direct).expect("direct compile").structure_hash()
+        );
+    }
 }

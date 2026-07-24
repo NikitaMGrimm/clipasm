@@ -6,6 +6,11 @@ use std::process::Command;
 
 use clipasm::preflight::PreparedNodeKind;
 
+fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
+    let source = clipasm::frontend::yaml::parse_file(path)?;
+    clipasm::compiler::compile(&source)
+}
+
 fn write_image(directory: &Path, name: &str, color: &str) {
     fs::write(directory.join(name), format!("P3\n1 1\n255\n{color}\n"))
         .expect("write image fixture");
@@ -22,7 +27,7 @@ fn prepared_plan_serializes_one_distinguished_result() {
     )
     .expect("source program");
 
-    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
+    let compiled = compile_yaml(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let document = serde_json::to_value(&plan).expect("prepared JSON");
 
@@ -48,9 +53,9 @@ fn relocated_identical_projects_have_equal_semantic_hashes() {
     }
 
     let first_compiled =
-        clipasm::compiler::compile_file(&first.path().join("workflow.yaml")).expect("compile");
+        compile_yaml(&first.path().join("workflow.yaml")).expect("compile");
     let second_compiled =
-        clipasm::compiler::compile_file(&second.path().join("workflow.yaml")).expect("compile");
+        compile_yaml(&second.path().join("workflow.yaml")).expect("compile");
     let first_prepared = clipasm::preflight::preflight(&first_compiled).expect("preflight");
     let second_prepared = clipasm::preflight::preflight(&second_compiled).expect("preflight");
     assert_eq!(
@@ -71,7 +76,7 @@ fn unused_named_values_are_absent_from_executable_nodes() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let image_nodes = plan
         .nodes()
@@ -91,7 +96,7 @@ fn preflight_hashes_assets_and_render_rejects_later_changes() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let prepared = clipasm::preflight::preflight(&compiled).expect("preflight");
     let PreparedNodeKind::ImageVideo { asset, .. } = prepared.nodes()[0].kind() else {
         panic!("prepared image");
@@ -118,7 +123,7 @@ fn backend_export_constraints_do_not_leak_into_pure_compilation() {
         "- program:\n    version: 1\n    project:\n      video: {width: 63, height: 65, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
     )
     .expect("workflow");
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("pure compile");
+    let compiled = compile_yaml(&workflow).expect("pure compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("export dimensions");
     assert_eq!(error.code, "E_EXPORT_DIMENSIONS");
 }
@@ -132,7 +137,7 @@ fn output_extension_is_strictly_mp4() {
         "- program:\n    version: 1\n    output: final.mov\n\n\n- glue:\n    - image:\n        path: missing.png\n        duration: 1s",
     )
     .expect("workflow");
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("extension");
     assert_eq!(error.code, "E_INVALID_OUTPUT_EXTENSION");
 }
@@ -148,7 +153,7 @@ fn output_cannot_replace_the_source_program() {
     )
     .expect("source program");
 
-    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
+    let compiled = compile_yaml(&source).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("output"));
@@ -166,7 +171,7 @@ fn manifest_cannot_replace_the_source_program() {
     )
     .expect("source program");
 
-    let compiled = clipasm::compiler::compile_file(&source).expect("compile");
+    let compiled = compile_yaml(&source).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("manifest collision");
     assert_eq!(error.code, "E_MANIFEST_COLLISION");
     assert!(error.message.contains("manifest"));
@@ -184,7 +189,7 @@ fn output_cannot_replace_a_reachable_image_asset() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("output"));
@@ -224,7 +229,7 @@ fn output_cannot_replace_a_reachable_video_asset() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("video asset"));
@@ -241,7 +246,7 @@ fn manifest_cannot_replace_a_reachable_asset() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("manifest collision");
     assert_eq!(error.code, "E_MANIFEST_COLLISION");
     assert!(error.message.contains("manifest"));
@@ -260,7 +265,7 @@ fn existing_directory_output_is_rejected() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("invalid output");
     assert_eq!(error.code, "E_INVALID_OUTPUT_DESTINATION");
     assert!(error.message.contains("not a regular file"));
@@ -285,7 +290,7 @@ fn symlink_equivalent_output_asset_collision_is_rejected() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("symlink collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
 }
@@ -300,7 +305,7 @@ fn video_preflight_reports_missing_files_by_source_kind() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("missing video");
     assert_eq!(error.code, "E_MISSING_VIDEO_FILE");
 }
@@ -338,7 +343,7 @@ fn video_preflight_derives_the_full_source_duration() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     assert_eq!(plan.nodes()[0].domain().frames.0, 10);
 }
@@ -354,7 +359,7 @@ fn prepared_repeat_keeps_one_upstream_edge() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let PreparedNodeKind::Repeat {
         input,
@@ -380,7 +385,7 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let input_domain = compiled.result_domain().expect("known zoom domain").clone();
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
@@ -403,7 +408,7 @@ fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let input_domain = compiled
         .result_domain()
         .expect("known wobble domain")
@@ -431,7 +436,7 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
     let PreparedNodeKind::FlashJoin {
@@ -482,7 +487,7 @@ fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
     )
     .expect("workflow");
 
-    let compiled = clipasm::compiler::compile_file(&workflow).expect("deferred compile");
+    let compiled = compile_yaml(&workflow).expect("deferred compile");
     assert!(compiled.result_domain().is_none());
     let error = clipasm::preflight::preflight(&compiled).expect_err("excessive flash frames");
     assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");

@@ -1,0 +1,12 @@
+//! Restricted YAML frontend for authored ClipAsm source programs.
+
+mod language;
+mod lower;
+mod raw;
+
+pub use lower::{parse_file, parse_str};
+
+#[cfg(test)]
+pub(crate) use language::Language;
+#[cfg(test)]
+pub(crate) use lower::parse_str_with_language;

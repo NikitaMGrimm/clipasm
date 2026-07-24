@@ -4,8 +4,8 @@ use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{InputPort, ProgramDefinition, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
-use crate::syntax::{
-    Argument, InputExpression, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
+use crate::source::{
+    ArgumentValue, Invocation, Item, ItemKind, OutputBindings, ProgramBody, Reference,
     SourceProgram,
 };
 
@@ -140,7 +140,7 @@ impl Evaluator<'_> {
                 self.collect_body_names(body)?;
             }
             for argument in invocation.arguments.values() {
-                if let Argument::Input(InputExpression::Body(body)) = argument {
+                if let ArgumentValue::Body(body) = argument {
                     self.collect_body_names(body)?;
                 }
             }
@@ -235,33 +235,15 @@ impl Evaluator<'_> {
         }
 
         let (mut stack, mut entrypoint) =
-            EvaluationStack::isolated("entrypoint", self.program.header_span().clone());
+            EvaluationStack::isolated("entrypoint", self.program.span().clone());
         let mut source = stack.enter_body(
             &entrypoint,
             self.program.stack_access(),
             "source program",
-            self.program.header_span().clone(),
+            self.program.span().clone(),
         );
         self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
-        let values = stack.finish_body(&mut entrypoint, source);
-        if self.program.output().is_some() {
-            let [result] = values.as_slice() else {
-                return Err(output_count_error(
-                    "E_ENTRYPOINT_OUTPUT_COUNT",
-                    "a source program with `output`",
-                    values.len(),
-                    self.program.header_span(),
-                ));
-            };
-            require_value_type(
-                *result,
-                ValueType::Video,
-                "source program",
-                "output",
-                self.program.header_span(),
-            )?;
-        }
-        Ok(values)
+        Ok(stack.finish_body(&mut entrypoint, source))
     }
 
     fn evaluate_body(
@@ -377,7 +359,7 @@ impl Evaluator<'_> {
                 origin: origin.clone(),
             },
             |expression, port| {
-                self.evaluate_input_expression(
+                self.evaluate_input_value(
                     expression,
                     port,
                     definition.descriptor.name,
@@ -444,25 +426,25 @@ impl Evaluator<'_> {
         validate_program_outputs(definition, outputs, span)
     }
 
-    fn evaluate_input_expression(
+    fn evaluate_input_value(
         &mut self,
-        expression: &InputExpression,
+        value: &ArgumentValue,
         port: &InputPort,
         program: &str,
         requested_frames: Option<FrameCount>,
     ) -> Result<Vec<ValueRef>> {
-        match expression {
-            InputExpression::Reference(reference) => {
+        match value {
+            ArgumentValue::Reference(reference) => {
                 Ok(vec![self.evaluate_reference_name(
                     &reference.value,
                     &reference.span,
                 )?])
             }
-            InputExpression::ReferenceList(references, _) => references
+            ArgumentValue::References(references, _) => references
                 .iter()
                 .map(|reference| self.evaluate_reference_name(&reference.value, &reference.span))
                 .collect(),
-            InputExpression::Body(body) => {
+            ArgumentValue::Body(body) => {
                 let (mut local, mut frame) = EvaluationStack::isolated(
                     format!("inline input body for `{program}.{}`", port.name),
                     body.span.clone(),
@@ -479,6 +461,11 @@ impl Evaluator<'_> {
                 };
                 Ok(vec![*result])
             }
+            ArgumentValue::Literal(_) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                format!("input `{program}.{}` requires a graph input", port.name),
+                value.span().clone(),
+            )),
         }
     }
 
@@ -651,7 +638,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
-    use crate::language::Language;
+    use crate::frontend::yaml::Language;
     use crate::model::{FrameCount, ImageFit};
     use crate::program::{
         BodyFinalizer, BodyPlan, Cardinality, InputPort, ProgramDefinition, ProgramDescriptor,
@@ -923,16 +910,16 @@ mod tests {
     fn parse_with_registry(
         source: &str,
         definitions: &'static [ProgramDefinition],
-    ) -> (SourceProgram, ProgramRegistry) {
+    ) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
         let language = Language::new(registry).expect("language");
         let workflow =
-            crate::syntax::parse_str_with_language(Path::new("test.yaml"), source, language)
+            crate::frontend::yaml::parse_str_with_language(Path::new("test.yaml"), source, language)
                 .expect("workflow");
         (workflow, registry)
     }
 
-    fn parse_with_synthetic_outputs(source: &str) -> (SourceProgram, ProgramRegistry) {
+    fn parse_with_synthetic_outputs(source: &str) -> (crate::source::SourceEntryPoint, ProgramRegistry) {
         let definitions = Box::leak(
             crate::program::BUILTIN_PROGRAMS
                 .iter()

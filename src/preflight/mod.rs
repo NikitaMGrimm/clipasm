@@ -8,7 +8,8 @@
 //! ```no_run
 //! use std::path::Path;
 //!
-//! let compiled = clipasm::compiler::compile_file(Path::new("program.yaml"))?;
+//! let source = clipasm::frontend::yaml::parse_file(Path::new("program.yaml"))?;
+//! let compiled = clipasm::compiler::compile(&source)?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
 //! let result = &plan.nodes()[plan.result().get() as usize];
 //! println!("prepared {} frames", result.domain().frames.0);

@@ -7,7 +7,7 @@ use crate::program::{
     ProgramDefinition, ResolvedCall, StackAccess,
 };
 use crate::semantic::{SourceOrigin, require_value_type};
-use crate::syntax::{Argument, InputExpression, Invocation, ParameterArgument};
+use crate::source::{ArgumentValue, Invocation, Literal};
 
 use super::stack::{EvaluationStack, StackFrame};
 
@@ -23,7 +23,7 @@ pub(super) fn bind_call(
     definition: &'static ProgramDefinition,
     invocation: &Invocation,
     context: BindContext<'_>,
-    mut resolve_input_expression: impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
+    mut resolve_input_value: impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<ResolvedCall> {
     let BindContext {
         stack,
@@ -58,7 +58,7 @@ pub(super) fn bind_call(
                 descriptor.name,
                 argument,
                 port,
-                &mut resolve_input_expression,
+                &mut resolve_input_value,
             )?);
         }
     }
@@ -149,9 +149,9 @@ fn bind_parameters(
 fn bind_parameter(
     program: &'static str,
     descriptor: &ParameterDescriptor,
-    argument: &Argument,
+    argument: &ArgumentValue,
 ) -> Result<Spanned<ParameterValue>> {
-    let Argument::Parameter(argument) = argument else {
+    let ArgumentValue::Literal(argument) = argument else {
         return Err(Diagnostic::new(
             "E_INVALID_ARGUMENT_TYPE",
             format!(
@@ -162,19 +162,19 @@ fn bind_parameter(
         ));
     };
     let value = match (descriptor.parameter_type, argument) {
-        (ParameterType::Integer, ParameterArgument::Integer(value, _)) => {
+        (ParameterType::Integer, Literal::Integer(value, _)) => {
             ParameterValue::Integer(*value)
         }
-        (ParameterType::File, ParameterArgument::String(value, _)) => {
+        (ParameterType::File, Literal::String(value, _)) => {
             ParameterValue::File(value.into())
         }
-        (ParameterType::Duration, ParameterArgument::String(value, span)) => {
+        (ParameterType::Duration, Literal::String(value, span)) => {
             ParameterValue::Duration(SourceTime::parse(value, span)?)
         }
-        (ParameterType::TimeRange, ParameterArgument::String(value, span)) => {
+        (ParameterType::TimeRange, Literal::String(value, span)) => {
             ParameterValue::TimeRange(SourceTimeRange::parse(value, span)?)
         }
-        (ParameterType::Keyword(allowed), ParameterArgument::String(value, span)) => {
+        (ParameterType::Keyword(allowed), Literal::String(value, span)) => {
             let matched = allowed
                 .iter()
                 .copied()
@@ -208,31 +208,36 @@ fn bind_parameter(
 
 fn resolve_explicit_input(
     program: &str,
-    argument: &Argument,
+    argument: &ArgumentValue,
     port: &InputPort,
-    resolve_input_expression: &mut impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
+    resolve_input_value: &mut impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<Vec<ValueRef>> {
-    let Argument::Input(expression) = argument else {
+    if matches!(port.cardinality, Cardinality::Variadic { .. })
+        && !matches!(argument, ArgumentValue::Reference(_) | ArgumentValue::References(_, _))
+    {
         return Err(Diagnostic::new(
             "E_INVALID_ARGUMENT_TYPE",
-            format!("input `{program}.{}` requires a graph input", port.name),
+            format!(
+                "explicit variadic input `{program}.{}` must use `$name` references",
+                port.name
+            ),
             argument.span().clone(),
         ));
-    };
-    let values = resolve_input_expression(expression, port)?;
+    }
+    let values = resolve_input_value(argument, port)?;
     match port.cardinality {
         Cardinality::One if values.len() != 1 => {
             return Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!("input `{program}.{}` requires exactly one value", port.name),
-                expression.span().clone(),
+                argument.span().clone(),
             ));
         }
         Cardinality::Variadic { min } if values.len() < min => {
             return Err(Diagnostic::new(
                 "E_MISSING_REQUIRED_INPUT",
                 format!("input `{}` requires at least {min} values", port.name),
-                expression.span().clone(),
+                argument.span().clone(),
             ));
         }
         _ => {}
@@ -243,7 +248,7 @@ fn resolve_explicit_input(
             port.value_type,
             program,
             port.name,
-            expression.span(),
+            argument.span(),
         )?;
     }
     Ok(values)
@@ -355,7 +360,9 @@ mod tests {
         SourceSpan::file_start("test.yaml")
     }
 
-    fn invocation(arguments: impl IntoIterator<Item = (&'static str, Argument)>) -> Invocation {
+    fn invocation(
+        arguments: impl IntoIterator<Item = (&'static str, ArgumentValue)>,
+    ) -> Invocation {
         Invocation {
             program: Spanned::new("typed".to_owned(), span()),
             stack_access: None,
@@ -430,13 +437,13 @@ mod tests {
     fn fixed_explicit_input_rejects_reference_lists() {
         let error = resolve_explicit_input(
             "combine",
-            &Argument::Input(InputExpression::ReferenceList(
+            &ArgumentValue::References(
                 vec![
                     Spanned::new("first".to_owned(), span()),
                     Spanned::new("second".to_owned(), span()),
                 ],
                 span(),
-            )),
+            ),
             &PORTS[0],
             &mut |_, _| Ok(vec![video(1), video(2)]),
         )
@@ -449,23 +456,23 @@ mod tests {
         let call = bind(&invocation([
             (
                 "count",
-                Argument::Parameter(ParameterArgument::Integer(3, span())),
+                ArgumentValue::Literal(Literal::Integer(3, span())),
             ),
             (
                 "path",
-                Argument::Parameter(ParameterArgument::String("card.png".to_owned(), span())),
+                ArgumentValue::Literal(Literal::String("card.png".to_owned(), span())),
             ),
             (
                 "duration",
-                Argument::Parameter(ParameterArgument::String("500ms".to_owned(), span())),
+                ArgumentValue::Literal(Literal::String("500ms".to_owned(), span())),
             ),
             (
                 "range",
-                Argument::Parameter(ParameterArgument::String("1s..3s".to_owned(), span())),
+                ArgumentValue::Literal(Literal::String("1s..3s".to_owned(), span())),
             ),
             (
                 "fit",
-                Argument::Parameter(ParameterArgument::String("contain".to_owned(), span())),
+                ArgumentValue::Literal(Literal::String("contain".to_owned(), span())),
             ),
         ]))
         .expect("bind");
@@ -500,7 +507,7 @@ mod tests {
         let error = bind_parameter(
             "typed",
             &PARAMETERS[4],
-            &Argument::Parameter(ParameterArgument::String("crop".to_owned(), span())),
+            &ArgumentValue::Literal(Literal::String("crop".to_owned(), span())),
         )
         .expect_err("invalid keyword");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_VALUE");
@@ -512,7 +519,7 @@ mod tests {
         let error = bind_parameter(
             "typed",
             &PARAMETERS[1],
-            &Argument::Parameter(ParameterArgument::Integer(3, span())),
+            &ArgumentValue::Literal(Literal::Integer(3, span())),
         )
         .expect_err("wrong representation");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
@@ -529,7 +536,7 @@ mod tests {
     fn rejects_unknown_argument() {
         let error = bind(&invocation([(
             "mystery",
-            Argument::Parameter(ParameterArgument::String("value".to_owned(), span())),
+            ArgumentValue::Literal(Literal::String("value".to_owned(), span())),
         )]))
         .expect_err("unknown argument");
         assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");

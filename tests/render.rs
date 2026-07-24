@@ -1,9 +1,15 @@
 #![allow(missing_docs)]
 
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 use clipasm::{compiler, preflight, render};
+
+fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
+    let source = clipasm::frontend::yaml::parse_file(path)?;
+    compiler::compile(&source)
+}
 
 #[test]
 fn renders_and_reuses_verified_cache() {
@@ -25,7 +31,7 @@ fn renders_and_reuses_verified_cache() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 20/2}\n    clips:\n      card:\n        - image:\n            path: card.ppm\n            duration: 1s\n        - repeat: 2\n    output: final.mp4\n\n\n- glue:\n    - $card",
     )
     .expect("workflow");
-    let compiled = compiler::compile_file(&workflow_path).expect("compile");
+    let compiled = compile_yaml(&workflow_path).expect("compile");
     assert_eq!(compiled.video().fps.numerator(), 10);
     assert_eq!(compiled.video().fps.denominator(), 1);
     let plan = preflight::preflight(&compiled).expect("preflight");
@@ -69,7 +75,7 @@ fn renders_during_with_an_exact_duration_change() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: during.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2\n      during: 200ms..400ms",
     )
     .expect("workflow");
-    let compiled = compiler::compile_file(&workflow_path).expect("compile");
+    let compiled = compile_yaml(&workflow_path).expect("compile");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 12);
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render during");
@@ -126,7 +132,7 @@ fn renders_and_normalizes_a_video_source() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow_path).expect("compile");
+    let compiled = compile_yaml(&workflow_path).expect("compile");
     assert!(compiled.result_domain().is_none());
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert!(matches!(
@@ -180,7 +186,7 @@ fn video_source_duration_is_quantized_by_coverage() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,
@@ -223,7 +229,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,
@@ -274,7 +280,7 @@ fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
         )
         .expect("workflow");
 
-        let compiled = compiler::compile_file(&workflow).expect("compile");
+        let compiled = compile_yaml(&workflow).expect("compile");
         let plan = preflight::preflight(&compiled).expect("preflight");
         let report = render::render(&plan).expect("render zoom");
         let output = Command::new("ffprobe")
@@ -338,7 +344,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render zoom");
     let decoded = Command::new("ffmpeg")
@@ -386,7 +392,7 @@ fn wobble_renders_exact_domain_without_exposing_borders() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render wobble");
     let probe = Command::new("ffprobe")
@@ -464,7 +470,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     )
     .expect("workflow");
 
-    let compiled = compiler::compile_file(&workflow).expect("compile");
+    let compiled = compile_yaml(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,

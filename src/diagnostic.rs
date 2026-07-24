@@ -7,7 +7,7 @@
 //! ```
 //! use std::path::Path;
 //!
-//! let error = clipasm::syntax::parse_str(
+//! let error = clipasm::frontend::yaml::parse_str(
 //!     Path::new("program.yaml"),
 //!     "- program:\n    version: 1\n\n- glue:\n    body: not-a-sequence\n",
 //! )

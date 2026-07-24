@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use clipasm::diagnostic::{Diagnostic, Result, SourceSpan};
-use clipasm::{compiler, preflight, render};
+use clipasm::{compiler, frontend, preflight, render};
 
 #[derive(Debug, Parser)]
 #[command(name = "clipasm", version, about)]
@@ -52,7 +52,8 @@ pub(crate) fn run() -> ExitCode {
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { source } => {
-            let compiled = compiler::compile_file(&source)?;
+            let authored = frontend::yaml::parse_file(&source)?;
+            let compiled = compiler::compile(&authored)?;
             if let [output] = compiled.outputs() {
                 if output.value_type() != clipasm::model::ValueType::Video {
                     println!(
@@ -81,7 +82,8 @@ fn execute(cli: Cli) -> Result<()> {
             }
         }
         Command::Compile { source, output } => {
-            let compiled = compiler::compile_file(&source)?;
+            let authored = frontend::yaml::parse_file(&source)?;
+            let compiled = compiler::compile(&authored)?;
             let json = compiled.canonical_json()?;
             if let Some(output) = output {
                 write_new_plan(&output, json.as_bytes())?;
@@ -90,7 +92,8 @@ fn execute(cli: Cli) -> Result<()> {
             }
         }
         Command::Render { source } => {
-            let compiled = compiler::compile_file(&source)?;
+            let authored = frontend::yaml::parse_file(&source)?;
+            let compiled = compiler::compile(&authored)?;
             let prepared = preflight::preflight(&compiled)?;
             let report = render::render(&prepared)?;
             println!(
