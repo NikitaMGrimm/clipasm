@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, VideoSpec};
+use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
 use crate::source::SourceSpan;
 
 use super::REQUIRED_FFMPEG_FILTERS;
@@ -72,7 +72,7 @@ fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
     })?;
     let identity = inspect_tool_identity(&tool, "E_FFMPEG")?;
     let encoders = tool_output(&tool, &["-hide_banner", "-encoders"], "E_FFMPEG")?;
-    for encoder in ["libx264", "ffv1"] {
+    for encoder in ["libx264", "ffv1", "flac", "aac"] {
         if capability_missing(&encoders, encoder) {
             return Err(Diagnostic::new(
                 "E_FFMPEG_CAPABILITY",
@@ -325,11 +325,90 @@ pub(super) fn verify_video_decodable(
     span: &SourceSpan,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
-) -> Result<FrameCount> {
+) -> Result<(FrameCount, bool)> {
     let document = probe_video(path, span, ffprobe)?;
     let frames = validate_video_contract(path, video, span, &document)?;
     decode_video_frame(path, span, ffmpeg)?;
-    Ok(frames)
+    let has_audio = document
+        .streams
+        .iter()
+        .any(|stream| stream.codec_type.as_deref() == Some("audio"));
+    Ok((frames, has_audio))
+}
+
+pub(super) fn verify_audio_decodable(
+    path: &Path,
+    audio: AudioSpec,
+    span: &SourceSpan,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<AudioDomain> {
+    let document = probe_video(path, span, ffprobe)?;
+    let stream = document
+        .streams
+        .iter()
+        .find(|stream| stream.codec_type.as_deref() == Some("audio"))
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_SOURCE_CONTRACT",
+                format!("audio `{}` contains no audio stream", path.display()),
+                span.clone(),
+            )
+        })?;
+    let (duration_numerator, duration_denominator) = video_duration(stream).ok_or_else(|| {
+        Diagnostic::new(
+            "E_SOURCE_CONTRACT",
+            format!(
+                "audio `{}` does not expose a usable duration",
+                path.display()
+            ),
+            span.clone(),
+        )
+    })?;
+    let numerator = duration_numerator
+        .checked_mul(u128::from(audio.sample_rate))
+        .ok_or_else(|| audio_duration_overflow(span))?;
+    let samples = numerator
+        .checked_add(duration_denominator - 1)
+        .ok_or_else(|| audio_duration_overflow(span))?
+        / duration_denominator;
+    let samples = u64::try_from(samples).map_err(|_| audio_duration_overflow(span))?;
+    let decode = Command::new(ffmpeg.executable())
+        .args(["-v", "error", "-xerror", "-i"])
+        .arg(path)
+        .args(["-map", "0:a:0", "-frames:a", "1", "-f", "null", "-"])
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFMPEG",
+                format!("could not decode audio `{}`: {error}", path.display()),
+                span.clone(),
+            )
+        })?;
+    if !decode.status.success() {
+        return Err(Diagnostic::new(
+            "E_SOURCE_DECODABILITY",
+            format!(
+                "audio `{}` is not decodable by FFmpeg\n{}",
+                path.display(),
+                String::from_utf8_lossy(&decode.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    Ok(AudioDomain {
+        samples,
+        sample_rate: audio.sample_rate,
+        channels: audio.channels,
+    })
+}
+
+fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_AUDIO_DURATION_OVERFLOW",
+        "audio duration exceeds the supported range",
+        span.clone(),
+    )
 }
 
 fn probe_video(
@@ -666,7 +745,7 @@ mod tests {
         assert!(encoder_error.message.contains("ffv1"));
 
         let (_directory, no_matroska) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; else echo mp4; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; else echo mp4; fi\n",
         );
         let container_error = inspect_ffmpeg_at(&no_matroska).expect_err("missing Matroska");
         assert_eq!(container_error.code, "E_FFMPEG_CAPABILITY");
@@ -678,7 +757,7 @@ mod tests {
     fn ffmpeg_preflight_requires_every_render_filter() {
         let _guard = fake_tool_test_lock();
         let (_directory, no_filters) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; else echo none; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; else echo none; fi\n",
         );
         let error = inspect_ffmpeg_at(&no_filters).expect_err("missing filters");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
@@ -690,7 +769,7 @@ mod tests {
     fn ffmpeg_preflight_requires_the_flash_fade_filter() {
         let _guard = fake_tool_test_lock();
         let (_directory, no_fade) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts tpad concat perspective'; else echo none; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts tpad concat perspective aresample aformat atrim apad anullsrc color'; else echo none; fi\n",
         );
         let error = inspect_ffmpeg_at(&no_fade).expect_err("missing fade");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");

@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ValueRef, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
 #[cfg(test)]
 use crate::program::ProgramRegistry;
 use crate::semantic::{CompiledNode, SymbolId};
@@ -27,7 +27,7 @@ use crate::source::{SourcePackage, SourceUnit};
 pub use crate::semantic::SourceOrigin;
 pub use entrypoint::EntrypointBindings;
 
-const COMPILED_FORMAT_VERSION: u32 = 9;
+const COMPILED_FORMAT_VERSION: u32 = 10;
 
 #[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -40,6 +40,7 @@ pub struct CompiledProgram {
     engine_version: String,
     structure_hash: String,
     video: VideoSpec,
+    audio: AudioSpec,
     nodes: Vec<CompiledNode>,
     outputs: Vec<ValueRef>,
     named_values: BTreeMap<String, ValueRef>,
@@ -81,6 +82,12 @@ impl CompiledProgram {
     }
 
     #[must_use]
+    /// Return the canonical project audio properties.
+    pub fn audio(&self) -> &AudioSpec {
+        &self.audio
+    }
+
+    #[must_use]
     /// Return the single Video output domain when it is knowable without reading media.
     ///
     /// Returns `None` for zero or multiple outputs, non-Video output, or a
@@ -99,9 +106,15 @@ impl CompiledProgram {
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
     /// ```
     pub fn result_domain(&self) -> Option<&VideoDomain> {
-        let [result] = self.outputs.as_slice() else {
+        let mut videos = self
+            .outputs
+            .iter()
+            .copied()
+            .filter(|value| value.value_type() == crate::model::ValueType::Video);
+        let result = videos.next()?;
+        if videos.next().is_some() {
             return None;
-        };
+        }
         self.nodes[result.id().get() as usize].domain()
     }
 
@@ -130,12 +143,18 @@ impl CompiledProgram {
     }
 
     pub(crate) fn render_output(&self) -> Result<ValueRef> {
-        let [output] = self.outputs.as_slice() else {
+        let videos = self
+            .outputs
+            .iter()
+            .copied()
+            .filter(|value| value.value_type() == crate::model::ValueType::Video)
+            .collect::<Vec<_>>();
+        let [output] = videos.as_slice() else {
             return Err(Diagnostic::new(
                 "E_ENTRYPOINT_OUTPUT_COUNT",
                 format!(
-                    "rendering requires exactly one source output, but {} values were produced",
-                    self.outputs.len()
+                    "rendering requires exactly one Video output, but {} Video values were produced",
+                    videos.len()
                 ),
                 self.output.as_ref().map_or_else(
                     || SourceSpan::source_start(self.entrypoint_source.clone()),
@@ -143,19 +162,6 @@ impl CompiledProgram {
                 ),
             ));
         };
-        if output.value_type() != crate::model::ValueType::Video {
-            return Err(Diagnostic::new(
-                "E_ENTRYPOINT_OUTPUT_TYPE",
-                format!(
-                    "rendering requires one Video output, but the source produced {}",
-                    output.value_type()
-                ),
-                self.output.as_ref().map_or_else(
-                    || SourceSpan::source_start(self.entrypoint_source.clone()),
-                    |output| output.span.clone(),
-                ),
-            ));
-        }
         Ok(*output)
     }
 
@@ -298,6 +304,7 @@ fn compile_checked(
         entrypoint,
         output.cloned(),
         video,
+        AudioSpec::default(),
         evaluation,
         COMPILED_FORMAT_VERSION,
     )
@@ -311,26 +318,23 @@ fn validate_publication_output(
     if output.is_none() {
         return Ok(());
     }
-    let [output] = evaluation.outputs.as_slice() else {
+    let videos = evaluation
+        .outputs
+        .iter()
+        .copied()
+        .filter(|value| value.value_type() == crate::model::ValueType::Video)
+        .collect::<Vec<_>>();
+    let [output] = videos.as_slice() else {
         return Err(Diagnostic::new(
             "E_ENTRYPOINT_OUTPUT_COUNT",
             format!(
-                "a source program with `output` must produce exactly one value, but {} values remain",
-                evaluation.outputs.len()
+                "a source program with `output` must produce exactly one Video, but {} Video values remain",
+                videos.len()
             ),
             entrypoint.program().span().clone(),
         ));
     };
-    if output.value_type() != crate::model::ValueType::Video {
-        return Err(Diagnostic::new(
-            "E_ENTRYPOINT_OUTPUT_TYPE",
-            format!(
-                "a source program with `output` must produce one Video, but produced {}",
-                output.value_type()
-            ),
-            entrypoint.program().span().clone(),
-        ));
-    }
+    debug_assert_eq!(output.value_type(), crate::model::ValueType::Video);
     Ok(())
 }
 

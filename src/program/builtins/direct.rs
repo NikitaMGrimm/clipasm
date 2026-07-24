@@ -16,7 +16,7 @@ pub(crate) fn image() -> ProgramDefinition {
     direct(
         descriptor(
             "image",
-            1,
+            2,
             vec![],
             vec![
                 parameter("path", ParameterType::File, true),
@@ -33,7 +33,7 @@ pub(crate) fn video_source() -> ProgramDefinition {
     direct(
         descriptor(
             "video",
-            2,
+            3,
             vec![],
             vec![
                 parameter("path", ParameterType::File, true),
@@ -45,11 +45,71 @@ pub(crate) fn video_source() -> ProgramDefinition {
     )
 }
 
+pub(crate) fn audio_source() -> ProgramDefinition {
+    direct(
+        ProgramDescriptor {
+            name: "audio".to_owned(),
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: vec![],
+            parameters: vec![parameter("path", ParameterType::File, true)],
+            primary_parameter: Some("path".to_owned()),
+            outputs: vec![ValueType::Audio],
+        },
+        lower_audio,
+    )
+}
+
+pub(crate) fn extract_audio() -> ProgramDefinition {
+    direct(
+        ProgramDescriptor {
+            name: "extract_audio".to_owned(),
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: vec![InputPort {
+                name: "video".to_owned(),
+                value_type: ValueType::Video,
+                cardinality: Cardinality::One,
+            }],
+            parameters: vec![],
+            primary_parameter: None,
+            outputs: vec![ValueType::Audio],
+        },
+        lower_extract_audio,
+    )
+}
+
+pub(crate) fn set_audio() -> ProgramDefinition {
+    direct(
+        ProgramDescriptor {
+            name: "set_audio".to_owned(),
+            semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
+            inputs: vec![
+                InputPort {
+                    name: "audio".to_owned(),
+                    value_type: ValueType::Audio,
+                    cardinality: Cardinality::One,
+                },
+                InputPort {
+                    name: "video".to_owned(),
+                    value_type: ValueType::Video,
+                    cardinality: Cardinality::One,
+                },
+            ],
+            parameters: vec![],
+            primary_parameter: None,
+            outputs: vec![ValueType::Video],
+        },
+        lower_set_audio,
+    )
+}
+
 pub(crate) fn concat() -> ProgramDefinition {
     direct(
         descriptor(
             "concat",
-            1,
+            2,
             vec![input("videos", Cardinality::Variadic { min: 1 })],
             vec![],
             None,
@@ -62,7 +122,7 @@ pub(crate) fn repeat() -> ProgramDefinition {
     direct(
         descriptor(
             "repeat",
-            2,
+            3,
             vec![input("video", Cardinality::One)],
             vec![parameter("count", ParameterType::Integer, true)],
             Some("count"),
@@ -75,7 +135,7 @@ pub(crate) fn trim() -> ProgramDefinition {
     direct(
         descriptor(
             "trim",
-            1,
+            2,
             vec![input("video", Cardinality::One)],
             vec![parameter("range", ParameterType::TimeRange, true)],
             Some("range"),
@@ -88,7 +148,7 @@ pub(crate) fn zoom() -> ProgramDefinition {
     direct(
         descriptor(
             "zoom",
-            2,
+            3,
             vec![input("video", Cardinality::One)],
             vec![parameter("percent", ParameterType::Integer, false)],
             Some("percent"),
@@ -101,7 +161,7 @@ pub(crate) fn wobble() -> ProgramDefinition {
     direct(
         descriptor(
             "wobble",
-            1,
+            2,
             vec![input("video", Cardinality::One)],
             vec![parameter("pixels", ParameterType::Integer, false)],
             Some("pixels"),
@@ -114,7 +174,7 @@ pub(crate) fn flash() -> ProgramDefinition {
     direct(
         descriptor(
             "flash",
-            1,
+            2,
             vec![
                 input("before", Cardinality::One),
                 input("after", Cardinality::One),
@@ -221,6 +281,26 @@ fn lower_video(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
             .at_span(path_span.clone())
             .video_source(path.to_path_buf(), fit),
     )
+}
+
+fn lower_audio(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let (path, span) = call.file_parameter("path")?;
+    one_output(
+        builder
+            .at_span(span.clone())
+            .audio_source(path.to_path_buf()),
+    )
+}
+
+fn lower_extract_audio(
+    call: &ResolvedCall,
+    builder: &mut GraphBuilder<'_>,
+) -> Result<ProgramOutputs> {
+    one_output(builder.extract_audio(call.one_input("video")?))
+}
+
+fn lower_set_audio(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    one_output(builder.set_audio(call.one_input("audio")?, call.one_input("video")?))
 }
 
 fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
@@ -377,8 +457,8 @@ mod tests {
 
     #[test]
     fn source_program_versions_cover_duration_and_repeat_semantics() {
-        assert_eq!(video_source().descriptor.semantic_version, 2);
-        assert_eq!(repeat().descriptor.semantic_version, 2);
-        assert_eq!(zoom().descriptor.semantic_version, 2);
+        assert_eq!(video_source().descriptor.semantic_version, 3);
+        assert_eq!(repeat().descriptor.semantic_version, 3);
+        assert_eq!(zoom().descriptor.semantic_version, 3);
     }
 }

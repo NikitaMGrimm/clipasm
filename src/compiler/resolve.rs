@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::compiler::evaluate::Evaluation;
 use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, FrameCount, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SymbolId};
 use crate::source::{SourceUnit, Spanned};
 use std::path::PathBuf;
@@ -17,6 +17,7 @@ pub(super) fn finalize(
     entrypoint: &SourceUnit,
     output: Option<Spanned<PathBuf>>,
     video: VideoSpec,
+    audio: AudioSpec,
     evaluation: Evaluation,
     format_version: u32,
 ) -> Result<CompiledProgram> {
@@ -43,6 +44,7 @@ pub(super) fn finalize(
         &evaluation,
         &domains,
         &video,
+        &audio,
         format_version,
         &order,
     )?;
@@ -92,6 +94,7 @@ pub(super) fn finalize(
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         structure_hash,
         video,
+        audio,
         nodes,
         outputs: evaluation.outputs,
         named_values,
@@ -221,14 +224,18 @@ fn collect_direct_references(
         }
         visited[index] = true;
         match nodes[index].kind() {
-            SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {}
+            SemanticNodeKind::ImageVideo { .. }
+            | SemanticNodeKind::VideoSource { .. }
+            | SemanticNodeKind::AudioSource { .. } => {}
             SemanticNodeKind::Reference { symbol } => {
                 output.insert(*symbol);
             }
             SemanticNodeKind::Repeat { input, .. }
             | SemanticNodeKind::Zoom { input, .. }
             | SemanticNodeKind::Wobble { input, .. }
-            | SemanticNodeKind::Slice { input, .. } => {
+            | SemanticNodeKind::Slice { input, .. }
+            | SemanticNodeKind::ExtractAudio { video: input }
+            | SemanticNodeKind::AudioOnBlack { audio: input } => {
                 stack.push(*input);
             }
             SemanticNodeKind::Concat { inputs } => stack.extend(inputs.iter().copied()),
@@ -241,6 +248,10 @@ fn collect_direct_references(
             } => {
                 stack.push(*replacement);
                 stack.push(*base);
+            }
+            SemanticNodeKind::SetAudio { audio, video } => {
+                stack.push(*video);
+                stack.push(*audio);
             }
         }
     }
@@ -270,6 +281,9 @@ fn infer_domains(
                 DomainKnowledge::Known(project_domain(video, *frames))
             }
             SemanticNodeKind::VideoSource { .. } => DomainKnowledge::Deferred,
+            SemanticNodeKind::AudioSource { .. } | SemanticNodeKind::ExtractAudio { .. } => {
+                DomainKnowledge::NotVideo
+            }
             SemanticNodeKind::Reference { symbol } => {
                 let target = evaluation.symbols[symbol]
                     .value
@@ -337,6 +351,10 @@ fn infer_domains(
                     _ => DomainKnowledge::Deferred,
                 }
             }
+            SemanticNodeKind::SetAudio { video: input, .. } => {
+                knowledge[input.id().get() as usize].clone()
+            }
+            SemanticNodeKind::AudioOnBlack { .. } => DomainKnowledge::Deferred,
         };
     }
 

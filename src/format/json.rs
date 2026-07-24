@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::compiler::{CompiledProgram, ExplainEntry};
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, SemanticNodeKind, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
 
@@ -15,6 +15,7 @@ struct CompiledDocument<'a> {
     engine_version: &'a str,
     structure_hash: &'a str,
     video: &'a VideoSpec,
+    audio: &'a AudioSpec,
     nodes: Vec<CompiledNodeDocument<'a>>,
     outputs: &'a [ValueRef],
     named_values: &'a BTreeMap<String, ValueRef>,
@@ -51,6 +52,7 @@ pub(crate) fn compiled_program(program: &CompiledProgram) -> Result<String> {
         engine_version: program.engine_version(),
         structure_hash: program.structure_hash(),
         video: program.video(),
+        audio: program.audio(),
         nodes: program
             .nodes()
             .iter()
@@ -96,6 +98,10 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "video_source",
             "path": path,
             "fit": fit,
+        }),
+        SemanticNodeKind::AudioSource { path } => serde_json::json!({
+            "operation": "audio_source",
+            "path": path,
         }),
         SemanticNodeKind::Reference { symbol } => {
             let target = program.symbol_value(*symbol).ok_or_else(|| {
@@ -153,6 +159,19 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "base": base,
             "replacement": replacement,
             "range": range,
+        }),
+        SemanticNodeKind::ExtractAudio { video } => serde_json::json!({
+            "operation": "extract_audio",
+            "video": video,
+        }),
+        SemanticNodeKind::SetAudio { audio, video } => serde_json::json!({
+            "operation": "set_audio",
+            "audio": audio,
+            "video": video,
+        }),
+        SemanticNodeKind::AudioOnBlack { audio } => serde_json::json!({
+            "operation": "audio_on_black",
+            "audio": audio,
         }),
     })
 }

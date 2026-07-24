@@ -84,6 +84,9 @@ pub(crate) enum SemanticNodeKind {
         path: PathBuf,
         fit: ImageFit,
     },
+    AudioSource {
+        path: PathBuf,
+    },
     Reference {
         symbol: SymbolId,
     },
@@ -115,6 +118,16 @@ pub(crate) enum SemanticNodeKind {
         base: ValueRef,
         replacement: ValueRef,
         range: FrameRange,
+    },
+    ExtractAudio {
+        video: ValueRef,
+    },
+    SetAudio {
+        audio: ValueRef,
+        video: ValueRef,
+    },
+    AudioOnBlack {
+        audio: ValueRef,
     },
 }
 
@@ -234,6 +247,29 @@ impl<'a> GraphBuilder<'a> {
             SemanticNodeKind::VideoSource { path, fit },
             ValueType::Video,
         )
+    }
+
+    pub(crate) fn audio_source(&mut self, path: PathBuf) -> Result<ValueRef> {
+        self.push(SemanticNodeKind::AudioSource { path }, ValueType::Audio)
+    }
+
+    pub(crate) fn extract_audio(&mut self, video: ValueRef) -> Result<ValueRef> {
+        self.require_type(video, ValueType::Video, "video")?;
+        self.push(SemanticNodeKind::ExtractAudio { video }, ValueType::Audio)
+    }
+
+    pub(crate) fn set_audio(&mut self, audio: ValueRef, video: ValueRef) -> Result<ValueRef> {
+        self.require_type(audio, ValueType::Audio, "audio")?;
+        self.require_type(video, ValueType::Video, "video")?;
+        self.push(
+            SemanticNodeKind::SetAudio { audio, video },
+            ValueType::Video,
+        )
+    }
+
+    pub(crate) fn audio_on_black(&mut self, audio: ValueRef) -> Result<ValueRef> {
+        self.require_type(audio, ValueType::Audio, "audio")?;
+        self.push(SemanticNodeKind::AudioOnBlack { audio }, ValueType::Video)
     }
 
     /// Add a checked semantic Video slice.

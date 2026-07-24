@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::diagnostic::Result;
-use crate::model::{NodeId, VideoDomain, VideoSpec};
+use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 
 use super::{
     CACHE_FORMAT_VERSION, PREPARED_FORMAT_VERSION, PreparedNode, PreparedNodeKind,
@@ -13,7 +13,10 @@ use super::{
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
     semantic_version: u32,
-    domain: &'a VideoDomain,
+    value_type: ValueType,
+    domain: &'a Option<VideoDomain>,
+    audio_domain: &'a Option<AudioDomain>,
+    has_audio: bool,
     operation: serde_json::Value,
     upstream: Vec<&'a str>,
 }
@@ -22,6 +25,7 @@ struct PreparedNodeIdentity<'a> {
 struct PreparedPlanIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
+    audio: &'a AudioSpec,
     result: &'a str,
     names: BTreeMap<&'a str, &'a str>,
 }
@@ -36,7 +40,10 @@ struct CacheIdentity<'a> {
 
 pub(super) fn node_fingerprint(
     kind: &PreparedNodeKind,
-    domain: &VideoDomain,
+    value_type: ValueType,
+    domain: &Option<VideoDomain>,
+    audio_domain: &Option<AudioDomain>,
+    has_audio: bool,
     semantic_version: u32,
     existing: &[PreparedNode],
 ) -> Result<String> {
@@ -56,6 +63,13 @@ pub(super) fn node_fingerprint(
                 "content_hash": asset.content_hash,
                 "frames": frames,
                 "fit": fit,
+            }),
+            Vec::new(),
+        ),
+        PreparedNodeKind::AudioSource { asset } => (
+            serde_json::json!({
+                "operation": "audio_source",
+                "content_hash": asset.content_hash,
             }),
             Vec::new(),
         ),
@@ -106,6 +120,18 @@ pub(super) fn node_fingerprint(
         PreparedNodeKind::Concat { inputs } => {
             (serde_json::json!({"operation": "concat"}), inputs.clone())
         }
+        PreparedNodeKind::ExtractAudio { video } => (
+            serde_json::json!({"operation": "extract_audio"}),
+            vec![*video],
+        ),
+        PreparedNodeKind::SetAudio { audio, video } => (
+            serde_json::json!({"operation": "set_audio"}),
+            vec![*audio, *video],
+        ),
+        PreparedNodeKind::AudioOnBlack { audio } => (
+            serde_json::json!({"operation": "audio_on_black"}),
+            vec![*audio],
+        ),
     };
     let upstream = inputs
         .iter()
@@ -113,7 +139,10 @@ pub(super) fn node_fingerprint(
         .collect::<Vec<_>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
+        value_type,
         domain,
+        audio_domain,
+        has_audio,
         operation,
         upstream,
     })
@@ -121,6 +150,7 @@ pub(super) fn node_fingerprint(
 
 pub(super) fn prepared_semantic_hash(
     video: &VideoSpec,
+    audio: &AudioSpec,
     result: NodeId,
     names: &BTreeMap<String, NodeId>,
     nodes: &[PreparedNode],
@@ -132,6 +162,7 @@ pub(super) fn prepared_semantic_hash(
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
         format_version: PREPARED_FORMAT_VERSION,
         video,
+        audio,
         result: &nodes[result.get() as usize].fingerprint,
         names,
     })

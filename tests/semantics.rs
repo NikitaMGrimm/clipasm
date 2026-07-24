@@ -852,5 +852,47 @@ fn nested_body_arguments_resolve_before_inner_port_shadowing() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 5s}\n- during:\n    range: 1s..3s\n    body:\n      - during:\n          video: $video\n          range: 2s..4s\n          body:\n            - repeat: 1\n      - concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("nested shadowing");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 100);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames.0,
+        100
+    );
+}
+
+#[test]
+fn root_publication_ignores_auxiliary_audio_outputs() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    output: final.mp4\n\n- audio: missing.wav\n- image: {path: a.ppm, duration: 1s}\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("one Video plus auxiliary Audio");
+    assert_eq!(compiled.outputs().len(), 2);
+    assert_eq!(compiled.result_domain().expect("Video result").frames.0, 30);
+}
+
+#[test]
+fn implicit_stack_binding_never_adapts_audio_to_video() {
+    let (_directory, workflow) =
+        project("- program:\n    version: 1\n\n- audio: missing.wav\n- trim: 0s..1s\n");
+    let error = compiler::compile(&workflow).expect_err("implicit adaptation must not occur");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+    assert!(error.message.contains("Video"));
+}
+
+#[test]
+fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- set_audio:\n    video:\n      image: {path: a.ppm, duration: 4s}\n    audio:\n      trim:\n        video:\n          audio: missing.wav\n        range: 1s..3s\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("composed explicit adaptations");
+    assert_eq!(compiled.result_domain().expect("Video result").frames.0, 40);
+    let document = compiled_json(&compiled);
+    let operations = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter_map(|node| node["kind"]["operation"].as_str())
+        .collect::<Vec<_>>();
+    assert!(operations.contains(&"audio_on_black"));
+    assert!(operations.contains(&"slice"));
+    assert!(operations.contains(&"extract_audio"));
+    assert!(operations.contains(&"set_audio"));
 }

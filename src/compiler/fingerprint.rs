@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ValueRef, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::SemanticNodeKind;
 use crate::source::SourceSpan;
 
@@ -13,6 +13,7 @@ use crate::source::SourceSpan;
 struct CompiledIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
+    audio: &'a AudioSpec,
     outputs: Vec<&'a str>,
     names: &'a BTreeMap<&'a str, String>,
 }
@@ -30,6 +31,7 @@ pub(super) fn compiled_structure_hash(
     evaluation: &Evaluation,
     domains: &[Option<VideoDomain>],
     video: &VideoSpec,
+    audio: &AudioSpec,
     format_version: u32,
     order: &[ValueRef],
 ) -> Result<String> {
@@ -63,6 +65,7 @@ pub(super) fn compiled_structure_hash(
     hash_serializable(&CompiledIdentity {
         format_version,
         video,
+        audio,
         outputs,
         names: &names,
     })
@@ -90,14 +93,16 @@ fn value_hashes(
             continue;
         }
         let upstream = match node.kind() {
-            SemanticNodeKind::ImageVideo { .. } | SemanticNodeKind::VideoSource { .. } => {
-                Vec::new()
-            }
+            SemanticNodeKind::ImageVideo { .. }
+            | SemanticNodeKind::VideoSource { .. }
+            | SemanticNodeKind::AudioSource { .. } => Vec::new(),
             SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
             SemanticNodeKind::Repeat { input, .. }
             | SemanticNodeKind::Zoom { input, .. }
             | SemanticNodeKind::Wobble { input, .. }
-            | SemanticNodeKind::Slice { input, .. } => {
+            | SemanticNodeKind::Slice { input, .. }
+            | SemanticNodeKind::ExtractAudio { video: input }
+            | SemanticNodeKind::AudioOnBlack { audio: input } => {
                 vec![node_hash(*input, &hashes).to_owned()]
             }
             SemanticNodeKind::Concat { inputs } => inputs
@@ -114,6 +119,10 @@ fn value_hashes(
                 node_hash(*base, &hashes).to_owned(),
                 node_hash(*replacement, &hashes).to_owned(),
             ],
+            SemanticNodeKind::SetAudio { audio, video } => vec![
+                node_hash(*audio, &hashes).to_owned(),
+                node_hash(*video, &hashes).to_owned(),
+            ],
         };
         let operation = match node.kind() {
             SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
@@ -126,6 +135,10 @@ fn value_hashes(
                 "operation": "video_source",
                 "path": path,
                 "fit": fit,
+            }),
+            SemanticNodeKind::AudioSource { path } => serde_json::json!({
+                "operation": "audio_source",
+                "path": path,
             }),
             SemanticNodeKind::Reference { .. } => unreachable!("handled above"),
             SemanticNodeKind::Repeat { count, .. } => serde_json::json!({
@@ -154,6 +167,15 @@ fn value_hashes(
             SemanticNodeKind::ReplaceRange { range, .. } => serde_json::json!({
                 "operation": "replace_range",
                 "range": range,
+            }),
+            SemanticNodeKind::ExtractAudio { .. } => serde_json::json!({
+                "operation": "extract_audio",
+            }),
+            SemanticNodeKind::SetAudio { .. } => serde_json::json!({
+                "operation": "set_audio",
+            }),
+            SemanticNodeKind::AudioOnBlack { .. } => serde_json::json!({
+                "operation": "audio_on_black",
             }),
         };
         hashes[index] = Some(hash_serializable(&ValueIdentity {

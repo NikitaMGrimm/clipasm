@@ -16,7 +16,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain, VideoSpec};
+use crate::model::{
+    AudioDomain, AudioSpec, FrameCount, ImageFit, NodeId, ValueType, VideoDomain, VideoSpec,
+};
 use crate::preflight::{
     PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
@@ -65,6 +67,8 @@ struct ProbeStream {
     nb_read_frames: Option<String>,
     start_time: Option<String>,
     sample_aspect_ratio: Option<String>,
+    sample_rate: Option<String>,
+    channels: Option<u8>,
 }
 
 /// Render an invariant-protected prepared plan and publish its MP4 and manifest.
@@ -118,10 +122,17 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 node.origin().span.clone(),
             ));
         }
-        let artifact = cache_directory.join(format!("{}.mkv", node.fingerprint()));
+        let extension = match node.value_type() {
+            ValueType::Video => "mkv",
+            ValueType::Audio => "mka",
+            #[cfg(test)]
+            ValueType::Test => "bin",
+        };
+        let artifact = cache_directory.join(format!("{}.{}", node.fingerprint(), extension));
         match node.kind() {
             PreparedNodeKind::ImageVideo { asset, .. }
-            | PreparedNodeKind::VideoSource { asset, .. } => {
+            | PreparedNodeKind::VideoSource { asset, .. }
+            | PreparedNodeKind::AudioSource { asset } => {
                 verify_prepared_asset(asset, &node.origin().span)?;
             }
             PreparedNodeKind::Slice { .. }
@@ -129,13 +140,17 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             | PreparedNodeKind::Zoom { .. }
             | PreparedNodeKind::Wobble { .. }
             | PreparedNodeKind::FlashJoin { .. }
-            | PreparedNodeKind::Concat { .. } => {}
+            | PreparedNodeKind::Concat { .. }
+            | PreparedNodeKind::ExtractAudio { .. }
+            | PreparedNodeKind::SetAudio { .. }
+            | PreparedNodeKind::AudioOnBlack { .. } => {}
         }
         let hit = artifact.is_file()
-            && verify_artifact(
+            && verify_prepared_artifact(
                 plan.ffprobe().executable(),
                 &artifact,
-                node.domain(),
+                node,
+                plan.audio(),
                 plan.media_policy().working_pixel_format(),
             )
             .is_ok();
@@ -160,13 +175,15 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 &artifacts,
                 &artifact,
                 plan.video(),
+                plan.audio(),
                 plan.media_policy(),
                 plan.ffmpeg().executable(),
             )?;
-            verify_artifact(
+            verify_prepared_artifact(
                 plan.ffprobe().executable(),
                 &artifact,
-                node.domain(),
+                node,
+                plan.audio(),
                 plan.media_policy().working_pixel_format(),
             )?;
         }
@@ -199,7 +216,9 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         result_artifact,
         publication.staged_output(),
         plan.video(),
+        plan.audio(),
         result_node.domain(),
+        result_node.has_audio(),
         plan.media_policy(),
         plan.ffmpeg().executable(),
         plan.ffprobe().executable(),
@@ -235,15 +254,33 @@ fn stage_export(
     artifact: &Path,
     staged: &Path,
     spec: &VideoSpec,
+    audio: &AudioSpec,
     domain: &VideoDomain,
+    has_audio: bool,
     media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
     ffprobe: &Path,
 ) -> Result<()> {
-    let result =
-        export_mp4(artifact, staged, spec, domain.frames, media_policy, ffmpeg).and_then(|()| {
-            verify_artifact(ffprobe, staged, domain, media_policy.export_pixel_format())
-        });
+    let result = export_mp4(
+        artifact,
+        staged,
+        spec,
+        audio,
+        domain.frames,
+        has_audio,
+        media_policy,
+        ffmpeg,
+    )
+    .and_then(|()| {
+        verify_video_artifact(
+            ffprobe,
+            staged,
+            domain,
+            audio,
+            has_audio,
+            media_policy.export_pixel_format(),
+        )
+    });
     if let Err(error) = result {
         let _ = fs::remove_file(staged);
         return Err(error);
@@ -251,46 +288,89 @@ fn stage_export(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_node(
     node: &PreparedNode,
     artifacts: &[PathBuf],
     destination: &Path,
     spec: &VideoSpec,
+    audio: &AudioSpec,
     media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
 ) -> Result<()> {
-    let temporary = temporary_sibling(destination, "cache", "mkv");
+    let extension = if node.value_type() == ValueType::Audio {
+        "mka"
+    } else {
+        "mkv"
+    };
+    let temporary = temporary_sibling(destination, "cache", extension);
     let mut command = Command::new(ffmpeg);
     command.args(["-y", "-v", "error"]);
     match node.kind() {
         PreparedNodeKind::ImageVideo { asset, fit, frames } => {
+            let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
             command.args(["-loop", "1", "-i"]).arg(asset.source_path());
-            command.args(["-vf", &image_filter(*fit, spec, media_policy)]);
-            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
+            command
+                .args(["-f", "lavfi", "-i"])
+                .arg(silence_source(audio));
+            let filter = format!(
+                "[0:v]{},trim=end_frame={},setpts=PTS-STARTPTS[v];[1:a]{}[a]",
+                image_filter(*fit, spec, media_policy),
+                frames.0,
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
         }
         PreparedNodeKind::VideoSource { asset, fit, frames } => {
+            let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
             command.arg("-i").arg(asset.source_path());
-            command.args([
-                "-map",
-                "0:v:0",
-                "-vf",
-                &video_filter(*fit, *frames, spec, media_policy),
-            ]);
-            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
+            let audio_input = if node.has_audio() {
+                "[0:a:0]".to_owned()
+            } else {
+                command
+                    .args(["-f", "lavfi", "-i"])
+                    .arg(silence_source(audio));
+                "[1:a]".to_owned()
+            };
+            let filter = format!(
+                "[0:v]{}[v];{audio_input}{}[a]",
+                video_filter(*fit, *frames, spec, media_policy),
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
+        }
+        PreparedNodeKind::AudioSource { asset } => {
+            command.arg("-i").arg(asset.source_path());
+            let filter = format!(
+                "[0:a:0]{}[a]",
+                normalize_audio(node.audio_domain().samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[a]"]);
+            append_audio_output(&mut command, audio, &temporary);
         }
         PreparedNodeKind::Slice { input, range } => {
             command
                 .arg("-i")
                 .arg(artifact(artifacts, *input, &node.origin().span)?);
-            command.args([
-                "-vf",
-                &format!(
-                    "trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS",
-                    range.start(),
-                    range.end()
-                ),
-            ]);
-            append_lossless_output(&mut command, range.frames(), spec, media_policy, &temporary);
+            let start =
+                samples_for_video(FrameCount(range.start()), spec, audio, &node.origin().span)?;
+            let end = samples_for_video(FrameCount(range.end()), spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[0:v]trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS[v];[0:a]atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS[a]",
+                range.start(),
+                range.end()
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                range.frames(),
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
         }
         PreparedNodeKind::Repeat {
             input,
@@ -300,22 +380,56 @@ fn render_node(
             command
                 .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
                 .arg(artifact(artifacts, *input, &node.origin().span)?);
-            command.args(["-vf", "setpts=PTS-STARTPTS"]);
-            append_lossless_output(&mut command, *frames, spec, media_policy, &temporary);
+            let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[0:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{}[a]",
+                frames.0,
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
         }
         PreparedNodeKind::Zoom { input, percent } => {
             command
                 .arg("-i")
                 .arg(artifact(artifacts, *input, &node.origin().span)?);
-            command.args(["-vf", &zoom_filter(*percent, node.domain().frames)]);
-            append_node_output(&mut command, node, spec, media_policy, &temporary);
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[0:v]{}[v];[0:a]{}[a]",
+                zoom_filter(*percent, node.domain().frames),
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
         }
         PreparedNodeKind::Wobble { input, pixels } => {
             command
                 .arg("-i")
                 .arg(artifact(artifacts, *input, &node.origin().span)?);
-            command.args(["-vf", &wobble_filter(*pixels, spec)]);
-            append_node_output(&mut command, node, spec, media_policy, &temporary);
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[0:v]{}[v];[0:a]{}[a]",
+                wobble_filter(*pixels, spec),
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
         }
         PreparedNodeKind::FlashJoin {
             before,
@@ -328,12 +442,22 @@ fn render_node(
             command
                 .arg("-i")
                 .arg(artifact(artifacts, *after, &node.origin().span)?);
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
             let filter = format!(
-                "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:v][after]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS[v]",
-                frames.0
+                "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:v][0:a][after][1:a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
+                frames.0,
+                normalize_audio(samples, audio)
             );
-            command.args(["-filter_complex", &filter, "-map", "[v]"]);
-            append_node_output(&mut command, node, spec, media_policy, &temporary);
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
         }
         PreparedNodeKind::Concat { inputs } => {
             for input in inputs {
@@ -342,15 +466,92 @@ fn render_node(
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
             }
             let labels = (0..inputs.len()).fold(String::new(), |mut output, index| {
-                let _ = write!(output, "[{index}:v]");
+                let _ = write!(output, "[{index}:v][{index}:a]");
                 output
             });
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
             let filter = format!(
-                "{labels}concat=n={}:v=1:a=0,setpts=PTS-STARTPTS[v]",
-                inputs.len()
+                "{labels}concat=n={}:v=1:a=1[v][joined];[joined]{}[a]",
+                inputs.len(),
+                normalize_audio(samples, audio)
             );
-            command.args(["-filter_complex", &filter, "-map", "[v]"]);
-            append_node_output(&mut command, node, spec, media_policy, &temporary);
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
+        }
+        PreparedNodeKind::ExtractAudio { video } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *video, &node.origin().span)?);
+            let filter = format!(
+                "[0:a]{}[a]",
+                normalize_audio(node.audio_domain().samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[a]"]);
+            append_audio_output(&mut command, audio, &temporary);
+        }
+        PreparedNodeKind::SetAudio {
+            audio: audio_node,
+            video,
+        } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *audio_node, &node.origin().span)?);
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *video, &node.origin().span)?);
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[1:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{}[a]",
+                node.domain().frames.0,
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
+        }
+        PreparedNodeKind::AudioOnBlack { audio: audio_node } => {
+            command.args(["-f", "lavfi", "-i"]).arg(format!(
+                "color=c=black:s={}x{}:r={}/{}",
+                spec.width,
+                spec.height,
+                spec.fps.numerator(),
+                spec.fps.denominator()
+            ));
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *audio_node, &node.origin().span)?);
+            let samples =
+                samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+            let filter = format!(
+                "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
+                node.domain().frames.0,
+                media_policy.working_pixel_format(),
+                normalize_audio(samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+            append_video_output(
+                &mut command,
+                node.domain().frames,
+                spec,
+                audio,
+                media_policy,
+                &temporary,
+            );
         }
     }
     if let Err(error) = run_command(command, "E_FFMPEG", &node.origin().span) {
@@ -360,31 +561,16 @@ fn render_node(
     atomic_replace(&temporary, destination, "E_CACHE_IO")
 }
 
-fn append_node_output(
-    command: &mut Command,
-    node: &PreparedNode,
-    spec: &VideoSpec,
-    media_policy: RenderMediaPolicy,
-    destination: &Path,
-) {
-    append_lossless_output(
-        command,
-        node.domain().frames,
-        spec,
-        media_policy,
-        destination,
-    );
-}
-
-fn append_lossless_output(
+fn append_video_output(
     command: &mut Command,
     frames: FrameCount,
     spec: &VideoSpec,
+    audio: &AudioSpec,
     media_policy: RenderMediaPolicy,
     destination: &Path,
 ) {
     command
-        .args(["-frames:v", &frames.0.to_string(), "-an", "-c:v", "ffv1"])
+        .args(["-frames:v", &frames.0.to_string(), "-c:v", "ffv1"])
         .args([
             "-level",
             "3",
@@ -397,6 +583,29 @@ fn append_lossless_output(
             spec.fps.numerator(),
             spec.fps.denominator()
         ))
+        .args([
+            "-c:a",
+            "flac",
+            "-ar",
+            &audio.sample_rate.to_string(),
+            "-ac",
+            &audio.channels.to_string(),
+        ])
+        .arg(destination);
+}
+
+fn append_audio_output(command: &mut Command, audio: &AudioSpec, destination: &Path) {
+    command
+        .args([
+            "-c:a",
+            "flac",
+            "-ar",
+            &audio.sample_rate.to_string(),
+            "-ac",
+            &audio.channels.to_string(),
+            "-f",
+            "matroska",
+        ])
         .arg(destination);
 }
 
@@ -404,7 +613,9 @@ fn export_mp4(
     artifact: &Path,
     output: &Path,
     spec: &VideoSpec,
+    audio: &AudioSpec,
     frames: FrameCount,
+    has_audio: bool,
     media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
 ) -> Result<()> {
@@ -412,14 +623,29 @@ fn export_mp4(
     command
         .args(["-y", "-v", "error", "-i"])
         .arg(artifact)
-        .args(["-an", "-c:v", "libx264", "-pix_fmt"])
+        .args(["-map", "0:v:0", "-c:v", "libx264", "-pix_fmt"])
         .arg(media_policy.export_pixel_format())
         .arg("-r")
         .arg(format!(
             "{}/{}",
             spec.fps.numerator(),
             spec.fps.denominator()
-        ))
+        ));
+    if has_audio {
+        command.args([
+            "-map",
+            "0:a:0",
+            "-c:a",
+            "aac",
+            "-ar",
+            &audio.sample_rate.to_string(),
+            "-ac",
+            &audio.channels.to_string(),
+        ]);
+    } else {
+        command.arg("-an");
+    }
+    command
         .args([
             "-frames:v",
             &frames.0.to_string(),
@@ -430,6 +656,26 @@ fn export_mp4(
         ])
         .arg(output);
     run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
+}
+
+fn samples_for_video(
+    frames: FrameCount,
+    spec: &VideoSpec,
+    audio: &AudioSpec,
+    span: &SourceSpan,
+) -> Result<u64> {
+    audio.samples_for_frames(frames, spec.fps, span)
+}
+
+fn silence_source(audio: &AudioSpec) -> String {
+    format!("anullsrc=r={}:cl=stereo", audio.sample_rate)
+}
+
+fn normalize_audio(samples: u64, audio: &AudioSpec) -> String {
+    format!(
+        "aresample={},aformat=sample_rates={}:channel_layouts=stereo,atrim=end_sample={samples},apad=whole_len={samples},asetpts=PTS-STARTPTS",
+        audio.sample_rate, audio.sample_rate
+    )
 }
 
 fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy) -> String {
@@ -512,12 +758,24 @@ fn artifact<'a>(artifacts: &'a [PathBuf], id: NodeId, span: &SourceSpan) -> Resu
 }
 
 #[allow(clippy::too_many_lines)]
-fn verify_artifact(
+fn verify_prepared_artifact(
     ffprobe: &Path,
     path: &Path,
-    domain: &VideoDomain,
+    node: &PreparedNode,
+    audio: &AudioSpec,
     pixel_format: &str,
 ) -> Result<()> {
+    match node.value_type() {
+        ValueType::Video => {
+            verify_video_artifact(ffprobe, path, node.domain(), audio, true, pixel_format)
+        }
+        ValueType::Audio => verify_audio_artifact(ffprobe, path, node.audio_domain(), audio),
+        #[cfg(test)]
+        ValueType::Test => unreachable!("test values are not prepared"),
+    }
+}
+
+fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
     let mut command = Command::new(ffprobe);
     command
         .args([
@@ -530,7 +788,7 @@ fn verify_artifact(
         ])
         .arg(path);
     let output = run_output(command, "E_FFPROBE", &SourceSpan::file_start(path))?;
-    let document: ProbeDocument = serde_json::from_slice(&output.stdout).map_err(|error| {
+    serde_json::from_slice(&output.stdout).map_err(|error| {
         Diagnostic::new(
             "E_ARTIFACT_CONTRACT",
             format!(
@@ -539,23 +797,37 @@ fn verify_artifact(
             ),
             SourceSpan::file_start(path),
         )
-    })?;
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+fn verify_video_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    domain: &VideoDomain,
+    audio: &AudioSpec,
+    expect_audio: bool,
+    pixel_format: &str,
+) -> Result<()> {
+    let document = probe_artifact(ffprobe, path)?;
     let videos = document
         .streams
         .iter()
         .filter(|stream| stream.codec_type.as_deref() == Some("video"))
         .collect::<Vec<_>>();
-    let audio_count = document
+    let audios = document
         .streams
         .iter()
         .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
-        .count();
-    if videos.len() != 1 || audio_count != 0 {
+        .collect::<Vec<_>>();
+    let expected_audio_count = usize::from(expect_audio);
+    if videos.len() != 1 || audios.len() != expected_audio_count {
         return Err(contract_error(
             path,
             &format!(
-                "expected one video stream and no audio, found {} video and {audio_count} audio streams",
-                videos.len()
+                "expected one video stream and {expected_audio_count} audio stream(s), found {} video and {} audio streams",
+                videos.len(),
+                audios.len()
             ),
         ));
     }
@@ -602,7 +874,76 @@ fn verify_artifact(
             ),
         ));
     }
-    let start = video
+    verify_zero_start(path, video)?;
+    if video.sample_aspect_ratio.as_deref() != Some("1:1") {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected square pixels (1:1), found {:?}",
+                video.sample_aspect_ratio
+            ),
+        ));
+    }
+    if let Some(audio_stream) = audios.first() {
+        verify_audio_stream(path, audio_stream, audio)?;
+    }
+    Ok(())
+}
+
+fn verify_audio_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    _domain: &AudioDomain,
+    audio: &AudioSpec,
+) -> Result<()> {
+    let document = probe_artifact(ffprobe, path)?;
+    let videos = document
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("video"))
+        .count();
+    let audios = document
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
+        .collect::<Vec<_>>();
+    if videos != 0 || audios.len() != 1 {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected one audio stream and no video, found {videos} video and {} audio streams",
+                audios.len()
+            ),
+        ));
+    }
+    verify_audio_stream(path, audios[0], audio)
+}
+
+fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: &AudioSpec) -> Result<()> {
+    let expected_sample_rate = audio.sample_rate.to_string();
+    if stream.sample_rate.as_deref() != Some(expected_sample_rate.as_str()) {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected audio sample rate {}, found {:?}",
+                audio.sample_rate, stream.sample_rate
+            ),
+        ));
+    }
+    if stream.channels != Some(audio.channels) {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected {} audio channels, found {:?}",
+                audio.channels, stream.channels
+            ),
+        ));
+    }
+    verify_zero_start(path, stream)
+}
+
+fn verify_zero_start(path: &Path, stream: &ProbeStream) -> Result<()> {
+    let start = stream
         .start_time
         .as_deref()
         .and_then(|value| value.parse::<f64>().ok())
@@ -611,15 +952,6 @@ fn verify_artifact(
         return Err(contract_error(
             path,
             &format!("timestamps must begin at zero, found {start}"),
-        ));
-    }
-    if video.sample_aspect_ratio.as_deref() != Some("1:1") {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected square pixels (1:1), found {:?}",
-                video.sample_aspect_ratio
-            ),
         ));
     }
     Ok(())
@@ -723,7 +1055,9 @@ mod tests {
             &invalid_artifact,
             publication.staged_output(),
             &spec,
+            &AudioSpec::default(),
             &domain,
+            false,
             RenderMediaPolicy::default(),
             Path::new("ffmpeg"),
             Path::new("ffprobe"),

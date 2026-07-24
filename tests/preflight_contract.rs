@@ -32,11 +32,31 @@ fn prepared_plan_serializes_one_distinguished_result() {
     let document = serde_json::to_value(&plan).expect("prepared JSON");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 4);
+    assert_eq!(document["format_version"], 5);
     assert_eq!(
         plan.nodes()[plan.result().get() as usize].domain().frames.0,
         30
     );
+}
+
+#[test]
+fn unreachable_auxiliary_audio_is_not_preflighted() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let source = directory.path().join("program.yaml");
+    fs::write(
+        &source,
+        "- program:\n    version: 1\n    output: final.mp4\n\n- audio: missing.wav\n- image: {path: card.ppm, duration: 1s}\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_yaml(&source).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("unique Video reachability");
+    assert_eq!(plan.nodes().len(), 1);
+    assert!(matches!(
+        plan.nodes()[0].kind(),
+        PreparedNodeKind::ImageVideo { .. }
+    ));
 }
 
 #[test]

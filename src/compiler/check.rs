@@ -499,10 +499,8 @@ fn infer_body(
                         let mut body_locals = locals.clone();
                         for port in &definition.descriptor.inputs {
                             if matches!(port.cardinality, Cardinality::One) {
-                                body_locals.insert(
-                                    port.name.clone(),
-                                    LocalType::Value(port.value_type),
-                                );
+                                body_locals
+                                    .insert(port.name.clone(), LocalType::Value(port.value_type));
                             }
                         }
                         let checked_body = infer_body(
@@ -712,7 +710,7 @@ fn validate_input_argument(
         }
         _ => {}
     }
-    ensure_types(&values, port, argument.span())?;
+    ensure_explicit_types(&values, port, argument.span())?;
     Ok(checked_body)
 }
 
@@ -966,15 +964,21 @@ fn literal_matches(parameter_type: &ParameterType, literal: &Literal) -> bool {
     )
 }
 
-fn ensure_types(
+fn ensure_explicit_types(
     values: &[ValueType],
     port: &InputPort,
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     for value in values {
-        if *value != port.value_type {
-            return Err(type_error("program", port, *value, span));
+        if *value == port.value_type
+            || matches!(
+                (*value, port.value_type),
+                (ValueType::Video, ValueType::Audio) | (ValueType::Audio, ValueType::Video)
+            )
+        {
+            continue;
         }
+        return Err(type_error("program", port, *value, span));
     }
     Ok(())
 }

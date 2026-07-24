@@ -251,16 +251,20 @@ fn parse_inputs(node: RawNode) -> Result<Vec<InputPort>> {
             validate_name(&name, &name_span)?;
             let type_span = value_type.span.clone();
             let (value_type, _) = scalar(&value_type, "an input type")?;
-            if value_type != "Video" {
-                return Err(Diagnostic::new(
-                    "E_UNKNOWN_VALUE_TYPE",
-                    format!("unknown input type `{value_type}`; expected `Video`"),
-                    type_span,
-                ));
-            }
+            let value_type = match value_type {
+                "Video" => crate::model::ValueType::Video,
+                "Audio" => crate::model::ValueType::Audio,
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_VALUE_TYPE",
+                        format!("unknown input type `{value_type}`; expected `Video` or `Audio`"),
+                        type_span,
+                    ));
+                }
+            };
             Ok(InputPort {
                 name,
-                value_type: crate::model::ValueType::Video,
+                value_type,
                 cardinality: Cardinality::One,
             })
         })

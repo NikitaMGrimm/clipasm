@@ -3,9 +3,11 @@
 //! These values appear in compiled and prepared-plan inspection APIs. IDs are
 //! engine-assigned and opaque; domains and ranges use exact project frames.
 
+mod audio;
 mod time;
 mod video;
 
+pub use audio::{AudioDomain, AudioSpec};
 pub use time::{FrameCount, FrameRange};
 pub(crate) use time::{SourceTime, SourceTimeRange};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
@@ -54,8 +56,10 @@ impl NodeId {
 #[serde(rename_all = "snake_case")]
 /// The closed set of semantic value types understood by `ClipAsm`.
 pub enum ValueType {
-    /// A finite video value with no audio output.
+    /// A finite audiovisual video value.
     Video,
+    /// A finite standalone audio value.
+    Audio,
     #[cfg(test)]
     /// Synthetic value type used to verify internal type checks.
     Test,
@@ -65,6 +69,7 @@ impl std::fmt::Display for ValueType {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Video => formatter.write_str("Video"),
+            Self::Audio => formatter.write_str("Audio"),
             #[cfg(test)]
             Self::Test => formatter.write_str("Test"),
         }

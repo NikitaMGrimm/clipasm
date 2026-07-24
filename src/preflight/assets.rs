@@ -6,11 +6,13 @@ use sha2::{Digest, Sha256};
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, VideoSpec};
+use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceFile, SourceSpan};
 
-use super::tools::{ToolIdentity, verify_image_decodable, verify_video_decodable};
+use super::tools::{
+    ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
+};
 use super::{PreparedAsset, PreparedNode, PreparedNodeKind};
 
 pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf> {
@@ -101,12 +103,16 @@ pub(super) fn reject_asset_collisions(
         let (asset, role) = match node.kind() {
             PreparedNodeKind::ImageVideo { asset, .. } => (asset, "image asset"),
             PreparedNodeKind::VideoSource { asset, .. } => (asset, "video asset"),
+            PreparedNodeKind::AudioSource { asset } => (asset, "audio asset"),
             PreparedNodeKind::Slice { .. }
             | PreparedNodeKind::Repeat { .. }
             | PreparedNodeKind::Zoom { .. }
             | PreparedNodeKind::Wobble { .. }
             | PreparedNodeKind::FlashJoin { .. }
-            | PreparedNodeKind::Concat { .. } => continue,
+            | PreparedNodeKind::Concat { .. }
+            | PreparedNodeKind::ExtractAudio { .. }
+            | PreparedNodeKind::SetAudio { .. }
+            | PreparedNodeKind::AudioOnBlack { .. } => continue,
         };
         reject_path_collision(
             output,
@@ -201,10 +207,23 @@ pub(super) fn prepare_video_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
-) -> Result<(PreparedAsset, FrameCount)> {
+) -> Result<(PreparedAsset, FrameCount, bool)> {
     let asset = prepare_file_asset(authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
-    let frames = verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
-    Ok((asset, frames))
+    let (frames, has_audio) =
+        verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
+    Ok((asset, frames, has_audio))
+}
+
+pub(super) fn prepare_audio_asset(
+    authored: &Path,
+    audio: AudioSpec,
+    origin: &SourceOrigin,
+    ffmpeg: &ToolIdentity,
+    ffprobe: &ToolIdentity,
+) -> Result<(PreparedAsset, AudioDomain)> {
+    let asset = prepare_file_asset(authored, origin, "audio", "E_MISSING_AUDIO_FILE")?;
+    let domain = verify_audio_decodable(asset.source_path(), audio, &origin.span, ffmpeg, ffprobe)?;
+    Ok((asset, domain))
 }
 
 fn prepare_file_asset(

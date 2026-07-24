@@ -14,7 +14,7 @@ pub(crate) fn join() -> ProgramDefinition {
     body(
         descriptor(
             "join",
-            2,
+            3,
             vec![input("before"), input("after")],
             vec![],
             None,
@@ -34,7 +34,7 @@ pub(crate) fn join() -> ProgramDefinition {
 
 pub(crate) fn glue() -> ProgramDefinition {
     body(
-        descriptor("glue", 1, vec![], vec![], None),
+        descriptor("glue", 2, vec![], vec![], None),
         prepare_glue,
         BodyContract {
             initial_values: vec![],
@@ -52,7 +52,7 @@ pub(crate) fn during() -> ProgramDefinition {
     body(
         descriptor(
             "during",
-            1,
+            2,
             vec![input("video")],
             vec![ParameterDescriptor {
                 name: "range".to_owned(),

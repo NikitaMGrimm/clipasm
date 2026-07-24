@@ -24,7 +24,10 @@ use serde::Serialize;
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, FrameRange, ImageFit, NodeId, VideoDomain, VideoSpec};
+use crate::model::{
+    AudioDomain, AudioSpec, FrameCount, FrameRange, ImageFit, NodeId, ValueType, VideoDomain,
+    VideoSpec,
+};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceFile, SourceSpan};
 
@@ -42,8 +45,8 @@ use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
 use tools::{ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
-const PREPARED_FORMAT_VERSION: u32 = 4;
-const CACHE_FORMAT_VERSION: u32 = 2;
+const PREPARED_FORMAT_VERSION: u32 = 5;
+const CACHE_FORMAT_VERSION: u32 = 3;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale",
     "crop",
@@ -57,6 +60,12 @@ const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "concat",
     "fade",
     "perspective",
+    "aresample",
+    "aformat",
+    "atrim",
+    "apad",
+    "anullsrc",
+    "color",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -70,6 +79,7 @@ pub struct PreparedPlan {
     engine_version: String,
     semantic_hash: String,
     video: VideoSpec,
+    audio: AudioSpec,
     media_policy: RenderMediaPolicy,
     nodes: Vec<PreparedNode>,
     result: NodeId,
@@ -97,6 +107,12 @@ impl PreparedPlan {
     /// Return the common video properties of the prepared plan.
     pub fn video(&self) -> &VideoSpec {
         &self.video
+    }
+
+    #[must_use]
+    /// Return the canonical project audio properties.
+    pub fn audio(&self) -> &AudioSpec {
+        &self.audio
     }
 
     #[must_use]
@@ -160,7 +176,10 @@ impl PreparedPlan {
 pub struct PreparedNode {
     id: NodeId,
     kind: PreparedNodeKind,
-    domain: VideoDomain,
+    value_type: ValueType,
+    domain: Option<VideoDomain>,
+    audio_domain: Option<AudioDomain>,
+    has_audio: bool,
     origin: SourceOrigin,
     fingerprint: String,
 }
@@ -181,7 +200,27 @@ impl PreparedNode {
     #[must_use]
     /// Return exact duration, dimensions, and frame rate.
     pub const fn domain(&self) -> &VideoDomain {
-        &self.domain
+        self.domain.as_ref().expect("Video prepared node domain")
+    }
+
+    #[must_use]
+    /// Return the exact domain of an Audio prepared node.
+    pub const fn audio_domain(&self) -> &AudioDomain {
+        self.audio_domain
+            .as_ref()
+            .expect("Audio prepared node domain")
+    }
+
+    #[must_use]
+    /// Return whether this node produces Video or Audio.
+    pub const fn value_type(&self) -> ValueType {
+        self.value_type
+    }
+
+    #[must_use]
+    /// Return whether a Video node contains meaningful attached audio.
+    pub const fn has_audio(&self) -> bool {
+        self.has_audio
     }
 
     #[must_use]
@@ -218,6 +257,11 @@ pub enum PreparedNodeKind {
         frames: FrameCount,
         /// Source-to-project fitting policy.
         fit: ImageFit,
+    },
+    /// A normalized audio-file source.
+    AudioSource {
+        /// Verified source media and content hash.
+        asset: PreparedAsset,
     },
     /// A closed-open frame range selected from one upstream node.
     Slice {
@@ -262,6 +306,23 @@ pub enum PreparedNodeKind {
     Concat {
         /// Upstream nodes in output order.
         inputs: Vec<NodeId>,
+    },
+    /// The synchronized audio timeline extracted from one Video.
+    ExtractAudio {
+        /// Upstream audiovisual Video node.
+        video: NodeId,
+    },
+    /// A Video whose attached audio is replaced from time zero.
+    SetAudio {
+        /// Replacement Audio node.
+        audio: NodeId,
+        /// Video supplying the picture timeline and output duration.
+        video: NodeId,
+    },
+    /// A project-sized black Video carrying one Audio timeline.
+    AudioOnBlack {
+        /// Audio used as the output timeline.
+        audio: NodeId,
     },
 }
 
@@ -362,6 +423,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         )?;
     }
     let video = compiled.video().clone();
+    let audio = *compiled.audio();
     if !video.width.is_multiple_of(2) || !video.height.is_multiple_of(2) {
         return Err(Diagnostic::new(
             "E_EXPORT_DIMENSIONS",
@@ -405,13 +467,15 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         })
         .collect::<BTreeMap<_, _>>();
     reject_asset_collisions(&output, &manifest, &lowerer.nodes)?;
-    let semantic_hash = prepared_semantic_hash(&video, result, &named_values, &lowerer.nodes)?;
+    let semantic_hash =
+        prepared_semantic_hash(&video, &audio, result, &named_values, &lowerer.nodes)?;
 
     Ok(PreparedPlan {
         format_version: PREPARED_FORMAT_VERSION,
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
         semantic_hash,
         video,
+        audio,
         media_policy,
         nodes: lowerer.nodes,
         result,

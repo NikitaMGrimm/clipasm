@@ -2,11 +2,14 @@ use std::collections::HashMap;
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, FrameRange, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec};
+use crate::model::{
+    AudioDomain, FrameCount, FrameRange, NodeId, ValueId, ValueRef, ValueType, VideoDomain,
+    VideoSpec,
+};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 use crate::source::SourceSpan;
 
-use super::assets::{prepare_image_asset, prepare_video_asset};
+use super::assets::{prepare_audio_asset, prepare_image_asset, prepare_video_asset};
 use super::identity::node_fingerprint;
 use super::tools::ToolIdentity;
 use super::{PreparedNode, PreparedNodeKind};
@@ -30,32 +33,49 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
                 let asset =
                     prepare_image_asset(path, compiled_node.origin(), self.ffmpeg, self.ffprobe)?;
-                self.add_node(
+                self.add_video_node(
                     PreparedNodeKind::ImageVideo {
                         asset,
                         frames: *frames,
                         fit: *fit,
                     },
                     compiled_node.domain().expect("Video node domain").clone(),
+                    false,
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
             }
             SemanticNodeKind::VideoSource { path, fit } => {
-                let (asset, frames) = prepare_video_asset(
+                let (asset, frames, has_audio) = prepare_video_asset(
                     path,
                     self.compiled.video(),
                     compiled_node.origin(),
                     self.ffmpeg,
                     self.ffprobe,
                 )?;
-                self.add_node(
+                self.add_video_node(
                     PreparedNodeKind::VideoSource {
                         asset,
                         frames,
                         fit: *fit,
                     },
                     project_domain(self.compiled.video(), frames),
+                    has_audio,
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::AudioSource { path } => {
+                let (asset, domain) = prepare_audio_asset(
+                    path,
+                    *self.compiled.audio(),
+                    compiled_node.origin(),
+                    self.ffmpeg,
+                    self.ffprobe,
+                )?;
+                self.add_audio_node(
+                    PreparedNodeKind::AudioSource { asset },
+                    domain,
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
@@ -72,43 +92,47 @@ impl PreflightLowerer<'_> {
             }
             SemanticNodeKind::Repeat { input, count } => {
                 let input = self.prepared_dependency(*input, compiled_node.origin())?;
-                let frames = self.nodes[input.get() as usize]
-                    .domain
+                let input_node = &self.nodes[input.get() as usize];
+                let frames = input_node
+                    .domain()
                     .frames
                     .checked_mul(count.get(), &compiled_node.origin().span)?;
-                self.add_node(
+                self.add_video_node(
                     PreparedNodeKind::Repeat {
                         input,
                         count: *count,
                         frames,
                     },
                     project_domain(self.compiled.video(), frames),
+                    input_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
             }
             SemanticNodeKind::Zoom { input, percent } => {
                 let input = self.prepared_dependency(*input, compiled_node.origin())?;
-                let domain = self.nodes[input.get() as usize].domain.clone();
-                self.add_node(
+                let input_node = &self.nodes[input.get() as usize];
+                self.add_video_node(
                     PreparedNodeKind::Zoom {
                         input,
                         percent: *percent,
                     },
-                    domain,
+                    input_node.domain().clone(),
+                    input_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
             }
             SemanticNodeKind::Wobble { input, pixels } => {
                 let input = self.prepared_dependency(*input, compiled_node.origin())?;
-                let domain = self.nodes[input.get() as usize].domain.clone();
-                self.add_node(
+                let input_node = &self.nodes[input.get() as usize];
+                self.add_video_node(
                     PreparedNodeKind::Wobble {
                         input,
                         pixels: *pixels,
                     },
-                    domain,
+                    input_node.domain().clone(),
+                    input_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
@@ -120,19 +144,22 @@ impl PreflightLowerer<'_> {
             } => {
                 let before = self.prepared_dependency(*before, compiled_node.origin())?;
                 let after = self.prepared_dependency(*after, compiled_node.origin())?;
-                let after_frames = self.nodes[after.get() as usize].domain.frames;
+                let before_node = &self.nodes[before.get() as usize];
+                let after_node = &self.nodes[after.get() as usize];
+                let after_frames = after_node.domain().frames;
                 validate_flash_frames(*frames, after_frames, &compiled_node.origin().span)?;
-                let total = self.nodes[before.get() as usize]
-                    .domain
+                let total = before_node
+                    .domain()
                     .frames
                     .checked_add(after_frames, &compiled_node.origin().span)?;
-                self.add_node(
+                self.add_video_node(
                     PreparedNodeKind::FlashJoin {
                         before,
                         after,
                         frames: *frames,
                     },
                     project_domain(self.compiled.video(), total),
+                    before_node.has_audio() || after_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
@@ -143,23 +170,28 @@ impl PreflightLowerer<'_> {
                     .map(|input| self.prepared_dependency(*input, compiled_node.origin()))
                     .collect::<Result<Vec<_>>>()?;
                 let domain = self.concat_domain(&inputs, &compiled_node.origin().span)?;
-                self.add_node(
+                let has_audio = inputs
+                    .iter()
+                    .any(|input| self.nodes[input.get() as usize].has_audio());
+                self.add_video_node(
                     PreparedNodeKind::Concat { inputs },
                     domain,
+                    has_audio,
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
             }
             SemanticNodeKind::Slice { input, range } => {
                 let input = self.prepared_dependency(*input, compiled_node.origin())?;
-                let input_domain = &self.nodes[input.get() as usize].domain;
-                validate_prepared_range(*range, input_domain, &compiled_node.origin().span)?;
-                self.add_node(
+                let input_node = &self.nodes[input.get() as usize];
+                validate_prepared_range(*range, input_node.domain(), &compiled_node.origin().span)?;
+                self.add_video_node(
                     PreparedNodeKind::Slice {
                         input,
                         range: *range,
                     },
                     project_domain(self.compiled.video(), range.frames()),
+                    input_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?
@@ -172,22 +204,19 @@ impl PreflightLowerer<'_> {
                 let base_node = self.prepared_dependency(*base, compiled_node.origin())?;
                 let replacement_node =
                     self.prepared_dependency(*replacement, compiled_node.origin())?;
-                let base_domain = self.nodes[base_node.get() as usize].domain.clone();
+                let base_domain = self.nodes[base_node.get() as usize].domain().clone();
+                let base_has_audio = self.nodes[base_node.get() as usize].has_audio();
                 validate_prepared_range(*range, &base_domain, &compiled_node.origin().span)?;
                 let mut pieces = Vec::new();
                 if range.start() > 0 {
-                    pieces.push(self.add_node(
+                    pieces.push(self.add_video_node(
                         PreparedNodeKind::Slice {
                             input: base_node,
                             range:
                                 FrameRange::new(0, range.start()).expect("nonempty during prefix"),
                         },
-                        VideoDomain {
-                            frames: FrameCount(range.start()),
-                            width: base_domain.width,
-                            height: base_domain.height,
-                            frame_rate: base_domain.frame_rate,
-                        },
+                        project_domain(self.compiled.video(), FrameCount(range.start())),
+                        base_has_audio,
                         compiled_node.semantic_version(),
                         compiled_node.origin().clone_with_construct("range prefix"),
                     )?);
@@ -195,18 +224,17 @@ impl PreflightLowerer<'_> {
                 pieces.push(replacement_node);
                 if range.end() < base_domain.frames.0 {
                     pieces.push(
-                        self.add_node(
+                        self.add_video_node(
                             PreparedNodeKind::Slice {
                                 input: base_node,
                                 range: FrameRange::new(range.end(), base_domain.frames.0)
                                     .expect("nonempty during suffix"),
                             },
-                            VideoDomain {
-                                frames: FrameCount(base_domain.frames.0 - range.end()),
-                                width: base_domain.width,
-                                height: base_domain.height,
-                                frame_rate: base_domain.frame_rate,
-                            },
+                            project_domain(
+                                self.compiled.video(),
+                                FrameCount(base_domain.frames.0 - range.end()),
+                            ),
+                            base_has_audio,
                             compiled_node.semantic_version(),
                             compiled_node.origin().clone_with_construct("range suffix"),
                         )?,
@@ -216,13 +244,61 @@ impl PreflightLowerer<'_> {
                     pieces[0]
                 } else {
                     let domain = self.concat_domain(&pieces, &compiled_node.origin().span)?;
-                    self.add_node(
+                    let has_audio = pieces
+                        .iter()
+                        .any(|piece| self.nodes[piece.get() as usize].has_audio());
+                    self.add_video_node(
                         PreparedNodeKind::Concat { inputs: pieces },
                         domain,
+                        has_audio,
                         compiled_node.semantic_version(),
                         compiled_node.origin().clone(),
                     )?
                 }
+            }
+            SemanticNodeKind::ExtractAudio { video } => {
+                let video = self.prepared_dependency(*video, compiled_node.origin())?;
+                let samples = self.compiled.audio().samples_for_frames(
+                    self.nodes[video.get() as usize].domain().frames,
+                    self.compiled.video().fps,
+                    &compiled_node.origin().span,
+                )?;
+                self.add_audio_node(
+                    PreparedNodeKind::ExtractAudio { video },
+                    AudioDomain {
+                        samples,
+                        sample_rate: self.compiled.audio().sample_rate,
+                        channels: self.compiled.audio().channels,
+                    },
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::SetAudio { audio, video } => {
+                let audio = self.prepared_dependency(*audio, compiled_node.origin())?;
+                let video = self.prepared_dependency(*video, compiled_node.origin())?;
+                self.add_video_node(
+                    PreparedNodeKind::SetAudio { audio, video },
+                    self.nodes[video.get() as usize].domain().clone(),
+                    true,
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::AudioOnBlack { audio } => {
+                let audio = self.prepared_dependency(*audio, compiled_node.origin())?;
+                let frames = self.compiled.audio().frames_for_samples(
+                    self.nodes[audio.get() as usize].audio_domain().samples,
+                    self.compiled.video().fps,
+                    &compiled_node.origin().span,
+                )?;
+                self.add_video_node(
+                    PreparedNodeKind::AudioOnBlack { audio },
+                    project_domain(self.compiled.video(), frames),
+                    true,
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
             }
         };
         self.lowered.insert(value.id(), result);
@@ -245,15 +321,56 @@ impl PreflightLowerer<'_> {
     fn concat_domain(&self, inputs: &[NodeId], span: &SourceSpan) -> Result<VideoDomain> {
         let mut frames = FrameCount(0);
         for input in inputs {
-            frames = frames.checked_add(self.nodes[input.get() as usize].domain.frames, span)?;
+            frames = frames.checked_add(self.nodes[input.get() as usize].domain().frames, span)?;
         }
         Ok(project_domain(self.compiled.video(), frames))
     }
 
-    fn add_node(
+    fn add_video_node(
         &mut self,
         kind: PreparedNodeKind,
         domain: VideoDomain,
+        has_audio: bool,
+        semantic_version: u32,
+        origin: SourceOrigin,
+    ) -> Result<NodeId> {
+        self.add_node(
+            kind,
+            ValueType::Video,
+            Some(domain),
+            None,
+            has_audio,
+            semantic_version,
+            origin,
+        )
+    }
+
+    fn add_audio_node(
+        &mut self,
+        kind: PreparedNodeKind,
+        domain: AudioDomain,
+        semantic_version: u32,
+        origin: SourceOrigin,
+    ) -> Result<NodeId> {
+        self.add_node(
+            kind,
+            ValueType::Audio,
+            None,
+            Some(domain),
+            false,
+            semantic_version,
+            origin,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_node(
+        &mut self,
+        kind: PreparedNodeKind,
+        value_type: ValueType,
+        domain: Option<VideoDomain>,
+        audio_domain: Option<AudioDomain>,
+        has_audio: bool,
         semantic_version: u32,
         origin: SourceOrigin,
     ) -> Result<NodeId> {
@@ -264,11 +381,22 @@ impl PreflightLowerer<'_> {
                 origin.span.clone(),
             )
         })?);
-        let fingerprint = node_fingerprint(&kind, &domain, semantic_version, &self.nodes)?;
+        let fingerprint = node_fingerprint(
+            &kind,
+            value_type,
+            &domain,
+            &audio_domain,
+            has_audio,
+            semantic_version,
+            &self.nodes,
+        )?;
         self.nodes.push(PreparedNode {
             id,
             kind,
+            value_type,
             domain,
+            audio_domain,
+            has_audio,
             origin,
             fingerprint,
         });

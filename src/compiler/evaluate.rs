@@ -818,18 +818,16 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
         scope: &mut EvalScope,
     ) -> Result<Vec<ValueRef>> {
-        match value {
-            ArgumentValue::Reference(reference) => Ok(vec![self.evaluate_reference_name(
-                &reference.value,
-                &reference.span,
-                scope,
-            )?]),
+        let values = match value {
+            ArgumentValue::Reference(reference) => {
+                vec![self.evaluate_reference_name(&reference.value, &reference.span, scope)?]
+            }
             ArgumentValue::References(references, _) => references
                 .iter()
                 .map(|reference| {
                     self.evaluate_reference_name(&reference.value, &reference.span, scope)
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
             ArgumentValue::Body(body) => {
                 let checked_body =
                     checked_body.expect("checked input body matches canonical source");
@@ -854,14 +852,40 @@ impl Evaluator<'_> {
                     )
                     .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
                 };
-                Ok(vec![*result])
+                vec![*result]
             }
-            ArgumentValue::Literal(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!("input `{program}.{}` requires a graph input", port.name),
-                value.span().clone(),
-            )),
-        }
+            ArgumentValue::Literal(_) => {
+                return Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    format!("input `{program}.{}` requires a graph input", port.name),
+                    value.span().clone(),
+                ));
+            }
+        };
+        values
+            .into_iter()
+            .map(|value_ref| {
+                if value_ref.value_type() == port.value_type {
+                    return Ok(value_ref);
+                }
+                let origin = SourceOrigin::new("input adaptation", value.span().clone());
+                let mut builder = GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin);
+                match (value_ref.value_type(), port.value_type) {
+                    (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref),
+                    (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref),
+                    _ => Err(Diagnostic::new(
+                        "E_TYPE_MISMATCH",
+                        format!(
+                            "program `{program}` port `{}` expected {}, but the explicit value is {}",
+                            port.name,
+                            port.value_type,
+                            value_ref.value_type()
+                        ),
+                        value.span().clone(),
+                    )),
+                }
+            })
+            .collect()
     }
 
     fn bind_symbol(&mut self, id: SymbolId, value: ValueRef) -> Result<()> {

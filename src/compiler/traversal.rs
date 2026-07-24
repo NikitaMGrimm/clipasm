@@ -106,6 +106,8 @@ fn dependency_at<N: SemanticNodeView>(
         | SemanticNodeKind::Zoom { input, .. }
         | SemanticNodeKind::Wobble { input, .. }
         | SemanticNodeKind::Slice { input, .. }
+        | SemanticNodeKind::ExtractAudio { video: input }
+        | SemanticNodeKind::AudioOnBlack { audio: input }
             if index == 0 =>
         {
             Some(*input)
@@ -115,13 +117,17 @@ fn dependency_at<N: SemanticNodeView>(
         SemanticNodeKind::ReplaceRange {
             base, replacement, ..
         } => [*base, *replacement].get(index).copied(),
+        SemanticNodeKind::SetAudio { audio, video } => [*audio, *video].get(index).copied(),
         SemanticNodeKind::ImageVideo { .. }
         | SemanticNodeKind::VideoSource { .. }
+        | SemanticNodeKind::AudioSource { .. }
         | SemanticNodeKind::Reference { .. }
         | SemanticNodeKind::Repeat { .. }
         | SemanticNodeKind::Zoom { .. }
         | SemanticNodeKind::Wobble { .. }
-        | SemanticNodeKind::Slice { .. } => None,
+        | SemanticNodeKind::Slice { .. }
+        | SemanticNodeKind::ExtractAudio { .. }
+        | SemanticNodeKind::AudioOnBlack { .. } => None,
     })
 }
 

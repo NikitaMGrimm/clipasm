@@ -308,14 +308,8 @@ fn bind_missing_fixed(
         })
         .collect::<Vec<_>>();
     for (index, port) in missing.into_iter().rev() {
-        let value = stack.take_one_matching(
-            frame,
-            access,
-            port.value_type,
-            program,
-            &port.name,
-            span,
-        )?;
+        let value =
+            stack.take_one_matching(frame, access, port.value_type, program, &port.name, span)?;
         slots[index] = Some(vec![value]);
     }
     Ok(())

@@ -148,6 +148,28 @@ fn renders_and_normalizes_a_video_source() {
     assert_eq!(first.cache_hits, 0);
     assert_eq!(first.cache_misses, plan.nodes().len());
     assert!(first.output.is_file());
+    let probe = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "json",
+        ])
+        .arg(&first.output)
+        .output()
+        .expect("probe rendered source audio");
+    let document: serde_json::Value = serde_json::from_slice(&probe.stdout).expect("probe JSON");
+    assert_eq!(
+        document["streams"]
+            .as_array()
+            .expect("streams")
+            .iter()
+            .filter(|stream| stream["codec_type"] == "audio")
+            .count(),
+        1
+    );
     let second = render::render(&plan).expect("cached render");
     assert_eq!(second.cache_hits, plan.nodes().len());
     assert_eq!(second.cache_misses, 0);
@@ -512,4 +534,84 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
         transition_end.abs_diff(normal_after) < 80,
         "transition end did not approach normal: end={transition_end}, normal={normal_after}"
     );
+}
+
+#[test]
+fn set_audio_trims_or_pads_to_the_video_duration() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping audio render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+
+    for (name, audio_duration) in [("short", "1"), ("long", "5")] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        fs::write(
+            directory.path().join("card.ppm"),
+            b"P3\n2 2\n255\n255 0 0  255 0 0\n255 0 0  255 0 0\n",
+        )
+        .expect("image");
+        let audio = directory.path().join("tone.wav");
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("sine=frequency=440:sample_rate=48000:duration={audio_duration}"),
+                "-ac",
+                "2",
+            ])
+            .arg(&audio)
+            .status()
+            .expect("create audio fixture");
+        assert!(status.success());
+
+        let workflow = directory.path().join("workflow.yaml");
+        fs::write(
+            &workflow,
+            format!(
+                "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 64, fps: 10}}\n    output: {name}.mp4\n\n- image: {{path: card.ppm, duration: 3s}}\n- audio: tone.wav\n- set_audio\n"
+            ),
+        )
+        .expect("workflow");
+
+        let compiled = compile_yaml(&workflow).expect("compile");
+        let plan = preflight::preflight(&compiled).expect("preflight");
+        let report = render::render(&plan).expect("render");
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+            ])
+            .arg(&report.output)
+            .output()
+            .expect("probe output");
+        assert!(probe.status.success());
+        let document: serde_json::Value =
+            serde_json::from_slice(&probe.stdout).expect("probe JSON");
+        let streams = document["streams"].as_array().expect("streams");
+        assert_eq!(
+            streams
+                .iter()
+                .filter(|stream| stream["codec_type"] == "audio")
+                .count(),
+            1
+        );
+        let duration = document["format"]["duration"]
+            .as_str()
+            .expect("duration")
+            .parse::<f64>()
+            .expect("numeric duration");
+        assert!((duration - 3.0).abs() < 0.15, "duration was {duration}");
+    }
 }
