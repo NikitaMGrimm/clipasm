@@ -496,9 +496,18 @@ fn infer_body(
                             invocation.program.span.clone(),
                         );
                         stack.extend(&child, contract.initial_values.iter().copied());
+                        let mut body_locals = locals.clone();
+                        for port in &definition.descriptor.inputs {
+                            if matches!(port.cardinality, Cardinality::One) {
+                                body_locals.insert(
+                                    port.name.clone(),
+                                    LocalType::Value(port.value_type),
+                                );
+                            }
+                        }
                         let checked_body = infer_body(
                             body,
-                            locals,
+                            &body_locals,
                             unit,
                             definitions,
                             builtins,

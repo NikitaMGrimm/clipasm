@@ -98,6 +98,7 @@ struct Evaluator<'a> {
 
 struct EvalScope {
     values: BTreeMap<String, SymbolId>,
+    body_values: Vec<BTreeMap<String, ValueRef>>,
     parameters: BoundParameters,
     public: bool,
 }
@@ -153,6 +154,7 @@ impl Evaluator<'_> {
             EvaluationStack::isolated("root program call", program.span().clone());
         let mut scope = EvalScope {
             values: BTreeMap::new(),
+            body_values: Vec::new(),
             parameters: BoundParameters::new(),
             public: false,
         };
@@ -216,6 +218,7 @@ impl Evaluator<'_> {
         let program = Arc::clone(&checked_program.source);
         let mut scope = EvalScope {
             values: BTreeMap::new(),
+            body_values: Vec::new(),
             parameters: call
                 .map(|call| call.parameters().clone())
                 .unwrap_or_default(),
@@ -622,6 +625,14 @@ impl Evaluator<'_> {
         span: &SourceSpan,
         scope: &EvalScope,
     ) -> Result<ValueRef> {
+        if let Some(value) = scope
+            .body_values
+            .iter()
+            .rev()
+            .find_map(|values| values.get(name))
+        {
+            return Ok(*value);
+        }
         let key = scope
             .values
             .get(name)
@@ -759,6 +770,18 @@ impl Evaluator<'_> {
                     invocation.program.span.clone(),
                 );
                 stack.extend(&child, plan.initial_values);
+                let body_values = definition
+                    .descriptor
+                    .inputs
+                    .iter()
+                    .filter_map(|port| {
+                        matches!(port.cardinality, crate::program::Cardinality::One).then(|| {
+                            call.one_input(&port.name)
+                                .map(|value| (port.name.clone(), value))
+                        })
+                    })
+                    .collect::<Result<BTreeMap<_, _>>>()?;
+                scope.body_values.push(body_values);
                 self.evaluate_body(
                     body,
                     checked_body,
@@ -767,6 +790,7 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
+                scope.body_values.pop().expect("body input scope");
                 let owned = stack.finish_body(child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,

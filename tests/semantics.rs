@@ -511,7 +511,7 @@ fn visible_body_does_not_make_its_children_visible() {
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
     assert!(error.message.contains("owned"));
     assert!(error.notes.iter().any(|note| {
-        note.contains("additional value") && note.contains("stack_access: visible")
+        note.contains("additional Video value") && note.contains("stack_access: visible")
     }));
 }
 
@@ -835,4 +835,22 @@ fn postfix_wrapper_accepts_stack_access_metadata() {
     );
     let compiled = compiler::compile(&workflow).expect("postfix mapping");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 25);
+}
+
+#[test]
+fn body_program_inputs_are_available_as_local_references_after_stack_consumption() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- join:\n    - flash\n    - $before\n    - concat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("body input references");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+}
+
+#[test]
+fn nested_body_arguments_resolve_before_inner_port_shadowing() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 5s}\n- during:\n    range: 1s..3s\n    body:\n      - during:\n          video: $video\n          range: 2s..4s\n          body:\n            - repeat: 1\n      - concat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("nested shadowing");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 100);
 }
