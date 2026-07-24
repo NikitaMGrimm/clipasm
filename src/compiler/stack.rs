@@ -1,6 +1,6 @@
 use crate::diagnostic::Diagnostic;
 use crate::model::{ValueRef, ValueType};
-use crate::program::StackAccess;
+use crate::program::{Cardinality, StackAccess};
 use crate::source::SourceSpan;
 
 #[derive(Clone, Debug)]
@@ -136,6 +136,187 @@ impl StackValue for ValueType {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StackCompatibility {
+    Incompatible,
+    #[allow(
+        dead_code,
+        reason = "unresolved type domains use this outcome during checked-source inference"
+    )]
+    Possible,
+    Definite,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct StackBindingInput<R> {
+    pub(super) port: usize,
+    pub(super) requirement: R,
+    pub(super) cardinality: Cardinality,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct PlannedStackInput {
+    pub(super) port: usize,
+    pub(super) indices: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct StackBindingPlan {
+    pub(super) inputs: Vec<PlannedStackInput>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct StackBindingFailure {
+    pub(super) port: usize,
+    pub(super) available: usize,
+    pub(super) selected: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum StackBindingOutcome {
+    Resolved(StackBindingPlan),
+    Deferred,
+    Impossible(StackBindingFailure),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct BoundStackInput<T> {
+    pub(super) port: usize,
+    pub(super) values: Vec<T>,
+}
+
+impl<T: Copy> EvaluationStack<T> {
+    pub(super) fn plan_bindings<R: Copy>(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        inputs: &[StackBindingInput<R>],
+        mut compatibility: impl FnMut(T, R) -> StackCompatibility,
+    ) -> StackBindingOutcome {
+        let mut available = vec![true; self.values.len()];
+        let mut planned: Vec<PlannedStackInput> = Vec::with_capacity(inputs.len());
+
+        for input in inputs
+            .iter()
+            .filter(|input| matches!(input.cardinality, Cardinality::One))
+            .rev()
+        {
+            let mut selected = None;
+            for index in (0..self.values.len()).rev() {
+                if !available[index] || !Self::accessible(self.owners[index], frame, access) {
+                    continue;
+                }
+                match compatibility(self.values[index], input.requirement) {
+                    StackCompatibility::Incompatible => {}
+                    StackCompatibility::Possible => return StackBindingOutcome::Deferred,
+                    StackCompatibility::Definite => {
+                        selected = Some(index);
+                        break;
+                    }
+                }
+            }
+            let Some(index) = selected else {
+                return StackBindingOutcome::Impossible(StackBindingFailure {
+                    port: input.port,
+                    available: 0,
+                    selected: planned
+                        .iter()
+                        .flat_map(|input| input.indices.iter().copied())
+                        .collect(),
+                });
+            };
+            available[index] = false;
+            planned.push(PlannedStackInput {
+                port: input.port,
+                indices: vec![index],
+            });
+        }
+
+        for input in inputs
+            .iter()
+            .filter(|input| matches!(input.cardinality, Cardinality::Variadic { .. }))
+        {
+            let mut indices = Vec::new();
+            let mut possible = 0;
+            for (index, is_available) in available.iter().copied().enumerate() {
+                if !is_available || !Self::accessible(self.owners[index], frame, access) {
+                    continue;
+                }
+                match compatibility(self.values[index], input.requirement) {
+                    StackCompatibility::Incompatible => {}
+                    StackCompatibility::Possible => possible += 1,
+                    StackCompatibility::Definite => indices.push(index),
+                }
+            }
+            let Cardinality::Variadic { min } = input.cardinality else {
+                unreachable!("filtered variadic stack input")
+            };
+            if indices.len() + possible < min {
+                return StackBindingOutcome::Impossible(StackBindingFailure {
+                    port: input.port,
+                    available: indices.len(),
+                    selected: planned
+                        .iter()
+                        .flat_map(|input| input.indices.iter().copied())
+                        .collect(),
+                });
+            }
+            if possible > 0 {
+                return StackBindingOutcome::Deferred;
+            }
+            for index in &indices {
+                available[*index] = false;
+            }
+            planned.push(PlannedStackInput {
+                port: input.port,
+                indices,
+            });
+        }
+
+        planned.sort_by_key(|input| input.port);
+        StackBindingOutcome::Resolved(StackBindingPlan { inputs: planned })
+    }
+
+    fn accessible(owner: usize, frame: &StackFrame, access: StackAccess) -> bool {
+        match access {
+            StackAccess::Owned => owner == frame.depth,
+            StackAccess::Visible => owner >= frame.visible_depth && owner <= frame.depth,
+        }
+    }
+}
+
+impl<T: Copy> EvaluationStack<T> {
+    pub(super) fn apply_binding_plan(
+        &mut self,
+        plan: &StackBindingPlan,
+    ) -> Vec<BoundStackInput<T>> {
+        let bound = plan
+            .inputs
+            .iter()
+            .map(|input| BoundStackInput {
+                port: input.port,
+                values: input
+                    .indices
+                    .iter()
+                    .map(|index| self.values[*index])
+                    .collect(),
+            })
+            .collect();
+        let mut indices = plan
+            .inputs
+            .iter()
+            .flat_map(|input| input.indices.iter().copied())
+            .collect::<Vec<_>>();
+        indices.sort_unstable();
+        debug_assert!(!indices.windows(2).any(|indices| indices[0] == indices[1]));
+        for index in indices.into_iter().rev() {
+            self.values.remove(index);
+            self.owners.remove(index);
+        }
+        bound
+    }
+}
+
 impl<T: Copy + StackValue> EvaluationStack<T> {
     pub(super) fn nearest_accessible_type(
         &self,
@@ -199,25 +380,39 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         port: &str,
         span: &SourceSpan,
     ) -> Result<T, Diagnostic> {
-        let Some(index) = (0..self.values.len()).rev().find(|index| {
-            Self::accessible(self.owners[*index], frame, access)
-                && self.values[*index].value_type() == required
-        }) else {
-            return Err(self.underflow(
-                frame,
-                access,
-                "E_STACK_UNDERFLOW",
-                &format!("`{program}.{port}` needs one preceding {required} value"),
-                required,
-                0,
-                span,
-            ));
+        let inputs = [StackBindingInput {
+            port: 0,
+            requirement: required,
+            cardinality: Cardinality::One,
+        }];
+        let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
+            StackBindingOutcome::Resolved(plan) => plan,
+            StackBindingOutcome::Deferred => {
+                unreachable!("concrete stack compatibility is never deferred")
+            }
+            StackBindingOutcome::Impossible(failure) => {
+                return Err(self.underflow(
+                    frame,
+                    access,
+                    "E_STACK_UNDERFLOW",
+                    &format!("`{program}.{port}` needs one preceding {required} value"),
+                    required,
+                    failure.available,
+                    &failure.selected,
+                    span,
+                ));
+            }
         };
-        self.owners.remove(index);
-        Ok(self.values.remove(index))
+        let bound = self.apply_binding_plan(&plan);
+        let [bound] = bound.as_slice() else {
+            unreachable!("one fixed input produces one binding")
+        };
+        let [value] = bound.values.as_slice() else {
+            unreachable!("one fixed input consumes one value")
+        };
+        Ok(*value)
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn take_all_matching(
         &mut self,
@@ -229,37 +424,38 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         port: &str,
         span: &SourceSpan,
     ) -> Result<Vec<T>, Diagnostic> {
-        let indices = (0..self.values.len())
-            .filter(|index| {
-                Self::accessible(self.owners[*index], frame, access)
-                    && self.values[*index].value_type() == required
-            })
-            .collect::<Vec<_>>();
-        if indices.len() < min {
-            return Err(self.underflow(
-                frame,
-                access,
-                "E_MISSING_REQUIRED_INPUT",
-                &format!("`{program}.{port}` needs at least {min} {required} value(s)"),
-                required,
-                indices.len(),
-                span,
-            ));
-        }
-        let values = indices
-            .iter()
-            .map(|index| self.values[*index])
-            .collect::<Vec<_>>();
-        for index in indices.into_iter().rev() {
-            self.values.remove(index);
-            self.owners.remove(index);
-        }
-        Ok(values)
+        let inputs = [StackBindingInput {
+            port: 0,
+            requirement: required,
+            cardinality: Cardinality::Variadic { min },
+        }];
+        let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
+            StackBindingOutcome::Resolved(plan) => plan,
+            StackBindingOutcome::Deferred => {
+                unreachable!("concrete stack compatibility is never deferred")
+            }
+            StackBindingOutcome::Impossible(failure) => {
+                return Err(self.underflow(
+                    frame,
+                    access,
+                    "E_MISSING_REQUIRED_INPUT",
+                    &format!("`{program}.{port}` needs at least {min} {required} value(s)"),
+                    required,
+                    failure.available,
+                    &failure.selected,
+                    span,
+                ));
+            }
+        };
+        let bound = self.apply_binding_plan(&plan);
+        let [bound] = bound.as_slice() else {
+            unreachable!("one variadic input produces one binding")
+        };
+        Ok(bound.values.clone())
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
-    fn underflow(
+    pub(super) fn underflow(
         &self,
         frame: &StackFrame,
         access: StackAccess,
@@ -267,6 +463,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         requirement: &str,
         required: ValueType,
         available: usize,
+        selected: &[usize],
         span: &SourceSpan,
     ) -> Diagnostic {
         let mut diagnostic = Diagnostic::new(
@@ -283,8 +480,10 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
                 .iter()
                 .copied()
                 .zip(self.owners.iter().copied())
-                .filter(|(value, owner)| {
-                    Self::accessible(*owner, frame, StackAccess::Visible)
+                .enumerate()
+                .filter(|(index, (value, owner))| {
+                    !selected.contains(index)
+                        && Self::accessible(*owner, frame, StackAccess::Visible)
                         && value.value_type() == required
                 })
                 .count();
@@ -305,12 +504,13 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         }
         diagnostic
     }
+}
 
-    fn accessible(owner: usize, frame: &StackFrame, access: StackAccess) -> bool {
-        match access {
-            StackAccess::Owned => owner == frame.depth,
-            StackAccess::Visible => owner >= frame.visible_depth && owner <= frame.depth,
-        }
+fn exact_compatibility<T: Copy + StackValue>(value: T, required: ValueType) -> StackCompatibility {
+    if value.value_type() == required {
+        StackCompatibility::Definite
+    } else {
+        StackCompatibility::Incompatible
     }
 }
 
@@ -319,12 +519,182 @@ mod tests {
     use super::*;
     use crate::model::{ValueId, ValueType};
 
+    const VIDEO_DOMAIN: u8 = 1;
+    const AUDIO_DOMAIN: u8 = 2;
+    const TIMELINE_DOMAIN: u8 = VIDEO_DOMAIN | AUDIO_DOMAIN;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct AbstractValue {
+        id: u8,
+        domain: u8,
+    }
+
+    fn abstract_compatibility(value: AbstractValue, required: u8) -> StackCompatibility {
+        match value.domain & required {
+            0 => StackCompatibility::Incompatible,
+            _ if value.domain == required => StackCompatibility::Definite,
+            _ => StackCompatibility::Possible,
+        }
+    }
+
     fn value(id: u32) -> ValueRef {
         ValueRef::new(ValueId::new(id), ValueType::Video)
     }
 
     fn root() -> (EvaluationStack, StackFrame) {
         EvaluationStack::isolated("source program", SourceSpan::file_start("workflow.yaml"))
+    }
+
+    #[test]
+    fn planner_selects_missing_fixed_inputs_from_last_port_to_first() {
+        let (mut stack, frame) =
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+        stack.extend(
+            &frame,
+            [
+                AbstractValue {
+                    id: 0,
+                    domain: VIDEO_DOMAIN,
+                },
+                AbstractValue {
+                    id: 1,
+                    domain: AUDIO_DOMAIN,
+                },
+                AbstractValue {
+                    id: 2,
+                    domain: VIDEO_DOMAIN,
+                },
+            ],
+        );
+        let inputs = [
+            StackBindingInput {
+                port: 0,
+                requirement: VIDEO_DOMAIN,
+                cardinality: Cardinality::One,
+            },
+            StackBindingInput {
+                port: 2,
+                requirement: VIDEO_DOMAIN,
+                cardinality: Cardinality::One,
+            },
+        ];
+
+        let StackBindingOutcome::Resolved(plan) =
+            stack.plan_bindings(&frame, StackAccess::Owned, &inputs, abstract_compatibility)
+        else {
+            panic!("fixed binding should resolve");
+        };
+        assert_eq!(
+            plan.inputs,
+            vec![
+                PlannedStackInput {
+                    port: 0,
+                    indices: vec![0],
+                },
+                PlannedStackInput {
+                    port: 2,
+                    indices: vec![2],
+                },
+            ]
+        );
+
+        let bound = stack.apply_binding_plan(&plan);
+        assert_eq!(bound[0].values[0].id, 0);
+        assert_eq!(bound[1].values[0].id, 2);
+        assert_eq!(
+            stack
+                .values()
+                .iter()
+                .map(|value| value.id)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+    }
+
+    #[test]
+    fn planner_defers_when_a_nearer_value_may_match_a_fixed_input() {
+        let (mut stack, frame) =
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+        stack.extend(
+            &frame,
+            [
+                AbstractValue {
+                    id: 0,
+                    domain: VIDEO_DOMAIN,
+                },
+                AbstractValue {
+                    id: 1,
+                    domain: TIMELINE_DOMAIN,
+                },
+            ],
+        );
+        let inputs = [StackBindingInput {
+            port: 0,
+            requirement: VIDEO_DOMAIN,
+            cardinality: Cardinality::One,
+        }];
+
+        assert_eq!(
+            stack.plan_bindings(&frame, StackAccess::Owned, &inputs, abstract_compatibility),
+            StackBindingOutcome::Deferred
+        );
+        assert_eq!(stack.values().len(), 2, "planning is pure");
+    }
+
+    #[test]
+    fn planner_defers_a_variadic_binding_when_its_consumed_set_is_uncertain() {
+        let (mut stack, frame) =
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+        stack.extend(
+            &frame,
+            [
+                AbstractValue {
+                    id: 0,
+                    domain: VIDEO_DOMAIN,
+                },
+                AbstractValue {
+                    id: 1,
+                    domain: TIMELINE_DOMAIN,
+                },
+            ],
+        );
+        let inputs = [StackBindingInput {
+            port: 0,
+            requirement: VIDEO_DOMAIN,
+            cardinality: Cardinality::Variadic { min: 1 },
+        }];
+
+        assert_eq!(
+            stack.plan_bindings(&frame, StackAccess::Owned, &inputs, abstract_compatibility),
+            StackBindingOutcome::Deferred
+        );
+    }
+
+    #[test]
+    fn planner_distinguishes_impossible_binding_from_deferred_binding() {
+        let (mut stack, frame) =
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+        stack.push(
+            &frame,
+            AbstractValue {
+                id: 0,
+                domain: AUDIO_DOMAIN,
+            },
+        );
+        let inputs = [StackBindingInput {
+            port: 3,
+            requirement: VIDEO_DOMAIN,
+            cardinality: Cardinality::Variadic { min: 1 },
+        }];
+
+        assert_eq!(
+            stack.plan_bindings(&frame, StackAccess::Owned, &inputs, abstract_compatibility),
+            StackBindingOutcome::Impossible(StackBindingFailure {
+                port: 3,
+                available: 0,
+                selected: vec![],
+            })
+        );
     }
 
     #[test]

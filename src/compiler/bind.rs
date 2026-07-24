@@ -10,7 +10,9 @@ use crate::semantic::{SourceOrigin, require_value_type};
 use crate::source::{ArgumentValue, Invocation, Literal};
 use crate::source::{SourceSpan, Spanned};
 
-use super::stack::{EvaluationStack, StackFrame};
+use super::stack::{
+    EvaluationStack, StackBindingInput, StackBindingOutcome, StackCompatibility, StackFrame,
+};
 
 pub(super) struct BindContext<'a> {
     pub(super) stack: &'a mut EvaluationStack,
@@ -69,7 +71,7 @@ pub(super) fn bind_call(
         }
     }
 
-    bind_missing_fixed(
+    bind_missing_inputs(
         &descriptor.name,
         &signature.inputs,
         &mut slots,
@@ -78,24 +80,6 @@ pub(super) fn bind_call(
         access,
         &origin.span,
     )?;
-    for (index, port) in signature.inputs.iter().enumerate() {
-        if slots[index].is_some() {
-            continue;
-        }
-        let Cardinality::Variadic { min } = port.cardinality else {
-            continue;
-        };
-        let values = stack.take_all_matching(
-            frame,
-            access,
-            port.value_type,
-            min,
-            &descriptor.name,
-            &port.name,
-            &origin.span,
-        )?;
-        slots[index] = Some(values);
-    }
 
     let inputs = signature
         .inputs
@@ -309,7 +293,7 @@ fn resolve_explicit_input(
     Ok(values)
 }
 
-fn bind_missing_fixed(
+fn bind_missing_inputs(
     program: &str,
     ports: &[ResolvedInputPort],
     slots: &mut [Option<Vec<ValueRef>>],
@@ -321,14 +305,56 @@ fn bind_missing_fixed(
     let missing = ports
         .iter()
         .enumerate()
-        .filter(|(index, port)| {
-            slots[*index].is_none() && matches!(port.cardinality, Cardinality::One)
+        .filter(|(index, _)| slots[*index].is_none())
+        .map(|(index, port)| StackBindingInput {
+            port: index,
+            requirement: port.value_type,
+            cardinality: port.cardinality,
         })
         .collect::<Vec<_>>();
-    for (index, port) in missing.into_iter().rev() {
-        let value =
-            stack.take_one_matching(frame, access, port.value_type, program, &port.name, span)?;
-        slots[index] = Some(vec![value]);
+    let plan = match stack.plan_bindings(frame, access, &missing, |value, required| {
+        if value.value_type() == required {
+            StackCompatibility::Definite
+        } else {
+            StackCompatibility::Incompatible
+        }
+    }) {
+        StackBindingOutcome::Resolved(plan) => plan,
+        StackBindingOutcome::Deferred => {
+            unreachable!("concrete stack compatibility is never deferred")
+        }
+        StackBindingOutcome::Impossible(failure) => {
+            let port = &ports[failure.port];
+            let (code, requirement) = match port.cardinality {
+                Cardinality::One => (
+                    "E_STACK_UNDERFLOW",
+                    format!(
+                        "`{program}.{}` needs one preceding {} value",
+                        port.name, port.value_type
+                    ),
+                ),
+                Cardinality::Variadic { min } => (
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!(
+                        "`{program}.{}` needs at least {min} {} value(s)",
+                        port.name, port.value_type
+                    ),
+                ),
+            };
+            return Err(stack.underflow(
+                frame,
+                access,
+                code,
+                &requirement,
+                port.value_type,
+                failure.available,
+                &failure.selected,
+                span,
+            ));
+        }
+    };
+    for bound in stack.apply_binding_plan(&plan) {
+        slots[bound.port] = Some(bound.values);
     }
     Ok(())
 }
@@ -462,7 +488,7 @@ mod tests {
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
         stack.extend(&frame, [video(1), video(3)]);
-        bind_missing_fixed(
+        bind_missing_inputs(
             "combine",
             &ports,
             &mut slots,
@@ -484,7 +510,7 @@ mod tests {
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
         let test = ValueRef::new(ValueId::new(2), ValueType::Test);
         stack.extend(&frame, [video(1), test]);
-        bind_missing_fixed(
+        bind_missing_inputs(
             "consume",
             &ports[..1],
             &mut slots,
@@ -495,6 +521,58 @@ mod tests {
         )
         .expect("matching value below top");
         assert_eq!(slots[0], Some(vec![video(1)]));
+        assert_eq!(stack.values(), &[test]);
+    }
+
+    #[test]
+    fn failed_fixed_plan_excludes_values_reserved_for_later_ports_from_visibility_note() {
+        let ports = ports();
+        let mut slots = vec![None, None];
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
+        stack.push(&frame, video(1));
+
+        let error = bind_missing_inputs(
+            "combine",
+            &ports[..2],
+            &mut slots,
+            &mut stack,
+            &mut frame,
+            StackAccess::Owned,
+            &SourceSpan::file_start("test.yaml"),
+        )
+        .expect_err("one value cannot satisfy two ports");
+
+        assert_eq!(error.code, "E_STACK_UNDERFLOW");
+        assert!(error.notes.is_empty());
+    }
+
+    #[test]
+    fn missing_variadic_input_uses_the_shared_physical_order_plan() {
+        let ports = vec![ResolvedInputPort {
+            name: "values".to_owned(),
+            value_type: ValueType::Video,
+            cardinality: Cardinality::Variadic { min: 1 },
+            allow_adaptation: false,
+        }];
+        let mut slots = vec![None];
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
+        let test = ValueRef::new(ValueId::new(2), ValueType::Test);
+        stack.extend(&frame, [video(1), test, video(3)]);
+
+        bind_missing_inputs(
+            "concat",
+            &ports,
+            &mut slots,
+            &mut stack,
+            &mut frame,
+            StackAccess::Owned,
+            &SourceSpan::file_start("test.yaml"),
+        )
+        .expect("variadic binding");
+
+        assert_eq!(slots[0], Some(vec![video(1), video(3)]));
         assert_eq!(stack.values(), &[test]);
     }
 
