@@ -7,7 +7,7 @@ use crate::program::{
     ValueTypeSpec,
 };
 use crate::source::{
-    ArgumentValue, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourceProgram, SourceSpan,
+    ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourceProgram, SourceSpan,
 };
 
 use super::check::LocalType;
@@ -272,7 +272,16 @@ enum Requirement {
 
 #[derive(Default)]
 struct PassState {
-    deferred: bool,
+    deferred: usize,
+}
+
+impl PassState {
+    fn mark_deferred(&mut self) {
+        self.deferred = self
+            .deferred
+            .checked_add(1)
+            .expect("too many deferred type-inference decisions");
+    }
 }
 
 pub(super) fn resolve_local_types(
@@ -361,7 +370,7 @@ pub(super) fn resolve_local_types(
         }
 
         if arena.revision() == before {
-            if state.deferred {
+            if state.deferred > 0 {
                 return Err(Diagnostic::new(
                     "E_TYPE_INFERENCE_DEPENDENCY",
                     "generic type inference depends on an unresolved stack selection; add `type: Video` or `type: Audio`",
@@ -398,9 +407,6 @@ fn infer_body(
     state: &mut PassState,
 ) -> Result<()> {
     for item in &body.items {
-        if state.deferred {
-            break;
-        }
         let outputs = match &item.kind {
             ItemKind::Reference(reference) => {
                 vec![lookup_value(
@@ -411,7 +417,6 @@ fn infer_body(
                 )?]
             }
             ItemKind::Invocation(invocation) => infer_invocation(
-                item,
                 invocation,
                 globals,
                 lexical,
@@ -432,7 +437,6 @@ fn infer_body(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_invocation(
-    item: &Item,
     invocation: &crate::source::Invocation,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
@@ -444,6 +448,7 @@ fn infer_invocation(
     frame: &mut StackFrame,
     state: &mut PassState,
 ) -> Result<Vec<TypeVarId>> {
+    let deferred_before = state.deferred;
     let program = program_id_for(
         &invocation.program.value,
         builtins,
@@ -516,8 +521,8 @@ fn infer_invocation(
     bind_missing(
         definition, generic, arena, stack, frame, access, &mut slots, state,
     );
-    if state.deferred {
-        return Ok(Vec::new());
+    if state.deferred > deferred_before {
+        return Ok(invocation_outputs(definition, generic, arena));
     }
 
     let mut lexical_body = lexical.clone();
@@ -558,8 +563,8 @@ fn infer_invocation(
             &mut child,
             state,
         )?;
-        if state.deferred {
-            return Ok(Vec::new());
+        if state.deferred > deferred_before {
+            return Ok(invocation_outputs(definition, generic, arena));
         }
         let body_outputs = stack.finish_body(&child);
         match &contract.outputs {
@@ -602,7 +607,15 @@ fn infer_invocation(
         }
     }
 
-    let outputs = definition
+    Ok(invocation_outputs(definition, generic, arena))
+}
+
+fn invocation_outputs(
+    definition: &ProgramDefinition,
+    generic: Option<TypeVarId>,
+    arena: &mut TypeArena,
+) -> Vec<TypeVarId> {
+    definition
         .descriptor
         .outputs
         .iter()
@@ -610,9 +623,7 @@ fn infer_invocation(
             ValueTypeSpec::Exact(value_type) => arena.allocate_exact(*value_type),
             ValueTypeSpec::Generic => generic.expect("generic output"),
         })
-        .collect::<Vec<_>>();
-    constrain_bindings(globals, &item.output_bindings, &outputs, arena, &item.span)?;
-    Ok(outputs)
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -703,7 +714,7 @@ fn infer_generic_from_stack(
                     &invocation.program.span,
                 )?;
             }
-            StackBindingOutcome::Deferred => state.deferred = true,
+            StackBindingOutcome::Deferred => state.mark_deferred(),
             StackBindingOutcome::Impossible(_) => {}
         }
         return Ok(());
@@ -745,7 +756,7 @@ fn infer_generic_from_stack(
     if possible.len() == 1 && !saw_deferred {
         constrain(arena, generic, possible[0], &invocation.program.span)?;
     } else if possible.len() != 1 || saw_deferred {
-        state.deferred = true;
+        state.mark_deferred();
     }
     Ok(())
 }
@@ -787,7 +798,7 @@ fn bind_missing(
                 slots[bound.port] = Some(bound.values);
             }
         }
-        StackBindingOutcome::Deferred => state.deferred = true,
+        StackBindingOutcome::Deferred => state.mark_deferred(),
         StackBindingOutcome::Impossible(_) => {}
     }
 }

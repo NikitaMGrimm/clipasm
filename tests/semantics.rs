@@ -1159,3 +1159,24 @@ fn forward_reference_uses_the_type_inferred_from_a_named_calls_stack_input() {
             .all(|output| { output.value_type() == clipasm::model::ValueType::Video })
     );
 }
+
+#[test]
+fn deferred_exact_binding_retries_after_a_forward_generic_type_resolves() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- $future\n- image: {path: a.ppm, duration: 1s}\n- zoom\n- audio: missing.wav\n- repeat: 2\n  id: future\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("forward Audio above Video binding");
+    assert_eq!(compiled.outputs().len(), 3);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+    assert_eq!(
+        compiled.outputs()[1].value_type(),
+        clipasm::model::ValueType::Video
+    );
+    assert_eq!(
+        compiled.outputs()[2].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+}
