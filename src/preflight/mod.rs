@@ -337,6 +337,7 @@ enum ExportPixelFormat {
 /// Returns a diagnostic for invalid output configuration, unavailable tool
 /// capabilities, inaccessible/undecodable assets, or preparation failures.
 pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
+    let render_output = compiled.render_output()?;
     let output = prepare_output_path(compiled)?;
     let manifest = manifest_path(&output);
     validate_destination(&output, "output", "E_INVALID_OUTPUT_DESTINATION")?;
@@ -381,12 +382,12 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let order = crate::compiler::traversal::topological_order(
         compiled.nodes(),
         compiled.named_values(),
-        [compiled.result()],
+        [render_output],
     )?;
     for value in order {
         lowerer.lower(value)?;
     }
-    let result = lowerer.lowered[&compiled.result().id()];
+    let result = lowerer.lowered[&render_output.id()];
     let named_values = compiled
         .named_values()
         .iter()

@@ -43,7 +43,7 @@ pub(super) struct Evaluation {
     pub(super) symbols: BTreeMap<String, Symbol>,
     pub(super) symbol_order: Vec<String>,
     pub(super) surface: Vec<SurfaceRecord>,
-    pub(super) result: ValueRef,
+    pub(super) outputs: Vec<ValueRef>,
 }
 
 pub(super) fn evaluate(
@@ -61,13 +61,13 @@ pub(super) fn evaluate(
         surface: Vec::new(),
     };
     evaluator.collect_names()?;
-    let result = evaluator.evaluate_all()?;
+    let outputs = evaluator.evaluate_all()?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
         symbol_order: evaluator.symbol_order,
         surface: evaluator.surface,
-        result,
+        outputs,
     })
 }
 
@@ -201,7 +201,7 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn evaluate_all(&mut self) -> Result<ValueRef> {
+    fn evaluate_all(&mut self) -> Result<Vec<ValueRef>> {
         let mut clips = self.program.clips().iter().collect::<Vec<_>>();
         clips.sort_by(|left, right| left.name.cmp(&right.name));
         for clip in clips {
@@ -244,23 +244,24 @@ impl Evaluator<'_> {
         );
         self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
         let values = stack.finish_body(&mut entrypoint, source);
-        let [result] = values.as_slice() else {
-            return Err(output_count_error(
-                "E_SOURCE_PROGRAM_OUTPUT_COUNT",
+        if self.program.output().is_some() {
+            let [result] = values.as_slice() else {
+                return Err(output_count_error(
+                    "E_ENTRYPOINT_OUTPUT_COUNT",
+                    "a source program with `output`",
+                    values.len(),
+                    self.program.header_span(),
+                ));
+            };
+            require_value_type(
+                *result,
+                ValueType::Video,
                 "source program",
-                values.len(),
+                "output",
                 self.program.header_span(),
-            )
-            .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
-        };
-        require_value_type(
-            *result,
-            ValueType::Video,
-            "source program",
-            "result",
-            self.program.header_span(),
-        )?;
-        Ok(*result)
+            )?;
+        }
+        Ok(values)
     }
 
     fn evaluate_body(

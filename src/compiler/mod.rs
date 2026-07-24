@@ -24,7 +24,7 @@ use crate::syntax::SourceProgram;
 
 pub use crate::semantic::SourceOrigin;
 
-const COMPILED_FORMAT_VERSION: u32 = 6;
+const COMPILED_FORMAT_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, Serialize)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -39,7 +39,7 @@ pub struct CompiledProgram {
     structure_hash: String,
     video: VideoSpec,
     nodes: Vec<CompiledNode>,
-    result: ValueRef,
+    outputs: Vec<ValueRef>,
     named_values: BTreeMap<String, ValueRef>,
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
@@ -102,7 +102,16 @@ impl CompiledProgram {
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
     /// ```
     pub fn result_domain(&self) -> Option<&VideoDomain> {
-        self.nodes[self.result.id().get() as usize].domain()
+        let [result] = self.outputs.as_slice() else {
+            return None;
+        };
+        self.nodes[result.id().get() as usize].domain()
+    }
+
+    #[must_use]
+    /// Return the source program's ordered semantic outputs.
+    pub fn outputs(&self) -> &[ValueRef] {
+        &self.outputs
     }
 
     #[must_use]
@@ -115,8 +124,34 @@ impl CompiledProgram {
         &self.nodes
     }
 
-    pub(crate) const fn result(&self) -> ValueRef {
-        self.result
+    pub(crate) fn render_output(&self) -> Result<ValueRef> {
+        let [output] = self.outputs.as_slice() else {
+            return Err(Diagnostic::new(
+                "E_ENTRYPOINT_OUTPUT_COUNT",
+                format!(
+                    "rendering requires exactly one source output, but {} values were produced",
+                    self.outputs.len()
+                ),
+                self.output.as_ref().map_or_else(
+                    || SourceSpan::file_start(&self.source_path),
+                    |output| output.span.clone(),
+                ),
+            ));
+        };
+        if output.value_type() != crate::model::ValueType::Video {
+            return Err(Diagnostic::new(
+                "E_ENTRYPOINT_OUTPUT_TYPE",
+                format!(
+                    "rendering requires one Video output, but the source produced {}",
+                    output.value_type()
+                ),
+                self.output.as_ref().map_or_else(
+                    || SourceSpan::file_start(&self.source_path),
+                    |output| output.span.clone(),
+                ),
+            ));
+        }
+        Ok(*output)
     }
 
     pub(crate) fn named_values(&self) -> &BTreeMap<String, ValueRef> {

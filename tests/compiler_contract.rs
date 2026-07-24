@@ -37,27 +37,36 @@ fn source_program_body_returns_one_video_without_an_implicit_glue() {
 }
 
 #[test]
-fn source_program_requires_exactly_one_final_value() {
+fn source_program_allows_zero_or_multiple_outputs_without_publication() {
     let empty = clipasm::syntax::parse_str(Path::new("empty.yaml"), "- program:\n    version: 1\n")
         .expect("empty source syntax");
-    let error = clipasm::compiler::compile(&empty).expect_err("zero results");
-    assert_eq!(error.code, "E_SOURCE_PROGRAM_OUTPUT_COUNT");
-    assert!(error.message.contains("0 values remain"));
+    let compiled = clipasm::compiler::compile(&empty).expect("zero outputs");
+    assert!(compiled.outputs().is_empty());
 
     let multiple = clipasm::syntax::parse_str(
         Path::new("multiple.yaml"),
         "- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n- image: {path: b.png, duration: 1s}\n",
     )
     .expect("multiple-value source syntax");
-    let error = clipasm::compiler::compile(&multiple).expect_err("multiple results");
-    assert_eq!(error.code, "E_SOURCE_PROGRAM_OUTPUT_COUNT");
-    assert!(error.message.contains("2 values remain"));
-    assert!(
-        error
-            .notes
-            .iter()
-            .any(|note| note.contains("`concat`") && note.contains("`glue`"))
-    );
+    let compiled = clipasm::compiler::compile(&multiple).expect("multiple outputs");
+    assert_eq!(compiled.outputs().len(), 2);
+}
+
+#[test]
+fn source_output_publication_requires_exactly_one_video() {
+    for (source, count) in [
+        ("- program:\n    version: 1\n    output: final.mp4\n", 0),
+        (
+            "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: a.png, duration: 1s}\n- image: {path: b.png, duration: 1s}\n",
+            2,
+        ),
+    ] {
+        let program = clipasm::syntax::parse_str(Path::new("publish.yaml"), source)
+            .expect("publication syntax");
+        let error = clipasm::compiler::compile(&program).expect_err("invalid output count");
+        assert_eq!(error.code, "E_ENTRYPOINT_OUTPUT_COUNT");
+        assert!(error.message.contains(&count.to_string()));
+    }
 }
 
 #[test]
@@ -100,7 +109,7 @@ fn stack_access_is_generic_source_and_invocation_metadata() {
 }
 
 #[test]
-fn compiled_program_serializes_one_distinguished_result() {
+fn compiled_program_serializes_ordered_outputs() {
     let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
     let program =
         clipasm::syntax::parse_str(Path::new("program.yaml"), source).expect("source program");
@@ -108,9 +117,59 @@ fn compiled_program_serializes_one_distinguished_result() {
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
 
-    assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 6);
+    assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
+    assert_eq!(document["format_version"], 7);
     assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+}
+
+#[test]
+fn source_output_order_changes_compiled_identity() {
+    let source = |first: &str, second: &str| {
+        format!(
+            "- program:\n    version: 1\n\n- image: {{path: {first}, duration: 1s}}\n- image: {{path: {second}, duration: 1s}}\n"
+        )
+    };
+    let first = clipasm::syntax::parse_str(
+        Path::new("program.yaml"),
+        &source("first.png", "second.png"),
+    )
+    .expect("first order");
+    let second = clipasm::syntax::parse_str(
+        Path::new("program.yaml"),
+        &source("second.png", "first.png"),
+    )
+    .expect("second order");
+
+    assert_ne!(
+        clipasm::compiler::compile(&first)
+            .expect("first compile")
+            .structure_hash(),
+        clipasm::compiler::compile(&second)
+            .expect("second compile")
+            .structure_hash()
+    );
+}
+
+#[test]
+fn id_and_ids_are_mutually_exclusive_and_ids_requires_a_sequence() {
+    for (source, code) in [
+        (
+            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  id: card\n  ids: [other]\n",
+            "E_DUPLICATE_OUTPUT_BINDING",
+        ),
+        (
+            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: card\n",
+            "E_INVALID_OUTPUT_BINDING",
+        ),
+        (
+            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: []\n",
+            "E_INVALID_OUTPUT_BINDING",
+        ),
+    ] {
+        let error = clipasm::syntax::parse_str(Path::new("invalid.yaml"), source)
+            .expect_err("invalid output binding syntax");
+        assert_eq!(error.code, code);
+    }
 }
 
 #[test]

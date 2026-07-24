@@ -30,7 +30,10 @@ pub(super) fn finalize(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let roots = names.values().copied().chain([evaluation.result]);
+    let roots = names
+        .values()
+        .copied()
+        .chain(evaluation.outputs.iter().copied());
     let order = super::traversal::topological_order(&evaluation.nodes, &names, roots)?;
     let domains = infer_domains(&evaluation, &video, &order)?;
     let structure_hash = super::fingerprint::compiled_structure_hash(
@@ -88,7 +91,7 @@ pub(super) fn finalize(
         structure_hash,
         video,
         nodes,
-        result: evaluation.result,
+        outputs: evaluation.outputs,
         named_values,
         explain,
         output: program.output().cloned(),
@@ -467,7 +470,7 @@ mod tests {
             symbols,
             symbol_order,
             surface: Vec::<SurfaceRecord>::new(),
-            result: root,
+            outputs: vec![root],
         }
     }
 

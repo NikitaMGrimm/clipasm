@@ -12,7 +12,7 @@ use crate::semantic::SemanticNodeKind;
 struct CompiledIdentity<'a> {
     format_version: u32,
     video: &'a VideoSpec,
-    result: &'a str,
+    outputs: Vec<&'a str>,
     names: &'a BTreeMap<&'a str, String>,
 }
 
@@ -33,9 +33,15 @@ pub(super) fn compiled_structure_hash(
     order: &[ValueRef],
 ) -> Result<String> {
     let hashes = value_hashes(evaluation, domains, order)?;
-    let result = hashes[evaluation.result.id().get() as usize]
-        .as_deref()
-        .expect("topological order includes the result");
+    let outputs = evaluation
+        .outputs
+        .iter()
+        .map(|output| {
+            hashes[output.id().get() as usize]
+                .as_deref()
+                .expect("topological order includes every output")
+        })
+        .collect::<Vec<_>>();
     let names = evaluation
         .symbol_order
         .iter()
@@ -56,7 +62,7 @@ pub(super) fn compiled_structure_hash(
     hash_serializable(&CompiledIdentity {
         format_version,
         video,
-        result,
+        outputs,
         names: &names,
     })
 }
@@ -236,7 +242,7 @@ mod tests {
             symbols,
             symbol_order: vec!["source".to_owned()],
             surface: Vec::new(),
-            result: reference,
+            outputs: vec![reference],
         };
         let domains = vec![Some(domain.clone()), Some(domain)];
         let hashes =
@@ -298,7 +304,7 @@ mod tests {
             symbols,
             symbol_order,
             surface: Vec::new(),
-            result: root,
+            outputs: vec![root],
         };
         let domains = vec![Some(domain); ALIASES + 1];
 
@@ -336,7 +342,7 @@ mod tests {
                 symbols: BTreeMap::new(),
                 symbol_order: Vec::new(),
                 surface: Vec::new(),
-                result: root,
+                outputs: vec![root],
             };
             let domains = vec![
                 Some(VideoDomain {

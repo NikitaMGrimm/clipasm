@@ -53,16 +53,30 @@ fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { source } => {
             let compiled = compiler::compile_file(&source)?;
-            if let Some(domain) = compiled.result_domain() {
-                println!(
-                    "valid: {} semantic value(s), {} frame(s)",
-                    compiled.value_count(),
-                    domain.frames.0
-                );
+            if let [output] = compiled.outputs() {
+                if output.value_type() != clipasm::model::ValueType::Video {
+                    println!(
+                        "valid: {} semantic value(s), 1 output ({})",
+                        compiled.value_count(),
+                        output.value_type()
+                    );
+                } else if let Some(domain) = compiled.result_domain() {
+                    println!(
+                        "valid: {} semantic value(s), {} frame(s)",
+                        compiled.value_count(),
+                        domain.frames.0
+                    );
+                } else {
+                    println!(
+                        "valid: {} semantic value(s), duration resolves during preflight",
+                        compiled.value_count()
+                    );
+                }
             } else {
                 println!(
-                    "valid: {} semantic value(s), duration resolves during preflight",
-                    compiled.value_count()
+                    "valid: {} semantic value(s), {} output(s)",
+                    compiled.value_count(),
+                    compiled.outputs().len()
                 );
             }
         }
