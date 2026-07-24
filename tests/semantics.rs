@@ -1144,3 +1144,18 @@ fn named_generic_output_infers_from_the_same_stack_value_as_an_unnamed_call() {
     );
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 60);
 }
+
+#[test]
+fn forward_reference_uses_the_type_inferred_from_a_named_calls_stack_input() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- $doubled\n- image: {path: a.ppm, duration: 1s}\n- repeat: 2\n  id: doubled\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("forward named Video repeat");
+    assert_eq!(compiled.outputs().len(), 2);
+    assert!(
+        compiled
+            .outputs()
+            .iter()
+            .all(|output| { output.value_type() == clipasm::model::ValueType::Video })
+    );
+}

@@ -16,7 +16,7 @@ use crate::source::{
 use super::stack::EvaluationStack;
 
 #[derive(Clone, Debug)]
-enum LocalType {
+pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
     Alias(String),
@@ -24,11 +24,11 @@ enum LocalType {
 }
 
 #[derive(Clone, Debug)]
-struct DeferredLocalType {
-    program: ProgramId,
-    invocation: crate::source::Invocation,
-    output_index: usize,
-    span: crate::source::SourceSpan,
+pub(super) struct DeferredLocalType {
+    pub(super) program: ProgramId,
+    pub(super) invocation: crate::source::Invocation,
+    pub(super) output_index: usize,
+    pub(super) span: crate::source::SourceSpan,
 }
 
 #[derive(Clone, Debug)]
@@ -259,6 +259,7 @@ fn check_program(
         builtins,
         namespace,
     )?;
+    super::infer::resolve_local_types(&program, &mut locals, definitions, builtins, namespace)?;
     resolve_local_types(&mut locals, unit, definitions, builtins, namespace)?;
 
     let mut checked_clips = Vec::with_capacity(program.clips().len());
@@ -1230,20 +1231,17 @@ fn resolve_local_types(
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<()> {
     let names = locals.keys().cloned().collect::<Vec<_>>();
+    let mut path = Vec::new();
     for name in names {
-        match resolve_local_type(
+        resolve_local_type(
             &name,
             locals,
             unit,
             definitions,
             builtins,
             namespace,
-            &mut Vec::new(),
-        ) {
-            Ok(_) => {}
-            Err(error) if error.code == "E_GENERIC_OUTPUT_TYPE_REQUIRED" => {}
-            Err(error) => return Err(error),
-        }
+            &mut path,
+        )?;
     }
     Ok(())
 }

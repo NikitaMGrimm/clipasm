@@ -9,6 +9,7 @@ mod check;
 mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
+mod infer;
 mod resolve;
 mod stack;
 pub(crate) mod traversal;
