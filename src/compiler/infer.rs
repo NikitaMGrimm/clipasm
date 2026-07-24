@@ -104,11 +104,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             .parameters()
             .iter()
             .map(|parameter| {
-                validate_literal_default(
-                    &parameter.parameter_type,
-                    parameter.default.as_ref(),
-                    &parameter.name.value,
-                )?;
+                validate_parameter_default(parameter)?;
                 Ok(ParameterDescriptor {
                     name: parameter.name.value.clone(),
                     parameter_type: parameter.parameter_type.clone(),
@@ -940,20 +936,16 @@ fn value_local(
     }
 }
 
-fn validate_literal_default(
-    parameter_type: &ParameterType,
-    default: Option<&Literal>,
-    name: &str,
-) -> Result<()> {
-    if let Some(default) = default
-        && !literal_matches(parameter_type, default)
-    {
-        return Err(Diagnostic::new(
-            "E_INVALID_PARAMETER_DEFAULT",
-            format!("default for parameter `{name}` has the wrong value type"),
-            default.span().clone(),
-        ));
-    }
+fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Result<()> {
+    let Some(default) = parameter.default.as_ref() else {
+        return Ok(());
+    };
+    super::bind::bind_literal_value(
+        "authored program",
+        &parameter.name.value,
+        &parameter.parameter_type,
+        default,
+    )?;
     Ok(())
 }
 

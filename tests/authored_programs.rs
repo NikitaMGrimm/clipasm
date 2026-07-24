@@ -268,3 +268,75 @@ fn imported_local_references_serialize_resolved_targets() {
     assert!(reference["kind"].get("target").is_some());
     assert!(reference["kind"].get("symbol").is_none());
 }
+
+#[test]
+fn unused_imported_programs_validate_scalar_defaults() {
+    let cases = [
+        (
+            "Duration",
+            "definitely-not-a-duration",
+            "",
+            "E_INVALID_DURATION",
+        ),
+        (
+            "TimeRange",
+            "definitely-not-a-range",
+            "",
+            "E_INVALID_TIME_RANGE",
+        ),
+        (
+            "Keyword",
+            "outside",
+            "        values: [inside, beside]\n",
+            "E_INVALID_ARGUMENT_VALUE",
+        ),
+    ];
+
+    for (parameter_type, default, type_options, expected_code) in cases {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        write(
+            directory.path(),
+            "bad.yaml",
+            &format!(
+                "- program:\n    version: 1\n    parameters:\n      value:\n        type: {parameter_type}\n{type_options}        default: {default}\n\n- image: {{path: unused.ppm, duration: 1s}}\n"
+            ),
+        );
+        write(
+            directory.path(),
+            "root.yaml",
+            "- program:\n    version: 1\n    imports:\n      bad: ./bad.yaml\n\n- image: {path: card.ppm, duration: 1s}\n",
+        );
+
+        let package = frontend::yaml::parse_file(&directory.path().join("root.yaml"))
+            .expect("linked YAML package");
+        let error = compiler::compile(&package).expect_err("invalid imported default");
+
+        assert_eq!(error.code, expected_code, "parameter type {parameter_type}");
+        assert!(
+            error.span.file().ends_with("bad.yaml"),
+            "parameter type {parameter_type}: {}",
+            error.span.file().display()
+        );
+    }
+}
+
+#[test]
+fn unused_imported_programs_accept_valid_scalar_defaults() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write(
+        directory.path(),
+        "defaults.yaml",
+        "- program:\n    version: 1\n    parameters:\n      count:\n        type: Integer\n        default: 2\n      path:\n        type: File\n        default: unused.ppm\n      duration:\n        type: Duration\n        default: 1s\n      range:\n        type: TimeRange\n        default: 0s..1s\n      fit:\n        type: Keyword\n        values: [cover, contain]\n        default: cover\n\n- image: {path: unused.ppm, duration: 1s}\n",
+    );
+    write(
+        directory.path(),
+        "root.yaml",
+        "- program:\n    version: 1\n    imports:\n      defaults: ./defaults.yaml\n\n- image: {path: card.ppm, duration: 1s}\n",
+    );
+
+    let package = frontend::yaml::parse_file(&directory.path().join("root.yaml"))
+        .expect("linked YAML package");
+    let compiled = compiler::compile(&package).expect("valid imported defaults");
+
+    assert_eq!(compiled.outputs().len(), 1);
+}
