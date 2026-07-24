@@ -1,11 +1,13 @@
 # Architecture
 
 ```text
-restricted YAML
-  -> syntax parsing and normalization
-Source program + executable body
+authoring representation
+  -> frontend parsing and desugaring
+Canonical source entrypoint + source program
   -> typed call binding and stack evaluation
 Semantic graph + ordered source outputs
+  -> compiled JSON adapter (optional)
+Compiled semantic document
   -> preflight
 Prepared primitive plan + one result
   -> renderer and cache
@@ -16,15 +18,19 @@ Optional entrypoint publication
 The reasons behind the load-bearing boundaries are recorded in the
 [architecture decision records](adr/).
 
-## Syntax
+## Frontends and canonical source
 
-`syntax` parses restricted YAML, retains source spans, and requires a top-level
-sequence whose first item is the `program` header. The remaining source body,
-named-clip bodies, body-program bodies, and inline fixed-input bodies normalize
-to references and registered program invocations. Body shorthand and postfix
-syntax disappear during normalization. Duplicate keys, anchors, aliases,
-custom tags, and multiple YAML documents are rejected. Parsing does not open
-media files.
+`source` owns the representation-neutral authored model: source units,
+entrypoint project/publication settings, source programs, bodies, invocations,
+references, literals, and output bindings. The compiler consumes only this
+canonical model.
+
+`frontend::yaml` parses restricted YAML and lowers it into canonical source.
+It owns YAML mappings, scalar styles, reserved fields, the `program` header,
+postfix and primary-argument sugar, duplicate keys, anchors, aliases, tags, and
+document-count restrictions. Those surface details disappear before
+compilation. Other frontends may provide different syntax and sugar without
+changing compiler behavior.
 
 ## Compilation
 
@@ -36,7 +42,7 @@ descriptor order, evaluates inline fixed-input bodies on isolated evaluation
 stacks, consumes missing inputs from the invocation's accessible suffix, and
 converts authored parameters to their declared Rust types. Program
 implementations therefore receive a fully resolved call rather than
-syntax-layer arguments or stack-frame metadata.
+frontend-layer arguments or stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
 invocation metadata may override it with `stack_access: owned|visible`.
@@ -52,6 +58,11 @@ infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
 Entrypoint `output` metadata remains separate from the semantic result and its
 structure hash.
+
+Compiled JSON is produced by an explicit downstream document adapter. It is a
+serialized view of compiled semantics, not an authored source representation,
+and its schema is not derived implicitly from the internal `CompiledProgram`
+layout.
 
 ## Programs
 
@@ -83,7 +94,7 @@ on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
 implementations.
 
-The `program` header is source-definition syntax, not a registered invocation.
+The YAML `program` header is frontend syntax, not a registered invocation.
 The evaluator treats its body uniformly without granting any registered
 program, including `glue`, a privileged source-file role. Pure compilation may
 produce zero, one, or multiple ordered outputs. Preflight remains a publication
@@ -93,7 +104,7 @@ boundary and requires exactly one Video output.
 
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
-- resolves paths relative to the source program
+- resolves each authored path relative to the source unit that contains it
 - hashes reachable source files
 - validates image and video contracts
 - resolves video-source durations
@@ -110,14 +121,15 @@ The prepared plan has exact domains for every result-reachable node.
 hashes again, reuses only verified cached artifacts, renders missing
 FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
 
-The cache lives under `.clipasm/cache/` beside the source program. Output and
+The cache lives under `.clipasm/cache/` beside the entrypoint source. Output and
 manifest files are staged as temporary siblings and committed through one
 rollback-capable in-process publication transaction after verification.
 
 ## Ownership rules
 
-- Language assembly owns registry and syntax-name invariants.
-- Syntax owns YAML shape and descriptor-driven normalization.
+- Canonical source owns representation-neutral authored structures and source
+  locations.
+- Each frontend owns its surface grammar, reserved syntax, and desugaring.
 - Compiler binding owns signature enforcement and parameter conversion.
 - Programs own operation signatures, body lifecycles, and semantic versions.
 - Semantic graph construction owns graph-local validity.

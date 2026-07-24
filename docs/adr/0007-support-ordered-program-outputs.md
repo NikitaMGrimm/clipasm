@@ -25,10 +25,12 @@ duplicate-name, and dependency-cycle rules. Omitting output names never removes,
 reorders, or discards values.
 
 Compiled semantic identity includes the ordered source-output hashes, so
-reordering outputs changes identity. The compiled format stores `outputs`
-instead of one `result`; compiled format version 7 records that incompatible
-canonical change. Prepared plans remain singular and their format and cache
-versions do not change.
+reordering outputs changes identity. The compiled document stores `outputs`
+instead of one `result`; compiled format version 7 originally recorded that
+incompatible change. ADR 0008 later supersedes the document boundary with
+compiled format version 8 while preserving the ordered-output contract.
+Prepared plans remain singular and their format and cache versions do not
+change.
 
 Named clips still require exactly one Video. Inline fixed-input bodies still
 require exactly one value of the port type. Existing body programs retain their

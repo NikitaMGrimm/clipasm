@@ -1,7 +1,8 @@
 # ClipAsm
 
-ClipAsm compiles a strict YAML source program into a typed video graph,
-prepares result-reachable media with FFmpeg and FFprobe, and renders an MP4.
+ClipAsm compiles a representation-neutral typed source program into a video
+graph, prepares result-reachable media with FFmpeg and FFprobe, and renders an
+MP4. The current authoring frontend is strict YAML.
 
 Current features:
 
@@ -45,13 +46,14 @@ cargo run -- compile program.yaml
 cargo run -- render program.yaml
 ```
 
-Paths are resolved relative to the source file. Rendering writes the MP4, a
+Authored paths are resolved relative to the source unit containing them.
+Rendering writes the MP4, a
 sibling `.manifest.json`, and cached intermediates under `.clipasm/cache/`
-beside the source program.
+beside the entrypoint source.
 
 ## Documentation
 
-- [Source-program reference](docs/workflow-reference.md)
+- [YAML frontend reference](docs/workflow-reference.md)
 - [Architecture](docs/architecture.md)
 - [Architecture decisions](docs/adr/)
 - [Domain language and settled semantics](CONTEXT.md)

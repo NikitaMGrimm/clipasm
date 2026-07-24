@@ -1,9 +1,10 @@
-# Source-program reference
+# YAML frontend reference
 
 ## Document shape
 
-A ClipAsm source file is a YAML sequence. Its first item must be exactly the
-`program` header; every remaining item is executable:
+The current YAML frontend accepts a YAML sequence. Its first item must be
+exactly the `program` header; every remaining item lowers to executable
+canonical source:
 
 ```yaml
 - program:
@@ -36,13 +37,13 @@ and `compile`. It is not implicitly wrapped in `glue`. When the header contains
 `output`, the source must produce exactly one Video; use `concat` or a nested
 `glue` when several Videos should become that render result.
 
-Relative media and output paths resolve from the source file's directory.
+Relative media and output paths resolve from the YAML source unit's directory.
 Mapping order has no meaning. Sequence order is executable stack order.
 
-ClipAsm accepts one restricted YAML document. Duplicate keys, anchors, aliases,
-custom tags, and multiple documents are rejected. Unknown program-header fields
-are rejected; source-program inputs, parameters, imports, and names are not yet
-supported.
+This frontend accepts one restricted YAML document. Duplicate keys, anchors,
+aliases, custom tags, and multiple documents are rejected. Unknown
+program-header fields are rejected; source-program inputs, parameters,
+imports, and names are not yet supported.
 
 ## Project video
 

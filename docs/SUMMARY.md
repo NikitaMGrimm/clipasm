@@ -4,7 +4,7 @@
 
 # Language
 
-- [Source-program reference](workflow-reference.md)
+- [YAML frontend reference](workflow-reference.md)
 - [Examples](examples.md)
 
 # Design
@@ -17,6 +17,7 @@
 - [Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
 - [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
 - [Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
+- [Separate frontends from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
 
 # Development
 

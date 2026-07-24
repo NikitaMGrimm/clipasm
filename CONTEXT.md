@@ -7,9 +7,18 @@ authoring semantics. Public YAML forms and program arguments are defined in
 
 ## Glossary
 
-- A **source program** is one parsed versioned YAML file. Its executable body
-  starts empty and returns its ordered final owned suffix, including zero
+- A **frontend** translates one authoring representation into canonical source.
+  YAML is the first frontend; future frontends may use different syntax and
+  representation-specific sugar.
+- **Canonical source** is the representation-neutral, fully desugared authored
+  ClipAsm model consumed by the compiler.
+- A **source unit** identifies one authored input, its diagnostic name, and its
+  optional filesystem base for relative paths.
+- A **source program** is one callable canonical stack program. Its executable
+  body starts empty and returns its ordered final owned suffix, including zero
   values.
+- A **source entrypoint** combines one source program with project and
+  publication settings for root compilation and rendering.
 - A **program header** is the required first source item. It declares the
   language version, project settings, named clips, and optional entrypoint
   output path; it is not executable.
@@ -37,6 +46,8 @@ authoring semantics. Public YAML forms and program arguments are defined in
   `visible`. It does not propagate to child invocations.
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
+- The **compiled JSON document** is a downstream serialization of compiled
+  semantics. It is not canonical source and is not a frontend input format.
 - A source program's **outputs** are the ordered values in its final owned
   suffix. An entrypoint configured with `output` must have exactly one Video
   output, which is its render result.
@@ -47,7 +58,7 @@ authoring semantics. Public YAML forms and program arguments are defined in
 
 ## Settled stack semantics
 
-Sequence order is executable order; YAML mapping order has no executable
+Sequence order is executable order; frontend mapping order has no executable
 meaning. Missing fixed inputs consume the exact required suffix of the current
 accessible suffix while preserving signature order. A missing variadic input
 consumes the complete accessible suffix in order. Explicit inputs read named
@@ -95,3 +106,8 @@ in bottom-to-top stack order. Forward references affect dependency resolution,
 not list execution order. References create semantic graph dependencies and
 never move, remove, or duplicate stack occurrences. Cycles, missing names, and
 duplicate names are compile errors.
+
+Relative authored paths resolve from the source unit containing the authored
+value. Entrypoint publication and cache placement use the entrypoint source
+unit, while assets authored in future imported programs retain their own source
+bases.
