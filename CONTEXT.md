@@ -80,7 +80,7 @@ frame count that covers its complete source interval.
 
 There is no hidden replacement, parent-stack search, or automatic reduction
 inside named-clip or body-program bodies. `visible` access operates only within
-the current evaluation stack and cannot cross the nearest owned body boundary.
+the current evaluation stack and cannot cross the nearest visibility boundary.
 
 ## Names, references, and dependencies
 

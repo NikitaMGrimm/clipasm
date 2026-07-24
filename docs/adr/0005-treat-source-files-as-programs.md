@@ -4,6 +4,10 @@ status: accepted
 
 # Treat source files as programs
 
+ADR 0006 refines the stack-storage and visibility wording below. Source
+programs use the same stack-access metadata as registered programs, while named
+clips and inline input bodies remain isolated.
+
 A ClipAsm source file defines one typed stack program whose result is exactly
 one Video. The YAML document is a sequence: its required first item is a
 non-executable `program` header, and every remaining item belongs to the

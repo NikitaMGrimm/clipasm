@@ -26,12 +26,13 @@ A ClipAsm source file is a YAML sequence. Its first item must be exactly the
 `version` is required. `project`, `clips`, `output`, and `stack_access` are
 optional during compilation. Rendering the source file as the CLI entrypoint
 requires `output`, whose extension must be `.mp4`. Source programs explicitly
-default to `stack_access: owned`.
+default to `stack_access: owned`. At the current entrypoint there are no
+caller-visible values, so `owned` and `visible` have the same result for the
+source program itself.
 
-The source-program body starts with an empty local stack and must finish with
-exactly one Video. It is not implicitly wrapped in `glue`. If multiple
-Videos should become the result, use `concat` or a nested `glue`
-explicitly.
+The source-program body owns no initial values and must finish with exactly one
+Video. It is not implicitly wrapped in `glue`. If multiple Videos should become
+the result, use `concat` or a nested `glue` explicitly.
 
 Relative media and output paths resolve from the source file's directory.
 Mapping order has no meaning. Sequence order is executable stack order.
@@ -89,8 +90,9 @@ with generic metadata inside its invocation mapping:
 `stack_access` is not an input or parameter and does not propagate to child
 invocations. `owned` limits missing-input binding to the current body's owned
 suffix. `visible` may additionally capture values from the visible suffix down
-to the nearest owned body boundary. A no-op setting, such as `visible` on
-`image`, is valid.
+to the nearest visibility boundary. For a body program, the same setting also
+controls the suffix visible to its nested body. A no-op setting, such as
+`visible` on `image`, is valid.
 
 ### Image
 
@@ -412,7 +414,7 @@ Program parameters otherwise belong inside the program mapping.
 
 Compilation uses one physical evaluation stack. Each active body frame tracks:
 
-- a visible suffix, bounded by the nearest owned body boundary;
+- a visible suffix, bounded by the nearest visibility boundary;
 - an owned suffix, consumed by default-owned invocations and the finalizer.
 
 Missing fixed inputs consume the exact required suffix from the invocation's

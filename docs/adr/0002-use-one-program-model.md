@@ -4,6 +4,10 @@ status: accepted
 
 # Use one program model
 
+ADR 0006 refines references below to a body's local stack: registered bodies
+now receive scoped visible and owned suffixes over one evaluation stack. The
+common prepare, evaluate, and finalize lifecycle remains unchanged.
+
 Every callable ClipAsm construct is a registered typed program. A program is
 either direct, meaning it lowers one resolved call immediately, or body-based,
 meaning it prepares one nested body evaluation and finalizes that body's local
