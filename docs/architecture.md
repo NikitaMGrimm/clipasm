@@ -58,7 +58,10 @@ invocation metadata may override it with `stack_access: owned|visible`.
 `owned` binding is limited to the current frame's owned suffix. `visible`
 binding may capture values down to the frame's visibility boundary; capture
 moves the ownership frontier downward. The setting is per invocation and does
-not propagate to child calls.
+not propagate to child calls. Direct built-ins and source programs default to
+`owned`; the native body programs `join`, `glue`, and `during` default to
+`visible`, so they may bind through an enclosing body boundary and expose that
+same visible suffix to independently visible descendants.
 
 The crate-private `semantic` module owns graph operations, draft and compiled
 nodes, origins, graph construction, graph-local type checks, and semantic

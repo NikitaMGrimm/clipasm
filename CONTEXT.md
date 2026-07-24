@@ -68,12 +68,14 @@ consumes the complete accessible suffix in order. Explicit inputs read named
 values and consume nothing; a fixed input may instead evaluate an isolated
 inline input body.
 
-Every program definition explicitly declares a default stack access; all
-current programs and source programs default to `owned`. An invocation may set
-`stack_access: visible` to consume values below the current ownership frontier
-down to the nearest visibility boundary. Captured values become owned by that
-body. A child invocation independently uses its own explicit setting or program
-default.
+Every program definition explicitly declares a default stack access. Direct
+built-ins and source programs default to `owned`; `join`, `glue`, and `during`
+default to `visible`. An invocation may override its default. `visible` binding
+may consume values below the current ownership frontier down to the nearest
+visibility boundary, and captured values become owned by that body. For a body
+program, the same access also determines whether its nested body inherits the
+enclosing visibility boundary or establishes a new one. Child invocations
+independently use their own explicit setting or program default.
 
 - A named clip is isolated, starts empty, and must leave exactly one Video. It
   does not receive glue finalization.
@@ -97,9 +99,10 @@ It is isolated from the enclosing invocation's evaluation stack.
 A full-duration video source is quantized to the smallest integral project
 frame count that covers its complete source interval.
 
-There is no hidden replacement, parent-stack search, or automatic reduction
-inside named-clip or body-program bodies. `visible` access operates only within
-the current evaluation stack and cannot cross the nearest visibility boundary.
+There is no type-skipping search, hidden replacement, or automatic reduction
+inside named-clip or body-program bodies. Binding always consumes a contiguous
+suffix. `visible` access operates only within the current evaluation stack and
+cannot cross the nearest visibility boundary.
 
 ## Names, references, and dependencies
 

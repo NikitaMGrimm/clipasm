@@ -8,7 +8,8 @@ Current features:
 
 - still-image and video-file sources
 - references and named clips
-- source-program results and isolated inline fixed inputs
+- imported callable source programs with Video inputs and typed parameters
+- ordered source-program results and isolated inline fixed inputs
 - concatenation and repetition
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
 - `during`, `join`, and nested `glue`

@@ -145,9 +145,10 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 
 `fit` is `cover`, `contain`, or `stretch`. The default is `cover`.
 
-Every program definition explicitly declares a default stack access. All
-current programs default to `owned`. Any invocation may override that default
-with generic metadata inside its invocation mapping:
+Every program definition explicitly declares a default stack access. Direct
+built-ins and source programs default to `owned`; `join`, `glue`, and `during`
+default to `visible`. Any invocation may override that default with generic
+metadata inside its invocation mapping:
 
 ```yaml
 - repeat:
@@ -159,8 +160,9 @@ with generic metadata inside its invocation mapping:
 invocations. `owned` limits missing-input binding to the current body's owned
 suffix. `visible` may additionally capture values from the visible suffix down
 to the nearest visibility boundary. For a body program, the same setting also
-controls the suffix visible to its nested body. A no-op setting, such as
-`visible` on `image`, is valid.
+controls the suffix visible to its nested body. Its children still use their
+own defaults or overrides. A no-op setting, such as `visible` on `image`, is
+valid.
 
 ### Image
 
@@ -339,8 +341,9 @@ IDs.
 Only fixed inputs support inline bodies. Variadic inputs accept one `$reference`
 or a list of `$references`.
 
-Scalar parameters remain authored literals. They cannot read references or
-receive values from inline bodies.
+Scalar parameters accept authored literals or compatible local scalar
+parameter references. They cannot read graph-value references or receive
+values from inline bodies.
 
 ## Named values
 
@@ -408,9 +411,12 @@ direct programs. They evaluate one nested body exactly once.
 
 ### Join
 
-`join` consumes the two preceding Videos, starts its body with both in order,
-and concatenates all Videos left by the body. The single joined result is pushed
-onto the surrounding stack.
+`join` consumes the nearest two accessible Videos, starts its body with both in
+order as locally owned values, and concatenates all Videos left by the body.
+Its default visible access lets it bind those inputs through an enclosing body
+boundary. Default-owned children still consume only the two seeded values;
+explicitly visible children may reach farther down the inherited visible
+suffix. The single joined result is pushed onto the surrounding stack.
 
 ```yaml
 - $first
@@ -421,9 +427,9 @@ onto the surrounding stack.
 
 ### Glue
 
-A default `glue` has no inputs, owns no surrounding values, starts its body with
-no owned values, and concatenates the body's owned Videos. Its single result is
-pushed onto the surrounding stack.
+A default `glue` has no inputs and starts its body with no owned values while
+inheriting the enclosing visible suffix. It concatenates the body's owned
+Videos and pushes the single result onto the surrounding stack.
 
 ```yaml
 - glue:
@@ -434,29 +440,30 @@ pushed onto the surrounding stack.
 `glue` is an ordinary nested body program. A source program receives no
 implicit glue finalization.
 
-A visible `glue` may expose surrounding visible values to its body. The child
-invocation that actually consumes such a value must independently use
+A child invocation that consumes an enclosing value must independently use
 `stack_access: visible`:
 
 ```yaml
 - image: {path: card.png, duration: 1s}
 - glue:
-    stack_access: visible
-    body:
-      - repeat:
-          count: 2
-          stack_access: visible
-      - zoom: 12
+    - repeat:
+        count: 2
+        stack_access: visible
+    - zoom: 12
 ```
 
 The first visible consumer captures the preceding Video into the glue body's
 owned suffix. Later default-owned operations may consume that captured result.
+Set `stack_access: owned` on `glue` when its body must establish a visibility
+boundary.
 
 ### During
 
-`during` consumes a base Video, selects the range, evaluates its body with the
-selection as an owned value, and splices the single owned result between the
-unchanged prefix and suffix.
+`during` consumes the nearest accessible base Video, selects the range,
+evaluates its body with the selection as an owned value, and splices the single
+owned result between the unchanged prefix and suffix. Its default visible
+access lets it bind the base through an enclosing body boundary and exposes the
+same visible suffix to explicitly visible descendants.
 
 Canonical form:
 
@@ -517,9 +524,9 @@ stack occurrences. Inline fixed inputs execute on isolated stacks.
 
 When a visible invocation consumes below a body's ownership frontier, that
 suffix becomes owned. Captured ownership propagates to the enclosing body when
-the child body finishes. An owned body creates a new visibility boundary, so a
-visible descendant cannot reach through it. Settings are per invocation and do
-not inherit.
+the child body finishes. A body invocation with `stack_access: owned` creates a
+new visibility boundary, so a visible descendant cannot reach through it.
+Settings are per invocation and do not inherit.
 
 There is no hidden replacement, parent-stack lookup, or source-level reduction.
 Named clips, inline inputs, and `during` still require exactly one result. The

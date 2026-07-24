@@ -83,7 +83,7 @@ fn descriptor(
     ProgramDescriptor {
         name: name.to_owned(),
         semantic_version,
-        default_stack_access: StackAccess::Owned,
+        default_stack_access: StackAccess::Visible,
         inputs,
         parameters,
         primary_parameter: primary_parameter.map(str::to_owned),

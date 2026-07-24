@@ -8,7 +8,7 @@ source assets are committed, so no setup step is required.
 ## Scenic sequence
 
 `examples/scenic-sequence.yaml` combines three illustrated PNG still images in
-an isolated `glue` body. It demonstrates image fitting, authored durations, and
+a nested `glue` body. It demonstrates image fitting, authored durations, and
 automatic concatenation inside a body program.
 
 ```console

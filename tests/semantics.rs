@@ -476,18 +476,36 @@ fn nested_glue_starts_empty_and_does_not_consume_outer_values() {
 }
 
 #[test]
-fn visible_glue_can_capture_an_outer_value_through_a_visible_operation() {
+fn body_program_defaults_to_visible_and_can_capture_through_a_visible_operation() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - repeat:\n        count: 2\n        stack_access: visible\n",
     );
-    let compiled = compiler::compile(&workflow).expect("visible capture");
+    let compiled = compiler::compile(&workflow).expect("default visible capture");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+}
+
+#[test]
+fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- glue:\n    - join: []\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("default visible join binding");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+}
+
+#[test]
+fn default_visible_during_binds_its_base_from_the_visible_suffix() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- glue:\n    - during:\n        range: 500ms..1500ms\n        body:\n          - repeat: 2\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("default visible during binding");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
 }
 
 #[test]
 fn visible_body_does_not_make_its_children_visible() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat: 2\n",
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - repeat: 2\n",
     );
     let error = compiler::compile(&workflow).expect_err("owned repeat cannot capture");
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
@@ -500,7 +518,7 @@ fn visible_body_does_not_make_its_children_visible() {
 #[test]
 fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    stack_access: visible\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("selective capture");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 50);
@@ -524,16 +542,16 @@ fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
 #[test]
 fn visible_concat_deliberately_consumes_the_complete_visible_suffix() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - image: {path: b.ppm, duration: 1s}\n      - concat:\n          stack_access: visible\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - image: {path: b.ppm, duration: 1s}\n    - concat:\n        stack_access: visible\n",
     );
     let compiled = compiler::compile(&workflow).expect("visible concat");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
 }
 
 #[test]
-fn owned_body_boundary_blocks_a_visible_descendant() {
+fn explicit_owned_body_boundary_blocks_a_visible_descendant() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - image: {path: b.ppm, duration: 2s}\n      - during:\n          range: 500ms..1500ms\n          body:\n            - flash:\n                frames: 1\n                stack_access: visible\n",
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - image: {path: b.ppm, duration: 2s}\n    - during:\n        range: 500ms..1500ms\n        stack_access: owned\n        body:\n          - flash:\n              frames: 1\n              stack_access: visible\n",
     );
     let error = compiler::compile(&workflow).expect_err("during boundary");
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
@@ -543,6 +561,26 @@ fn owned_body_boundary_blocks_a_visible_descendant() {
             .notes
             .iter()
             .any(|note| { note.contains("during") && note.contains("stack visibility boundary") })
+    );
+}
+
+#[test]
+fn omitted_body_stack_access_matches_explicit_visible_identity() {
+    let source = |access: &str| {
+        format!(
+            "- program:\n    version: 1\n\n- image: {{path: a.ppm, duration: 1s}}\n- glue:{access}\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n"
+        )
+    };
+    let (_default_directory, default) = project(&source(""));
+    let (_visible_directory, visible) = project(&source("\n    stack_access: visible"));
+
+    assert_eq!(
+        compiler::compile(&default)
+            .expect("default body access")
+            .structure_hash(),
+        compiler::compile(&visible)
+            .expect("explicit visible body access")
+            .structure_hash()
     );
 }
 
