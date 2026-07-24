@@ -20,6 +20,7 @@
 - [Separate frontends from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
 - [Call authored source programs](adr/0009-call-authored-source-programs.md)
 - [Add typed Audio and body input scopes](adr/0010-add-typed-audio-and-body-input-scopes.md)
+- [Add type-preserving timeline programs](adr/0011-add-type-preserving-timeline-programs.md)
 
 # Development
 

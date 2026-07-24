@@ -10,7 +10,7 @@ Current features:
 - references and named clips
 - imported callable source programs with Video or Audio inputs and typed parameters
 - ordered source-program results and isolated inline fixed inputs
-- concatenation and repetition
+- type-preserving trimming, concatenation, repetition, and stack dropping
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
 - `during`, `join`, and nested `glue`
 - `audio`, `extract_audio`, and `set_audio` with synchronized Video audio
@@ -60,7 +60,7 @@ A root source program may expose reusable inputs and parameters:
       count: Integer
 
 - trim:
-    video: $video
+    value: $video
     range: $range
 - repeat: $count
 ```

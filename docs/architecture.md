@@ -54,10 +54,14 @@ visibility boundary. The source body starts empty and returns its complete order
 and checked metadata together, so it does not repeat program-name lookup,
 effective-access resolution, output-signature discovery, or structural body
 validation. One shared binder resolves explicit inputs in descriptor order,
-evaluates inline fixed-input bodies on isolated evaluation stacks, consumes missing inputs by exact declared type
-from the invocation's accessible values, and converts authored parameters to their declared Rust types. Program implementations therefore
-receive a fully resolved call rather than frontend-layer arguments or
-stack-frame metadata.
+evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
+missing inputs by exact concrete type from the invocation's accessible values,
+and converts authored parameters to their declared Rust types. Before binding,
+the checker resolves the single closed type parameter used by type-preserving
+built-ins and stores the resulting concrete signature in checked source. The
+evaluator does not repeat type inference. Program implementations therefore
+receive a fully resolved call rather than frontend-layer arguments, generic
+types, or stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
 invocation metadata may override it with `stack_access: owned|visible`.

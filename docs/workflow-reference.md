@@ -89,7 +89,7 @@ scalar parameters:
         default: cover
 
 - repeat:
-    video: $video
+    value: $video
     count: $count
 ```
 
@@ -175,9 +175,10 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `audio` | none | `path` | none |
 | `extract_audio` | `video: Video` | none | none |
 | `set_audio` | `audio: Audio`, `video: Video` | none | none |
-| `repeat` | `video: Video` | `count` | none |
-| `concat` | `videos: Video...` | none | none |
-| `trim` | `video: Video` | `range` | none |
+| `repeat` | `value: Video|Audio` | `count`, optional `type` | none |
+| `concat` | `values: Video...|Audio...` | optional `type` | none |
+| `trim` | `value: Video|Audio` | `range`, optional `type` | none |
+| `drop` | `value: Video|Audio` | optional `type` | none |
 | `zoom` | `video: Video` | optional `percent` | none |
 | `wobble` | `video: Video` | optional `pixels` | none |
 | `flash` | `before: Video`, `after: Video` | optional `frames` | none |
@@ -287,8 +288,15 @@ padded with silence. The existing Video audio is replaced.
 - repeat: 3
 ```
 
-`repeat: 3` produces three copies in total. It consumes one implicit Video
-unless `video` is supplied explicitly.
+`repeat` consumes the nearest accessible Video or Audio and produces the same
+type repeated `count` times. `repeat: 3` means three copies in total. The full
+form uses `value` for an explicit graph input:
+
+```yaml
+- repeat:
+    value: $music
+    count: 3
+```
 
 ### Concat
 
@@ -298,16 +306,26 @@ unless `video` is supplied explicitly.
 - concat
 ```
 
-Implicit `concat` consumes every Video in its accessible suffix, preserving
-order. With the default `stack_access: owned`, that is the current body's owned
-suffix. `stack_access: visible` deliberately consumes the complete visible
-suffix down to the nearest visibility boundary.
+`concat` is homogeneous and returns the same type it consumes. Bare `concat`
+works when exactly one accessible timeline type is present. When both Video and
+Audio are accessible, select the intended typed stack view:
 
-Explicit variadic inputs remain reference-only:
+```yaml
+- concat: Video
+- concat: Audio
+```
+
+The selected invocation consumes every accessible value of that exact type in
+physical order and leaves values of the other type untouched. With default
+`stack_access: owned`, only values owned by the current body are eligible;
+`stack_access: visible` may consume matching enclosing values down to the
+nearest visibility boundary.
+
+Explicit variadic inputs are reference-only and must be homogeneous:
 
 ```yaml
 - concat:
-    videos: [$first, $second]
+    values: [$first, $second]
 ```
 
 ### Trim
@@ -316,10 +334,30 @@ Explicit variadic inputs remain reference-only:
 - trim: 1s..7s
 ```
 
-`trim` consumes one Video and selects the closed-open range locally within that
-Video. The authored endpoints must align exactly to project frames. It uses the
-same range validation as `during`, including deferred validation during
-preflight for video-file inputs.
+`trim` consumes the nearest accessible Video or Audio and returns the same type
+for the selected closed-open range. Video endpoints must align exactly to
+project frames. Audio endpoints must align exactly to samples in the canonical
+48 kHz format. The full form uses `value`:
+
+```yaml
+- trim:
+    value: $music
+    range: 1s..7s
+```
+
+Range bounds that depend on media duration are validated during preflight.
+
+### Drop
+
+```yaml
+- drop
+- drop: Audio
+```
+
+Bare `drop` removes the nearest accessible graph value and returns nothing.
+`drop: Video` or `drop: Audio` removes the nearest accessible value of that
+specific type. An explicit `value` is accepted but, like every explicit input,
+does not remove a separate caller-stack occurrence of the referenced value.
 
 ### Zoom
 
@@ -373,7 +411,7 @@ stack:
 
 ```yaml
 - repeat:
-    video: $card
+    value: $card
     count: 3
 ```
 
@@ -425,9 +463,10 @@ is allowed when the produced type differs from the port type:
 - `Audio` to `Video` creates a project-sized black Video carrying that Audio.
 
 The adaptation is a real semantic operation. Implicit stack binding, program
-outputs, and body outputs never adapt types. Nested explicit inputs may compose
-direct adaptations; for example, Audio may be adapted to black Video for
-`trim.video`, trimmed, and then adapted back for an outer Audio port.
+outputs, body outputs, and generic `value` or `values` inputs never adapt types.
+Nested explicit concrete inputs may compose direct adaptations; for example,
+Audio may be adapted to black Video for `zoom.video`, transformed, and then
+adapted back for an outer Audio port.
 
 Scalar parameters accept authored literals or compatible local scalar
 parameter references. They cannot read graph-value references or receive

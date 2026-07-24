@@ -106,12 +106,18 @@ compilation. Publication finds exactly one Video output by type and ignores any
 auxiliary Audio outputs. Named clips, inline inputs, and body contracts remain
 strict.
 
-Implicit stack binding always requires exact types. Explicit fixed graph inputs
-may apply one direct contextual adaptation at the port boundary: `Video` to
-`Audio` extracts synchronized audio, while `Audio` to `Video` creates a black
-project-sized Video carrying that Audio. Adaptations are semantic graph nodes;
-program outputs and body outputs are never adapted. Nested explicit boundaries
-may compose direct adaptations.
+Implicit stack binding always requires exact types. `trim`, `repeat`, `concat`,
+and `drop` are type-preserving over Video or Audio. Unary programs select the
+nearest accessible compatible value. `concat` consumes one homogeneous typed
+view; `type: Video` or `type: Audio` selects it explicitly, while bare `concat`
+is an error when both timeline types are accessible. Generic explicit inputs
+must match exactly and never adapt.
+
+Explicit fixed concrete graph inputs may apply one direct contextual adaptation
+at the port boundary: `Video` to `Audio` extracts synchronized audio, while
+`Audio` to `Video` creates a black project-sized Video carrying that Audio.
+Adaptations are semantic graph nodes; program outputs and body outputs are never
+adapted. Nested explicit boundaries may compose direct adaptations.
 
 An inline input body starts empty, inherits the enclosing requested-frame
 context, and must leave exactly one value accepted by its input port after any
