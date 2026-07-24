@@ -30,6 +30,7 @@
 
 pub mod compiler;
 pub mod diagnostic;
+pub(crate) mod external;
 pub(crate) mod format;
 pub mod frontend;
 pub mod model;

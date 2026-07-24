@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::external::ExternalInvocation;
 use crate::model::{
     AudioSpec, FrameCount, FrameRange, ImageFit, SampleRange, SourceTimeRange, ValueId, ValueRef,
     ValueType, VideoDomain, VideoSpec,
@@ -140,6 +141,9 @@ pub(crate) enum SemanticNodeKind {
     },
     AudioOnBlack {
         audio: ValueRef,
+    },
+    ExternalVideo {
+        invocation: ExternalInvocation,
     },
 }
 
@@ -282,6 +286,25 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn audio_on_black(&mut self, audio: ValueRef) -> Result<ValueRef> {
         self.require_type(audio, ValueType::Audio, "audio")?;
         self.push(SemanticNodeKind::AudioOnBlack { audio }, ValueType::Video)
+    }
+
+    pub(crate) fn external_video(&mut self, invocation: ExternalInvocation) -> Result<ValueRef> {
+        let preserved = invocation
+            .inputs
+            .get(&invocation.preserve_input)
+            .copied()
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INTERNAL_EXTERNAL_PROGRAM",
+                    "external invocation is missing its preserved input",
+                    self.origin.span.clone(),
+                )
+            })?;
+        self.require_type(preserved, ValueType::Video, &invocation.preserve_input)?;
+        self.push(
+            SemanticNodeKind::ExternalVideo { invocation },
+            ValueType::Video,
+        )
     }
 
     /// Add a checked semantic Video slice.

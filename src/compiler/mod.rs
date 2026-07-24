@@ -27,7 +27,7 @@ use crate::source::{SourcePackage, SourceUnit};
 pub use crate::semantic::SourceOrigin;
 pub use entrypoint::EntrypointBindings;
 
-const COMPILED_FORMAT_VERSION: u32 = 11;
+const COMPILED_FORMAT_VERSION: u32 = 12;
 
 #[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -399,6 +399,7 @@ mod tests {
             units: vec![SourceUnit {
                 source,
                 imports: Vec::new(),
+                externals: Vec::new(),
                 project: Some(Spanned::new(
                     ProjectSettings::default(),
                     program_span.clone(),
@@ -425,6 +426,7 @@ mod tests {
                 }),
                 output: None,
             }],
+            external_programs: Vec::new(),
         };
 
         assert_eq!(

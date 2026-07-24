@@ -115,7 +115,8 @@ pub(super) fn reject_asset_collisions(
             | PreparedNodeKind::AudioConcat { .. }
             | PreparedNodeKind::ExtractAudio { .. }
             | PreparedNodeKind::SetAudio { .. }
-            | PreparedNodeKind::AudioOnBlack { .. } => continue,
+            | PreparedNodeKind::AudioOnBlack { .. }
+            | PreparedNodeKind::ExternalVideo { .. } => continue,
         };
         reject_path_collision(
             output,

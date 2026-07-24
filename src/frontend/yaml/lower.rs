@@ -15,8 +15,9 @@ use crate::program::{
 };
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
-    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceImport, SourcePackage,
-    SourceParameter, SourceProgram, SourceUnit, SourceUnitId, UnlinkedSourceUnit, VideoSettings,
+    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceExternalImport,
+    SourceImport, SourcePackage, SourceParameter, SourceProgram, SourceUnit, SourceUnitId,
+    UnlinkedSourceUnit, VideoSettings,
 };
 use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -38,15 +39,24 @@ pub fn parse_str(path: &Path, source: &str) -> Result<SourcePackage> {
             import.path.span.clone(),
         ));
     }
+    if let Some(external) = unit.externals.first() {
+        return Err(Diagnostic::new(
+            "E_EXTERNAL_REQUIRES_FILE",
+            "external program manifests require `parse_file` so relative files can be loaded",
+            external.path.span.clone(),
+        ));
+    }
     Ok(SourcePackage {
         root: SourceUnitId(0),
         units: vec![SourceUnit {
             source: unit.source,
             imports: Vec::new(),
+            externals: Vec::new(),
             project: unit.project,
             program: Arc::new(unit.program),
             output: unit.output,
         }],
+        external_programs: Vec::new(),
     })
 }
 
@@ -72,15 +82,24 @@ pub(crate) fn parse_str_with_language(
             import.path.span.clone(),
         ));
     }
+    if let Some(external) = unit.externals.first() {
+        return Err(Diagnostic::new(
+            "E_EXTERNAL_REQUIRES_FILE",
+            "external program manifests require file-backed package loading",
+            external.path.span.clone(),
+        ));
+    }
     Ok(SourcePackage {
         root: SourceUnitId(0),
         units: vec![SourceUnit {
             source: unit.source,
             imports: Vec::new(),
+            externals: Vec::new(),
             project: unit.project,
             program: Arc::new(unit.program),
             output: unit.output,
         }],
+        external_programs: Vec::new(),
     })
 }
 
@@ -128,6 +147,7 @@ fn parse_source_program(
     let mut version = None;
     let mut project = None;
     let mut imports = Vec::new();
+    let mut externals = Vec::new();
     let mut inputs = Vec::new();
     let mut parameters = Vec::new();
     let mut clips = Vec::new();
@@ -156,6 +176,7 @@ fn parse_source_program(
                 ));
             }
             "imports" => imports = parse_imports(value)?,
+            "externals" => externals = parse_externals(value)?,
             "inputs" => inputs = parse_inputs(value)?,
             "parameters" => parameters = parse_parameters(value)?,
             "clips" => clips = parse_clips(value, language)?,
@@ -199,6 +220,7 @@ fn parse_source_program(
     Ok(UnlinkedSourceUnit {
         source,
         imports,
+        externals,
         project,
         program: SourceProgram {
             inputs,
@@ -219,6 +241,20 @@ fn parse_imports(node: RawNode) -> Result<Vec<SourceImport>> {
             validate_name(&alias, &alias_span)?;
             let (path, _) = scalar(&value, "an import path")?;
             Ok(SourceImport {
+                alias: Spanned::new(alias, alias_span),
+                path: Spanned::new(PathBuf::from(path), value.span),
+            })
+        })
+        .collect()
+}
+
+fn parse_externals(node: RawNode) -> Result<Vec<SourceExternalImport>> {
+    into_mapping(node, "`externals`")?
+        .into_iter()
+        .map(|(alias, alias_span, value)| {
+            validate_name(&alias, &alias_span)?;
+            let (path, _) = scalar(&value, "an external program manifest path")?;
+            Ok(SourceExternalImport {
                 alias: Spanned::new(alias, alias_span),
                 path: Spanned::new(PathBuf::from(path), value.span),
             })

@@ -20,6 +20,85 @@ struct ToolBuildIdentity<'a> {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ExternalToolIdentity {
+    executable: PathBuf,
+    content_hash: String,
+}
+
+impl ExternalToolIdentity {
+    pub(crate) fn executable(&self) -> &Path {
+        &self.executable
+    }
+
+    pub(crate) fn content_hash(&self) -> &str {
+        &self.content_hash
+    }
+}
+
+pub(crate) fn inspect_external_tool(
+    authored: &Path,
+    span: &SourceSpan,
+) -> Result<ExternalToolIdentity> {
+    let candidate = if authored.is_absolute() || authored.components().count() > 1 {
+        super::assets::resolve_authored_path(authored, span)?
+    } else {
+        resolve_executable(
+            authored.to_str().ok_or_else(|| {
+                Diagnostic::new(
+                    "E_EXTERNAL_EXECUTABLE",
+                    "external executable name is not valid UTF-8",
+                    span.clone(),
+                )
+            })?,
+            "E_EXTERNAL_EXECUTABLE",
+        )?
+    };
+    let executable = fs::canonicalize(&candidate).map_err(|error| {
+        Diagnostic::new(
+            "E_EXTERNAL_EXECUTABLE",
+            format!(
+                "could not resolve external executable `{}`: {error}",
+                candidate.display()
+            ),
+            span.clone(),
+        )
+    })?;
+    if !is_executable_file(&executable) {
+        return Err(Diagnostic::new(
+            "E_EXTERNAL_EXECUTABLE",
+            format!(
+                "external command `{}` is not executable",
+                executable.display()
+            ),
+            span.clone(),
+        ));
+    }
+    let content_hash = hash_tool_executable(&executable, "E_EXTERNAL_EXECUTABLE")?;
+    Ok(ExternalToolIdentity {
+        executable,
+        content_hash,
+    })
+}
+
+pub(crate) fn verify_external_tool(
+    identity: &ExternalToolIdentity,
+    span: &SourceSpan,
+) -> Result<()> {
+    let current = hash_tool_executable(identity.executable(), "E_EXTERNAL_EXECUTABLE")?;
+    if current == identity.content_hash {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "E_EXTERNAL_CHANGED",
+        format!(
+            "external executable `{}` changed after preflight; prepare the program again",
+            identity.executable.display()
+        ),
+        span.clone(),
+    ))
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct ToolIdentity {
     pub(super) executable: PathBuf,
     pub(super) version_summary: String,

@@ -122,6 +122,9 @@ fn dependency_at<N: SemanticNodeView>(
             base, replacement, ..
         } => [*base, *replacement].get(index).copied(),
         SemanticNodeKind::SetAudio { audio, video } => [*audio, *video].get(index).copied(),
+        SemanticNodeKind::ExternalVideo { invocation } => {
+            invocation.inputs.values().nth(index).copied()
+        }
         SemanticNodeKind::ImageVideo { .. }
         | SemanticNodeKind::VideoSource { .. }
         | SemanticNodeKind::AudioSource { .. }

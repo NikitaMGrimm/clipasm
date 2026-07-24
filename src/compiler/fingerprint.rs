@@ -139,6 +139,11 @@ fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<St
             node_hash(*audio, hashes).to_owned(),
             node_hash(*video, hashes).to_owned(),
         ],
+        SemanticNodeKind::ExternalVideo { invocation } => invocation
+            .inputs
+            .values()
+            .map(|input| node_hash(*input, hashes).to_owned())
+            .collect(),
     }
 }
 
@@ -187,6 +192,13 @@ fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
         SemanticNodeKind::AudioOnBlack { .. } => {
             serde_json::json!({"operation": "audio_on_black"})
         }
+        SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
+            "operation": "external_video",
+            "command": invocation.command.value,
+            "preserve_input": invocation.preserve_input,
+            "input_names": invocation.inputs.keys().collect::<Vec<_>>(),
+            "parameters": invocation.parameters,
+        }),
     }
 }
 

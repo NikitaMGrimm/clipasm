@@ -177,6 +177,13 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "audio_on_black",
             "audio": audio,
         }),
+        SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
+            "operation": "external_video",
+            "command": invocation.command.value,
+            "preserve_input": invocation.preserve_input,
+            "inputs": invocation.inputs,
+            "parameters": invocation.parameters,
+        }),
     })
 }
 

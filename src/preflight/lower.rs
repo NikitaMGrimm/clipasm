@@ -11,7 +11,7 @@ use crate::source::SourceSpan;
 
 use super::assets::{prepare_audio_asset, prepare_image_asset, prepare_video_asset};
 use super::identity::node_fingerprint;
-use super::tools::ToolIdentity;
+use super::tools::{ToolIdentity, inspect_external_tool};
 use super::{PreparedNode, PreparedNodeKind};
 
 pub(super) struct PreflightLowerer<'a> {
@@ -378,6 +378,32 @@ impl PreflightLowerer<'_> {
                     PreparedNodeKind::AudioOnBlack { audio },
                     project_domain(self.compiled.video(), frames),
                     true,
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::ExternalVideo { invocation } => {
+                let inputs = invocation
+                    .inputs
+                    .iter()
+                    .map(|(name, input)| {
+                        self.prepared_dependency(*input, compiled_node.origin())
+                            .map(|input| (name.clone(), input))
+                    })
+                    .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+                let preserved = inputs[&invocation.preserve_input];
+                let preserved_node = &self.nodes[preserved.get() as usize];
+                let executable =
+                    inspect_external_tool(&invocation.command.value, &invocation.command.span)?;
+                self.add_video_node(
+                    PreparedNodeKind::ExternalVideo {
+                        executable,
+                        inputs,
+                        parameters: invocation.parameters.clone(),
+                        preserve_input: invocation.preserve_input.clone(),
+                    },
+                    preserved_node.domain().clone(),
+                    preserved_node.has_audio(),
                     compiled_node.semantic_version(),
                     compiled_node.origin().clone(),
                 )?

@@ -5,8 +5,10 @@ use std::sync::Arc;
 
 use super::language::Language;
 use crate::diagnostic::{Diagnostic, Result};
+use crate::external::{ExternalProgram, ExternalProgramId, load_manifest};
 use crate::source::{
-    ResolvedImport, SourceFile, SourcePackage, SourceSpan, SourceUnit, SourceUnitId,
+    ResolvedExternalImport, ResolvedImport, SourceFile, SourcePackage, SourceSpan, SourceUnit,
+    SourceUnitId,
 };
 
 /// Parse and link a YAML source package rooted at `path`.
@@ -21,6 +23,8 @@ pub fn parse_file(path: &Path) -> Result<SourcePackage> {
     let mut loader = Loader {
         language: &language,
         units: Vec::new(),
+        external_programs: Vec::new(),
+        loaded_externals: BTreeMap::new(),
         loaded: BTreeMap::new(),
         visiting: Vec::new(),
         visiting_positions: BTreeMap::new(),
@@ -29,18 +33,22 @@ pub fn parse_file(path: &Path) -> Result<SourcePackage> {
     Ok(SourcePackage {
         root,
         units: loader.units,
+        external_programs: loader.external_programs,
     })
 }
 
 struct Loader<'a> {
     language: &'a Language,
     units: Vec<SourceUnit>,
+    external_programs: Vec<ExternalProgram>,
+    loaded_externals: BTreeMap<PathBuf, ExternalProgramId>,
     loaded: BTreeMap<PathBuf, SourceUnitId>,
     visiting: Vec<PathBuf>,
     visiting_positions: BTreeMap<PathBuf, usize>,
 }
 
 impl Loader<'_> {
+    #[allow(clippy::too_many_lines)]
     fn load(
         &mut self,
         path: &Path,
@@ -93,6 +101,54 @@ impl Loader<'_> {
         self.visiting.push(canonical.clone());
 
         let mut aliases = BTreeSet::new();
+        let mut externals = Vec::with_capacity(unit.externals.len());
+        for external in &unit.externals {
+            if !aliases.insert(external.alias.value.clone()) {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_PROGRAM_IMPORT",
+                    format!("duplicate program import alias `{}`", external.alias.value),
+                    external.alias.span.clone(),
+                ));
+            }
+            if self.language.programs.get(&external.alias.value).is_some() {
+                return Err(Diagnostic::new(
+                    "E_PROGRAM_IMPORT_COLLISION",
+                    format!(
+                        "external program alias `{}` collides with a built-in program",
+                        external.alias.value
+                    ),
+                    external.alias.span.clone(),
+                ));
+            }
+            let manifest_path = if external.path.value.is_absolute() {
+                external.path.value.clone()
+            } else {
+                canonical
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(&external.path.value)
+            };
+            let manifest_path = fs::canonicalize(&manifest_path).map_err(|error| {
+                Diagnostic::io("E_EXTERNAL_MANIFEST_IO", &manifest_path, &error)
+            })?;
+            let target = if let Some(id) = self.loaded_externals.get(&manifest_path).copied() {
+                id
+            } else {
+                let program = load_manifest(&manifest_path)?;
+                let id = ExternalProgramId::new(
+                    u32::try_from(self.external_programs.len())
+                        .expect("external program catalog fits in u32"),
+                );
+                self.external_programs.push(program);
+                self.loaded_externals.insert(manifest_path, id);
+                id
+            };
+            externals.push(ResolvedExternalImport {
+                alias: external.alias.clone(),
+                target,
+            });
+        }
+
         let mut imports = Vec::with_capacity(unit.imports.len());
         for import in &unit.imports {
             if !aliases.insert(import.alias.value.clone()) {
@@ -135,6 +191,7 @@ impl Loader<'_> {
         self.units.push(SourceUnit {
             source: unit.source,
             imports,
+            externals,
             project: unit.project,
             program: Arc::new(unit.program),
             output: unit.output,

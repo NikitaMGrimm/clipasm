@@ -257,6 +257,9 @@ fn collect_direct_references(
                 stack.push(*video);
                 stack.push(*audio);
             }
+            SemanticNodeKind::ExternalVideo { invocation } => {
+                stack.extend(invocation.inputs.values().copied());
+            }
         }
     }
 }
@@ -268,6 +271,7 @@ enum DomainKnowledge {
     Known(VideoDomain),
 }
 
+#[allow(clippy::too_many_lines)]
 fn infer_domains(
     evaluation: &Evaluation,
     video: &VideoSpec,
@@ -286,6 +290,10 @@ fn infer_domains(
             }
             SemanticNodeKind::VideoSource { .. } | SemanticNodeKind::AudioOnBlack { .. } => {
                 DomainKnowledge::Deferred
+            }
+            SemanticNodeKind::ExternalVideo { invocation } => {
+                let preserved = invocation.inputs[&invocation.preserve_input];
+                knowledge[preserved.id().get() as usize].clone()
             }
             SemanticNodeKind::AudioSource { .. }
             | SemanticNodeKind::AudioRepeat { .. }

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::external::{ExternalProgram, ExternalProgramId};
 use crate::program::{InputPort, ParameterType, StackAccess};
 
 pub(crate) use location::Spanned;
@@ -27,6 +28,7 @@ pub(crate) struct SourceUnitId(pub(crate) usize);
 pub struct SourcePackage {
     pub(crate) root: SourceUnitId,
     pub(crate) units: Vec<SourceUnit>,
+    pub(crate) external_programs: Vec<ExternalProgram>,
 }
 
 impl SourcePackage {
@@ -39,6 +41,16 @@ impl SourcePackage {
     pub(crate) fn units(&self) -> &[SourceUnit] {
         &self.units
     }
+
+    #[must_use]
+    pub(crate) fn external_program(&self, id: ExternalProgramId) -> &ExternalProgram {
+        &self.external_programs[id.index()]
+    }
+
+    #[must_use]
+    pub(crate) fn external_programs(&self) -> &[ExternalProgram] {
+        &self.external_programs
+    }
 }
 
 /// One opaque linked authored source unit.
@@ -46,6 +58,7 @@ impl SourcePackage {
 pub struct SourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<ResolvedImport>,
+    pub(crate) externals: Vec<ResolvedExternalImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
     pub(crate) program: Arc<SourceProgram>,
     pub(crate) output: Option<Spanned<PathBuf>>,
@@ -55,6 +68,7 @@ pub struct SourceUnit {
 pub(crate) struct UnlinkedSourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<SourceImport>,
+    pub(crate) externals: Vec<SourceExternalImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
     pub(crate) program: SourceProgram,
     pub(crate) output: Option<Spanned<PathBuf>>,
@@ -86,6 +100,18 @@ impl SourceUnit {
 pub(crate) struct SourceImport {
     pub(crate) alias: Spanned<String>,
     pub(crate) path: Spanned<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SourceExternalImport {
+    pub(crate) alias: Spanned<String>,
+    pub(crate) path: Spanned<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedExternalImport {
+    pub(crate) alias: Spanned<String>,
+    pub(crate) target: ExternalProgramId,
 }
 
 #[derive(Clone, Debug)]

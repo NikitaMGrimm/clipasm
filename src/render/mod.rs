@@ -9,18 +9,22 @@
 
 mod publication;
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::external::EXTERNAL_PROTOCOL_VERSION;
 use crate::model::{
     AudioDomain, AudioSpec, FrameCount, ImageFit, NodeId, ValueType, VideoDomain, VideoSpec,
 };
+use crate::preflight::tools::verify_external_tool;
 use crate::preflight::{
     PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
@@ -149,6 +153,9 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             | PreparedNodeKind::ExtractAudio { .. }
             | PreparedNodeKind::SetAudio { .. }
             | PreparedNodeKind::AudioOnBlack { .. } => {}
+            PreparedNodeKind::ExternalVideo { executable, .. } => {
+                verify_external_tool(executable, &node.origin().span)?;
+            }
         }
         let hit = artifact.is_file()
             && verify_prepared_artifact(
@@ -177,12 +184,14 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             }
             render_node(
                 node,
+                plan.nodes(),
                 &artifacts,
                 &artifact,
                 plan.video(),
                 plan.audio(),
                 plan.media_policy(),
                 plan.ffmpeg().executable(),
+                plan.ffprobe().executable(),
             )?;
             verify_prepared_artifact(
                 plan.ffprobe().executable(),
@@ -293,15 +302,48 @@ fn stage_export(
     Ok(())
 }
 
+#[derive(Serialize)]
+struct ExternalRunRequest<'a> {
+    protocol_version: u32,
+    inputs: BTreeMap<&'a str, ExternalRunInput<'a>>,
+    parameters: &'a BTreeMap<String, crate::external::ExternalParameterValue>,
+    output: &'a Path,
+    project: ExternalRunProject<'a>,
+    tools: ExternalRunTools<'a>,
+}
+
+#[derive(Serialize)]
+struct ExternalRunInput<'a> {
+    path: &'a Path,
+    value_type: ValueType,
+    domain: Option<&'a VideoDomain>,
+    audio_domain: Option<&'a AudioDomain>,
+    has_audio: bool,
+}
+
+#[derive(Serialize)]
+struct ExternalRunProject<'a> {
+    video: &'a VideoSpec,
+    audio: &'a AudioSpec,
+}
+
+#[derive(Serialize)]
+struct ExternalRunTools<'a> {
+    ffmpeg: &'a Path,
+    ffprobe: &'a Path,
+}
+
 #[allow(clippy::too_many_lines)]
 fn render_node(
     node: &PreparedNode,
+    nodes: &[PreparedNode],
     artifacts: &[PathBuf],
     destination: &Path,
     spec: &VideoSpec,
     audio: &AudioSpec,
     media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
+    ffprobe: &Path,
 ) -> Result<()> {
     let extension = if node.value_type() == ValueType::Audio {
         "mka"
@@ -599,12 +641,110 @@ fn render_node(
                 &temporary,
             );
         }
+        PreparedNodeKind::ExternalVideo {
+            executable,
+            inputs,
+            parameters,
+            ..
+        } => {
+            let inputs = inputs
+                .iter()
+                .map(|(name, id)| {
+                    let input_node = &nodes[id.get() as usize];
+                    Ok((
+                        name.as_str(),
+                        ExternalRunInput {
+                            path: artifact(artifacts, *id, &node.origin().span)?,
+                            value_type: input_node.value_type(),
+                            domain: (input_node.value_type() == ValueType::Video)
+                                .then(|| input_node.domain()),
+                            audio_domain: (input_node.value_type() == ValueType::Audio)
+                                .then(|| input_node.audio_domain()),
+                            has_audio: input_node.has_audio(),
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            let request = ExternalRunRequest {
+                protocol_version: EXTERNAL_PROTOCOL_VERSION,
+                inputs,
+                parameters,
+                output: &temporary,
+                project: ExternalRunProject { video: spec, audio },
+                tools: ExternalRunTools { ffmpeg, ffprobe },
+            };
+            run_external(executable.executable(), &request, &node.origin().span)?;
+            atomic_replace(&temporary, destination, "E_CACHE_IO")?;
+            return Ok(());
+        }
     }
     if let Err(error) = run_command(command, "E_FFMPEG", &node.origin().span) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
     atomic_replace(&temporary, destination, "E_CACHE_IO")
+}
+
+fn run_external(
+    executable: &Path,
+    request: &ExternalRunRequest<'_>,
+    span: &SourceSpan,
+) -> Result<()> {
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_EXTERNAL_EXECUTION",
+                format!(
+                    "could not start external program `{}`: {error}",
+                    executable.display()
+                ),
+                span.clone(),
+            )
+        })?;
+    let request = serde_json::to_vec(request).map_err(|error| {
+        Diagnostic::new(
+            "E_EXTERNAL_PROTOCOL",
+            format!("could not serialize external program request: {error}"),
+            span.clone(),
+        )
+    })?;
+    child
+        .stdin
+        .take()
+        .expect("piped external stdin")
+        .write_all(&request)
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_EXTERNAL_EXECUTION",
+                format!("could not write external program request: {error}"),
+                span.clone(),
+            )
+        })?;
+    let output = child.wait_with_output().map_err(|error| {
+        Diagnostic::new(
+            "E_EXTERNAL_EXECUTION",
+            format!("could not wait for external program: {error}"),
+            span.clone(),
+        )
+    })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(Diagnostic::new(
+        "E_EXTERNAL_EXECUTION",
+        format!(
+            "external program `{}` failed with {}
+{}",
+            executable.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        span.clone(),
+    ))
 }
 
 fn append_video_output(

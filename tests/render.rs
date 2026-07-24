@@ -675,3 +675,65 @@ fn renders_native_audio_trim_repeat_and_concat() {
     let report = render::render(&plan).expect("render native audio operations");
     assert!(report.output.is_file());
 }
+
+#[cfg(unix)]
+#[test]
+fn renders_an_external_video_program() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+        || Command::new("python3").arg("--version").output().is_err()
+    {
+        eprintln!("skipping external render test because a required tool is unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+    )
+    .expect("image");
+    let script = directory.path().join("effect.py");
+    fs::write(
+        &script,
+        r#"#!/usr/bin/env python3
+import json, subprocess, sys
+r = json.load(sys.stdin)
+assert r["protocol_version"] == 1
+assert r["parameters"]["amount"] == 7
+subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
+"#,
+    )
+    .expect("script");
+    let mut permissions = fs::metadata(&script)
+        .expect("script metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&script, permissions).expect("executable script");
+    fs::write(
+        directory.path().join("effect.json"),
+        r#"{
+  "format_version": 1,
+  "protocol_version": 1,
+  "semantic_version": 1,
+  "command": "./effect.py",
+  "inputs": [{"name": "video", "type": "Video"}],
+  "parameters": [{"name": "amount", "type": "Integer", "required": true}],
+  "output": {"type": "Video", "preserve": "video"}
+}"#,
+    )
+    .expect("manifest");
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    externals:\n      effect: effect.json\n    output: result.mp4\n\n- image: {path: card.ppm, duration: 1s}\n- effect:\n    amount: 7\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_yaml(&workflow).expect("compile external program");
+    let plan = preflight::preflight(&compiled).expect("preflight external program");
+    let report = render::render(&plan).expect("render external program");
+    assert!(report.output.is_file());
+    assert_eq!(report.cache_misses, 2);
+}

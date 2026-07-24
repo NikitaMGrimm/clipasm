@@ -142,7 +142,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 11);
+    assert_eq!(document["format_version"], 12);
     assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
 }
 

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::external::ExternalProgramId;
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
@@ -251,6 +252,7 @@ pub(crate) enum ProgramImplementation {
     Direct(DirectLowerFn),
     Body(BodyPrepareFn),
     Authored(SourceUnitId),
+    External(ExternalProgramId),
 }
 
 impl std::fmt::Debug for ProgramImplementation {
@@ -259,6 +261,7 @@ impl std::fmt::Debug for ProgramImplementation {
             Self::Direct(_) => "Direct",
             Self::Body(_) => "Body",
             Self::Authored(_) => "Authored",
+            Self::External(_) => "External",
         })
     }
 }
@@ -654,7 +657,12 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                     descriptor.name
                 )));
             }
-            (ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_), Some(_)) => {
+            (
+                ProgramImplementation::Direct(_)
+                | ProgramImplementation::Authored(_)
+                | ProgramImplementation::External(_),
+                Some(_),
+            ) => {
                 return Err(definition_error(format!(
                     "non-body program `{}` cannot declare a body contract",
                     descriptor.name
@@ -676,7 +684,12 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
         }
 
         match (definition.implementation, &definition.postfix) {
-            (ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_), Some(_)) => {
+            (
+                ProgramImplementation::Direct(_)
+                | ProgramImplementation::Authored(_)
+                | ProgramImplementation::External(_),
+                Some(_),
+            ) => {
                 return Err(definition_error(format!(
                     "non-body program `{}` cannot declare postfix syntax",
                     descriptor.name

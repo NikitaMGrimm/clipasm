@@ -821,6 +821,18 @@ impl Evaluator<'_> {
                 debug_assert!(invocation.body.is_none());
                 self.evaluate_program(unit, Some(&call), false)?
             }
+            ProgramImplementation::External(external) => {
+                debug_assert!(invocation.body.is_none());
+                let external = self.package.external_program(external);
+                let invocation = external.invocation(&call)?;
+                let mut builder = GraphBuilder::for_program(
+                    &mut self.nodes,
+                    self.video,
+                    definition.descriptor.semantic_version,
+                    origin,
+                );
+                vec![builder.external_video(invocation)?]
+            }
         };
 
         validate_program_outputs(definition, &signature.outputs, outputs, span)

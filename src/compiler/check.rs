@@ -80,12 +80,22 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             )
         })
         .collect::<BTreeMap<_, _>>();
+    let mut external_programs = BTreeMap::new();
+    for (index, external) in package.external_programs().iter().enumerate() {
+        let external_id = crate::external::ExternalProgramId::new(
+            u32::try_from(index).expect("external program catalog fits in u32"),
+        );
+        let program_id =
+            ProgramId::new(u32::try_from(definitions.len()).expect("program catalog fits in u32"));
+        definitions.push(external.definition(external_id, format!("external_program_{index}")));
+        external_programs.insert(external_id, program_id);
+    }
     let mut unit_programs = BTreeMap::new();
     let mut programs = Vec::with_capacity(package.units().len());
 
     for (index, unit) in package.units().iter().enumerate() {
         let unit_id = SourceUnitId(index);
-        let namespace = unit
+        let mut namespace = unit
             .imports
             .iter()
             .map(|import| {
@@ -102,6 +112,19 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 Ok((import.alias.value.clone(), program))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
+        for external in &unit.externals {
+            let program = external_programs[&external.target];
+            if namespace
+                .insert(external.alias.value.clone(), program)
+                .is_some()
+            {
+                return Err(Diagnostic::new(
+                    "E_DUPLICATE_PROGRAM_IMPORT",
+                    format!("duplicate program import alias `{}`", external.alias.value),
+                    external.alias.span.clone(),
+                ));
+            }
+        }
         let (outputs, checked_program) = check_program(
             unit_id,
             Arc::clone(&unit.program),
@@ -722,7 +745,9 @@ fn infer_body(
                 }
 
                 let checked_body = match definition.implementation {
-                    ProgramImplementation::Direct(_) | ProgramImplementation::Authored(_) => {
+                    ProgramImplementation::Direct(_)
+                    | ProgramImplementation::Authored(_)
+                    | ProgramImplementation::External(_) => {
                         if invocation.body.is_some() {
                             return Err(Diagnostic::new(
                                 "E_UNEXPECTED_PROGRAM_BODY",

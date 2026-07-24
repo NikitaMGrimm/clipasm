@@ -1,0 +1,328 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::diagnostic::{Diagnostic, Result};
+use crate::model::ValueType;
+use crate::program::{
+    Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue, ProgramDefinition,
+    ProgramDescriptor, ProgramImplementation, ResolvedCall, StackAccess,
+};
+use crate::source::{SourceFile, SourceSpan, Spanned};
+
+pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 1;
+const EXTERNAL_MANIFEST_FORMAT_VERSION: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub(crate) struct ExternalProgramId(u32);
+
+impl ExternalProgramId {
+    #[must_use]
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct ExternalInvocation {
+    pub(crate) command: Spanned<PathBuf>,
+    pub(crate) preserve_input: String,
+    pub(crate) inputs: std::collections::BTreeMap<String, crate::model::ValueRef>,
+    pub(crate) parameters: std::collections::BTreeMap<String, ExternalParameterValue>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalProgram {
+    semantic_version: u32,
+    command: Spanned<PathBuf>,
+    inputs: Vec<InputPort>,
+    parameters: Vec<ParameterDescriptor>,
+    primary_parameter: Option<String>,
+    preserve_input: String,
+}
+
+impl ExternalProgram {
+    pub(crate) fn definition(&self, id: ExternalProgramId, name: String) -> ProgramDefinition {
+        ProgramDefinition {
+            descriptor: ProgramDescriptor {
+                name,
+                semantic_version: self.semantic_version,
+                default_stack_access: StackAccess::Owned,
+                inputs: self.inputs.clone(),
+                parameters: self.parameters.clone(),
+                primary_parameter: self.primary_parameter.clone(),
+                type_parameter: None,
+                outputs: vec![ValueType::Video.into()],
+            },
+            implementation: ProgramImplementation::External(id),
+            body_contract: None,
+            postfix: None,
+        }
+    }
+
+    pub(crate) fn invocation(&self, call: &ResolvedCall) -> Result<ExternalInvocation> {
+        let inputs = self
+            .inputs
+            .iter()
+            .map(|input| {
+                call.one_input(&input.name)
+                    .map(|value| (input.name.clone(), value))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+        let parameters = call
+            .parameters()
+            .iter()
+            .map(|(name, value)| {
+                let value = match &value.value {
+                    ParameterValue::Integer(value) => ExternalParameterValue::Integer(*value),
+                    ParameterValue::Keyword(value) => {
+                        ExternalParameterValue::Keyword(value.clone())
+                    }
+                    ParameterValue::File(_)
+                    | ParameterValue::Duration(_)
+                    | ParameterValue::TimeRange(_) => {
+                        return Err(Diagnostic::new(
+                            "E_INVALID_EXTERNAL_PROGRAM",
+                            format!("external parameter `{name}` uses an unsupported runtime type"),
+                            value.span.clone(),
+                        ));
+                    }
+                };
+                Ok((name.clone(), value))
+            })
+            .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+        Ok(ExternalInvocation {
+            command: self.command.clone(),
+            preserve_input: self.preserve_input.clone(),
+            inputs,
+            parameters,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+/// One scalar value passed to an external program process.
+pub enum ExternalParameterValue {
+    /// Signed integer parameter.
+    Integer(i64),
+    /// One value from a manifest-declared keyword set.
+    Keyword(String),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Manifest {
+    format_version: u32,
+    protocol_version: u32,
+    semantic_version: u32,
+    command: PathBuf,
+    #[serde(default)]
+    inputs: Vec<ManifestInput>,
+    #[serde(default)]
+    parameters: Vec<ManifestParameter>,
+    primary_parameter: Option<String>,
+    output: ManifestOutput,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestInput {
+    name: String,
+    #[serde(rename = "type")]
+    value_type: ManifestValueType,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+enum ManifestValueType {
+    Video,
+    Audio,
+}
+
+impl From<ManifestValueType> for ValueType {
+    fn from(value: ManifestValueType) -> Self {
+        match value {
+            ManifestValueType::Video => Self::Video,
+            ManifestValueType::Audio => Self::Audio,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestParameter {
+    name: String,
+    #[serde(rename = "type")]
+    parameter_type: ManifestParameterType,
+    #[serde(default)]
+    required: bool,
+    values: Option<Vec<String>>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+enum ManifestParameterType {
+    Integer,
+    Keyword,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestOutput {
+    #[serde(rename = "type")]
+    value_type: ManifestValueType,
+    preserve: String,
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn load_manifest(path: &Path) -> Result<ExternalProgram> {
+    let canonical = fs::canonicalize(path)
+        .map_err(|error| Diagnostic::io("E_EXTERNAL_MANIFEST_IO", path, &error))?;
+    let text = fs::read_to_string(&canonical)
+        .map_err(|error| Diagnostic::io("E_EXTERNAL_MANIFEST_IO", &canonical, &error))?;
+    let source = SourceFile::new(canonical, text.clone());
+    let span = SourceSpan::source_start(source);
+    let manifest: Manifest = serde_json::from_str(&text).map_err(|error| {
+        Diagnostic::new(
+            "E_EXTERNAL_MANIFEST_SYNTAX",
+            format!("invalid external program manifest: {error}"),
+            SourceSpan::at(span.source().clone(), error.line(), error.column()),
+        )
+    })?;
+
+    if manifest.format_version != EXTERNAL_MANIFEST_FORMAT_VERSION {
+        return Err(Diagnostic::new(
+            "E_EXTERNAL_MANIFEST_VERSION",
+            format!(
+                "unsupported external manifest format {}; expected {}",
+                manifest.format_version, EXTERNAL_MANIFEST_FORMAT_VERSION
+            ),
+            span,
+        ));
+    }
+    if manifest.protocol_version != EXTERNAL_PROTOCOL_VERSION {
+        return Err(Diagnostic::new(
+            "E_EXTERNAL_PROTOCOL_VERSION",
+            format!(
+                "unsupported external protocol {}; expected {}",
+                manifest.protocol_version, EXTERNAL_PROTOCOL_VERSION
+            ),
+            span,
+        ));
+    }
+    if manifest.semantic_version == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "external `semantic_version` must be greater than zero",
+            span,
+        ));
+    }
+    if manifest.command.as_os_str().is_empty() {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "external `command` must not be empty",
+            span,
+        ));
+    }
+
+    let inputs = manifest
+        .inputs
+        .into_iter()
+        .map(|input| InputPort {
+            name: input.name,
+            value_type: ValueType::from(input.value_type).into(),
+            cardinality: Cardinality::One,
+        })
+        .collect::<Vec<_>>();
+    let parameters = manifest
+        .parameters
+        .into_iter()
+        .map(|parameter| {
+            let parameter_type = match parameter.parameter_type {
+                ManifestParameterType::Integer => {
+                    if parameter.values.is_some() {
+                        return Err(Diagnostic::new(
+                            "E_INVALID_EXTERNAL_PROGRAM",
+                            format!(
+                                "external Integer parameter `{}` cannot declare `values`",
+                                parameter.name
+                            ),
+                            span.clone(),
+                        ));
+                    }
+                    ParameterType::Integer
+                }
+                ManifestParameterType::Keyword => {
+                    let values = parameter
+                        .values
+                        .filter(|values| !values.is_empty())
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                "E_INVALID_EXTERNAL_PROGRAM",
+                                format!(
+                                    "external Keyword parameter `{}` requires nonempty `values`",
+                                    parameter.name
+                                ),
+                                span.clone(),
+                            )
+                        })?;
+                    ParameterType::Keyword(values)
+                }
+            };
+            Ok(ParameterDescriptor {
+                name: parameter.name,
+                parameter_type,
+                required: parameter.required,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    if ValueType::from(manifest.output.value_type) != ValueType::Video {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "the initial external protocol supports exactly one Video output",
+            span,
+        ));
+    }
+    let Some(preserved) = inputs
+        .iter()
+        .find(|input| input.name == manifest.output.preserve)
+    else {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            format!(
+                "external output preserves unknown input `{}`",
+                manifest.output.preserve
+            ),
+            span,
+        ));
+    };
+    if preserved.value_type.exact() != Some(ValueType::Video) {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            format!(
+                "external output preserve input `{}` must be Video",
+                manifest.output.preserve
+            ),
+            span,
+        ));
+    }
+
+    let program = ExternalProgram {
+        semantic_version: manifest.semantic_version,
+        command: Spanned::new(manifest.command, span.clone()),
+        inputs,
+        parameters,
+        primary_parameter: manifest.primary_parameter,
+        preserve_input: manifest.output.preserve,
+    };
+    let validation = program.definition(ExternalProgramId::new(0), "external".to_owned());
+    crate::program::ProgramRegistry::from_definitions(vec![validation])?;
+    Ok(program)
+}

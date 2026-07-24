@@ -34,7 +34,7 @@ use crate::source::{SourceFile, SourceSpan};
 mod assets;
 mod identity;
 mod lower;
-mod tools;
+pub(crate) mod tools;
 
 pub(crate) use assets::verify_prepared_asset;
 use assets::{
@@ -43,10 +43,10 @@ use assets::{
 };
 use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
-use tools::{ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
+use tools::{ExternalToolIdentity, ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
-const PREPARED_FORMAT_VERSION: u32 = 6;
-const CACHE_FORMAT_VERSION: u32 = 4;
+const PREPARED_FORMAT_VERSION: u32 = 7;
+const CACHE_FORMAT_VERSION: u32 = 5;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale",
     "crop",
@@ -350,6 +350,17 @@ pub enum PreparedNodeKind {
     AudioOnBlack {
         /// Audio used as the output timeline.
         audio: NodeId,
+    },
+    /// A Video produced by one registered external executable.
+    ExternalVideo {
+        /// Prepared external executable identity.
+        executable: ExternalToolIdentity,
+        /// Named prepared inputs.
+        inputs: BTreeMap<String, NodeId>,
+        /// Bound scalar parameters.
+        parameters: BTreeMap<String, crate::external::ExternalParameterValue>,
+        /// Input whose exact domain and audio presence are preserved.
+        preserve_input: String,
     },
 }
 

@@ -145,6 +145,21 @@ pub(super) fn node_fingerprint(
             serde_json::json!({"operation": "audio_on_black"}),
             vec![*audio],
         ),
+        PreparedNodeKind::ExternalVideo {
+            executable,
+            inputs,
+            parameters,
+            preserve_input,
+        } => (
+            serde_json::json!({
+                "operation": "external_video",
+                "executable_content_hash": executable.content_hash(),
+                "input_names": inputs.keys().collect::<Vec<_>>(),
+                "parameters": parameters,
+                "preserve_input": preserve_input,
+            }),
+            inputs.values().copied().collect(),
+        ),
     };
     let upstream = inputs
         .iter()
