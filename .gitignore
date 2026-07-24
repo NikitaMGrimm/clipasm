@@ -1,5 +1,6 @@
 /target/
 **/.clipasm/
 /local/
+/examples/generated/
 *.mp4
 *.manifest.json
