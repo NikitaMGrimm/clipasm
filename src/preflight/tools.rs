@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufReader, Read};
+use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -569,16 +569,25 @@ fn tool_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<St
 }
 
 fn tool_command_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<Output> {
-    let output = Command::new(tool)
-        .args(arguments)
-        .output()
-        .map_err(|error| {
-            Diagnostic::new(
-                code,
-                format!("could not start `{}`: {error}", tool.display()),
-                SourceSpan::file_start(tool),
-            )
-        })?;
+    const START_ATTEMPTS: usize = 5;
+    let mut attempt = 0;
+    let output = loop {
+        attempt += 1;
+        match Command::new(tool).args(arguments).output() {
+            Ok(output) => break Ok(output),
+            Err(error) if executable_is_temporarily_busy(&error) && attempt < START_ATTEMPTS => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => break Err(error),
+        }
+    }
+    .map_err(|error| {
+        Diagnostic::new(
+            code,
+            format!("could not start `{}`: {error}", tool.display()),
+            SourceSpan::file_start(tool),
+        )
+    })?;
     if !output.status.success() {
         return Err(Diagnostic::new(
             code,
@@ -594,6 +603,18 @@ fn tool_command_output(tool: &Path, arguments: &[&str], code: &'static str) -> R
     Ok(output)
 }
 
+fn executable_is_temporarily_busy(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(26)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, MutexGuard};
@@ -605,7 +626,7 @@ mod tests {
     fn fake_tool_test_lock() -> MutexGuard<'static, ()> {
         FAKE_TOOL_TEST_LOCK
             .lock()
-            .expect("fake tool test lock was poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[cfg(unix)]
@@ -614,10 +635,12 @@ mod tests {
 
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("fake-ffmpeg");
-        fs::write(&path, contents).expect("script");
-        let mut permissions = fs::metadata(&path).expect("metadata").permissions();
+        let staged = directory.path().join(".fake-ffmpeg-staged");
+        fs::write(&staged, contents).expect("staged script");
+        let mut permissions = fs::metadata(&staged).expect("metadata").permissions();
         permissions.set_mode(0o755);
-        fs::set_permissions(&path, permissions).expect("permissions");
+        fs::set_permissions(&staged, permissions).expect("permissions");
+        fs::rename(&staged, &path).expect("publish script");
         (directory, path)
     }
 
