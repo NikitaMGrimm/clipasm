@@ -48,11 +48,68 @@ impl StackAccess {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ValueConstraint {
+    Timeline,
+    Any,
+}
+
+impl ValueConstraint {
+    #[must_use]
+    pub(crate) const fn accepts(self, value_type: ValueType) -> bool {
+        match self {
+            Self::Timeline | Self::Any => matches!(value_type, ValueType::Video | ValueType::Audio),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ValueTypeSpec {
+    Exact(ValueType),
+    Generic,
+}
+
+impl ValueTypeSpec {
+    #[must_use]
+    pub(crate) const fn exact(self) -> Option<ValueType> {
+        match self {
+            Self::Exact(value_type) => Some(value_type),
+            Self::Generic => None,
+        }
+    }
+}
+
+impl From<ValueType> for ValueTypeSpec {
+    fn from(value_type: ValueType) -> Self {
+        Self::Exact(value_type)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InputPort {
     pub(crate) name: String,
+    pub(crate) value_type: ValueTypeSpec,
+    pub(crate) cardinality: Cardinality,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedInputPort {
+    pub(crate) name: String,
     pub(crate) value_type: ValueType,
     pub(crate) cardinality: Cardinality,
+    pub(crate) allow_adaptation: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedSignature {
+    pub(crate) inputs: Vec<ResolvedInputPort>,
+    pub(crate) outputs: Vec<ValueType>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TypeParameter {
+    pub(crate) constraint: ValueConstraint,
+    pub(crate) selector: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,7 +147,30 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<ParameterDescriptor>,
     pub(crate) primary_parameter: Option<String>,
-    pub(crate) outputs: Vec<ValueType>,
+    pub(crate) type_parameter: Option<TypeParameter>,
+    pub(crate) outputs: Vec<ValueTypeSpec>,
+}
+
+impl ProgramDescriptor {
+    pub(crate) fn resolve_signature(&self, generic: Option<ValueType>) -> ResolvedSignature {
+        let resolve = |spec: ValueTypeSpec| match spec {
+            ValueTypeSpec::Exact(value_type) => value_type,
+            ValueTypeSpec::Generic => generic.expect("generic descriptor has a resolved type"),
+        };
+        ResolvedSignature {
+            inputs: self
+                .inputs
+                .iter()
+                .map(|port| ResolvedInputPort {
+                    name: port.name.clone(),
+                    value_type: resolve(port.value_type),
+                    cardinality: port.cardinality,
+                    allow_adaptation: matches!(port.value_type, ValueTypeSpec::Exact(_)),
+                })
+                .collect(),
+            outputs: self.outputs.iter().copied().map(resolve).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -470,6 +550,54 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
             )));
         }
 
+        let has_generic = descriptor
+            .inputs
+            .iter()
+            .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            || descriptor
+                .outputs
+                .iter()
+                .any(|output| matches!(output, ValueTypeSpec::Generic));
+        match &descriptor.type_parameter {
+            Some(type_parameter) => {
+                if !has_generic {
+                    return Err(definition_error(format!(
+                        "program `{}` declares a type parameter without generic inputs or outputs",
+                        descriptor.name
+                    )));
+                }
+                let Some(selector) = descriptor
+                    .parameters
+                    .iter()
+                    .find(|parameter| parameter.name == type_parameter.selector)
+                else {
+                    return Err(definition_error(format!(
+                        "program `{}` names nonexistent type selector `{}`",
+                        descriptor.name, type_parameter.selector
+                    )));
+                };
+                if selector.required
+                    || !matches!(
+                        &selector.parameter_type,
+                        ParameterType::Keyword(values)
+                            if values == &["Video".to_owned(), "Audio".to_owned()]
+                    )
+                {
+                    return Err(definition_error(format!(
+                        "program `{}` type selector `{}` must be an optional Video/Audio Keyword",
+                        descriptor.name, type_parameter.selector
+                    )));
+                }
+            }
+            None if has_generic => {
+                return Err(definition_error(format!(
+                    "program `{}` uses generic value types without a type parameter",
+                    descriptor.name
+                )));
+            }
+            None => {}
+        }
+
         match (definition.implementation, &definition.body_contract) {
             (ProgramImplementation::Body(_), None) => {
                 return Err(definition_error(format!(
@@ -581,7 +709,8 @@ mod tests {
                 inputs,
                 parameters,
                 primary_parameter: primary_parameter.map(str::to_owned),
-                outputs: vec![ValueType::Video],
+                type_parameter: None,
+                outputs: vec![ValueType::Video.into()],
             },
             implementation,
             body_contract: None,
@@ -633,12 +762,12 @@ mod tests {
         let ports = vec![
             InputPort {
                 name: "head".to_owned(),
-                value_type: ValueType::Video,
+                value_type: ValueType::Video.into(),
                 cardinality: Cardinality::One,
             },
             InputPort {
                 name: "tail".to_owned(),
-                value_type: ValueType::Video,
+                value_type: ValueType::Video.into(),
                 cardinality: Cardinality::Variadic { min: 1 },
             },
         ];

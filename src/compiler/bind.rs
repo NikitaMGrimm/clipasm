@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef};
 use crate::program::{
-    BoundParameters, Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue,
-    ProgramDefinition, ResolvedCall, StackAccess,
+    BoundParameters, Cardinality, ParameterDescriptor, ParameterType, ParameterValue,
+    ProgramDefinition, ResolvedCall, ResolvedInputPort, ResolvedSignature, StackAccess,
 };
 use crate::semantic::{SourceOrigin, require_value_type};
 use crate::source::{ArgumentValue, Invocation, Literal};
@@ -22,9 +22,10 @@ pub(super) struct BindContext<'a> {
 
 pub(super) fn bind_call(
     definition: &ProgramDefinition,
+    signature: &ResolvedSignature,
     invocation: &Invocation,
     context: BindContext<'_>,
-    mut resolve_input_value: impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
+    mut resolve_input_value: impl FnMut(&ArgumentValue, &ResolvedInputPort) -> Result<Vec<ValueRef>>,
     mut resolve_parameter_value: impl FnMut(
         &crate::source::Spanned<String>,
         &ParameterDescriptor,
@@ -39,7 +40,7 @@ pub(super) fn bind_call(
     } = context;
     let descriptor = &definition.descriptor;
     for (name, argument) in &invocation.arguments {
-        if !descriptor.inputs.iter().any(|port| port.name == *name)
+        if !signature.inputs.iter().any(|port| port.name == *name)
             && !descriptor
                 .parameters
                 .iter()
@@ -56,8 +57,8 @@ pub(super) fn bind_call(
         }
     }
 
-    let mut slots = vec![None; descriptor.inputs.len()];
-    for (index, port) in descriptor.inputs.iter().enumerate() {
+    let mut slots = vec![None; signature.inputs.len()];
+    for (index, port) in signature.inputs.iter().enumerate() {
         if let Some(argument) = invocation.arguments.get(&port.name) {
             slots[index] = Some(resolve_explicit_input(
                 &descriptor.name,
@@ -70,14 +71,14 @@ pub(super) fn bind_call(
 
     bind_missing_fixed(
         &descriptor.name,
-        &descriptor.inputs,
+        &signature.inputs,
         &mut slots,
         stack,
         frame,
         access,
         &origin.span,
     )?;
-    for (index, port) in descriptor.inputs.iter().enumerate() {
+    for (index, port) in signature.inputs.iter().enumerate() {
         if slots[index].is_some() {
             continue;
         }
@@ -96,7 +97,7 @@ pub(super) fn bind_call(
         slots[index] = Some(values);
     }
 
-    let inputs = descriptor
+    let inputs = signature
         .inputs
         .iter()
         .zip(slots)
@@ -243,8 +244,8 @@ pub(super) fn parameter_value_matches(
 fn resolve_explicit_input(
     program: &str,
     argument: &ArgumentValue,
-    port: &InputPort,
-    resolve_input_value: &mut impl FnMut(&ArgumentValue, &InputPort) -> Result<Vec<ValueRef>>,
+    port: &ResolvedInputPort,
+    resolve_input_value: &mut impl FnMut(&ArgumentValue, &ResolvedInputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<Vec<ValueRef>> {
     if matches!(port.cardinality, Cardinality::Variadic { .. })
         && !matches!(
@@ -280,6 +281,23 @@ fn resolve_explicit_input(
         _ => {}
     }
     for value in &values {
+        if value.value_type() == port.value_type {
+            continue;
+        }
+        if port.allow_adaptation
+            && matches!(
+                (value.value_type(), port.value_type),
+                (
+                    crate::model::ValueType::Video,
+                    crate::model::ValueType::Audio
+                ) | (
+                    crate::model::ValueType::Audio,
+                    crate::model::ValueType::Video
+                )
+            )
+        {
+            continue;
+        }
         require_value_type(
             *value,
             port.value_type,
@@ -293,7 +311,7 @@ fn resolve_explicit_input(
 
 fn bind_missing_fixed(
     program: &str,
-    ports: &[InputPort],
+    ports: &[ResolvedInputPort],
     slots: &mut [Option<Vec<ValueRef>>],
     stack: &mut EvaluationStack,
     frame: &mut StackFrame,
@@ -319,16 +337,17 @@ fn bind_missing_fixed(
 mod tests {
     use super::*;
     use crate::model::{ValueId, ValueType};
-    use crate::program::{ProgramDescriptor, ProgramImplementation};
+    use crate::program::{ProgramDescriptor, ProgramImplementation, ResolvedInputPort};
     use std::path::Path;
 
-    fn ports() -> Vec<InputPort> {
+    fn ports() -> Vec<ResolvedInputPort> {
         ["first", "middle", "last"]
             .into_iter()
-            .map(|name| InputPort {
+            .map(|name| ResolvedInputPort {
                 name: name.to_owned(),
                 value_type: ValueType::Video,
                 cardinality: Cardinality::One,
+                allow_adaptation: true,
             })
             .collect()
     }
@@ -384,7 +403,8 @@ mod tests {
                 inputs: vec![],
                 parameters: parameters(),
                 primary_parameter: None,
-                outputs: vec![ValueType::Video],
+                type_parameter: None,
+                outputs: vec![ValueType::Video.into()],
             },
             implementation: ProgramImplementation::Direct(lower_stub),
             body_contract: None,
@@ -418,8 +438,10 @@ mod tests {
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
         let definition = typed_program();
+        let signature = definition.descriptor.resolve_signature(None);
         bind_call(
             &definition,
+            &signature,
             invocation,
             BindContext {
                 stack: &mut stack,

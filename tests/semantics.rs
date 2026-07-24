@@ -268,13 +268,13 @@ fn fixed_inputs_accept_isolated_inline_program_bodies() {
 #[test]
 fn inline_input_bodies_start_empty_and_preserve_the_outer_stack() {
     let (_directory, isolated) = project(
-        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    video:\n      - repeat: 2\n    count: 2\n",
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    value:\n      - repeat: 2\n    count: 2\n",
     );
     let error = compiler::compile(&isolated).expect_err("isolated input stack");
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
 
     let (_directory, preserved) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    video:\n      image: {path: b.ppm, duration: 1s}\n    count: 2\n- concat\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    value:\n      image: {path: b.ppm, duration: 1s}\n    count: 2\n- concat\n",
     );
     let compiled = compiler::compile(&preserved).expect("preserved outer value");
     assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
@@ -283,11 +283,11 @@ fn inline_input_bodies_start_empty_and_preserve_the_outer_stack() {
 #[test]
 fn inline_input_body_requires_exactly_one_value() {
     let (_directory, program) = project(
-        "- program:\n    version: 1\n\n- repeat:\n    video:\n      - image: {path: a.ppm, duration: 1s}\n      - image: {path: b.ppm, duration: 1s}\n    count: 2\n",
+        "- program:\n    version: 1\n\n- repeat:\n    value:\n      - image: {path: a.ppm, duration: 1s}\n      - image: {path: b.ppm, duration: 1s}\n    count: 2\n",
     );
     let error = compiler::compile(&program).expect_err("two inline results");
     assert_eq!(error.code, "E_INPUT_BODY_OUTPUT_COUNT");
-    assert!(error.message.contains("repeat.video"));
+    assert!(error.message.contains("repeat.value"));
     assert!(error.message.contains("2 values remain"));
 }
 
@@ -692,7 +692,7 @@ fn join_reduces_only_the_top_two_outer_values() {
 #[test]
 fn explicit_inputs_do_not_consume_join_stack_occurrences() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - join:\n        - concat:\n            videos: [$x, $y]\n        - concat\n  ",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - join:\n        - concat:\n            values: [$x, $y]\n        - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(compiled.result_domain().expect("known domain").frames.0, 40);
@@ -869,18 +869,30 @@ fn root_publication_ignores_auxiliary_audio_outputs() {
 }
 
 #[test]
-fn implicit_stack_binding_never_adapts_audio_to_video() {
+fn trim_uses_audio_natively_without_implicit_adaptation() {
     let (_directory, workflow) =
         project("- program:\n    version: 1\n\n- audio: missing.wav\n- trim: 0s..1s\n");
-    let error = compiler::compile(&workflow).expect_err("implicit adaptation must not occur");
-    assert_eq!(error.code, "E_STACK_UNDERFLOW");
-    assert!(error.message.contains("Video"));
+    let compiled = compiler::compile(&workflow).expect("native Audio trim");
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+    let document = compiled_json(&compiled);
+    let operations = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter_map(|node| node["kind"]["operation"].as_str())
+        .collect::<Vec<_>>();
+    assert!(operations.contains(&"audio_slice"));
+    assert!(!operations.contains(&"audio_on_black"));
+    assert!(!operations.contains(&"extract_audio"));
 }
 
 #[test]
 fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
     let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- set_audio:\n    video:\n      image: {path: a.ppm, duration: 4s}\n    audio:\n      trim:\n        video:\n          audio: missing.wav\n        range: 1s..3s\n",
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- set_audio:\n    video:\n      image: {path: a.ppm, duration: 4s}\n    audio:\n      zoom:\n        video:\n          audio: missing.wav\n",
     );
     let compiled = compiler::compile(&workflow).expect("composed explicit adaptations");
     assert_eq!(compiled.result_domain().expect("Video result").frames.0, 40);
@@ -892,7 +904,74 @@ fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
         .filter_map(|node| node["kind"]["operation"].as_str())
         .collect::<Vec<_>>();
     assert!(operations.contains(&"audio_on_black"));
-    assert!(operations.contains(&"slice"));
+    assert!(operations.contains(&"zoom"));
     assert!(operations.contains(&"extract_audio"));
     assert!(operations.contains(&"set_audio"));
+}
+
+#[test]
+fn bare_concat_rejects_mixed_timeline_types() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- audio: missing.wav\n- concat\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("mixed concat must select a type");
+    assert_eq!(error.code, "E_AMBIGUOUS_GENERIC_TYPE");
+    assert!(error.message.contains("type: Video"));
+    assert!(error.message.contains("type: Audio"));
+}
+
+#[test]
+fn concat_selector_reduces_only_the_selected_type() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- audio: first.wav\n- image: {path: b.ppm, duration: 1s}\n- audio: second.wav\n- concat: Video\n- concat: Audio\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("selected concatenations");
+    assert_eq!(compiled.outputs().len(), 2);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Video
+    );
+    assert_eq!(
+        compiled.outputs()[1].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+    let document = compiled_json(&compiled);
+    let operations = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter_map(|node| node["kind"]["operation"].as_str())
+        .collect::<Vec<_>>();
+    assert!(operations.contains(&"concat"));
+    assert!(operations.contains(&"audio_concat"));
+}
+
+#[test]
+fn generic_unary_programs_use_the_nearest_compatible_value() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- audio: missing.wav\n- repeat: 2\n- drop\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("nearest Audio then drop it");
+    assert_eq!(compiled.outputs().len(), 1);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Video
+    );
+    let document = compiled_json(&compiled);
+    assert!(
+        document["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["kind"]["operation"] == "audio_repeat")
+    );
+}
+
+#[test]
+fn generic_explicit_inputs_must_be_homogeneous_without_coercion() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    clips:\n      video: {image: {path: a.ppm, duration: 1s}}\n\n- audio: missing.wav\n  id: audio\n- concat:\n    values: [$video, $audio]\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("mixed explicit generic input");
+    assert_eq!(error.code, "E_GENERIC_TYPE_MISMATCH");
 }

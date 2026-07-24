@@ -38,6 +38,7 @@ struct CacheIdentity<'a> {
     media_policy: RenderMediaPolicy,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn node_fingerprint(
     kind: &PreparedNodeKind,
     value_type: ValueType,
@@ -72,6 +73,18 @@ pub(super) fn node_fingerprint(
                 "content_hash": asset.content_hash,
             }),
             Vec::new(),
+        ),
+        PreparedNodeKind::AudioSlice { input, range } => (
+            serde_json::json!({"operation": "audio_slice", "range": range}),
+            vec![*input],
+        ),
+        PreparedNodeKind::AudioRepeat { input, count } => (
+            serde_json::json!({"operation": "audio_repeat", "count": count}),
+            vec![*input],
+        ),
+        PreparedNodeKind::AudioConcat { inputs } => (
+            serde_json::json!({"operation": "audio_concat"}),
+            inputs.clone(),
         ),
         PreparedNodeKind::Slice { input, range } => (
             serde_json::json!({

@@ -137,6 +137,43 @@ impl StackValue for ValueType {
 }
 
 impl<T: Copy + StackValue> EvaluationStack<T> {
+    pub(super) fn nearest_accessible_type(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        accepts: impl Fn(ValueType) -> bool,
+    ) -> Option<ValueType> {
+        self.values
+            .iter()
+            .copied()
+            .zip(self.owners.iter().copied())
+            .rev()
+            .find_map(|(value, owner)| {
+                let value_type = value.value_type();
+                (Self::accessible(owner, frame, access) && accepts(value_type))
+                    .then_some(value_type)
+            })
+    }
+
+    pub(super) fn accessible_types(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        accepts: impl Fn(ValueType) -> bool,
+    ) -> Vec<ValueType> {
+        let mut types = Vec::new();
+        for (value, owner) in self.values.iter().copied().zip(self.owners.iter().copied()) {
+            let value_type = value.value_type();
+            if Self::accessible(owner, frame, access)
+                && accepts(value_type)
+                && !types.contains(&value_type)
+            {
+                types.push(value_type);
+            }
+        }
+        types
+    }
+
     pub(super) fn take_one_matching(
         &mut self,
         frame: &StackFrame,

@@ -6,7 +6,7 @@ use crate::model::ValueType;
 use crate::program::{
     BodyOutputConstraint, Cardinality, InputPort, ParameterDescriptor, ParameterType,
     ProgramDefinition, ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry,
-    builtin_programs,
+    ResolvedSignature, ValueTypeSpec, builtin_programs,
 };
 use crate::source::{
     ArgumentValue, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
@@ -51,6 +51,7 @@ pub(super) enum CheckedItemKind {
     Reference,
     Invocation {
         program: ProgramId,
+        signature: ResolvedSignature,
         access: crate::program::StackAccess,
         body: Option<Box<CheckedBody>>,
         input_bodies: BTreeMap<String, CheckedBody>,
@@ -120,7 +121,8 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 inputs: unit.program().inputs().to_vec(),
                 parameters,
                 primary_parameter: None,
-                outputs,
+                type_parameter: None,
+                outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation: ProgramImplementation::Authored(unit_id),
             body_contract: None,
@@ -182,7 +184,12 @@ fn check_program(
         insert_local(
             &mut locals,
             &input.name,
-            LocalType::Value(input.value_type),
+            LocalType::Value(
+                input
+                    .value_type
+                    .exact()
+                    .expect("authored inputs are concrete"),
+            ),
             program.span(),
         )?;
     }
@@ -299,7 +306,8 @@ fn collect_body_names(
         match &item.output_bindings {
             OutputBindings::None => {}
             OutputBindings::One(name) => {
-                let output_types = item_output_types(item, unit, definitions, builtins, namespace)?;
+                let output_types =
+                    item_output_types(item, locals, unit, definitions, builtins, namespace)?;
                 let [output] = output_types.as_slice() else {
                     return Err(binding_count_error(
                         item,
@@ -311,7 +319,8 @@ fn collect_body_names(
                 insert_local(locals, &name.value, output.clone(), &name.span)?;
             }
             OutputBindings::Many(names, span) => {
-                let output_types = item_output_types(item, unit, definitions, builtins, namespace)?;
+                let output_types =
+                    item_output_types(item, locals, unit, definitions, builtins, namespace)?;
                 if output_types.len() <= 1 || output_types.len() != names.len() {
                     return Err(binding_count_error(
                         item,
@@ -341,6 +350,7 @@ fn collect_body_names(
 
 fn item_output_types(
     item: &Item,
+    locals: &BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
@@ -348,24 +358,269 @@ fn item_output_types(
 ) -> Result<Vec<LocalType>> {
     match &item.kind {
         ItemKind::Reference(reference) => Ok(vec![LocalType::Alias(reference.name.value.clone())]),
-        ItemKind::Invocation(invocation) => definition_for(
-            unit,
-            &invocation.program.value,
-            definitions,
-            builtins,
-            namespace,
-            &invocation.program.span,
-        )
-        .map(|definition| {
-            definition
+        ItemKind::Invocation(invocation) => {
+            let definition = definition_for(
+                unit,
+                &invocation.program.value,
+                definitions,
+                builtins,
+                namespace,
+                &invocation.program.span,
+            )?;
+            let generic = if let Some(type_parameter) = &definition.descriptor.type_parameter {
+                if let Some(argument) = invocation.arguments.get(&type_parameter.selector) {
+                    Some(match argument {
+                        ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
+                            ValueType::Video
+                        }
+                        ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
+                            ValueType::Audio
+                        }
+                        _ => {
+                            return Err(Diagnostic::new(
+                                "E_INVALID_ARGUMENT_VALUE",
+                                format!(
+                                    "parameter `{}.{}` must be `Video` or `Audio`",
+                                    invocation.program.value, type_parameter.selector
+                                ),
+                                argument.span().clone(),
+                            ));
+                        }
+                    })
+                } else {
+                    let generic_port = definition
+                        .descriptor
+                        .inputs
+                        .iter()
+                        .find(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+                        .expect("generic descriptor has a generic input");
+                    let inferred =
+                        invocation
+                            .arguments
+                            .get(&generic_port.name)
+                            .and_then(|argument| match argument {
+                                ArgumentValue::Reference(reference) => {
+                                    value_local(locals, &reference.value, &reference.span).ok()
+                                }
+                                ArgumentValue::References(references, _) => {
+                                    let mut inferred = None;
+                                    for reference in references {
+                                        let value_type =
+                                            value_local(locals, &reference.value, &reference.span)
+                                                .ok()?;
+                                        if inferred.is_some_and(|current| current != value_type) {
+                                            return None;
+                                        }
+                                        inferred = Some(value_type);
+                                    }
+                                    inferred
+                                }
+                                ArgumentValue::Literal(_) | ArgumentValue::Body(_) => None,
+                            });
+                    Some(inferred.ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_GENERIC_OUTPUT_TYPE_REQUIRED",
+                            format!(
+                                "named output from generic program `{}` requires an explicit generic input or `{}: Video|Audio`",
+                                invocation.program.value, type_parameter.selector
+                            ),
+                            invocation.program.span.clone(),
+                        )
+                    })?)
+                }
+            } else {
+                None
+            };
+            Ok(definition
                 .descriptor
+                .resolve_signature(generic)
                 .outputs
-                .iter()
-                .copied()
+                .into_iter()
                 .map(LocalType::Value)
-                .collect()
-        }),
+                .collect())
+        }
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn resolve_invocation_signature(
+    definition: &ProgramDefinition,
+    invocation: &crate::source::Invocation,
+    validated: &ValidatedArguments,
+    stack: &EvaluationStack<ValueType>,
+    frame: &super::stack::StackFrame,
+    access: crate::program::StackAccess,
+    span: &crate::source::SourceSpan,
+) -> Result<ResolvedSignature> {
+    let descriptor = &definition.descriptor;
+    let Some(type_parameter) = &descriptor.type_parameter else {
+        let signature = descriptor.resolve_signature(None);
+        validate_explicit_input_types(invocation, validated, &signature)?;
+        return Ok(signature);
+    };
+
+    let selected = invocation
+        .arguments
+        .get(&type_parameter.selector)
+        .map(|argument| match argument {
+            ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
+                Ok(ValueType::Video)
+            }
+            ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
+                Ok(ValueType::Audio)
+            }
+            _ => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_VALUE",
+                format!(
+                    "parameter `{}.{}` must be `Video` or `Audio`",
+                    descriptor.name, type_parameter.selector
+                ),
+                argument.span().clone(),
+            )),
+        })
+        .transpose()?;
+
+    let mut explicit = Vec::new();
+    for port in &descriptor.inputs {
+        if !matches!(port.value_type, ValueTypeSpec::Generic) {
+            continue;
+        }
+        if let Some(values) = validated.input_types.get(&port.name) {
+            for value_type in values {
+                if !explicit.contains(value_type) {
+                    explicit.push(*value_type);
+                }
+            }
+        }
+    }
+    if explicit.len() > 1 {
+        return Err(Diagnostic::new(
+            "E_GENERIC_TYPE_MISMATCH",
+            format!(
+                "program `{}` requires all generic inputs to have one type, but found {}",
+                descriptor.name,
+                explicit
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
+            span.clone(),
+        ));
+    }
+
+    let inferred = explicit.first().copied().or_else(|| {
+        let generic_port = descriptor
+            .inputs
+            .iter()
+            .find(|port| matches!(port.value_type, ValueTypeSpec::Generic))?;
+        match generic_port.cardinality {
+            Cardinality::One => stack
+                .nearest_accessible_type(frame, access, |value_type| {
+                    type_parameter.constraint.accepts(value_type)
+                })
+                .or_else(|| {
+                    (access == crate::program::StackAccess::Owned).then(|| {
+                        stack.nearest_accessible_type(
+                            frame,
+                            crate::program::StackAccess::Visible,
+                            |value_type| type_parameter.constraint.accepts(value_type),
+                        )
+                    })?
+                }),
+            Cardinality::Variadic { .. } => {
+                let types = stack.accessible_types(frame, access, |value_type| {
+                    type_parameter.constraint.accepts(value_type)
+                });
+                (types.len() == 1).then_some(types[0])
+            }
+        }
+    });
+
+    let value_type = match (selected, inferred) {
+        (Some(selected), Some(inferred)) if selected != inferred => {
+            return Err(Diagnostic::new(
+                "E_GENERIC_TYPE_MISMATCH",
+                format!(
+                    "program `{}` selects {selected}, but its explicit or nearest input is {inferred}",
+                    descriptor.name
+                ),
+                span.clone(),
+            ));
+        }
+        (Some(selected), _) => selected,
+        (None, Some(inferred)) => inferred,
+        (None, None) => {
+            let types = stack.accessible_types(frame, access, |candidate| {
+                type_parameter.constraint.accepts(candidate)
+            });
+            if types.len() > 1 {
+                return Err(Diagnostic::new(
+                    "E_AMBIGUOUS_GENERIC_TYPE",
+                    format!(
+                        "program `{}` can bind both Video and Audio; set `type: Video` or `type: Audio`",
+                        descriptor.name
+                    ),
+                    span.clone(),
+                ));
+            }
+            return Err(Diagnostic::new(
+                "E_STACK_UNDERFLOW",
+                format!(
+                    "program `{}` needs a preceding Video or Audio value",
+                    descriptor.name
+                ),
+                span.clone(),
+            ));
+        }
+    };
+    if !type_parameter.constraint.accepts(value_type) {
+        return Err(Diagnostic::new(
+            "E_TYPE_MISMATCH",
+            format!("program `{}` does not accept {value_type}", descriptor.name),
+            span.clone(),
+        ));
+    }
+    let signature = descriptor.resolve_signature(Some(value_type));
+    validate_explicit_input_types(invocation, validated, &signature)?;
+    Ok(signature)
+}
+
+fn validate_explicit_input_types(
+    invocation: &crate::source::Invocation,
+    validated: &ValidatedArguments,
+    signature: &ResolvedSignature,
+) -> Result<()> {
+    for port in &signature.inputs {
+        let Some(values) = validated.input_types.get(&port.name) else {
+            continue;
+        };
+        for value in values {
+            if *value == port.value_type
+                || port.allow_adaptation
+                    && matches!(
+                        (*value, port.value_type),
+                        (ValueType::Video, ValueType::Audio) | (ValueType::Audio, ValueType::Video)
+                    )
+            {
+                continue;
+            }
+            return Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                format!(
+                    "program `{}` input `{}` expected {}, but found {value}",
+                    invocation.program.value, port.name, port.value_type
+                ),
+                invocation
+                    .arguments
+                    .get(&port.name)
+                    .expect("validated explicit input")
+                    .span()
+                    .clone(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -398,7 +653,7 @@ fn infer_body(
                     &invocation.program.span,
                 )?;
                 let definition = &definitions[program.index()];
-                let input_bodies = validate_explicit_arguments(
+                let validated = validate_explicit_arguments(
                     invocation,
                     definition,
                     locals,
@@ -413,21 +668,22 @@ fn infer_body(
                     .map_or(definition.descriptor.default_stack_access, |access| {
                         access.value
                     });
-                let explicit_inputs = definition
-                    .descriptor
+                let signature = resolve_invocation_signature(
+                    definition, invocation, &validated, stack, frame, access, &item.span,
+                )?;
+                let explicit_inputs = signature
                     .inputs
                     .iter()
                     .filter(|port| invocation.arguments.contains_key(&port.name))
                     .count();
-                let missing = definition.descriptor.inputs.len() - explicit_inputs;
+                let missing = signature.inputs.len() - explicit_inputs;
                 if missing > 0 {
-                    if definition
-                        .descriptor
+                    if signature
                         .inputs
                         .iter()
                         .any(|port| matches!(port.cardinality, Cardinality::Variadic { .. }))
                     {
-                        let port = &definition.descriptor.inputs[0];
+                        let port = &signature.inputs[0];
                         let Cardinality::Variadic { min } = port.cardinality else {
                             unreachable!("validated variadic descriptor")
                         };
@@ -441,8 +697,7 @@ fn infer_body(
                             &item.span,
                         )?;
                     } else {
-                        for port in definition
-                            .descriptor
+                        for port in signature
                             .inputs
                             .iter()
                             .filter(|port| !invocation.arguments.contains_key(&port.name))
@@ -497,7 +752,7 @@ fn infer_body(
                         );
                         stack.extend(&child, contract.initial_values.iter().copied());
                         let mut body_locals = locals.clone();
-                        for port in &definition.descriptor.inputs {
+                        for port in &signature.inputs {
                             if matches!(port.cardinality, Cardinality::One) {
                                 body_locals
                                     .insert(port.name.clone(), LocalType::Value(port.value_type));
@@ -524,15 +779,16 @@ fn infer_body(
                         Some(Box::new(checked_body))
                     }
                 };
-                let output_types = definition.descriptor.outputs.clone();
+                let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
                 CheckedItem {
                     output_types,
                     kind: CheckedItemKind::Invocation {
                         program,
+                        signature,
                         access,
                         body: checked_body,
-                        input_bodies,
+                        input_bodies: validated.input_bodies,
                     },
                 }
             }
@@ -544,6 +800,11 @@ fn infer_body(
     })
 }
 
+struct ValidatedArguments {
+    input_bodies: BTreeMap<String, CheckedBody>,
+    input_types: BTreeMap<String, Vec<ValueType>>,
+}
+
 fn validate_explicit_arguments(
     invocation: &crate::source::Invocation,
     definition: &ProgramDefinition,
@@ -552,8 +813,9 @@ fn validate_explicit_arguments(
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
-) -> Result<BTreeMap<String, CheckedBody>> {
+) -> Result<ValidatedArguments> {
     let mut input_bodies = BTreeMap::new();
+    let mut input_types = BTreeMap::new();
     for (name, argument) in &invocation.arguments {
         if let Some(port) = definition
             .descriptor
@@ -561,7 +823,7 @@ fn validate_explicit_arguments(
             .iter()
             .find(|port| port.name == *name)
         {
-            if let Some(body) = validate_input_argument(
+            let (values, body) = validate_input_argument(
                 invocation,
                 port,
                 argument,
@@ -570,7 +832,9 @@ fn validate_explicit_arguments(
                 definitions,
                 builtins,
                 namespace,
-            )? {
+            )?;
+            input_types.insert(name.clone(), values);
+            if let Some(body) = body {
                 input_bodies.insert(name.clone(), body);
             }
         } else if let Some(parameter) = definition
@@ -603,7 +867,10 @@ fn validate_explicit_arguments(
             ));
         }
     }
-    Ok(input_bodies)
+    Ok(ValidatedArguments {
+        input_bodies,
+        input_types,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -616,7 +883,7 @@ fn validate_input_argument(
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
-) -> Result<Option<CheckedBody>> {
+) -> Result<(Vec<ValueType>, Option<CheckedBody>)> {
     if matches!(port.cardinality, Cardinality::Variadic { .. })
         && !matches!(
             argument,
@@ -710,8 +977,7 @@ fn validate_input_argument(
         }
         _ => {}
     }
-    ensure_explicit_types(&values, port, argument.span())?;
-    Ok(checked_body)
+    Ok((values, checked_body))
 }
 
 fn validate_body_outputs(
@@ -961,41 +1227,6 @@ fn literal_matches(parameter_type: &ParameterType, literal: &Literal) -> bool {
                     | ParameterType::Keyword(_),
                 Literal::String(_, _)
             )
-    )
-}
-
-fn ensure_explicit_types(
-    values: &[ValueType],
-    port: &InputPort,
-    span: &crate::source::SourceSpan,
-) -> Result<()> {
-    for value in values {
-        if *value == port.value_type
-            || matches!(
-                (*value, port.value_type),
-                (ValueType::Video, ValueType::Audio) | (ValueType::Audio, ValueType::Video)
-            )
-        {
-            continue;
-        }
-        return Err(type_error("program", port, *value, span));
-    }
-    Ok(())
-}
-
-fn type_error(
-    program: &str,
-    port: &InputPort,
-    actual: ValueType,
-    span: &crate::source::SourceSpan,
-) -> Diagnostic {
-    Diagnostic::new(
-        "E_TYPE_MISMATCH",
-        format!(
-            "program `{program}` input `{}` expected {}, but found {actual}",
-            port.name, port.value_type
-        ),
-        span.clone(),
     )
 }
 

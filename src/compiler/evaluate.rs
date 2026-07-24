@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, InputPort, ParameterType, ProgramDefinition, ProgramImplementation,
-    ResolvedCall,
+    BoundParameters, ParameterType, ProgramDefinition, ProgramImplementation, ResolvedCall,
+    ResolvedInputPort, ResolvedSignature,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::SourceSpan;
@@ -104,6 +104,7 @@ struct EvalScope {
 }
 
 impl Evaluator<'_> {
+    #[allow(clippy::too_many_lines)]
     fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
         let program = self.package.root().program();
         let Some(definition) = self
@@ -164,19 +165,23 @@ impl Evaluator<'_> {
             .id("video")
             .expect("native video program is registered");
         let video_definition = self.checked.registry.definition(video_program);
+        let video_signature = video_definition.descriptor.resolve_signature(None);
         let checked_input = CheckedBody {
             items: vec![CheckedItem {
-                output_types: video_definition.descriptor.outputs.clone(),
+                output_types: video_signature.outputs.clone(),
                 kind: CheckedItemKind::Invocation {
                     program: video_program,
+                    signature: video_signature.clone(),
                     access: video_definition.descriptor.default_stack_access,
                     body: None,
                     input_bodies: BTreeMap::new(),
                 },
             }],
         };
+        let signature = definition.descriptor.resolve_signature(None);
         super::bind::bind_call(
             &definition,
+            &signature,
             &invocation,
             super::bind::BindContext {
                 stack: &mut stack,
@@ -248,12 +253,22 @@ impl Evaluator<'_> {
                     &mut scope,
                     &input.name,
                     program.span(),
-                    DeclaredValueType::Known(input.value_type),
+                    DeclaredValueType::Known(
+                        input
+                            .value_type
+                            .exact()
+                            .expect("authored inputs are concrete"),
+                    ),
                 )?;
                 self.symbols
                     .get_mut(&key)
                     .expect("new input symbol")
-                    .value_type = Some(input.value_type);
+                    .value_type = Some(
+                    input
+                        .value_type
+                        .exact()
+                        .expect("authored inputs are concrete"),
+                );
                 self.bind_symbol(key, *value)?;
             }
         } else if let Some(input) = program.inputs().first() {
@@ -562,6 +577,7 @@ impl Evaluator<'_> {
                 ItemKind::Invocation(invocation),
                 CheckedItemKind::Invocation {
                     program,
+                    signature,
                     access,
                     body,
                     input_bodies,
@@ -570,6 +586,7 @@ impl Evaluator<'_> {
                 self.evaluate_invocation(
                     invocation,
                     *program,
+                    signature,
                     *access,
                     body.as_deref(),
                     input_bodies,
@@ -670,6 +687,7 @@ impl Evaluator<'_> {
         &mut self,
         invocation: &Invocation,
         program: crate::program::ProgramId,
+        signature: &ResolvedSignature,
         access: crate::program::StackAccess,
         checked_body: Option<&CheckedBody>,
         input_bodies: &BTreeMap<String, CheckedBody>,
@@ -686,6 +704,7 @@ impl Evaluator<'_> {
         let value_names = scope.values.keys().cloned().collect::<Vec<_>>();
         let call = super::bind::bind_call(
             definition,
+            signature,
             invocation,
             super::bind::BindContext {
                 stack,
@@ -770,8 +789,7 @@ impl Evaluator<'_> {
                     invocation.program.span.clone(),
                 );
                 stack.extend(&child, plan.initial_values);
-                let body_values = definition
-                    .descriptor
+                let body_values = signature
                     .inputs
                     .iter()
                     .filter(|port| matches!(port.cardinality, crate::program::Cardinality::One))
@@ -805,13 +823,13 @@ impl Evaluator<'_> {
             }
         };
 
-        validate_program_outputs(definition, outputs, span)
+        validate_program_outputs(definition, &signature.outputs, outputs, span)
     }
 
     fn evaluate_input_value(
         &mut self,
         value: &ArgumentValue,
-        port: &InputPort,
+        port: &ResolvedInputPort,
         program: &str,
         checked_body: Option<&CheckedBody>,
         requested_frames: Option<FrameCount>,
@@ -866,6 +884,18 @@ impl Evaluator<'_> {
             .map(|value_ref| {
                 if value_ref.value_type() == port.value_type {
                     return Ok(value_ref);
+                }
+                if !port.allow_adaptation {
+                    return Err(Diagnostic::new(
+                        "E_TYPE_MISMATCH",
+                        format!(
+                            "program `{program}` port `{}` expected {}, but the explicit value is {}",
+                            port.name,
+                            port.value_type,
+                            value_ref.value_type()
+                        ),
+                        value.span().clone(),
+                    ));
                 }
                 let origin = SourceOrigin::new("input adaptation", value.span().clone());
                 let mut builder = GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin);
@@ -940,26 +970,23 @@ fn entrypoint_video_body(binding: &super::entrypoint::VideoInputBinding) -> Prog
 
 fn validate_program_outputs(
     definition: &ProgramDefinition,
+    expected_outputs: &[ValueType],
     outputs: Vec<ValueRef>,
     span: &SourceSpan,
 ) -> Result<Vec<ValueRef>> {
-    if outputs.len() != definition.descriptor.outputs.len() {
+    if outputs.len() != expected_outputs.len() {
         return Err(Diagnostic::new(
             "E_PROGRAM_OUTPUT_COUNT",
             format!(
                 "program `{}` declares {} output(s), but its implementation returned {}",
                 definition.descriptor.name,
-                definition.descriptor.outputs.len(),
+                expected_outputs.len(),
                 outputs.len()
             ),
             span.clone(),
         ));
     }
-    for (index, (output, expected)) in outputs
-        .iter()
-        .zip(&definition.descriptor.outputs)
-        .enumerate()
-    {
+    for (index, (output, expected)) in outputs.iter().zip(expected_outputs).enumerate() {
         if output.value_type() != *expected {
             return Err(Diagnostic::new(
                 "E_PROGRAM_OUTPUT_TYPE",
@@ -1206,7 +1233,8 @@ mod tests {
                 inputs,
                 parameters: vec![],
                 primary_parameter: None,
-                outputs,
+                type_parameter: None,
+                outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation,
             body_contract,
@@ -1310,7 +1338,7 @@ mod tests {
                 StackAccess::Visible,
                 vec![InputPort {
                     name: "video".to_owned(),
-                    value_type: ValueType::Video,
+                    value_type: ValueType::Video.into(),
                     cardinality: Cardinality::One,
                 }],
                 vec![ValueType::Video],

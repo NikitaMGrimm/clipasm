@@ -5,6 +5,7 @@ use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
+    TypeParameter, ValueConstraint, ValueTypeSpec,
 };
 use crate::semantic::GraphBuilder;
 
@@ -54,7 +55,8 @@ pub(crate) fn audio_source() -> ProgramDefinition {
             inputs: vec![],
             parameters: vec![parameter("path", ParameterType::File, true)],
             primary_parameter: Some("path".to_owned()),
-            outputs: vec![ValueType::Audio],
+            type_parameter: None,
+            outputs: vec![ValueType::Audio.into()],
         },
         lower_audio,
     )
@@ -68,12 +70,13 @@ pub(crate) fn extract_audio() -> ProgramDefinition {
             default_stack_access: StackAccess::Owned,
             inputs: vec![InputPort {
                 name: "video".to_owned(),
-                value_type: ValueType::Video,
+                value_type: ValueType::Video.into(),
                 cardinality: Cardinality::One,
             }],
             parameters: vec![],
             primary_parameter: None,
-            outputs: vec![ValueType::Audio],
+            type_parameter: None,
+            outputs: vec![ValueType::Audio.into()],
         },
         lower_extract_audio,
     )
@@ -88,18 +91,19 @@ pub(crate) fn set_audio() -> ProgramDefinition {
             inputs: vec![
                 InputPort {
                     name: "audio".to_owned(),
-                    value_type: ValueType::Audio,
+                    value_type: ValueType::Audio.into(),
                     cardinality: Cardinality::One,
                 },
                 InputPort {
                     name: "video".to_owned(),
-                    value_type: ValueType::Video,
+                    value_type: ValueType::Video.into(),
                     cardinality: Cardinality::One,
                 },
             ],
             parameters: vec![],
             primary_parameter: None,
-            outputs: vec![ValueType::Video],
+            type_parameter: None,
+            outputs: vec![ValueType::Video.into()],
         },
         lower_set_audio,
     )
@@ -107,12 +111,15 @@ pub(crate) fn set_audio() -> ProgramDefinition {
 
 pub(crate) fn concat() -> ProgramDefinition {
     direct(
-        descriptor(
+        generic_descriptor(
             "concat",
             2,
-            vec![input("videos", Cardinality::Variadic { min: 1 })],
-            vec![],
-            None,
+            "values",
+            Cardinality::Variadic { min: 1 },
+            vec![type_selector()],
+            Some("type"),
+            ValueConstraint::Timeline,
+            true,
         ),
         lower_concat,
     )
@@ -120,12 +127,18 @@ pub(crate) fn concat() -> ProgramDefinition {
 
 pub(crate) fn repeat() -> ProgramDefinition {
     direct(
-        descriptor(
+        generic_descriptor(
             "repeat",
             3,
-            vec![input("video", Cardinality::One)],
-            vec![parameter("count", ParameterType::Integer, true)],
+            "value",
+            Cardinality::One,
+            vec![
+                parameter("count", ParameterType::Integer, true),
+                type_selector(),
+            ],
             Some("count"),
+            ValueConstraint::Timeline,
+            true,
         ),
         lower_repeat,
     )
@@ -133,14 +146,36 @@ pub(crate) fn repeat() -> ProgramDefinition {
 
 pub(crate) fn trim() -> ProgramDefinition {
     direct(
-        descriptor(
+        generic_descriptor(
             "trim",
             2,
-            vec![input("video", Cardinality::One)],
-            vec![parameter("range", ParameterType::TimeRange, true)],
+            "value",
+            Cardinality::One,
+            vec![
+                parameter("range", ParameterType::TimeRange, true),
+                type_selector(),
+            ],
             Some("range"),
+            ValueConstraint::Timeline,
+            true,
         ),
         lower_trim,
+    )
+}
+
+pub(crate) fn drop_value() -> ProgramDefinition {
+    direct(
+        generic_descriptor(
+            "drop",
+            1,
+            "value",
+            Cardinality::One,
+            vec![type_selector()],
+            Some("type"),
+            ValueConstraint::Any,
+            false,
+        ),
+        lower_drop,
     )
 }
 
@@ -200,14 +235,56 @@ fn descriptor(
         inputs,
         parameters,
         primary_parameter: primary_parameter.map(str::to_owned),
-        outputs: vec![ValueType::Video],
+        type_parameter: None,
+        outputs: vec![ValueType::Video.into()],
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn generic_descriptor(
+    name: &str,
+    semantic_version: u32,
+    input_name: &str,
+    cardinality: Cardinality,
+    parameters: Vec<ParameterDescriptor>,
+    primary_parameter: Option<&str>,
+    constraint: ValueConstraint,
+    has_output: bool,
+) -> ProgramDescriptor {
+    ProgramDescriptor {
+        name: name.to_owned(),
+        semantic_version,
+        default_stack_access: StackAccess::Owned,
+        inputs: vec![InputPort {
+            name: input_name.to_owned(),
+            value_type: ValueTypeSpec::Generic,
+            cardinality,
+        }],
+        parameters,
+        primary_parameter: primary_parameter.map(str::to_owned),
+        type_parameter: Some(TypeParameter {
+            constraint,
+            selector: "type".to_owned(),
+        }),
+        outputs: has_output
+            .then_some(ValueTypeSpec::Generic)
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn type_selector() -> ParameterDescriptor {
+    parameter(
+        "type",
+        ParameterType::Keyword(vec!["Video".to_owned(), "Audio".to_owned()]),
+        false,
+    )
 }
 
 fn input(name: &str, cardinality: Cardinality) -> InputPort {
     InputPort {
         name: name.to_owned(),
-        value_type: ValueType::Video,
+        value_type: ValueType::Video.into(),
         cardinality,
     }
 }
@@ -313,11 +390,11 @@ fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
 }
 
 fn lower_concat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    one_output(builder.concat(call.variadic_input("videos")?.to_vec()))
+    one_output(builder.concat(call.variadic_input("values")?.to_vec()))
 }
 
 fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    let video = call.one_input("video")?;
+    let value = call.one_input("value")?;
     let (count, span) = call.integer_parameter("count")?;
     let count = u64::try_from(count)
         .ok()
@@ -329,14 +406,18 @@ fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
                 span.clone(),
             )
         })?;
-    one_output(builder.repeat(video, count))
+    one_output(builder.repeat(value, count))
 }
 
 fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    let video = call.one_input("video")?;
+    let value = call.one_input("value")?;
     let (range, span) = call.time_range_parameter("range")?;
-    let range = range.to_frames(builder.video_spec().fps, span)?;
-    one_output(builder.at_span(span.clone()).slice(video, range))
+    one_output(builder.at_span(span.clone()).trim(value, range))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn lower_drop(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    Ok(Vec::new())
 }
 
 fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {

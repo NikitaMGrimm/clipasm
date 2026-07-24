@@ -80,6 +80,88 @@ impl PreflightLowerer<'_> {
                     compiled_node.origin().clone(),
                 )?
             }
+            SemanticNodeKind::AudioSlice { input, range } => {
+                let input = self.prepared_dependency(*input, compiled_node.origin())?;
+                let input_domain = *self.nodes[input.get() as usize].audio_domain();
+                if range.end() > input_domain.samples {
+                    return Err(Diagnostic::new(
+                        "E_RANGE_OUT_OF_BOUNDS",
+                        format!(
+                            "audio range {}..{} exceeds input duration of {} samples",
+                            range.start(),
+                            range.end(),
+                            input_domain.samples
+                        ),
+                        compiled_node.origin().span.clone(),
+                    ));
+                }
+                self.add_audio_node(
+                    PreparedNodeKind::AudioSlice {
+                        input,
+                        range: *range,
+                    },
+                    AudioDomain {
+                        samples: range.samples(),
+                        ..input_domain
+                    },
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::AudioRepeat { input, count } => {
+                let input = self.prepared_dependency(*input, compiled_node.origin())?;
+                let input_domain = *self.nodes[input.get() as usize].audio_domain();
+                let samples = input_domain
+                    .samples
+                    .checked_mul(count.get())
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_AUDIO_DURATION_OVERFLOW",
+                            "repeated audio exceeds the supported sample count",
+                            compiled_node.origin().span.clone(),
+                        )
+                    })?;
+                self.add_audio_node(
+                    PreparedNodeKind::AudioRepeat {
+                        input,
+                        count: *count,
+                    },
+                    AudioDomain {
+                        samples,
+                        ..input_domain
+                    },
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
+            SemanticNodeKind::AudioConcat { inputs } => {
+                let inputs = inputs
+                    .iter()
+                    .map(|input| self.prepared_dependency(*input, compiled_node.origin()))
+                    .collect::<Result<Vec<_>>>()?;
+                let mut samples = 0_u64;
+                for input in &inputs {
+                    samples = samples
+                        .checked_add(self.nodes[input.get() as usize].audio_domain().samples)
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                "E_AUDIO_DURATION_OVERFLOW",
+                                "concatenated audio exceeds the supported sample count",
+                                compiled_node.origin().span.clone(),
+                            )
+                        })?;
+                }
+                self.add_audio_node(
+                    PreparedNodeKind::AudioConcat { inputs },
+                    AudioDomain {
+                        samples,
+                        sample_rate: self.compiled.audio().sample_rate,
+                        channels: self.compiled.audio().channels,
+                    },
+                    compiled_node.semantic_version(),
+                    compiled_node.origin().clone(),
+                )?
+            }
             SemanticNodeKind::Reference { symbol } => {
                 let target = self.compiled.symbol_value(*symbol).ok_or_else(|| {
                     Diagnostic::new(

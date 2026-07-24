@@ -134,7 +134,7 @@ fn compile_binds_root_video_inputs_and_typed_parameters() {
     let workflow = directory.path().join("template.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      range: TimeRange\n      count: Integer\n\n- trim:\n    video: $source\n    range: $range\n- repeat: $count\n",
+        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      range: TimeRange\n      count: Integer\n\n- trim:\n    value: $source\n    range: $range\n- repeat: $count\n",
     )
     .expect("template");
 
@@ -211,7 +211,7 @@ fn render_accepts_caller_relative_input_and_output_bindings() {
     let workflow = directory.path().join("template.yaml");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      count: Integer\n      overlay: File\n\n- repeat:\n    video: $source\n    count: $count\n- image:\n    path: $overlay\n    duration: 1s\n- concat\n",
+        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      count: Integer\n      overlay: File\n\n- repeat:\n    value: $source\n    count: $count\n- image:\n    path: $overlay\n    duration: 1s\n- concat\n",
     )
     .expect("template");
     fs::copy(

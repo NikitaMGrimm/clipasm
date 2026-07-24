@@ -118,7 +118,8 @@ mod tests {
                 inputs,
                 parameters,
                 primary_parameter: None,
-                outputs: vec![output],
+                type_parameter: None,
+                outputs: vec![output.into()],
             },
             implementation,
             body_contract: None,
@@ -150,7 +151,7 @@ mod tests {
                 ProgramImplementation::Direct(direct),
                 vec![InputPort {
                     name: STACK_ACCESS_FIELD.to_owned(),
-                    value_type: ValueType::Video,
+                    value_type: ValueType::Video.into(),
                     cardinality: Cardinality::One,
                 }],
                 vec![],
@@ -174,7 +175,7 @@ mod tests {
                 ProgramImplementation::Body(prepare),
                 vec![InputPort {
                     name: BODY_FIELD.to_owned(),
-                    value_type: ValueType::Video,
+                    value_type: ValueType::Video.into(),
                     cardinality: Cardinality::One,
                 }],
                 vec![],

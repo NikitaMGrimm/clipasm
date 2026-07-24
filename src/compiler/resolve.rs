@@ -231,6 +231,8 @@ fn collect_direct_references(
                 output.insert(*symbol);
             }
             SemanticNodeKind::Repeat { input, .. }
+            | SemanticNodeKind::AudioRepeat { input, .. }
+            | SemanticNodeKind::AudioSlice { input, .. }
             | SemanticNodeKind::Zoom { input, .. }
             | SemanticNodeKind::Wobble { input, .. }
             | SemanticNodeKind::Slice { input, .. }
@@ -238,7 +240,9 @@ fn collect_direct_references(
             | SemanticNodeKind::AudioOnBlack { audio: input } => {
                 stack.push(*input);
             }
-            SemanticNodeKind::Concat { inputs } => stack.extend(inputs.iter().copied()),
+            SemanticNodeKind::Concat { inputs } | SemanticNodeKind::AudioConcat { inputs } => {
+                stack.extend(inputs.iter().copied());
+            }
             SemanticNodeKind::FlashJoin { before, after, .. } => {
                 stack.push(*after);
                 stack.push(*before);
@@ -283,9 +287,11 @@ fn infer_domains(
             SemanticNodeKind::VideoSource { .. } | SemanticNodeKind::AudioOnBlack { .. } => {
                 DomainKnowledge::Deferred
             }
-            SemanticNodeKind::AudioSource { .. } | SemanticNodeKind::ExtractAudio { .. } => {
-                DomainKnowledge::NotVideo
-            }
+            SemanticNodeKind::AudioSource { .. }
+            | SemanticNodeKind::AudioRepeat { .. }
+            | SemanticNodeKind::AudioConcat { .. }
+            | SemanticNodeKind::AudioSlice { .. }
+            | SemanticNodeKind::ExtractAudio { .. } => DomainKnowledge::NotVideo,
             SemanticNodeKind::Reference { symbol } => {
                 let target = evaluation.symbols[symbol]
                     .value

@@ -45,8 +45,8 @@ use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
 use tools::{ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
-const PREPARED_FORMAT_VERSION: u32 = 5;
-const CACHE_FORMAT_VERSION: u32 = 3;
+const PREPARED_FORMAT_VERSION: u32 = 6;
+const CACHE_FORMAT_VERSION: u32 = 4;
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale",
     "crop",
@@ -270,6 +270,25 @@ pub enum PreparedNodeKind {
     AudioSource {
         /// Verified source media and content hash.
         asset: PreparedAsset,
+    },
+    /// A closed-open sample range selected from one Audio node.
+    AudioSlice {
+        /// Prepared Audio node being sliced.
+        input: NodeId,
+        /// Exact selected sample range.
+        range: crate::model::SampleRange,
+    },
+    /// Compact repetition of one Audio node.
+    AudioRepeat {
+        /// Prepared Audio node repeated in sequence.
+        input: NodeId,
+        /// Total number of copies.
+        count: NonZeroU64,
+    },
+    /// Ordered concatenation of prepared Audio nodes.
+    AudioConcat {
+        /// Upstream Audio nodes in output order.
+        inputs: Vec<NodeId>,
     },
     /// A closed-open frame range selected from one upstream node.
     Slice {

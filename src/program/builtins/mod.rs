@@ -13,6 +13,7 @@ pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
         direct::concat(),
         direct::repeat(),
         direct::trim(),
+        direct::drop_value(),
         direct::zoom(),
         direct::wobble(),
         direct::flash(),

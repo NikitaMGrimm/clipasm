@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
-    FrameCount, FrameRange, ImageFit, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec,
+    AudioSpec, FrameCount, FrameRange, ImageFit, SampleRange, SourceTimeRange, ValueId, ValueRef,
+    ValueType, VideoDomain, VideoSpec,
 };
 use crate::source::SourceSpan;
 
@@ -94,6 +95,10 @@ pub(crate) enum SemanticNodeKind {
         input: ValueRef,
         count: NonZeroU64,
     },
+    AudioRepeat {
+        input: ValueRef,
+        count: NonZeroU64,
+    },
     Zoom {
         input: ValueRef,
         percent: u32,
@@ -110,9 +115,16 @@ pub(crate) enum SemanticNodeKind {
     Concat {
         inputs: Vec<ValueRef>,
     },
+    AudioConcat {
+        inputs: Vec<ValueRef>,
+    },
     Slice {
         input: ValueRef,
         range: FrameRange,
+    },
+    AudioSlice {
+        input: ValueRef,
+        range: SampleRange,
     },
     ReplaceRange {
         base: ValueRef,
@@ -288,11 +300,24 @@ impl<'a> GraphBuilder<'a> {
     ///
     /// Returns a type or graph-size diagnostic.
     pub(crate) fn repeat(&mut self, input: ValueRef, count: NonZeroU64) -> Result<ValueRef> {
-        self.require_type(input, ValueType::Video, "video")?;
         if count.get() == 1 {
             return Ok(input);
         }
-        self.push(SemanticNodeKind::Repeat { input, count }, ValueType::Video)
+        match input.value_type() {
+            ValueType::Video => {
+                self.push(SemanticNodeKind::Repeat { input, count }, ValueType::Video)
+            }
+            ValueType::Audio => self.push(
+                SemanticNodeKind::AudioRepeat { input, count },
+                ValueType::Audio,
+            ),
+            #[cfg(test)]
+            ValueType::Test => Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                "generic operation does not accept Test",
+                self.origin.span.clone(),
+            )),
+        }
     }
 
     /// Add a centered full-clip linear zoom that preserves the input domain.
@@ -344,20 +369,77 @@ impl<'a> GraphBuilder<'a> {
     ///
     /// Returns a diagnostic for empty, mistyped, or oversized graphs.
     pub(crate) fn concat(&mut self, inputs: Vec<ValueRef>) -> Result<ValueRef> {
-        if inputs.is_empty() {
+        let Some(first) = inputs.first().copied() else {
             return Err(Diagnostic::new(
                 "E_EMPTY_CONCAT",
-                format!("`{}` requires at least one Video", self.origin.construct),
+                format!(
+                    "`{}` requires at least one Video or Audio value",
+                    self.origin.construct
+                ),
+                self.origin.span.clone(),
+            ));
+        };
+        let value_type = first.value_type();
+        if !matches!(value_type, ValueType::Video | ValueType::Audio) {
+            return Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                format!(
+                    "program `{}` concat does not accept {value_type}",
+                    self.origin.construct
+                ),
                 self.origin.span.clone(),
             ));
         }
         for input in &inputs {
-            self.require_type(*input, ValueType::Video, "videos")?;
+            if input.value_type() != value_type {
+                return Err(Diagnostic::new(
+                    "E_TYPE_MISMATCH",
+                    format!(
+                        "program `{}` concat inputs must all be {value_type}",
+                        self.origin.construct
+                    ),
+                    self.origin.span.clone(),
+                ));
+            }
         }
         if inputs.len() == 1 {
-            return Ok(inputs[0]);
+            return Ok(first);
         }
-        self.push(SemanticNodeKind::Concat { inputs }, ValueType::Video)
+        match value_type {
+            ValueType::Video => self.push(SemanticNodeKind::Concat { inputs }, ValueType::Video),
+            ValueType::Audio => {
+                self.push(SemanticNodeKind::AudioConcat { inputs }, ValueType::Audio)
+            }
+            #[cfg(test)]
+            ValueType::Test => Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                "generic operation does not accept Test",
+                self.origin.span.clone(),
+            )),
+        }
+    }
+
+    pub(crate) fn trim(&mut self, input: ValueRef, range: SourceTimeRange) -> Result<ValueRef> {
+        match input.value_type() {
+            ValueType::Video => {
+                let range = range.to_frames(self.video.fps, &self.origin.span)?;
+                self.slice(input, range)
+            }
+            ValueType::Audio => {
+                let range =
+                    range.to_samples(AudioSpec::default().sample_rate, &self.origin.span)?;
+                self.push(
+                    SemanticNodeKind::AudioSlice { input, range },
+                    ValueType::Audio,
+                )
+            }
+            #[cfg(test)]
+            ValueType::Test => Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                "generic operation does not accept Test",
+                self.origin.span.clone(),
+            )),
+        }
     }
 
     pub(crate) fn reference(

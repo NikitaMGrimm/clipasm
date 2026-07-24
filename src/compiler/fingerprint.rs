@@ -112,6 +112,8 @@ fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<St
         | SemanticNodeKind::AudioSource { .. } => Vec::new(),
         SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
         SemanticNodeKind::Repeat { input, .. }
+        | SemanticNodeKind::AudioRepeat { input, .. }
+        | SemanticNodeKind::AudioSlice { input, .. }
         | SemanticNodeKind::Zoom { input, .. }
         | SemanticNodeKind::Wobble { input, .. }
         | SemanticNodeKind::Slice { input, .. }
@@ -119,7 +121,7 @@ fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<St
         | SemanticNodeKind::AudioOnBlack { audio: input } => {
             vec![node_hash(*input, hashes).to_owned()]
         }
-        SemanticNodeKind::Concat { inputs } => inputs
+        SemanticNodeKind::Concat { inputs } | SemanticNodeKind::AudioConcat { inputs } => inputs
             .iter()
             .map(|input| node_hash(*input, hashes).to_owned())
             .collect(),
@@ -155,6 +157,9 @@ fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
         SemanticNodeKind::Repeat { count, .. } => {
             serde_json::json!({"operation": "repeat", "count": count})
         }
+        SemanticNodeKind::AudioRepeat { count, .. } => {
+            serde_json::json!({"operation": "audio_repeat", "count": count})
+        }
         SemanticNodeKind::Zoom { percent, .. } => {
             serde_json::json!({"operation": "zoom", "percent": percent})
         }
@@ -165,8 +170,12 @@ fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
             serde_json::json!({"operation": "flash_join", "frames": frames})
         }
         SemanticNodeKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
+        SemanticNodeKind::AudioConcat { .. } => serde_json::json!({"operation": "audio_concat"}),
         SemanticNodeKind::Slice { range, .. } => {
             serde_json::json!({"operation": "slice", "range": range})
+        }
+        SemanticNodeKind::AudioSlice { range, .. } => {
+            serde_json::json!({"operation": "audio_slice", "range": range})
         }
         SemanticNodeKind::ReplaceRange { range, .. } => {
             serde_json::json!({"operation": "replace_range", "range": range})

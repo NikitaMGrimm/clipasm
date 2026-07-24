@@ -8,7 +8,7 @@ mod time;
 mod video;
 
 pub use audio::{AudioDomain, AudioSpec};
-pub use time::{FrameCount, FrameRange};
+pub use time::{FrameCount, FrameRange, SampleRange};
 pub(crate) use time::{SourceTime, SourceTimeRange};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
 

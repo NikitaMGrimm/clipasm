@@ -15,7 +15,7 @@ fn yaml_programs_call_through_three_files() {
     write(
         directory.path(),
         "leaf.yaml",
-        "- program:\n    version: 1\n    inputs:\n      - video: Video\n    parameters:\n      count: Integer\n\n- repeat:\n    video: $video\n    count: $count\n",
+        "- program:\n    version: 1\n    inputs:\n      - video: Video\n    parameters:\n      count: Integer\n\n- repeat:\n    value: $video\n    count: $count\n",
     );
     write(
         directory.path(),
@@ -42,7 +42,7 @@ fn repeated_calls_isolate_local_ids_and_apply_defaults() {
     write(
         directory.path(),
         "effect.yaml",
-        "- program:\n    version: 1\n    inputs:\n      - video: Video\n    parameters:\n      count:\n        type: Integer\n        default: 2\n\n- repeat:\n    video: $video\n    count: $count\n  id: temporary\n",
+        "- program:\n    version: 1\n    inputs:\n      - video: Video\n    parameters:\n      count:\n        type: Integer\n        default: 2\n\n- repeat:\n    value: $video\n    count: $count\n  id: temporary\n",
     );
     write(
         directory.path(),
@@ -66,7 +66,7 @@ fn two_aliases_may_reference_the_same_source_program() {
     write(
         directory.path(),
         "effect.yaml",
-        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    video: $video\n    count: 2\n  id: local\n",
+        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    value: $video\n    count: 2\n  id: local\n",
     );
     write(
         directory.path(),
@@ -128,7 +128,7 @@ fn scalar_parameters_and_graph_values_do_not_collide_silently() {
     write(
         directory.path(),
         "bad-value.yaml",
-        "- program:\n    version: 1\n\n- image: {path: missing.png, duration: 1s}\n  id: video\n- repeat:\n    video: $video\n    count: $video\n",
+        "- program:\n    version: 1\n\n- image: {path: missing.png, duration: 1s}\n  id: video\n- repeat:\n    value: $video\n    count: $video\n",
     );
     let package = frontend::yaml::parse_file(&directory.path().join("bad-value.yaml"))
         .expect("parsed value program");
@@ -161,7 +161,7 @@ fn import_aliases_do_not_change_semantic_identity() {
     write(
         directory.path(),
         "effect.yaml",
-        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    video: $video\n    count: 2\n",
+        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    value: $video\n    count: 2\n",
     );
     for (file, alias) in [("first.yaml", "first_name"), ("second.yaml", "renamed")] {
         write(
@@ -245,7 +245,7 @@ fn imported_local_references_serialize_resolved_targets() {
     write(
         directory.path(),
         "effect.yaml",
-        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    video: $video\n    count: 1\n  id: local\n- $local\n",
+        "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    value: $video\n    count: 1\n  id: local\n- $local\n",
     );
     write(
         directory.path(),

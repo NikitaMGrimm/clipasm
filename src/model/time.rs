@@ -99,6 +99,7 @@ impl FrameRange {
     /// Construct a nonempty closed-open frame range.
     ///
     /// Returns `None` when `start` is not earlier than `end`.
+    /// Construct a nonempty closed-open sample range.
     #[must_use]
     pub const fn new(start: u64, end: u64) -> Option<Self> {
         if start < end {
@@ -124,6 +125,43 @@ impl FrameRange {
     /// Return the exact number of frames in the range.
     pub const fn frames(self) -> FrameCount {
         FrameCount(self.end - self.start)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
+/// A nonempty closed-open range of audio sample indexes.
+pub struct SampleRange {
+    start: u64,
+    end: u64,
+}
+
+impl SampleRange {
+    /// Construct a nonempty closed-open sample range.
+    #[must_use]
+    pub const fn new(start: u64, end: u64) -> Option<Self> {
+        if start < end {
+            Some(Self { start, end })
+        } else {
+            None
+        }
+    }
+
+    /// Return the inclusive starting sample index.
+    #[must_use]
+    pub const fn start(self) -> u64 {
+        self.start
+    }
+
+    /// Return the exclusive ending sample index.
+    #[must_use]
+    pub const fn end(self) -> u64 {
+        self.end
+    }
+
+    /// Return the exact number of samples in the range.
+    #[must_use]
+    pub const fn samples(self) -> u64 {
+        self.end - self.start
     }
 }
 
@@ -209,6 +247,25 @@ impl SourceTime {
             )
         })
     }
+
+    pub(crate) fn to_samples(self, sample_rate: u32, span: &SourceSpan) -> Result<u64> {
+        let numerator = u128::from(self.nanoseconds) * u128::from(sample_rate);
+        let denominator = 1_000_000_000_u128;
+        if numerator % denominator != 0 {
+            return Err(Diagnostic::new(
+                "E_TIME_NOT_SAMPLE_ALIGNED",
+                format!("time is not exactly representable at {sample_rate} Hz"),
+                span.clone(),
+            ));
+        }
+        u64::try_from(numerator / denominator).map_err(|_| {
+            Diagnostic::new(
+                "E_AUDIO_DURATION_OVERFLOW",
+                "duration exceeds the supported audio sample count",
+                span.clone(),
+            )
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -275,6 +332,20 @@ impl SourceTimeRange {
             Diagnostic::new(
                 "E_INVALID_TIME_RANGE",
                 "time range must contain at least one frame",
+                span.clone(),
+            )
+        })
+    }
+
+    pub(crate) fn to_samples(self, sample_rate: u32, span: &SourceSpan) -> Result<SampleRange> {
+        SampleRange::new(
+            self.start.to_samples(sample_rate, span)?,
+            self.end.to_samples(sample_rate, span)?,
+        )
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_TIME_RANGE",
+                "time range must contain at least one audio sample",
                 span.clone(),
             )
         })

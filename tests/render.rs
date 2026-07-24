@@ -615,3 +615,63 @@ fn set_audio_trims_or_pads_to_the_video_duration() {
         assert!((duration - 3.0).abs() < 0.15, "duration was {duration}");
     }
 }
+
+#[test]
+fn renders_native_audio_trim_repeat_and_concat() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping audio render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  255 0 0\n255 0 0  255 0 0\n",
+    )
+    .expect("image");
+    let tone = directory.path().join("tone.wav");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=1",
+            "-ac",
+            "2",
+        ])
+        .arg(&tone)
+        .status()
+        .expect("create audio fixture");
+    assert!(status.success());
+
+    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        &workflow,
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: native-audio.mp4\n\n- image: {path: card.ppm, duration: 2s}\n- audio: tone.wav\n- trim: 100ms..300ms\n- repeat: 2\n- audio: tone.wav\n- trim: 300ms..500ms\n- concat: Audio\n- set_audio\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_yaml(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert!(
+        plan.nodes()
+            .iter()
+            .any(|node| matches!(node.kind(), preflight::PreparedNodeKind::AudioSlice { .. }))
+    );
+    assert!(
+        plan.nodes()
+            .iter()
+            .any(|node| matches!(node.kind(), preflight::PreparedNodeKind::AudioRepeat { .. }))
+    );
+    assert!(
+        plan.nodes()
+            .iter()
+            .any(|node| matches!(node.kind(), preflight::PreparedNodeKind::AudioConcat { .. }))
+    );
+    let report = render::render(&plan).expect("render native audio operations");
+    assert!(report.output.is_file());
+}

@@ -103,6 +103,8 @@ fn dependency_at<N: SemanticNodeView>(
             })?)
         }
         SemanticNodeKind::Repeat { input, .. }
+        | SemanticNodeKind::AudioRepeat { input, .. }
+        | SemanticNodeKind::AudioSlice { input, .. }
         | SemanticNodeKind::Zoom { input, .. }
         | SemanticNodeKind::Wobble { input, .. }
         | SemanticNodeKind::Slice { input, .. }
@@ -112,7 +114,9 @@ fn dependency_at<N: SemanticNodeView>(
         {
             Some(*input)
         }
-        SemanticNodeKind::Concat { inputs } => inputs.get(index).copied(),
+        SemanticNodeKind::Concat { inputs } | SemanticNodeKind::AudioConcat { inputs } => {
+            inputs.get(index).copied()
+        }
         SemanticNodeKind::FlashJoin { before, after, .. } => [*before, *after].get(index).copied(),
         SemanticNodeKind::ReplaceRange {
             base, replacement, ..
@@ -123,6 +127,8 @@ fn dependency_at<N: SemanticNodeView>(
         | SemanticNodeKind::AudioSource { .. }
         | SemanticNodeKind::Reference { .. }
         | SemanticNodeKind::Repeat { .. }
+        | SemanticNodeKind::AudioRepeat { .. }
+        | SemanticNodeKind::AudioSlice { .. }
         | SemanticNodeKind::Zoom { .. }
         | SemanticNodeKind::Wobble { .. }
         | SemanticNodeKind::Slice { .. }

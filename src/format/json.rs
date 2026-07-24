@@ -117,9 +117,10 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             })
         }
         SemanticNodeKind::Repeat { input, count } => serde_json::json!({
-            "operation": "repeat",
-            "input": input,
-            "count": count,
+            "operation": "repeat", "input": input, "count": count,
+        }),
+        SemanticNodeKind::AudioRepeat { input, count } => serde_json::json!({
+            "operation": "audio_repeat", "input": input, "count": count,
         }),
         SemanticNodeKind::Zoom { input, percent } => serde_json::json!({
             "operation": "zoom",
@@ -142,13 +143,16 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "frames": frames,
         }),
         SemanticNodeKind::Concat { inputs } => serde_json::json!({
-            "operation": "concat",
-            "inputs": inputs,
+            "operation": "concat", "inputs": inputs,
+        }),
+        SemanticNodeKind::AudioConcat { inputs } => serde_json::json!({
+            "operation": "audio_concat", "inputs": inputs,
         }),
         SemanticNodeKind::Slice { input, range } => serde_json::json!({
-            "operation": "slice",
-            "input": input,
-            "range": range,
+            "operation": "slice", "input": input, "range": range,
+        }),
+        SemanticNodeKind::AudioSlice { input, range } => serde_json::json!({
+            "operation": "audio_slice", "input": input, "range": range,
         }),
         SemanticNodeKind::ReplaceRange {
             base,

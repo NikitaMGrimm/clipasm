@@ -105,11 +105,14 @@ pub(super) fn reject_asset_collisions(
             PreparedNodeKind::VideoSource { asset, .. } => (asset, "video asset"),
             PreparedNodeKind::AudioSource { asset } => (asset, "audio asset"),
             PreparedNodeKind::Slice { .. }
+            | PreparedNodeKind::AudioSlice { .. }
             | PreparedNodeKind::Repeat { .. }
+            | PreparedNodeKind::AudioRepeat { .. }
             | PreparedNodeKind::Zoom { .. }
             | PreparedNodeKind::Wobble { .. }
             | PreparedNodeKind::FlashJoin { .. }
             | PreparedNodeKind::Concat { .. }
+            | PreparedNodeKind::AudioConcat { .. }
             | PreparedNodeKind::ExtractAudio { .. }
             | PreparedNodeKind::SetAudio { .. }
             | PreparedNodeKind::AudioOnBlack { .. } => continue,

@@ -264,7 +264,7 @@ fn parse_inputs(node: RawNode) -> Result<Vec<InputPort>> {
             };
             Ok(InputPort {
                 name,
-                value_type,
+                value_type: value_type.into(),
                 cardinality: Cardinality::One,
             })
         })
@@ -1163,7 +1163,8 @@ mod tests {
                         required: true,
                     }],
                     primary_parameter: Some("path".to_owned()),
-                    outputs: vec![ValueType::Video],
+                    type_parameter: None,
+                    outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Direct(lower_synthetic_source),
                 body_contract: None,
@@ -1177,7 +1178,8 @@ mod tests {
                     inputs: vec![],
                     parameters: vec![],
                     primary_parameter: None,
-                    outputs: vec![ValueType::Video],
+                    type_parameter: None,
+                    outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body(prepare_synthetic_body),
                 body_contract: Some(crate::program::BodyContract {
@@ -1199,7 +1201,8 @@ mod tests {
                         required: true,
                     }],
                     primary_parameter: Some("range".to_owned()),
-                    outputs: vec![ValueType::Video],
+                    type_parameter: None,
+                    outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
                 body_contract: Some(crate::program::BodyContract {

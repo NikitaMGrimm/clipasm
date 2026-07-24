@@ -87,14 +87,15 @@ fn descriptor(
         inputs,
         parameters,
         primary_parameter: primary_parameter.map(str::to_owned),
-        outputs: vec![VIDEO],
+        type_parameter: None,
+        outputs: vec![VIDEO.into()],
     }
 }
 
 fn input(name: &str) -> InputPort {
     InputPort {
         name: name.to_owned(),
-        value_type: VIDEO,
+        value_type: VIDEO.into(),
         cardinality: Cardinality::One,
     }
 }

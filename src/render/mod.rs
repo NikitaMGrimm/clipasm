@@ -138,11 +138,14 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 verify_prepared_asset(asset, &node.origin().span)?;
             }
             PreparedNodeKind::Slice { .. }
+            | PreparedNodeKind::AudioSlice { .. }
             | PreparedNodeKind::Repeat { .. }
+            | PreparedNodeKind::AudioRepeat { .. }
             | PreparedNodeKind::Zoom { .. }
             | PreparedNodeKind::Wobble { .. }
             | PreparedNodeKind::FlashJoin { .. }
             | PreparedNodeKind::Concat { .. }
+            | PreparedNodeKind::AudioConcat { .. }
             | PreparedNodeKind::ExtractAudio { .. }
             | PreparedNodeKind::SetAudio { .. }
             | PreparedNodeKind::AudioOnBlack { .. } => {}
@@ -347,6 +350,47 @@ fn render_node(
             command.arg("-i").arg(asset.source_path());
             let filter = format!(
                 "[0:a:0]{}[a]",
+                normalize_audio(node.audio_domain().samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[a]"]);
+            append_audio_output(&mut command, audio, &temporary);
+        }
+        PreparedNodeKind::AudioSlice { input, range } => {
+            command
+                .arg("-i")
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
+            let filter = format!(
+                "[0:a]atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS[a]",
+                range.start(),
+                range.end()
+            );
+            command.args(["-filter_complex", &filter, "-map", "[a]"]);
+            append_audio_output(&mut command, audio, &temporary);
+        }
+        PreparedNodeKind::AudioRepeat { input, count } => {
+            command
+                .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
+                .arg(artifact(artifacts, *input, &node.origin().span)?);
+            let filter = format!(
+                "[0:a]{}[a]",
+                normalize_audio(node.audio_domain().samples, audio)
+            );
+            command.args(["-filter_complex", &filter, "-map", "[a]"]);
+            append_audio_output(&mut command, audio, &temporary);
+        }
+        PreparedNodeKind::AudioConcat { inputs } => {
+            for input in inputs {
+                command
+                    .arg("-i")
+                    .arg(artifact(artifacts, *input, &node.origin().span)?);
+            }
+            let labels = (0..inputs.len()).fold(String::new(), |mut output, index| {
+                let _ = write!(output, "[{index}:a]");
+                output
+            });
+            let filter = format!(
+                "{labels}concat=n={}:v=0:a=1[joined];[joined]{}[a]",
+                inputs.len(),
                 normalize_audio(node.audio_domain().samples, audio)
             );
             command.args(["-filter_complex", &filter, "-map", "[a]"]);

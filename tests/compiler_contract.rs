@@ -142,7 +142,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 10);
+    assert_eq!(document["format_version"], 11);
     assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
 }
 
@@ -239,7 +239,7 @@ fn entrypoint_output_does_not_change_compiled_semantics() {
 fn variadic_inputs_remain_reference_only() {
     let source = clipasm::frontend::yaml::parse_str(
         Path::new("program.yaml"),
-        "- program:\n    version: 1\n\n- concat:\n    videos:\n      - image: {path: card.ppm, duration: 1s}\n",
+        "- program:\n    version: 1\n\n- concat:\n    values:\n      - image: {path: card.ppm, duration: 1s}\n",
     )
     .expect("canonical source");
     let error = clipasm::compiler::compile(&source).expect_err("variadic inline body");
