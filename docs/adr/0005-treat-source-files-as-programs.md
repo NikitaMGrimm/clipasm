@@ -6,7 +6,7 @@ status: accepted
 
 ADR 0006 refines the stack-storage and visibility wording below. ADR 0007
 supersedes the single-source-result restriction: source programs now return
-their ordered final owned suffix, while publication still requires one Video.
+their ordered final owned values, while publication still requires exactly one Video among the outputs.
 Named clips and inline input bodies remain isolated and single-valued.
 
 ADR 0009 subsequently adds source-program signatures, imports, runtime-owned
@@ -14,7 +14,7 @@ program definitions, and ordinary calls between authored source files. The
 file-as-program and entrypoint-publication decisions below remain unchanged.
 
 A ClipAsm source file defines one typed stack program whose outputs are its
-ordered final owned suffix. The YAML document is a sequence: its required first item is a
+ordered final owned values. The YAML document is a sequence: its required first item is a
 non-executable `program` header, and every remaining item belongs to the
 executable source-program body. The header owns language version bootstrapping,
 project Video settings, local named-clip declarations, and the optional

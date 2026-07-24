@@ -9,7 +9,7 @@ artifacts.
 The current language supports still-image and video-file sources, named clips,
 references, inline fixed-input bodies, concatenation, repetition, effects, and
 the `join`, `glue`, and `during` body programs. YAML files may import and call
-other YAML source programs with ordered Video inputs and typed scalar
+other YAML source programs with ordered Video or Audio inputs and typed scalar
 parameters. Audio output and plugins are outside the current foundation.
 
 Start with:

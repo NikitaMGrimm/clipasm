@@ -28,7 +28,7 @@ The compiler builds one runtime program catalog containing built-ins and
 authored definitions. Authored definitions use the same input ports, parameter
 types, default stack access, ordered outputs, and caller-side binder as
 built-ins. Their outputs are inferred in import dependency order from the
-complete final owned suffix of each body.
+complete ordered final owned values of each body.
 
 An authored invocation opens an isolated local scope and an empty local stack.
 Bound inputs become local graph-value bindings. Bound parameters become local
@@ -47,7 +47,7 @@ cycles are rejected during package loading. Imported files may not declare
 root-only `project` or `output` settings. Recursive authored-program calls are
 not supported.
 
-The initial authored interface supports ordered fixed `Video` inputs and the
+The authored interface supports ordered fixed `Video` or `Audio` inputs and the
 existing shared scalar parameter types: `Integer`, `File`, `Duration`,
 `TimeRange`, and `Keyword`. It does not add authored variadic inputs, primary or
 postfix YAML sugar, caller-supplied bodies, output declarations, re-exports, or

@@ -8,11 +8,12 @@ Current features:
 
 - still-image and video-file sources
 - references and named clips
-- imported callable source programs with Video inputs and typed parameters
+- imported callable source programs with Video or Audio inputs and typed parameters
 - ordered source-program results and isolated inline fixed inputs
 - concatenation and repetition
 - trimming, centered zoom, deterministic wobble, and white-flash cuts
 - `during`, `join`, and nested `glue`
+- `audio`, `extract_audio`, and `set_audio` with synchronized Video audio
 - content-addressed render caching
 
 ## Requirements

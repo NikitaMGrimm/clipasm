@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR 0010
 ---
 
 # Add explicit stack access

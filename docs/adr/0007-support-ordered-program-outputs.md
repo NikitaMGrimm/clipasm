@@ -15,7 +15,7 @@ ADR 0009 later scopes named values to each authored-program invocation. The
 namespace rules below remain unchanged within one such local scope.
 
 A source program is not implicitly reduced. Its outputs are the complete final
-owned suffix of its body, including an empty suffix. Pure `validate` and
+ordered values owned by its body, including an empty result. Pure `validate` and
 `compile` accept zero, one, or multiple source outputs. A header `output` path
 is publication metadata and requires exactly one Video output; preflight and
 rendering remain singular publication phases.

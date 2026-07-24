@@ -48,24 +48,22 @@ the immutable canonical source. Imported definitions and built-ins then share
 one runtime catalog and one call binder.
 
 `compiler` evaluates the source body and every nested body as a typed postfix
-stack program over one physical evaluation stack. Recursive body frames track a
-visible suffix and an owned suffix by index. The source body starts empty and
-returns its complete final owned suffix. Evaluation traverses canonical source
+stack program over one physical heterogeneous evaluation stack. Each stack
+occurrence records its owning body depth, and recursive frames record the nearest
+visibility boundary. The source body starts empty and returns its complete ordered final owned values. Evaluation traverses canonical source
 and checked metadata together, so it does not repeat program-name lookup,
 effective-access resolution, output-signature discovery, or structural body
 validation. One shared binder resolves explicit inputs in descriptor order,
-evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
-missing inputs from the invocation's accessible suffix, and converts authored
-parameters to their declared Rust types. Program implementations therefore
+evaluates inline fixed-input bodies on isolated evaluation stacks, consumes missing inputs by exact declared type
+from the invocation's accessible values, and converts authored parameters to their declared Rust types. Program implementations therefore
 receive a fully resolved call rather than frontend-layer arguments or
 stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
 invocation metadata may override it with `stack_access: owned|visible`.
-`owned` binding is limited to the current frame's owned suffix. `visible`
-binding may capture values down to the frame's visibility boundary; capture
-moves the ownership frontier downward. The setting is per invocation and does
-not propagate to child calls. Direct built-ins and source programs default to
+`owned` binding is limited to values owned by the current frame. `visible`
+binding may also consume enclosing values down to the frame's visibility
+boundary. Values of unrelated types remain ordered and untouched. The setting is per invocation and does not propagate to child calls. Direct built-ins and source programs default to
 `owned`; the native body programs `join`, `glue`, and `during` default to
 `visible`, so they may bind through an enclosing body boundary and expose that
 same visible suffix to independently visible descendants.
@@ -93,17 +91,19 @@ authored source programs. Body programs additionally expose a declarative body
 contract used by common type inference.
 
 Direct programs lower immediately. Body programs prepare initial values and a
-requested-duration context. The evaluator opens one recursive frame on the
-shared evaluation stack, executes the body once, extracts only that frame's
-owned suffix, and gives it to a program-owned finalizer that returns the
+requested-duration context. Their resolved fixed graph inputs are exposed in
+the body as lexical references named after the ports; argument expressions are
+evaluated before that child scope is entered. The evaluator opens one recursive
+frame on the
+shared evaluation stack, executes the body once, extracts only entries owned by
+that frame in physical order, and gives them to a program-owned finalizer that
+returns the
 definition's declared output sequence.
-Captured ownership propagates one frame outward when a body completes.
 
 An authored program uses the same caller-side binder. Its invocation then
 opens an isolated local scope and empty local stack. Bound graph inputs and
 scalar parameters become immutable local bindings. Local clips and `id`/`ids`
-bindings do not escape; only the complete ordered final owned suffix returns to
-the caller. Internal references use typed symbol identities, while public root
+bindings do not escape; only the complete ordered final owned values return to the caller. Internal references use typed symbol identities, while public root
 names remain a separate compiled interface.
 
 External root bindings enter compilation through `EntrypointBindings`. A bound
@@ -116,8 +116,8 @@ directory without rewriting authored source.
 
 Registered programs are:
 
-- direct: `image`, `video`, `concat`, `repeat`, `trim`, `zoom`, `wobble`,
-  `flash`
+- direct: `image`, `video`, `audio`, `extract_audio`, `set_audio`, `concat`,
+  `repeat`, `trim`, `zoom`, `wobble`, `flash`
 - body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
@@ -133,8 +133,8 @@ implementations.
 The YAML `program` header is frontend syntax, not a registered invocation.
 The evaluator treats its body uniformly without granting any registered
 program, including `glue`, a privileged source-file role. Pure compilation may
-produce zero, one, or multiple ordered outputs. Preflight remains a publication
-boundary and requires exactly one Video output.
+produce zero, one, or multiple ordered outputs. Publication finds exactly one
+Video among them and permits any number of auxiliary Audio outputs.
 
 `frontend::yaml` also owns file-backed package loading for the current
 representation: import paths are resolved relative to the importing file,
@@ -155,13 +155,18 @@ source data; compilation does not branch on YAML or open files.
   renderer primitives
 - assigns content fingerprints and an execution namespace
 
-The prepared plan has exact domains for every result-reachable node.
+The prepared plan has exact frame domains for Video nodes and exact sample
+domains for Audio nodes. Audio is normalized to 48 kHz stereo. Working Video
+artifacts always contain one lossless normalized audio stream, using silence for
+semantically silent Videos, while semantic audio presence controls final MP4
+publication.
 
 ## Rendering
 
 `render` verifies the prepared FFmpeg and FFprobe build identities and source
 hashes again, reuses only verified cached artifacts, renders missing
-FFV1/Matroska intermediates, and exports one H.264/yuv420p MP4.
+FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
+exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Output and
 manifest files are staged as temporary siblings and committed through one

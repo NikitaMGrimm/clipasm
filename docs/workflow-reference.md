@@ -33,10 +33,11 @@ canonical source:
 `.mp4`. Source programs explicitly default to `stack_access: owned`.
 
 The source-program body owns no initial values and returns its complete final
-owned suffix in order. Zero, one, or multiple outputs are valid for `validate`
+owned values in order. Zero, one, or multiple outputs are valid for `validate`
 and `compile`. It is not implicitly wrapped in `glue`. When the header contains
-`output`, the source must produce exactly one Video; use `concat` or a nested
-`glue` when several Videos should become that render result.
+`output`, the source outputs must contain exactly one Video. Any number of
+standalone Audio outputs may remain auxiliary; use `concat` or a nested `glue`
+when several Videos should become the render result.
 
 Relative import, media, and output paths resolve from the YAML source unit's
 directory. A caller-supplied file parameter remains relative to the caller;
@@ -69,8 +70,8 @@ independent local scope. Import cycles, including self-import and a triangle
 such as `yaml1 -> yaml2 -> yaml3 -> yaml1`, are rejected. Recursive authored
 programs are not supported.
 
-An authored interface declares ordered fixed Video inputs and scalar
-parameters:
+An authored interface declares ordered fixed `Video` or `Audio` inputs and
+scalar parameters:
 
 ```yaml
 - program:
@@ -93,7 +94,7 @@ parameters:
 ```
 
 `inputs` is a sequence because its order controls implicit stack binding.
-Initial authored inputs are fixed-cardinality `Video` values. Parameter types
+Authored inputs are fixed-cardinality `Video` or `Audio` values. Parameter types
 are the same shared types used by built-ins: `Integer`, `File`, `Duration`,
 `TimeRange`, and `Keyword`. A parameter without a default is required.
 
@@ -106,7 +107,7 @@ valid in a compatible scalar parameter position such as `repeat.count`.
 
 Inputs, parameters, clips, and local output names share one local namespace.
 They cannot collide. Local names do not escape an invocation. Ordered outputs
-are inferred from the program body's complete final owned suffix; no
+are inferred from the program body's complete ordered final owned values; no
 `outputs:` declaration is required. Authored programs currently have no YAML
 primary shorthand, postfix syntax, variadic inputs, or caller-supplied body.
 Every linked authored program is checked, including unused imports. Invalid
@@ -171,6 +172,9 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 |---|---|---|---|
 | `image` | none | `path`, optional `duration`, optional `fit` | none |
 | `video` | none | `path`, optional `fit` | none |
+| `audio` | none | `path` | none |
+| `extract_audio` | `video: Video` | none | none |
+| `set_audio` | `audio: Audio`, `video: Video` | none | none |
 | `repeat` | `video: Video` | `count` | none |
 | `concat` | `videos: Video...` | none | none |
 | `trim` | `video: Video` | `range` | none |
@@ -195,10 +199,10 @@ metadata inside its invocation mapping:
 ```
 
 `stack_access` is not an input or parameter and does not propagate to child
-invocations. `owned` limits missing-input binding to the current body's owned
-suffix. `visible` may additionally capture values from the visible suffix down
-to the nearest visibility boundary. For a body program, the same setting also
-controls the suffix visible to its nested body. Its children still use their
+invocations. `owned` limits missing-input binding to values owned by the current
+body. `visible` may additionally consume enclosing values down to the nearest
+visibility boundary. For a body program, the same setting also controls which
+enclosing values are visible to its nested body. Its children still use their
 own defaults or overrides. A no-op setting, such as `visible` on `image`, is
 valid.
 
@@ -233,7 +237,8 @@ This form still needs a duration-providing context.
 
 A video uses its full intrinsic duration. Duration is resolved during
 preflight, not pure compilation. The source must contain exactly one decodable
-video stream. Source audio is ignored.
+video stream. The first audio stream is imported when present; a source without
+audio remains a valid silent Video.
 
 `video` does not accept an authored duration.
 
@@ -241,6 +246,40 @@ The prepared duration is the smallest whole number of project frames whose
 duration covers the complete source interval. An aligned duration is unchanged;
 otherwise rendering may hold the final decoded image for less than one project
 frame so the source is never shortened.
+
+
+### Audio
+
+```yaml
+- audio: music.wav
+```
+
+`audio` loads the first audio stream from a supported media file. Preflight
+normalizes it to the canonical 48 kHz stereo Audio format and records its exact
+sample count.
+
+### Extract audio
+
+```yaml
+- extract_audio:
+    video: $clip
+```
+
+`extract_audio` consumes a Video and returns its synchronized Audio timeline. A
+silent Video produces matching-duration silence, so authored audio workflows do
+not need media-presence branches.
+
+### Set audio
+
+```yaml
+- video: picture.mp4
+- audio: music.wav
+- set_audio
+```
+
+`set_audio` replaces a Video's attached audio beginning at time zero. The Video
+determines the output duration: longer Audio is trimmed and shorter Audio is
+padded with silence. The existing Video audio is replaced.
 
 ### Repeat
 
@@ -379,6 +418,17 @@ clips and all other item IDs.
 Only fixed inputs support inline bodies. Variadic inputs accept one `$reference`
 or a list of `$references`.
 
+At an explicitly supplied graph-input boundary, one direct contextual adaptation
+is allowed when the produced type differs from the port type:
+
+- `Video` to `Audio` extracts the synchronized audio timeline;
+- `Audio` to `Video` creates a project-sized black Video carrying that Audio.
+
+The adaptation is a real semantic operation. Implicit stack binding, program
+outputs, and body outputs never adapt types. Nested explicit inputs may compose
+direct adaptations; for example, Audio may be adapted to black Video for
+`trim.video`, trimmed, and then adapted back for an outer Audio port.
+
 Scalar parameters accept authored literals or compatible local scalar
 parameter references. They cannot read graph-value references or receive
 values from inline bodies.
@@ -450,7 +500,8 @@ direct programs. They evaluate one nested body exactly once.
 ### Join
 
 `join` consumes the nearest two accessible Videos, starts its body with both in
-order as locally owned values, and concatenates all Videos left by the body.
+order as locally owned values, exposes them as `$before` and `$after`, and
+concatenates all Videos left by the body.
 Its default visible access lets it bind those inputs through an enclosing body
 boundary. Default-owned children still consume only the two seeded values;
 explicitly visible children may reach farther down the inherited visible
@@ -462,6 +513,21 @@ suffix. The single joined result is pushed onto the surrounding stack.
 - join:
     - flash
 ```
+
+
+The port references remain usable after body operations consume the seeded
+stack values. Explicit adaptation makes audiovisual overrides concise:
+
+```yaml
+- join:
+    - flash
+    - set_audio:
+        audio: $before
+```
+
+Here `flash` consumes the two seeded Videos. `$before` still names the immutable
+original input; the explicit `set_audio.audio` port adapts that Video to Audio,
+and the missing `set_audio.video` port binds the flashed Video from the stack.
 
 ### Glue
 
@@ -490,15 +556,17 @@ A child invocation that consumes an enclosing value must independently use
     - zoom: 12
 ```
 
-The first visible consumer captures the preceding Video into the glue body's
-owned suffix. Later default-owned operations may consume that captured result.
+The first visible consumer may consume an enclosing Video and pushes its result
+as a value owned by the glue body. Later default-owned operations may consume
+that result.
 Set `stack_access: owned` on `glue` when its body must establish a visibility
 boundary.
 
 ### During
 
-`during` consumes the nearest accessible Video, selects the range,
-evaluates its body with the selection as an owned value, and splices the single
+`during` consumes the nearest accessible Video, exposes the complete bound input
+as `$video`, selects the range, evaluates its body with only the selection as an
+owned value, and splices the single
 owned result between the unchanged prefix and suffix. Its default visible
 access lets it bind that Video through an enclosing body boundary and exposes the
 same visible suffix to explicitly visible descendants.
@@ -540,43 +608,42 @@ Program parameters otherwise belong inside the program mapping.
 
 ## Stack rules
 
-Compilation uses one physical evaluation stack. Each active body frame tracks:
+Compilation uses one physical ordered stack containing both Video and Audio
+values. Ownership is tracked per occurrence rather than as contiguous suffixes.
 
-- a visible suffix, bounded by the nearest visibility boundary;
-- an owned suffix, consumed by default-owned invocations and the finalizer.
+Missing fixed inputs bind from the last missing port to the first. Each port
+consumes the nearest accessible value of its exact type. Values of other types
+remain in place and preserve their relative order. A missing variadic input
+consumes every accessible value of its declared type in physical order.
+Implicit binding never adapts types.
 
-Missing fixed inputs consume the exact required suffix from the invocation's
-accessible region while preserving descriptor order. A missing variadic input
-consumes the complete accessible region. Binding never searches around a value
-of the wrong type. Explicit references read named values without consuming
-stack occurrences. Inline fixed inputs execute on isolated stacks.
+Each body program exposes its resolved fixed graph inputs as local immutable
+references named after the ports. Input expressions are evaluated in the caller
+scope before those aliases are installed, so nested same-name ports use normal
+lexical shadowing without self-reference. `body` is structural syntax, not a
+port. A body program with no fixed inputs exposes no aliases.
 
-| Scope | Initial owned values | Finalization |
-|---|---|---|
-| source program | empty | return the complete ordered owned suffix |
-| named clip | empty, isolated | exactly one Video |
-| inline fixed input | empty, isolated | exactly one value of the port type |
-| `join` | two bound Videos | concatenate owned Videos in order |
-| `glue` | none | concatenate owned Videos in order |
-| `during` | selected range | exactly one owned Video, then splice |
+| Scope | Initial owned values | Local port references | Finalization |
+|---|---|---|---|
+| source program | empty | authored inputs | return all ordered owned values |
+| named clip | empty, isolated | none | exactly one Video |
+| inline fixed input | empty, isolated | inherited caller scope | exactly one accepted value |
+| `join` | two bound Videos | `$before`, `$after` | concatenate owned Videos in order |
+| `glue` | none | none | concatenate owned Videos in order |
+| `during` | selected range | `$video` for the complete bound input | exactly one owned Video, then splice |
 
-When a visible invocation consumes below a body's ownership frontier, that
-suffix becomes owned. Captured ownership propagates to the enclosing body when
-the child body finishes. A body invocation with `stack_access: owned` creates a
-new visibility boundary, so a visible descendant cannot reach through it.
-Settings are per invocation and do not inherit.
-
-There is no hidden replacement, parent-stack lookup, or source-level reduction.
-Named clips, inline inputs, and `during` still require exactly one result. The
-source program returns zero or more outputs literally. Only `join` and `glue`
-explicitly concatenate their owned Videos.
+A body invocation with `stack_access: owned` creates a visibility boundary, so a
+visible descendant cannot reach through it. Settings remain per invocation.
+There is no hidden replacement, parent-stack fallback, or source-level
+reduction. Named clips, inline inputs, and body contracts remain strict.
 
 ## Entrypoint publication and rendering
 
 The source program returns its ordered semantic outputs. A configured `output`
 path turns the source into a render entrypoint and therefore requires exactly
-one Video output. `render` publishes that Video. Publication is not a semantic
-graph operation, and the output path does not change compiled semantic identity.
+one Video among the ordered outputs. Any additional Audio outputs are auxiliary;
+`render` publishes only the Video and preflights only its reachable graph.
+Publication is not a semantic graph operation, and the output path does not change compiled semantic identity.
 
 `validate` parses, type-checks, and infers every source-independent domain.
 
@@ -586,8 +653,9 @@ file and refuses to replace an existing path.
 
 `render` performs preflight, resolves result-reachable assets and video
 durations, checks FFmpeg capabilities, verifies that the prepared FFmpeg and
-FFprobe builds have not changed, renders verified lossless intermediates, and
-exports H.264/yuv420p MP4.
+FFprobe builds have not changed, renders verified FFV1+FLAC Video and FLAC Audio intermediates, and
+exports H.264/yuv420p MP4 with AAC when the result Video has meaningful audio. Silent
+Videos publish without an audio stream.
 
 ```console
 cargo run -- validate program.yaml

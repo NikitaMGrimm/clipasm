@@ -20,7 +20,7 @@ authoring semantics. Public YAML forms and program arguments are defined in
 - A **source package** is one linked collection of source units with one root
   unit. Imports expose another unit's source program under a local alias.
 - A **source program** is one callable canonical stack program. Its executable
-  body starts empty and returns its ordered final owned suffix, including zero
+  body starts empty and returns its ordered final owned values, including zero
   values.
 - The **root source unit** may additionally declare project and publication
   settings for compilation and rendering. Imported units may not.
@@ -29,12 +29,14 @@ authoring semantics. Public YAML forms and program arguments are defined in
   output path; it is not executable.
 - An **item** is one executable entry in a sequence body.
 - A **program** is a typed callable construct with declared inputs,
-  parameters, and an ordered output sequence. Every current built-in declares
-  exactly one Video output.
+  parameters, and an ordered output sequence. Current built-ins declare exactly
+  one Video or Audio output.
 - A **direct program** produces its output without evaluating a nested body.
 - A **body program** evaluates one nested body with a program-defined initial
   value sequence and finalization rule.
-- A **clip** is any finite Video value.
+- A **clip** is any finite Video value. A Video carries picture plus optional
+  synchronized audio.
+- **Audio** is a finite standalone normalized audio timeline.
 - A **named clip** is a clip declaration bound to a name under `clips`; `clip`
   is not a program or invocation keyword.
 - A **value** is an immutable typed graph result. A stack may contain multiple
@@ -44,19 +46,19 @@ authoring semantics. Public YAML forms and program arguments are defined in
   forward a declared scalar parameter of the required type.
 - The **evaluation stack** is the ordered sequence of value occurrences used
   while compiling one source program.
-- A body's **visible suffix** is the part of the evaluation stack that its
-  `visible` invocations may consume.
-- A body's **owned suffix** is the part of the visible suffix that ordinary
-  `owned` invocations and the body's finalizer may consume.
+- A body's **visible values** are stack entries whose ownership lies within
+  the nearest visibility boundary.
+- A body's **owned values** are stack entries produced for that body. Ownership
+  is tracked per value occurrence rather than as a contiguous suffix.
 - **Stack access** is generic invocation metadata with values `owned` and
   `visible`. It does not propagate to child invocations.
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
 - The **compiled JSON document** is a downstream serialization of compiled
   semantics. It is not canonical source and is not a frontend input format.
-- A source program's **outputs** are the ordered values in its final owned
-  suffix. An entrypoint configured with `output` must have exactly one Video
-  output, which is its render result.
+- A source program's **outputs** are its ordered final owned values. An
+  entrypoint configured with `output` must contain exactly one Video output;
+  any additional Audio outputs are auxiliary and are not published.
 - An **inline input body** is an isolated body that supplies one explicit fixed
   graph input to an invocation.
 - The **prepared plan** is the preflight result with reachable assets, tools,
@@ -65,47 +67,60 @@ authoring semantics. Public YAML forms and program arguments are defined in
 ## Settled stack semantics
 
 Sequence order is executable order; frontend mapping order has no executable
-meaning. Missing fixed inputs consume the exact required suffix of the current
-accessible suffix while preserving signature order. A missing variadic input
-consumes the complete accessible suffix in order. Explicit inputs read named
-values and consume nothing; a fixed input may instead evaluate an isolated
-inline input body.
+meaning. The stack is one physical ordered sequence containing typed value
+occurrences. Each occurrence records which active body owns it.
+
+Missing fixed inputs are bound from last port to first port. Each port consumes
+the nearest accessible value of its exact declared type. Values of other types
+are skipped without moving and retain their relative order. A missing variadic
+input consumes all accessible values of its declared type in physical order.
+Explicit inputs read named values or evaluate isolated inline bodies and consume
+nothing from the caller stack.
 
 Every program definition explicitly declares a default stack access. Direct
 built-ins and source programs default to `owned`; `join`, `glue`, and `during`
-default to `visible`. An invocation may override its default. `visible` binding
-may consume values below the current ownership frontier down to the nearest
-visibility boundary, and captured values become owned by that body. For a body
-program, the same access also determines whether its nested body inherits the
-enclosing visibility boundary or establishes a new one. Child invocations
-independently use their own explicit setting or program default.
+default to `visible`. `owned` binding can consume only entries owned by the
+current body. `visible` binding may also consume entries owned by enclosing
+bodies down to the nearest visibility boundary. A body invocation with
+`stack_access: owned` establishes a new boundary. Settings remain per invocation
+and do not propagate to children.
 
-- A named clip is isolated, starts empty, and must leave exactly one Video. It
-  does not receive glue finalization.
-- `join` starts its body with two preceding Videos in order and concatenates
-  the body's owned Videos in order.
+Every body program exposes each resolved fixed graph input as a local immutable
+reference named after its port. Arguments are evaluated in the caller scope
+before those aliases are introduced. Thus an inner `during.video: $video` reads
+the outer `$video`, while `$video` inside the inner body names the inner bound
+port. The body itself is structural invocation data, not a port. Programs with
+no fixed inputs, such as `glue`, expose no aliases.
+
+- A named clip is isolated, starts empty, and must leave exactly one Video.
+- `join` starts its body with two bound Videos in order, exposes `$before` and
+  `$after`, and concatenates the body's owned Videos in order.
 - A nested `glue` starts with no owned values and concatenates the body's owned
   Videos in order.
-- `during` starts its body with only the selected range, requires one processed
-  owned Video, and splices that result between the untouched prefix and suffix.
+- `during` exposes its complete bound `$video`, starts the body stack with only
+  the selected range, requires one processed owned Video, and splices it back.
 
-A source-program body starts empty and returns its complete final owned suffix
-without implicit reduction. Zero, one, or multiple outputs are valid for pure
-validation and compilation. A header `output` path requires exactly one Video;
-authors use `concat` or a nested `glue` when several Videos should become that
-render result.
+A source-program body starts empty and returns all final owned values in physical
+order. Zero, one, or multiple outputs are valid for pure validation and
+compilation. Publication finds exactly one Video output by type and ignores any
+auxiliary Audio outputs. Named clips, inline inputs, and body contracts remain
+strict.
 
-An inline input body also starts empty, inherits the enclosing requested-frame
-context, and must leave exactly one value of its input port's declared type.
-It is isolated from the enclosing invocation's evaluation stack.
+Implicit stack binding always requires exact types. Explicit fixed graph inputs
+may apply one direct contextual adaptation at the port boundary: `Video` to
+`Audio` extracts synchronized audio, while `Audio` to `Video` creates a black
+project-sized Video carrying that Audio. Adaptations are semantic graph nodes;
+program outputs and body outputs are never adapted. Nested explicit boundaries
+may compose direct adaptations.
 
-A full-duration video source is quantized to the smallest integral project
-frame count that covers its complete source interval.
+An inline input body starts empty, inherits the enclosing requested-frame
+context, and must leave exactly one value accepted by its input port after any
+direct adaptation.
 
-There is no type-skipping search, hidden replacement, or automatic reduction
-inside named-clip or body-program bodies. Binding always consumes a contiguous
-suffix. `visible` access operates only within the current evaluation stack and
-cannot cross the nearest visibility boundary.
+A full-duration video source is quantized to the smallest integral project frame
+count that covers its complete source interval. Audio domains use exact sample
+counts at the canonical 48 kHz stereo project format; frame/sample conversion
+also uses checked coverage rounding.
 
 ## Names, references, and dependencies
 
