@@ -8,6 +8,7 @@ mod bind;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod resolve;
+mod stack;
 pub(crate) mod traversal;
 
 use std::collections::BTreeMap;

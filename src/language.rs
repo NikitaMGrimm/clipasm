@@ -65,7 +65,7 @@ mod tests {
     use crate::model::{ValueRef, ValueType};
     use crate::program::{
         BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType, PostfixSyntax,
-        ProgramDefinition, ProgramDescriptor, ResolvedCall,
+        ProgramDefinition, ProgramDescriptor, ResolvedCall, StackAccess,
     };
     use crate::semantic::GraphBuilder;
 
@@ -100,6 +100,7 @@ mod tests {
             descriptor: ProgramDescriptor {
                 name,
                 semantic_version: 1,
+                default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
                 primary_parameter: None,

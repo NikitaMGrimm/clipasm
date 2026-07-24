@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
-use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueStack, ValueType};
+use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
 
 pub(crate) use builtins::BUILTIN_PROGRAMS;
@@ -13,6 +13,22 @@ pub(crate) use builtins::BUILTIN_PROGRAMS;
 pub(crate) enum Cardinality {
     One,
     Variadic { min: usize },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StackAccess {
+    Owned,
+    Visible,
+}
+
+impl StackAccess {
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Owned => "owned",
+            Self::Visible => "visible",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +69,7 @@ pub(crate) struct ParameterDescriptor {
 pub(crate) struct ProgramDescriptor {
     pub(crate) name: &'static str,
     pub(crate) semantic_version: u32,
+    pub(crate) default_stack_access: StackAccess,
     pub(crate) inputs: &'static [InputPort],
     pub(crate) parameters: &'static [ParameterDescriptor],
     pub(crate) primary_parameter: Option<&'static str>,
@@ -92,7 +109,7 @@ pub(crate) struct ProgramDefinition {
 }
 
 pub(crate) struct BodyPlan {
-    pub(crate) initial_stack: ValueStack,
+    pub(crate) initial_values: Vec<ValueRef>,
     pub(crate) requested_frames: Option<FrameCount>,
     pub(crate) finalizer: Box<dyn BodyFinalizer>,
 }
@@ -100,7 +117,7 @@ pub(crate) struct BodyPlan {
 pub(crate) trait BodyFinalizer {
     fn finish(
         self: Box<Self>,
-        stack: ValueStack,
+        values: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ValueRef>;
 }
@@ -423,6 +440,7 @@ mod tests {
             descriptor: ProgramDescriptor {
                 name,
                 semantic_version: 1,
+                default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
                 primary_parameter,

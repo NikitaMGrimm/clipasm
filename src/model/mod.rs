@@ -99,5 +99,3 @@ impl ValueRef {
         self.value_type
     }
 }
-
-pub(crate) type ValueStack = Vec<ValueRef>;

@@ -4,7 +4,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
-    ProgramDescriptor, ProgramImplementation, ResolvedCall,
+    ProgramDescriptor, ProgramImplementation, ResolvedCall, StackAccess,
 };
 use crate::semantic::GraphBuilder;
 
@@ -94,6 +94,7 @@ pub(crate) const IMAGE: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "image",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: NO_INPUTS,
         parameters: IMAGE_PARAMETERS,
         primary_parameter: Some("path"),
@@ -106,6 +107,7 @@ pub(crate) const VIDEO_SOURCE: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "video",
         semantic_version: 2,
+        default_stack_access: StackAccess::Owned,
         inputs: NO_INPUTS,
         parameters: VIDEO_PARAMETERS,
         primary_parameter: Some("path"),
@@ -118,6 +120,7 @@ pub(crate) const CONCAT: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "concat",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: VIDEOS,
         parameters: &[],
         primary_parameter: None,
@@ -130,6 +133,7 @@ pub(crate) const REPEAT: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "repeat",
         semantic_version: 2,
+        default_stack_access: StackAccess::Owned,
         inputs: ONE_VIDEO,
         parameters: REPEAT_PARAMETERS,
         primary_parameter: Some("count"),
@@ -142,6 +146,7 @@ pub(crate) const TRIM: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "trim",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: ONE_VIDEO,
         parameters: TRIM_PARAMETERS,
         primary_parameter: Some("range"),
@@ -154,6 +159,7 @@ pub(crate) const ZOOM: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "zoom",
         semantic_version: 2,
+        default_stack_access: StackAccess::Owned,
         inputs: ONE_VIDEO,
         parameters: ZOOM_PARAMETERS,
         primary_parameter: Some("percent"),
@@ -166,6 +172,7 @@ pub(crate) const WOBBLE: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "wobble",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: ONE_VIDEO,
         parameters: WOBBLE_PARAMETERS,
         primary_parameter: Some("pixels"),
@@ -178,6 +185,7 @@ pub(crate) const FLASH: ProgramDefinition = direct(
     ProgramDescriptor {
         name: "flash",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: TWO_VIDEOS,
         parameters: FLASH_PARAMETERS,
         primary_parameter: Some("frames"),

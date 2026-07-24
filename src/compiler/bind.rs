@@ -1,18 +1,22 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
-use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueStack};
+use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef};
 use crate::program::{
     BoundParameters, Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue,
-    ProgramDefinition, ResolvedCall,
+    ProgramDefinition, ResolvedCall, StackAccess,
 };
 use crate::semantic::{SourceOrigin, require_value_type};
 use crate::syntax::{Argument, InputExpression, Invocation, ParameterArgument};
 
+use super::stack::{EvaluationStack, StackFrame};
+
 pub(super) fn bind_call(
     definition: &'static ProgramDefinition,
     invocation: &Invocation,
-    stack: &mut ValueStack,
+    stack: &mut EvaluationStack,
+    frame: &mut StackFrame,
+    access: StackAccess,
     requested_frames: Option<FrameCount>,
     origin: SourceOrigin,
     mut resolve_input_expression: impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
@@ -53,6 +57,8 @@ pub(super) fn bind_call(
         descriptor.inputs,
         &mut slots,
         stack,
+        frame,
+        access,
         &origin.span,
     )?;
     for (index, port) in descriptor.inputs.iter().enumerate() {
@@ -62,20 +68,8 @@ pub(super) fn bind_call(
         let Cardinality::Variadic { min } = port.cardinality else {
             continue;
         };
-        if stack.len() < min {
-            return Err(Diagnostic::new(
-                "E_MISSING_REQUIRED_INPUT",
-                format!(
-                    "`{}.{}` needs at least {min} {} value(s), but the local stack has {}",
-                    descriptor.name,
-                    port.name,
-                    port.value_type,
-                    stack.len()
-                ),
-                origin.span.clone(),
-            ));
-        }
-        let values = std::mem::take(stack);
+        let values =
+            stack.take_variadic(frame, access, min, descriptor.name, port.name, &origin.span)?;
         for value in &values {
             require_value_type(
                 *value,
@@ -248,7 +242,9 @@ fn bind_missing_fixed(
     program: &str,
     ports: &[InputPort],
     slots: &mut [Option<Vec<ValueRef>>],
-    stack: &mut ValueStack,
+    stack: &mut EvaluationStack,
+    frame: &mut StackFrame,
+    access: StackAccess,
     span: &SourceSpan,
 ) -> Result<()> {
     let missing = ports
@@ -258,30 +254,12 @@ fn bind_missing_fixed(
             slots[*index].is_none() && matches!(port.cardinality, Cardinality::One)
         })
         .collect::<Vec<_>>();
-    if stack.len() < missing.len() {
-        return Err(stack_underflow(program, missing.len(), stack.len(), span));
-    }
-    let implicit = stack.split_off(stack.len() - missing.len());
+    let implicit = stack.take_fixed(frame, access, missing.len(), program, span)?;
     for ((index, port), value) in missing.into_iter().zip(implicit) {
         require_value_type(value, port.value_type, program, port.name, span)?;
         slots[index] = Some(vec![value]);
     }
     Ok(())
-}
-
-fn stack_underflow(
-    program: &str,
-    required: usize,
-    available: usize,
-    span: &SourceSpan,
-) -> Diagnostic {
-    Diagnostic::new(
-        "E_STACK_UNDERFLOW",
-        format!(
-            "`{program}` needs {required} preceding value(s), but the local stack has {available}"
-        ),
-        span.clone(),
-    )
 }
 
 #[cfg(test)]
@@ -348,6 +326,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "typed",
             semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: PARAMETERS,
             primary_parameter: None,
@@ -377,10 +356,14 @@ mod tests {
     }
 
     fn bind(invocation: &Invocation) -> Result<ResolvedCall> {
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
         bind_call(
             &TYPED_PROGRAM,
             invocation,
-            &mut Vec::new(),
+            &mut stack,
+            &mut frame,
+            StackAccess::Owned,
             None,
             SourceOrigin {
                 construct: "typed",
@@ -393,12 +376,16 @@ mod tests {
     #[test]
     fn fixed_suffix_preserves_descriptor_order() {
         let mut slots = vec![None, Some(vec![video(9)]), None];
-        let mut stack = vec![video(1), video(3)];
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
+        stack.extend([video(1), video(3)]);
         bind_missing_fixed(
             "combine",
             PORTS,
             &mut slots,
             &mut stack,
+            &mut frame,
+            StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
         )
         .expect("bind");
@@ -409,12 +396,16 @@ mod tests {
     #[test]
     fn incompatible_top_value_is_not_skipped() {
         let mut slots = vec![None];
-        let mut stack = vec![video(1), ValueRef::new(ValueId::new(2), ValueType::Test)];
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
+        stack.extend([video(1), ValueRef::new(ValueId::new(2), ValueType::Test)]);
         let error = bind_missing_fixed(
             "consume",
             &PORTS[..1],
             &mut slots,
             &mut stack,
+            &mut frame,
+            StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
         )
         .expect_err("type mismatch");

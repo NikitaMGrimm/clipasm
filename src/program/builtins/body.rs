@@ -1,8 +1,9 @@
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
-use crate::model::{ValueRef, ValueStack, ValueType};
+use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyFinalizer, BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType,
     PostfixSyntax, ProgramDefinition, ProgramDescriptor, ProgramImplementation, ResolvedCall,
+    StackAccess,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 
@@ -33,6 +34,7 @@ pub(crate) const JOIN: ProgramDefinition = body(
     ProgramDescriptor {
         name: "join",
         semantic_version: 2,
+        default_stack_access: StackAccess::Owned,
         inputs: JOIN_INPUTS,
         parameters: &[],
         primary_parameter: None,
@@ -46,6 +48,7 @@ pub(crate) const GLUE: ProgramDefinition = body(
     ProgramDescriptor {
         name: "glue",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: &[],
         parameters: &[],
         primary_parameter: None,
@@ -59,6 +62,7 @@ pub(crate) const DURING: ProgramDefinition = body(
     ProgramDescriptor {
         name: "during",
         semantic_version: 1,
+        default_stack_access: StackAccess::Owned,
         inputs: DURING_INPUTS,
         parameters: DURING_PARAMETERS,
         primary_parameter: Some("range"),
@@ -82,7 +86,7 @@ const fn body(
 
 fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
     Ok(BodyPlan {
-        initial_stack: vec![call.one_input("before")?, call.one_input("after")?],
+        initial_values: vec![call.one_input("before")?, call.one_input("after")?],
         requested_frames: call.requested_frames(),
         finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_JOIN")),
     })
@@ -91,7 +95,7 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
 #[allow(clippy::unnecessary_wraps)]
 fn prepare_glue(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
     Ok(BodyPlan {
-        initial_stack: Vec::new(),
+        initial_values: Vec::new(),
         requested_frames: call.requested_frames(),
         finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_GLUE")),
     })
@@ -103,7 +107,7 @@ fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result
     let range = range.to_frames(builder.video_spec().fps, span)?;
     let selected = builder.at_span(span.clone()).slice(base, range)?;
     Ok(BodyPlan {
-        initial_stack: vec![selected],
+        initial_values: vec![selected],
         requested_frames: Some(range.frames()),
         finalizer: Box::new(FinalizeDuring {
             base,
@@ -132,7 +136,7 @@ impl FinalizeConcatBody {
 impl BodyFinalizer for FinalizeConcatBody {
     fn finish(
         self: Box<Self>,
-        stack: ValueStack,
+        stack: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ValueRef> {
         if stack.is_empty() {
@@ -155,7 +159,7 @@ struct FinalizeDuring {
 impl BodyFinalizer for FinalizeDuring {
     fn finish(
         self: Box<Self>,
-        stack: ValueStack,
+        stack: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ValueRef> {
         let replacement = take_one_video("during", stack, &self.span)?;
@@ -163,7 +167,7 @@ impl BodyFinalizer for FinalizeDuring {
     }
 }
 
-fn take_one_video(owner: &str, stack: ValueStack, span: &SourceSpan) -> Result<ValueRef> {
+fn take_one_video(owner: &str, stack: Vec<ValueRef>, span: &SourceSpan) -> Result<ValueRef> {
     if stack.len() != 1 {
         return Err(Diagnostic::new(
             "E_BODY_OUTPUT_COUNT",

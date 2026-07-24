@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
-use crate::model::{FrameCount, ValueRef, ValueStack, ValueType, VideoSpec};
+use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{InputPort, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
 use crate::syntax::{
     Argument, InputExpression, Invocation, Item, ItemKind, ProgramBody, Reference, SourceProgram,
 };
+
+use super::stack::{EvaluationStack, StackFrame};
 
 #[derive(Clone, Debug)]
 pub(super) enum DeclaredValueType {
@@ -164,9 +166,10 @@ impl Evaluator<'_> {
         let mut clips = self.program.clips().iter().collect::<Vec<_>>();
         clips.sort_by(|left, right| left.name.cmp(&right.name));
         for clip in clips {
-            let mut stack = ValueStack::new();
-            self.evaluate_body(&clip.body, &mut stack, None)?;
-            let [output] = stack.as_slice() else {
+            let (mut stack, mut frame) =
+                EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
+            self.evaluate_body(&clip.body, &mut stack, &mut frame, None)?;
+            let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
                     &format!("named clip `{}`", clip.name),
@@ -190,9 +193,10 @@ impl Evaluator<'_> {
             });
         }
 
-        let mut stack = ValueStack::new();
-        self.evaluate_body(self.program.body(), &mut stack, None)?;
-        let [result] = stack.as_slice() else {
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("source program", self.program.header_span().clone());
+        self.evaluate_body(self.program.body(), &mut stack, &mut frame, None)?;
+        let [result] = stack.values() else {
             return Err(output_count_error(
                 "E_SOURCE_PROGRAM_OUTPUT_COUNT",
                 "source program",
@@ -214,11 +218,12 @@ impl Evaluator<'_> {
     fn evaluate_body(
         &mut self,
         body: &ProgramBody,
-        stack: &mut ValueStack,
+        stack: &mut EvaluationStack,
+        frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         for item in &body.items {
-            self.evaluate_item(item, stack, requested_frames)?;
+            self.evaluate_item(item, stack, frame, requested_frames)?;
         }
         Ok(())
     }
@@ -226,7 +231,8 @@ impl Evaluator<'_> {
     fn evaluate_item(
         &mut self,
         item: &Item,
-        stack: &mut ValueStack,
+        stack: &mut EvaluationStack,
+        frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         let (output, construct) = match &item.kind {
@@ -234,7 +240,7 @@ impl Evaluator<'_> {
                 (self.evaluate_reference(reference)?, "reference".to_owned())
             }
             ItemKind::Invocation(invocation) => (
-                self.evaluate_invocation(invocation, stack, requested_frames, &item.span)?,
+                self.evaluate_invocation(invocation, stack, frame, requested_frames, &item.span)?,
                 invocation.program.value.clone(),
             ),
         };
@@ -277,7 +283,8 @@ impl Evaluator<'_> {
     fn evaluate_invocation(
         &mut self,
         invocation: &Invocation,
-        stack: &mut ValueStack,
+        stack: &mut EvaluationStack,
+        frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
     ) -> Result<ValueRef> {
@@ -289,10 +296,13 @@ impl Evaluator<'_> {
             construct: definition.descriptor.name,
             span: span.clone(),
         };
+        let access = definition.descriptor.default_stack_access;
         let call = super::bind::bind_call(
             definition,
             invocation,
             stack,
+            frame,
+            access,
             requested_frames,
             origin.clone(),
             |expression, port| {
@@ -336,15 +346,27 @@ impl Evaluator<'_> {
                     );
                     prepare(&call, &mut builder)?
                 };
-                let mut local = plan.initial_stack;
-                self.evaluate_body(body, &mut local, plan.requested_frames.or(requested_frames))?;
+                let mut child = stack.enter_body(
+                    frame,
+                    access,
+                    definition.descriptor.name,
+                    invocation.program.span.clone(),
+                );
+                stack.extend(plan.initial_values);
+                self.evaluate_body(
+                    body,
+                    stack,
+                    &mut child,
+                    plan.requested_frames.or(requested_frames),
+                )?;
+                let owned = stack.finish_body(frame, child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     self.video,
                     definition.descriptor.semantic_version,
                     origin,
                 );
-                plan.finalizer.finish(local, &mut builder)?
+                plan.finalizer.finish(owned, &mut builder)?
             }
         };
 
@@ -382,9 +404,12 @@ impl Evaluator<'_> {
                 .map(|reference| self.evaluate_reference_name(&reference.value, &reference.span))
                 .collect(),
             InputExpression::Body(body) => {
-                let mut local = ValueStack::new();
-                self.evaluate_body(body, &mut local, requested_frames)?;
-                let [result] = local.as_slice() else {
+                let (mut local, mut frame) = EvaluationStack::isolated(
+                    format!("inline input body for `{program}.{}`", port.name),
+                    body.span.clone(),
+                );
+                self.evaluate_body(body, &mut local, &mut frame, requested_frames)?;
+                let [result] = local.values() else {
                     return Err(output_count_error(
                         "E_INPUT_BODY_OUTPUT_COUNT",
                         &format!("inline input body for `{program}.{}`", port.name),
@@ -514,13 +539,13 @@ mod tests {
     use crate::language::Language;
     use crate::model::{FrameCount, ImageFit};
     use crate::program::{
-        BodyFinalizer, BodyPlan, ProgramDefinition, ProgramDescriptor, ResolvedCall,
+        BodyFinalizer, BodyPlan, ProgramDefinition, ProgramDescriptor, ResolvedCall, StackAccess,
     };
 
     #[allow(clippy::unnecessary_wraps)]
     fn prepare_root(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
         Ok(BodyPlan {
-            initial_stack: Vec::new(),
+            initial_values: Vec::new(),
             requested_frames: call.requested_frames(),
             finalizer: Box::new(RootFinalizer),
         })
@@ -531,7 +556,7 @@ mod tests {
     impl BodyFinalizer for RootFinalizer {
         fn finish(
             self: Box<Self>,
-            stack: ValueStack,
+            stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
         ) -> Result<ValueRef> {
             builder.concat(stack)
@@ -552,7 +577,7 @@ mod tests {
         _builder: &mut GraphBuilder<'_>,
     ) -> Result<BodyPlan> {
         Ok(BodyPlan {
-            initial_stack: Vec::new(),
+            initial_values: Vec::new(),
             requested_frames: call.requested_frames(),
             finalizer: Box::new(WrongTypeFinalizer),
         })
@@ -563,7 +588,7 @@ mod tests {
     impl BodyFinalizer for WrongTypeFinalizer {
         fn finish(
             self: Box<Self>,
-            _stack: ValueStack,
+            _stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
         ) -> Result<ValueRef> {
             builder.test_value()
@@ -580,7 +605,7 @@ mod tests {
             ImageFit::Cover,
         )?;
         Ok(BodyPlan {
-            initial_stack: vec![prepared],
+            initial_values: vec![prepared],
             requested_frames: call.requested_frames(),
             finalizer: Box::new(VersionedFinalizer),
         })
@@ -591,7 +616,7 @@ mod tests {
     impl BodyFinalizer for VersionedFinalizer {
         fn finish(
             self: Box<Self>,
-            stack: ValueStack,
+            stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
         ) -> Result<ValueRef> {
             let [value] = stack.as_slice() else {
@@ -605,6 +630,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "glue",
             semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -617,6 +643,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "source",
             semantic_version: 3,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -629,6 +656,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "wrong_direct",
             semantic_version: 5,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -641,6 +669,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "wrong_body",
             semantic_version: 7,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -653,6 +682,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "versioned_direct",
             semantic_version: 11,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -665,6 +695,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "versioned_body",
             semantic_version: 17,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,

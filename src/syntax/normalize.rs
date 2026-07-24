@@ -652,10 +652,10 @@ fn into_mapping(node: RawNode, owner: &str) -> Result<Vec<(String, SourceSpan, R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{FrameCount, ImageFit, ValueRef, ValueStack, ValueType};
+    use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
     use crate::program::{
         BodyFinalizer, BodyPlan, ParameterDescriptor, ParameterType, PostfixSyntax,
-        ProgramDescriptor, ResolvedCall,
+        ProgramDescriptor, ResolvedCall, StackAccess,
     };
     use crate::semantic::GraphBuilder;
 
@@ -751,7 +751,7 @@ mod tests {
         _builder: &mut GraphBuilder<'_>,
     ) -> Result<BodyPlan> {
         Ok(BodyPlan {
-            initial_stack: Vec::new(),
+            initial_values: Vec::new(),
             requested_frames: call.requested_frames(),
             finalizer: Box::new(OneValue),
         })
@@ -763,7 +763,7 @@ mod tests {
     ) -> Result<BodyPlan> {
         let _ = call.time_range_parameter("range")?;
         Ok(BodyPlan {
-            initial_stack: Vec::new(),
+            initial_values: Vec::new(),
             requested_frames: call.requested_frames(),
             finalizer: Box::new(OneValue),
         })
@@ -774,7 +774,7 @@ mod tests {
     impl BodyFinalizer for OneValue {
         fn finish(
             self: Box<Self>,
-            stack: ValueStack,
+            stack: Vec<ValueRef>,
             _builder: &mut GraphBuilder<'_>,
         ) -> Result<ValueRef> {
             let [value] = stack.as_slice() else {
@@ -792,6 +792,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "synthetic_direct",
             semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: SOURCE_PARAMETERS,
             primary_parameter: Some("path"),
@@ -804,6 +805,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "synthetic_body",
             semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: &[],
             primary_parameter: None,
@@ -816,6 +818,7 @@ mod tests {
         descriptor: ProgramDescriptor {
             name: "synthetic_postfix",
             semantic_version: 1,
+            default_stack_access: StackAccess::Owned,
             inputs: &[],
             parameters: POSTFIX_PARAMETERS,
             primary_parameter: Some("range"),
