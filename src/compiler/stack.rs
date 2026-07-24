@@ -102,7 +102,14 @@ impl EvaluationStack {
         let start = self.accessible_start(frame, access);
         let available = self.values.len().saturating_sub(start);
         if available < count {
-            return Err(self.underflow(frame, access, program, count, available, span));
+            return Err(self.underflow(
+                frame,
+                access,
+                "E_STACK_UNDERFLOW",
+                &format!("`{program}` needs {count} preceding value(s)"),
+                available,
+                span,
+            ));
         }
         let consumed_start = self.values.len() - count;
         let values = self.values.split_off(consumed_start);
@@ -122,13 +129,13 @@ impl EvaluationStack {
         let start = self.accessible_start(frame, access);
         let available = self.values.len().saturating_sub(start);
         if available < min {
-            return Err(Diagnostic::new(
+            return Err(self.underflow(
+                frame,
+                access,
                 "E_MISSING_REQUIRED_INPUT",
-                format!(
-                    "`{program}.{port}` needs at least {min} value(s), but only {available} {} value(s) are available",
-                    access.label()
-                ),
-                span.clone(),
+                &format!("`{program}.{port}` needs at least {min} value(s)"),
+                available,
+                span,
             ));
         }
         let values = self.values.split_off(start);
@@ -139,7 +146,7 @@ impl EvaluationStack {
     pub(super) fn finish_body(
         &mut self,
         parent: &mut StackFrame,
-        child: StackFrame,
+        child: &StackFrame,
     ) -> Vec<ValueRef> {
         debug_assert!(child.visible_start <= child.owned_start);
         debug_assert!(child.owned_start <= self.values.len());
@@ -170,15 +177,15 @@ impl EvaluationStack {
         &self,
         frame: &StackFrame,
         access: StackAccess,
-        program: &str,
-        required: usize,
+        code: &'static str,
+        requirement: &str,
         available: usize,
         span: &SourceSpan,
     ) -> Diagnostic {
         let mut diagnostic = Diagnostic::new(
-            "E_STACK_UNDERFLOW",
+            code,
             format!(
-                "`{program}` needs {required} preceding value(s), but only {available} {} value(s) are available",
+                "{requirement}, but only {available} {} value(s) are available",
                 access.label()
             ),
             span.clone(),
@@ -295,11 +302,50 @@ mod tests {
             .expect("capture");
         stack.push(value(3));
 
-        let owned = stack.finish_body(&mut root, child);
+        let owned = stack.finish_body(&mut root, &child);
 
         assert_eq!(owned, vec![value(3)]);
         assert_eq!(root.owned_start, 0);
         assert!(stack.values().is_empty());
+    }
+
+    #[test]
+    fn nested_capture_propagates_when_each_body_finishes() {
+        let (mut stack, mut root) = root();
+        stack.extend([value(0), value(1)]);
+        root.owned_start = 1;
+
+        let mut middle = stack.enter_body(
+            &root,
+            StackAccess::Visible,
+            "middle",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+        let mut inner = stack.enter_body(
+            &middle,
+            StackAccess::Visible,
+            "inner",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+        let _ = stack
+            .take_fixed(
+                &mut inner,
+                StackAccess::Visible,
+                2,
+                "flash",
+                &SourceSpan::file_start("workflow.yaml"),
+            )
+            .expect("capture root values");
+        stack.push(value(2));
+
+        let inner_owned = stack.finish_body(&mut middle, &inner);
+        assert_eq!(inner_owned, vec![value(2)]);
+        assert_eq!(middle.owned_start, 0);
+        stack.extend(inner_owned);
+
+        let middle_owned = stack.finish_body(&mut root, &middle);
+        assert_eq!(middle_owned, vec![value(2)]);
+        assert_eq!(root.owned_start, 0);
     }
 
     #[test]
@@ -326,5 +372,106 @@ mod tests {
 
         assert!(error.message.contains("only 1 visible"));
         assert!(error.notes.iter().any(|note| note.contains("during")));
+    }
+
+    #[test]
+    fn owned_variadic_underflow_reports_visible_values_outside_ownership() {
+        let (mut stack, root) = root();
+        stack.push(value(0));
+        let mut child = stack.enter_body(
+            &root,
+            StackAccess::Visible,
+            "glue",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+
+        let error = stack
+            .take_variadic(
+                &mut child,
+                StackAccess::Owned,
+                1,
+                "concat",
+                "videos",
+                &SourceSpan::file_start("workflow.yaml"),
+            )
+            .expect_err("owned concat cannot capture");
+
+        assert_eq!(error.code, "E_MISSING_REQUIRED_INPUT");
+        assert!(error.message.contains("only 0 owned"));
+        assert!(
+            error
+                .notes
+                .iter()
+                .any(|note| note.contains("1 additional value"))
+        );
+    }
+
+    #[test]
+    fn visible_variadic_consumes_the_complete_visible_suffix() {
+        let (mut stack, root) = root();
+        stack.extend([value(0), value(1)]);
+        let mut child = stack.enter_body(
+            &root,
+            StackAccess::Visible,
+            "glue",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+        stack.push(value(2));
+
+        let consumed = stack
+            .take_variadic(
+                &mut child,
+                StackAccess::Visible,
+                1,
+                "concat",
+                "videos",
+                &SourceSpan::file_start("workflow.yaml"),
+            )
+            .expect("visible suffix");
+
+        assert_eq!(consumed, vec![value(0), value(1), value(2)]);
+        assert_eq!(child.owned_start, 0);
+        assert!(stack.values().is_empty());
+    }
+
+    #[test]
+    fn capture_propagates_outward_one_body_exit_at_a_time() {
+        let (mut stack, mut root) = root();
+        stack.extend([value(0), value(1)]);
+        root.owned_start = 1;
+        let mut parent = stack.enter_body(
+            &root,
+            StackAccess::Visible,
+            "parent",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+        stack.push(value(2));
+        let mut child = stack.enter_body(
+            &parent,
+            StackAccess::Visible,
+            "child",
+            SourceSpan::file_start("workflow.yaml"),
+        );
+        stack.push(value(3));
+        let _ = stack
+            .take_fixed(
+                &mut child,
+                StackAccess::Visible,
+                4,
+                "capture",
+                &SourceSpan::file_start("workflow.yaml"),
+            )
+            .expect("deep capture");
+        stack.push(value(4));
+
+        let child_values = stack.finish_body(&mut parent, &child);
+        assert_eq!(child_values, vec![value(4)]);
+        assert_eq!(parent.owned_start, 0);
+        assert_eq!(root.owned_start, 1);
+
+        stack.push(value(5));
+        let parent_values = stack.finish_body(&mut root, &parent);
+        assert_eq!(parent_values, vec![value(5)]);
+        assert_eq!(root.owned_start, 0);
     }
 }

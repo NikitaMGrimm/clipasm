@@ -17,7 +17,7 @@ authoring semantics. Public YAML forms and program arguments are defined in
   parameters, and one output.
 - A **direct program** produces its output without evaluating a nested body.
 - A **body program** evaluates one nested body with a program-defined initial
-  local stack and finalization rule.
+  value sequence and finalization rule.
 - A **clip** is any finite Video value.
 - A **named clip** is a clip declaration bound to a name under `clips`; `clip`
   is not a program or invocation keyword.
@@ -25,8 +25,14 @@ authoring semantics. Public YAML forms and program arguments are defined in
   occurrences of the same value.
 - A **reference expression** is `$name`. It reads a named value without
   consuming any stack occurrence.
-- A **local stack** is the ordered sequence of value occurrences visible while
-  executing one body.
+- The **evaluation stack** is the ordered sequence of value occurrences used
+  while compiling one source program.
+- A body's **visible suffix** is the part of the evaluation stack that its
+  `visible` invocations may consume.
+- A body's **owned suffix** is the part of the visible suffix that ordinary
+  `owned` invocations and the body's finalizer may consume.
+- **Stack access** is generic invocation metadata with values `owned` and
+  `visible`. It does not propagate to child invocations.
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
 - A **result** is the single Video left by a successfully evaluated source
@@ -40,18 +46,26 @@ authoring semantics. Public YAML forms and program arguments are defined in
 
 Sequence order is executable order; YAML mapping order has no executable
 meaning. Missing fixed inputs consume the exact required suffix of the current
-local stack while preserving signature order. A missing variadic input consumes
-all remaining local occurrences in order. Explicit inputs read named values and
-consume nothing; a fixed input may instead evaluate an isolated inline input
-body.
+accessible suffix while preserving signature order. A missing variadic input
+consumes the complete accessible suffix in order. Explicit inputs read named
+values and consume nothing; a fixed input may instead evaluate an isolated
+inline input body.
 
-- A named clip starts with an empty local stack and must leave exactly one
-  Video. It does not receive glue finalization.
+Every program definition explicitly declares a default stack access; all
+current programs and source programs default to `owned`. An invocation may set
+`stack_access: visible` to consume values below the current ownership frontier
+down to the nearest visibility boundary. Captured values become owned by that
+body. A child invocation independently uses its own explicit setting or program
+default.
+
+- A named clip is isolated, starts empty, and must leave exactly one Video. It
+  does not receive glue finalization.
 - `join` starts its body with two preceding Videos in order and concatenates
-  all Videos left by the body.
-- A nested `glue` starts empty and concatenates leftover Videos in order.
+  the body's owned Videos in order.
+- A nested `glue` starts with no owned values and concatenates the body's owned
+  Videos in order.
 - `during` starts its body with only the selected range, requires one processed
-  Video, and splices that result between the untouched prefix and suffix.
+  owned Video, and splices that result between the untouched prefix and suffix.
 
 A source-program body starts empty and must leave exactly one Video. It is not
 implicitly wrapped in `glue`; authors use `concat` or a nested `glue`
@@ -59,13 +73,14 @@ when they want concatenation.
 
 An inline input body also starts empty, inherits the enclosing requested-frame
 context, and must leave exactly one value of its input port's declared type.
-Its stack is isolated from the enclosing invocation's local stack.
+It is isolated from the enclosing invocation's evaluation stack.
 
 A full-duration video source is quantized to the smallest integral project
 frame count that covers its complete source interval.
 
-There is no hidden replacement, fallback input, or automatic reduction inside
-named-clip or body-program bodies.
+There is no hidden replacement, parent-stack search, or automatic reduction
+inside named-clip or body-program bodies. `visible` access operates only within
+the current evaluation stack and cannot cross the nearest owned body boundary.
 
 ## Names, references, and dependencies
 

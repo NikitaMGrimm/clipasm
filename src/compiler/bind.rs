@@ -11,16 +11,27 @@ use crate::syntax::{Argument, InputExpression, Invocation, ParameterArgument};
 
 use super::stack::{EvaluationStack, StackFrame};
 
+pub(super) struct BindContext<'a> {
+    pub(super) stack: &'a mut EvaluationStack,
+    pub(super) frame: &'a mut StackFrame,
+    pub(super) access: StackAccess,
+    pub(super) requested_frames: Option<FrameCount>,
+    pub(super) origin: SourceOrigin,
+}
+
 pub(super) fn bind_call(
     definition: &'static ProgramDefinition,
     invocation: &Invocation,
-    stack: &mut EvaluationStack,
-    frame: &mut StackFrame,
-    access: StackAccess,
-    requested_frames: Option<FrameCount>,
-    origin: SourceOrigin,
+    context: BindContext<'_>,
     mut resolve_input_expression: impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<ResolvedCall> {
+    let BindContext {
+        stack,
+        frame,
+        access,
+        requested_frames,
+        origin,
+    } = context;
     let descriptor = &definition.descriptor;
     for (name, argument) in &invocation.arguments {
         if !descriptor.inputs.iter().any(|port| port.name == name)
@@ -362,13 +373,15 @@ mod tests {
         bind_call(
             &TYPED_PROGRAM,
             invocation,
-            &mut stack,
-            &mut frame,
-            StackAccess::Owned,
-            None,
-            SourceOrigin {
-                construct: "typed",
-                span: span(),
+            BindContext {
+                stack: &mut stack,
+                frame: &mut frame,
+                access: StackAccess::Owned,
+                requested_frames: None,
+                origin: SourceOrigin {
+                    construct: "typed",
+                    span: span(),
+                },
             },
             |_, _| unreachable!("typed program has no inputs"),
         )

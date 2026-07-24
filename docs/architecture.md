@@ -29,12 +29,21 @@ media files.
 ## Compilation
 
 `compiler` evaluates the source body and every nested body as a typed postfix
-stack. The source body starts empty and must return exactly one Video. One
-shared binder resolves explicit inputs in descriptor order, evaluates inline
-fixed-input bodies on isolated stacks, consumes missing inputs from the local
-stack, and converts authored parameters to their declared Rust types. Program
+stack program over one physical evaluation stack. Recursive body frames track a
+visible suffix and an owned suffix by index. The source body starts empty and
+must return exactly one Video. One shared binder resolves explicit inputs in
+descriptor order, evaluates inline fixed-input bodies on isolated evaluation
+stacks, consumes missing inputs from the invocation's accessible suffix, and
+converts authored parameters to their declared Rust types. Program
 implementations therefore receive a fully resolved call rather than
-syntax-layer arguments.
+syntax-layer arguments or stack-frame metadata.
+
+Every program descriptor explicitly declares a default `StackAccess`. Generic
+invocation metadata may override it with `stack_access: owned|visible`.
+`owned` binding is limited to the current frame's owned suffix. `visible`
+binding may capture values down to the frame's visibility boundary; capture
+moves the ownership frontier downward. The setting is per invocation and does
+not propagate to child calls.
 
 The crate-private `semantic` module owns graph operations, draft and compiled
 nodes, origins, graph construction, graph-local type checks, and semantic
@@ -48,11 +57,14 @@ structure hash.
 
 All programs are static `ProgramDefinition` values in one crate-private
 registry. Each definition contains typed inputs, typed parameters, one output,
-a semantic version, and either a direct lowerer or a body preparer.
+a semantic version, an explicit default stack access, and either a direct
+lowerer or a body preparer.
 
-Direct programs lower immediately. Body programs prepare one initial local
-stack and requested-duration context, the evaluator executes their body once,
-and a program-owned finalizer reduces the resulting stack to one value.
+Direct programs lower immediately. Body programs prepare initial values and a
+requested-duration context. The evaluator opens one recursive frame on the
+shared evaluation stack, executes the body once, extracts only that frame's
+owned suffix, and gives it to a program-owned finalizer that returns one value.
+Captured ownership propagates one frame outward when a body completes.
 
 Registered programs are:
 

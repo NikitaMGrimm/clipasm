@@ -23,9 +23,10 @@ A ClipAsm source file is a YAML sequence. Its first item must be exactly the
 - concat
 ```
 
-`version` is required. `project`, `clips`, and `output` are optional during
-compilation. Rendering the source file as the CLI entrypoint requires `output`,
-whose extension must be `.mp4`.
+`version` is required. `project`, `clips`, `output`, and `stack_access` are
+optional during compilation. Rendering the source file as the CLI entrypoint
+requires `output`, whose extension must be `.mp4`. Source programs explicitly
+default to `stack_access: owned`.
 
 The source-program body starts with an empty local stack and must finish with
 exactly one Video. It is not implicitly wrapped in `glue`. If multiple
@@ -74,6 +75,22 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `during` | `base: Video` | `range` | required |
 
 `fit` is `cover`, `contain`, or `stretch`. The default is `cover`.
+
+Every program definition explicitly declares a default stack access. All
+current programs default to `owned`. Any invocation may override that default
+with generic metadata inside its invocation mapping:
+
+```yaml
+- repeat:
+    count: 2
+    stack_access: visible
+```
+
+`stack_access` is not an input or parameter and does not propagate to child
+invocations. `owned` limits missing-input binding to the current body's owned
+suffix. `visible` may additionally capture values from the visible suffix down
+to the nearest owned body boundary. A no-op setting, such as `visible` on
+`image`, is valid.
 
 ### Image
 
@@ -132,8 +149,10 @@ unless `video` is supplied explicitly.
 - concat
 ```
 
-Implicit `concat` consumes every remaining Video in the current local stack,
-preserving order.
+Implicit `concat` consumes every Video in its accessible suffix, preserving
+order. With the default `stack_access: owned`, that is the current body's owned
+suffix. `stack_access: visible` deliberately consumes the complete visible
+suffix down to the nearest visibility boundary.
 
 Explicit variadic inputs remain reference-only:
 
@@ -223,7 +242,7 @@ A fixed, single-value input may instead evaluate an inline input body:
 
 An inline input body:
 
-- starts with a fresh empty local stack;
+- starts with a fresh empty isolated evaluation stack;
 - inherits the enclosing requested-frame context;
 - evaluates ordinary items;
 - must leave exactly one value of the input port's declared type;
@@ -257,8 +276,8 @@ receive values from inline bodies.
 
 ### Clips
 
-`clips` in the program header defines reusable named Videos. Each clip body
-starts with an empty local stack and must finish with exactly one Video.
+`clips` in the program header defines reusable named Videos. Each clip body is
+isolated, starts empty, and must finish with exactly one Video.
 
 ```yaml
 - program:
@@ -295,7 +314,7 @@ Plain reference:
 - $source
 ```
 
-References read immutable values and consume nothing from the local stack.
+References read immutable values and consume nothing from the evaluation stack.
 References cannot carry `id`; named clips are the explicit alias mechanism.
 
 ## Body programs
@@ -318,9 +337,9 @@ onto the surrounding stack.
 
 ### Glue
 
-A `glue` has no inputs, consumes nothing from the surrounding local stack,
-starts its body empty, and concatenates all Videos left by that body. Its single
-result is pushed onto the surrounding stack.
+A default `glue` has no inputs, owns no surrounding values, starts its body with
+no owned values, and concatenates the body's owned Videos. Its single result is
+pushed onto the surrounding stack.
 
 ```yaml
 - glue:
@@ -331,10 +350,28 @@ result is pushed onto the surrounding stack.
 `glue` is an ordinary nested body program. A source program receives no
 implicit glue finalization.
 
+A visible `glue` may expose surrounding visible values to its body. The child
+invocation that actually consumes such a value must independently use
+`stack_access: visible`:
+
+```yaml
+- image: {path: card.png, duration: 1s}
+- glue:
+    stack_access: visible
+    body:
+      - repeat:
+          count: 2
+          stack_access: visible
+      - zoom: 12
+```
+
+The first visible consumer captures the preceding Video into the glue body's
+owned suffix. Later default-owned operations may consume that captured result.
+
 ### During
 
 `during` consumes a base Video, selects the range, evaluates its body with the
-selection on the local stack, and splices the single result between the
+selection as an owned value, and splices the single owned result between the
 unchanged prefix and suffix.
 
 Canonical form:
@@ -358,28 +395,50 @@ An explicit `base: $name` reads that named value without consuming the outer
 stack.
 
 `id` is the only item annotation. A postfix-capable program such as `during`
-may appear beside one head invocation; its scalar value becomes the wrapper
-parameter. Program parameters otherwise belong inside the program mapping.
+may appear beside one head invocation. Its scalar value remains shorthand for
+the wrapper parameter, or its mapping may contain ordinary wrapper parameters
+and generic metadata:
+
+```yaml
+- repeat: 2
+  during:
+    range: 4s..6s
+    stack_access: visible
+```
+
+Program parameters otherwise belong inside the program mapping.
 
 ## Stack rules
 
-Missing inputs consume values from the top of the current local stack. Explicit
-references read named values without consuming stack occurrences. Inline fixed
-inputs execute on isolated stacks.
+Compilation uses one physical evaluation stack. Each active body frame tracks:
 
-| Scope | Initial stack | Required result |
+- a visible suffix, bounded by the nearest owned body boundary;
+- an owned suffix, consumed by default-owned invocations and the finalizer.
+
+Missing fixed inputs consume the exact required suffix from the invocation's
+accessible region while preserving descriptor order. A missing variadic input
+consumes the complete accessible region. Binding never searches around a value
+of the wrong type. Explicit references read named values without consuming
+stack occurrences. Inline fixed inputs execute on isolated stacks.
+
+| Scope | Initial owned values | Finalization |
 |---|---|---|
 | source program | empty | exactly one Video |
-| named clip | empty | exactly one Video |
-| inline fixed input | empty | exactly one value of the port type |
-| `join` | two preceding Videos | leftovers concatenated in order |
-| `glue` | empty | leftovers concatenated in order |
-| `during` | selected range | exactly one Video, then splice |
+| named clip | empty, isolated | exactly one Video |
+| inline fixed input | empty, isolated | exactly one value of the port type |
+| `join` | two bound Videos | concatenate owned Videos in order |
+| `glue` | none | concatenate owned Videos in order |
+| `during` | selected range | exactly one owned Video, then splice |
 
-There is no hidden replacement, fallback input, or source-level reduction.
+When a visible invocation consumes below a body's ownership frontier, that
+suffix becomes owned. Captured ownership propagates to the enclosing body when
+the child body finishes. An owned body creates a new visibility boundary, so a
+visible descendant cannot reach through it. Settings are per invocation and do
+not inherit.
+
+There is no hidden replacement, parent-stack lookup, or source-level reduction.
 Named clips, inline inputs, the source program, and `during` require exactly one
-result. Only `join` and `glue` explicitly concatenate their leftover local
-Videos.
+result. Only `join` and `glue` explicitly concatenate their owned Videos.
 
 ## Entrypoint publication and rendering
 

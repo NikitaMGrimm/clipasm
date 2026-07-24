@@ -110,7 +110,7 @@ fn parse_source_program(
                 let (text, _) = scalar(&value, "`output`")?;
                 output = Some(Spanned::new(PathBuf::from(text), value.span));
             }
-            STACK_ACCESS_FIELD => stack_access = parse_stack_access(value)?.value,
+            STACK_ACCESS_FIELD => stack_access = parse_stack_access(&value)?.value,
             _ => {
                 return Err(Diagnostic::new(
                     "E_UNKNOWN_PROGRAM_HEADER_FIELD",
@@ -445,11 +445,11 @@ fn normalize_invocation(
     let mut body = None;
     let mut stack_access = None;
     if is_empty_scalar(&value) {
-        // Missing inputs are bound from the local stack.
+        // Missing inputs are bound from the invocation's accessible stack suffix.
     } else if matches!(value.kind, RawKind::Mapping(_)) {
         for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
             if name == STACK_ACCESS_FIELD {
-                stack_access = Some(parse_stack_access(value)?);
+                stack_access = Some(parse_stack_access(&value)?);
             } else if matches!(definition.implementation, ProgramImplementation::Body(_))
                 && name == BODY_FIELD
             {
@@ -499,9 +499,9 @@ fn normalize_invocation(
     })
 }
 
-fn parse_stack_access(node: RawNode) -> Result<Spanned<StackAccess>> {
+fn parse_stack_access(node: &RawNode) -> Result<Spanned<StackAccess>> {
     let span = node.span.clone();
-    let (value, _) = scalar(&node, "`stack_access`")?;
+    let (value, _) = scalar(node, "`stack_access`")?;
     let value = match value {
         "owned" => StackAccess::Owned,
         "visible" => StackAccess::Visible,
@@ -704,6 +704,41 @@ mod tests {
     }
 
     #[test]
+    fn source_and_invocation_stack_access_are_normalized_independently() {
+        let program = parse(
+            "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: a.png\n    duration: 1s\n    stack_access: visible\n",
+        )
+        .expect("source program");
+        assert_eq!(program.stack_access, StackAccess::Visible);
+        let ItemKind::Invocation(invocation) = &program.body.items[0].kind else {
+            panic!("image invocation");
+        };
+        assert_eq!(
+            invocation.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Visible)
+        );
+    }
+
+    #[test]
+    fn source_stack_access_defaults_explicitly_to_owned() {
+        let program = parse("- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n")
+            .expect("source program");
+        assert_eq!(program.stack_access, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS);
+        assert_eq!(program.stack_access, StackAccess::Owned);
+    }
+
+    #[test]
+    fn rejects_invalid_stack_access() {
+        for source in [
+            "- program:\n    version: 1\n    stack_access: inherited\n\n- image: {path: a.png, duration: 1s}\n",
+            "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 1s\n    stack_access: inherited\n",
+        ] {
+            let error = parse(source).expect_err("invalid stack access");
+            assert_eq!(error.code, "E_INVALID_STACK_ACCESS");
+        }
+    }
+
+    #[test]
     fn rejects_duplicate_keys() {
         let error = parse("- program:\n    version: 1\n    version: 1\n").expect_err("duplicate");
         assert_eq!(error.code, "E_DUPLICATE_YAML_KEY");
@@ -728,6 +763,37 @@ mod tests {
         };
         assert_eq!(during.program.value, "during");
         assert_eq!(during.body.as_ref().expect("during body").items.len(), 1);
+    }
+
+    #[test]
+    fn postfix_mapping_preserves_independent_stack_access() {
+        let program = parse(
+            "- program:\n    version: 1\n\n- image:\n    path: a.png\n    duration: 2s\n    stack_access: visible\n  during:\n    range: 0s..1s\n    stack_access: visible\n",
+        )
+        .expect("source program");
+        let ItemKind::Invocation(during) = &program.body.items[0].kind else {
+            panic!("during invocation");
+        };
+        assert_eq!(
+            during.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Visible)
+        );
+        let ItemKind::Invocation(image) = &during.body.as_ref().expect("body").items[0].kind else {
+            panic!("image invocation");
+        };
+        assert_eq!(
+            image.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Visible)
+        );
+    }
+
+    #[test]
+    fn postfix_mapping_rejects_an_explicit_body() {
+        let error = parse(
+            "- program:\n    version: 1\n\n- image: {path: a.png, duration: 2s}\n  during:\n    range: 0s..1s\n    body: []\n",
+        )
+        .expect_err("postfix body conflict");
+        assert_eq!(error.code, "E_POSTFIX_BODY_CONFLICT");
     }
 
     #[test]

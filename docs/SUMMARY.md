@@ -15,6 +15,7 @@
 - [Separate semantic and execution identities](adr/0003-separate-semantic-and-execution-identities.md)
 - [Quantize source duration by coverage](adr/0004-quantize-source-duration-by-coverage.md)
 - [Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
+- [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
 
 # Development
 

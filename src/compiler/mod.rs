@@ -1,6 +1,6 @@
 //! Pure source-program compilation and semantic graph inspection.
 //!
-//! Compilation binds typed program calls, evaluates local stacks, resolves
+//! Compilation binds typed program calls, evaluates scoped stack frames, resolves
 //! references, infers source-independent video domains, and computes semantic
 //! identity. It never reads media files or invokes external tools.
 

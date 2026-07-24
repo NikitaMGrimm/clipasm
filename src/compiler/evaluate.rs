@@ -202,7 +202,7 @@ impl Evaluator<'_> {
             self.program.header_span().clone(),
         );
         self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
-        let values = stack.finish_body(&mut entrypoint, source);
+        let values = stack.finish_body(&mut entrypoint, &source);
         let [result] = values.as_slice() else {
             return Err(output_count_error(
                 "E_SOURCE_PROGRAM_OUTPUT_COUNT",
@@ -312,11 +312,13 @@ impl Evaluator<'_> {
         let call = super::bind::bind_call(
             definition,
             invocation,
-            stack,
-            frame,
-            access,
-            requested_frames,
-            origin.clone(),
+            super::bind::BindContext {
+                stack,
+                frame,
+                access,
+                requested_frames,
+                origin: origin.clone(),
+            },
             |expression, port| {
                 self.evaluate_input_expression(
                     expression,
@@ -371,7 +373,7 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
-                let owned = stack.finish_body(frame, child);
+                let owned = stack.finish_body(frame, &child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     self.video,

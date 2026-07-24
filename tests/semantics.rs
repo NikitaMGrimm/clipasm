@@ -471,6 +471,92 @@ fn nested_glue_starts_empty_and_does_not_consume_outer_values() {
 }
 
 #[test]
+fn visible_glue_can_capture_an_outer_value_through_a_visible_operation() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("visible capture");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+}
+
+#[test]
+fn visible_body_does_not_make_its_children_visible() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat: 2\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("owned repeat cannot capture");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+    assert!(error.message.contains("owned"));
+    assert!(error.notes.iter().any(|note| {
+        note.contains("additional value") && note.contains("stack_access: visible")
+    }));
+}
+
+#[test]
+fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    stack_access: visible\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("selective capture");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 50);
+
+    let json = compiled_json(&compiled);
+    let concat_inputs = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter(|node| node["kind"]["operation"] == "concat")
+        .map(|node| {
+            node["kind"]["inputs"]
+                .as_array()
+                .expect("concat inputs")
+                .len()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(concat_inputs, vec![2, 2]);
+}
+
+#[test]
+fn visible_concat_deliberately_consumes_the_complete_visible_suffix() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - image: {path: b.ppm, duration: 1s}\n      - concat:\n          stack_access: visible\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("visible concat");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+}
+
+#[test]
+fn owned_body_boundary_blocks_a_visible_descendant() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - image: {path: b.ppm, duration: 2s}\n      - during:\n          range: 500ms..1500ms\n          body:\n            - flash:\n                frames: 1\n                stack_access: visible\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("during boundary");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+    assert!(error.message.contains("visible"));
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| { note.contains("during") && note.contains("stack visibility boundary") })
+    );
+}
+
+#[test]
+fn no_op_stack_access_does_not_change_semantic_identity() {
+    let (_owned_directory, owned) =
+        project("- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n");
+    let (_visible_directory, visible) = project(
+        "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: a.ppm\n    duration: 1s\n    stack_access: visible\n",
+    );
+    assert_eq!(
+        compiler::compile(&owned).expect("owned").structure_hash(),
+        compiler::compile(&visible)
+            .expect("visible")
+            .structure_hash()
+    );
+}
+
+#[test]
 fn explicit_and_postfix_during_have_the_same_semantics() {
     let source = |during: &str| {
         format!(
@@ -696,34 +782,6 @@ fn authored_source_paths_change_compiled_identity() {
             "{program} path must contribute to compiled identity"
         );
     }
-}
-
-#[test]
-fn visible_glue_can_capture_a_preceding_video() {
-    let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("visible capture");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
-}
-
-#[test]
-fn owned_concat_reduces_only_values_captured_by_a_visible_body() {
-    let (_directory, workflow) = project(
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    stack_access: visible\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("visible during");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 50);
-}
-
-#[test]
-fn owned_body_boundary_blocks_a_visible_descendant() {
-    let (_directory, workflow) = project(
-        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
-    );
-    let error = compiler::compile(&workflow).expect_err("owned glue boundary");
-    assert_eq!(error.code, "E_STACK_UNDERFLOW");
-    assert!(error.notes.iter().any(|note| note.contains("glue")));
 }
 
 #[test]
