@@ -8,6 +8,7 @@ mod location;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::program::{InputPort, ParameterType, StackAccess};
 
@@ -46,7 +47,7 @@ pub struct SourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<ResolvedImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
-    pub(crate) program: SourceProgram,
+    pub(crate) program: Arc<SourceProgram>,
     pub(crate) output: Option<Spanned<PathBuf>>,
 }
 
@@ -71,7 +72,7 @@ impl SourceUnit {
     }
 
     #[must_use]
-    pub(crate) const fn program(&self) -> &SourceProgram {
+    pub(crate) fn program(&self) -> &SourceProgram {
         &self.program
     }
 

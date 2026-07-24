@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
@@ -183,7 +184,7 @@ impl Evaluator<'_> {
         call: Option<&ResolvedCall>,
         public: bool,
     ) -> Result<Vec<ValueRef>> {
-        let program = self.package.units()[unit.0].program().clone();
+        let program = Arc::clone(&self.package.units()[unit.0].program);
         let mut scope = EvalScope {
             unit,
             values: BTreeMap::new(),
