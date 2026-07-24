@@ -347,6 +347,7 @@ mod tests {
     fn invocation(arguments: impl IntoIterator<Item = (&'static str, Argument)>) -> Invocation {
         Invocation {
             program: Spanned::new("typed".to_owned(), span()),
+            stack_access: None,
             arguments: arguments
                 .into_iter()
                 .map(|(name, argument)| (name.to_owned(), argument))

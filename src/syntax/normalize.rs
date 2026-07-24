@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use yaml_rust2::scanner::TScalarStyle;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
-use crate::language::{BODY_FIELD, ID_FIELD, Language, PROGRAM_HEADER_FIELD};
-use crate::program::{Cardinality, ProgramDefinition, ProgramImplementation, ProgramRegistry};
+use crate::language::{BODY_FIELD, ID_FIELD, Language, PROGRAM_HEADER_FIELD, STACK_ACCESS_FIELD};
+use crate::program::{
+    Cardinality, ProgramDefinition, ProgramImplementation, ProgramRegistry, StackAccess,
+};
 use crate::syntax::ast::{
     Argument, InputExpression, Invocation, Item, ItemKind, NamedClip, ParameterArgument,
-    ProgramBody, Reference, SourceProgram, VideoSettings,
+    ProgramBody, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceProgram, VideoSettings,
 };
 use crate::syntax::raw::{RawKind, RawNode};
 
@@ -88,6 +90,7 @@ fn parse_source_program(
     let mut video = VideoSettings::default();
     let mut clips = Vec::new();
     let mut output = None;
+    let mut stack_access = SOURCE_PROGRAM_DEFAULT_STACK_ACCESS;
 
     for (key, key_span, value) in entries {
         match key.as_str() {
@@ -107,6 +110,7 @@ fn parse_source_program(
                 let (text, _) = scalar(&value, "`output`")?;
                 output = Some(Spanned::new(PathBuf::from(text), value.span));
             }
+            STACK_ACCESS_FIELD => stack_access = parse_stack_access(value)?.value,
             _ => {
                 return Err(Diagnostic::new(
                     "E_UNKNOWN_PROGRAM_HEADER_FIELD",
@@ -147,6 +151,7 @@ fn parse_source_program(
         body,
         header_span,
         output,
+        stack_access,
     })
 }
 
@@ -272,6 +277,7 @@ fn parse_item(node: RawNode, language: Language) -> Result<Item> {
                             definition.descriptor.name.to_owned(),
                             item_span.clone(),
                         ),
+                        stack_access: None,
                         arguments: BTreeMap::new(),
                         body: None,
                     }),
@@ -335,17 +341,14 @@ fn parse_invocation(
     if program_entries.len() == 1 {
         let (program, program_span, value) = program_entries.remove(0);
         let definition = require_program(language.programs, &program, &program_span)?;
-        if definition.postfix.is_some()
-            && !is_empty_scalar(&value)
-            && matches!(value.kind, RawKind::Scalar { .. })
-        {
+        let invocation = normalize_invocation(definition, program_span.clone(), value, language)?;
+        if definition.postfix.is_some() && invocation.body.is_none() {
             return Err(Diagnostic::new(
                 "E_POSTFIX_REQUIRES_EXPRESSION",
                 format!("postfix program `{program}` requires an expression to wrap"),
                 program_span,
             ));
         }
-        let invocation = normalize_invocation(definition, program_span, value, language)?;
         return Ok(Item {
             kind: ItemKind::Invocation(invocation),
             id,
@@ -362,8 +365,9 @@ fn parse_invocation(
                 .get(name)
                 .filter(|definition| {
                     definition.postfix.is_some()
-                        && matches!(value.kind, RawKind::Scalar { .. })
-                        && !is_empty_scalar(value)
+                        && (matches!(value.kind, RawKind::Mapping(_))
+                            || matches!(value.kind, RawKind::Scalar { .. })
+                                && !is_empty_scalar(value))
                 })
                 .map(|_| index)
         })
@@ -392,23 +396,25 @@ fn parse_invocation(
     };
 
     let wrapper_definition = require_program(language.programs, &wrapper_name, &wrapper_span)?;
-    let postfix = wrapper_definition
-        .postfix
-        .expect("postfix candidate has postfix metadata");
-    let mut arguments = BTreeMap::new();
-    arguments.insert(
-        postfix.parameter.to_owned(),
-        Argument::Parameter(parse_parameter_argument(wrapper_value)?),
-    );
+    let mut wrapper_invocation = normalize_invocation(
+        wrapper_definition,
+        wrapper_span.clone(),
+        wrapper_value,
+        language,
+    )?;
+    if wrapper_invocation.body.is_some() {
+        return Err(Diagnostic::new(
+            "E_POSTFIX_BODY_CONFLICT",
+            format!("postfix program `{wrapper_name}` cannot declare its own `body`"),
+            wrapper_span,
+        ));
+    }
+    wrapper_invocation.body = Some(ProgramBody {
+        items: vec![inner],
+        span: span.clone(),
+    });
     Ok(Item {
-        kind: ItemKind::Invocation(Invocation {
-            program: Spanned::new(wrapper_name, wrapper_span),
-            arguments,
-            body: Some(ProgramBody {
-                items: vec![inner],
-                span: span.clone(),
-            }),
-        }),
+        kind: ItemKind::Invocation(wrapper_invocation),
         id,
         span,
     })
@@ -437,11 +443,14 @@ fn normalize_invocation(
     let program = definition.descriptor.name;
     let mut arguments = BTreeMap::new();
     let mut body = None;
+    let mut stack_access = None;
     if is_empty_scalar(&value) {
         // Missing inputs are bound from the local stack.
     } else if matches!(value.kind, RawKind::Mapping(_)) {
         for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
-            if matches!(definition.implementation, ProgramImplementation::Body(_))
+            if name == STACK_ACCESS_FIELD {
+                stack_access = Some(parse_stack_access(value)?);
+            } else if matches!(definition.implementation, ProgramImplementation::Body(_))
                 && name == BODY_FIELD
             {
                 body = Some(parse_body(value, &format!("`{program}` body"), language)?);
@@ -484,9 +493,27 @@ fn normalize_invocation(
     }
     Ok(Invocation {
         program: Spanned::new(program.to_owned(), program_span),
+        stack_access,
         arguments,
         body,
     })
+}
+
+fn parse_stack_access(node: RawNode) -> Result<Spanned<StackAccess>> {
+    let span = node.span.clone();
+    let (value, _) = scalar(&node, "`stack_access`")?;
+    let value = match value {
+        "owned" => StackAccess::Owned,
+        "visible" => StackAccess::Visible,
+        _ => {
+            return Err(Diagnostic::new(
+                "E_INVALID_STACK_ACCESS",
+                "`stack_access` must be `owned` or `visible`",
+                span,
+            ));
+        }
+    };
+    Ok(Spanned::new(value, span))
 }
 
 fn parse_parameter_argument(node: RawNode) -> Result<ParameterArgument> {

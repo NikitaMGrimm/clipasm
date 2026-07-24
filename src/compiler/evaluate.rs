@@ -193,14 +193,21 @@ impl Evaluator<'_> {
             });
         }
 
-        let (mut stack, mut frame) =
-            EvaluationStack::isolated("source program", self.program.header_span().clone());
-        self.evaluate_body(self.program.body(), &mut stack, &mut frame, None)?;
-        let [result] = stack.values() else {
+        let (mut stack, mut entrypoint) =
+            EvaluationStack::isolated("entrypoint", self.program.header_span().clone());
+        let mut source = stack.enter_body(
+            &entrypoint,
+            self.program.stack_access(),
+            "source program",
+            self.program.header_span().clone(),
+        );
+        self.evaluate_body(self.program.body(), &mut stack, &mut source, None)?;
+        let values = stack.finish_body(&mut entrypoint, source);
+        let [result] = values.as_slice() else {
             return Err(output_count_error(
                 "E_SOURCE_PROGRAM_OUTPUT_COUNT",
                 "source program",
-                stack.len(),
+                values.len(),
                 self.program.header_span(),
             )
             .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
@@ -296,7 +303,12 @@ impl Evaluator<'_> {
             construct: definition.descriptor.name,
             span: span.clone(),
         };
-        let access = definition.descriptor.default_stack_access;
+        let access = invocation
+            .stack_access
+            .as_ref()
+            .map_or(definition.descriptor.default_stack_access, |access| {
+                access.value
+            });
         let call = super::bind::bind_call(
             definition,
             invocation,

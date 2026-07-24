@@ -2,6 +2,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{SourceSpan, Spanned};
+use crate::program::StackAccess;
+
+pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
 
 /// A parser-owned, syntax-valid source program.
 ///
@@ -25,6 +28,7 @@ pub struct SourceProgram {
     pub(super) body: ProgramBody,
     pub(super) header_span: SourceSpan,
     pub(super) output: Option<Spanned<PathBuf>>,
+    pub(super) stack_access: StackAccess,
 }
 
 impl SourceProgram {
@@ -61,6 +65,11 @@ impl SourceProgram {
     #[must_use]
     pub(crate) const fn output(&self) -> Option<&Spanned<PathBuf>> {
         self.output.as_ref()
+    }
+
+    #[must_use]
+    pub(crate) const fn stack_access(&self) -> StackAccess {
+        self.stack_access
     }
 }
 
@@ -105,6 +114,7 @@ pub(crate) struct Reference {
 #[derive(Clone, Debug)]
 pub(crate) struct Invocation {
     pub(crate) program: Spanned<String>,
+    pub(crate) stack_access: Option<Spanned<StackAccess>>,
     pub(crate) arguments: BTreeMap<String, Argument>,
     pub(crate) body: Option<ProgramBody>,
 }

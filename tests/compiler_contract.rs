@@ -83,6 +83,23 @@ fn source_program_header_is_required_first_and_rejects_unknown_fields() {
 }
 
 #[test]
+fn stack_access_is_generic_source_and_invocation_metadata() {
+    let source = "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: card.ppm\n    duration: 1s\n    stack_access: visible\n";
+    let program =
+        clipasm::syntax::parse_str(Path::new("program.yaml"), source).expect("stack metadata");
+    clipasm::compiler::compile(&program).expect("no-op visible image");
+
+    for source in [
+        "- program:\n    version: 1\n    stack_access: inherited\n",
+        "- program:\n    version: 1\n\n- image:\n    path: card.ppm\n    duration: 1s\n    stack_access: inherited\n",
+    ] {
+        let error = clipasm::syntax::parse_str(Path::new("invalid.yaml"), source)
+            .expect_err("invalid stack access");
+        assert_eq!(error.code, "E_INVALID_STACK_ACCESS");
+    }
+}
+
+#[test]
 fn compiled_program_serializes_one_distinguished_result() {
     let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
     let program =

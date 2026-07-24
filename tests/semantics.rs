@@ -697,3 +697,40 @@ fn authored_source_paths_change_compiled_identity() {
         );
     }
 }
+
+#[test]
+fn visible_glue_can_capture_a_preceding_video() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    stack_access: visible\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("visible capture");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+}
+
+#[test]
+fn owned_concat_reduces_only_values_captured_by_a_visible_body() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    stack_access: visible\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("visible during");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 50);
+}
+
+#[test]
+fn owned_body_boundary_blocks_a_visible_descendant() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    body:\n      - repeat:\n          count: 2\n          stack_access: visible\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("owned glue boundary");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+    assert!(error.notes.iter().any(|note| note.contains("glue")));
+}
+
+#[test]
+fn postfix_wrapper_accepts_stack_access_metadata() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- repeat: 2\n  during:\n    range: 500ms..1s\n    stack_access: visible\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("postfix mapping");
+    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 25);
+}

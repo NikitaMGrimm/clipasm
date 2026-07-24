@@ -4,6 +4,7 @@ use crate::program::{ProgramImplementation, ProgramRegistry, definition_error};
 pub(crate) const ID_FIELD: &str = "id";
 pub(crate) const BODY_FIELD: &str = "body";
 pub(crate) const PROGRAM_HEADER_FIELD: &str = "program";
+pub(crate) const STACK_ACCESS_FIELD: &str = "stack_access";
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Language {
@@ -29,6 +30,26 @@ fn validate_syntax_collisions(programs: ProgramRegistry) -> Result<()> {
         if matches!(descriptor.name, ID_FIELD | PROGRAM_HEADER_FIELD) {
             return Err(definition_error(format!(
                 "program name `{}` collides with source syntax",
+                descriptor.name
+            )));
+        }
+        if descriptor
+            .inputs
+            .iter()
+            .any(|input| input.name == STACK_ACCESS_FIELD)
+        {
+            return Err(definition_error(format!(
+                "program `{}` has an input named `{STACK_ACCESS_FIELD}`",
+                descriptor.name
+            )));
+        }
+        if descriptor
+            .parameters
+            .iter()
+            .any(|parameter| parameter.name == STACK_ACCESS_FIELD)
+        {
+            return Err(definition_error(format!(
+                "program `{}` has a parameter named `{STACK_ACCESS_FIELD}`",
                 descriptor.name
             )));
         }
@@ -76,6 +97,16 @@ mod tests {
     }];
     const BODY_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
         name: BODY_FIELD,
+        parameter_type: ParameterType::File,
+        required: false,
+    }];
+    const STACK_ACCESS_INPUT: &[InputPort] = &[InputPort {
+        name: STACK_ACCESS_FIELD,
+        value_type: ValueType::Video,
+        cardinality: Cardinality::One,
+    }];
+    const STACK_ACCESS_PARAMETER: &[ParameterDescriptor] = &[ParameterDescriptor {
+        name: STACK_ACCESS_FIELD,
         parameter_type: ParameterType::File,
         required: false,
     }];
@@ -132,6 +163,22 @@ mod tests {
 
         for collision in [
             definition(
+                "stack_access_input",
+                ProgramImplementation::Direct(direct),
+                STACK_ACCESS_INPUT,
+                &[],
+                ValueType::Video,
+                None,
+            ),
+            definition(
+                "stack_access_parameter",
+                ProgramImplementation::Direct(direct),
+                &[],
+                STACK_ACCESS_PARAMETER,
+                ValueType::Video,
+                None,
+            ),
+            definition(
                 "body_input",
                 ProgramImplementation::Body(prepare),
                 BODY_INPUT,
@@ -148,7 +195,7 @@ mod tests {
                 None,
             ),
         ] {
-            language_with(collision).expect_err("body collision");
+            language_with(collision).expect_err("syntax collision");
         }
 
         for name in ["ref", "clip"] {
