@@ -2,48 +2,45 @@
 
 The committed source programs under `examples/` are small executable
 demonstrations of the language. Run commands from the repository root.
-Validation is pure; rendering additionally requires FFmpeg, FFprobe, and any
-generated assets.
+Validation is pure; rendering additionally requires FFmpeg and FFprobe. All
+source assets are committed, so no setup step is required.
 
-## Image sequence
+## Scenic sequence
 
-`examples/image-sequence.yaml` demonstrates still-image sources and an explicit
-`concat` source-program result.
-
-```console
-cargo run -- validate examples/image-sequence.yaml
-cargo run -- render examples/image-sequence.yaml
-```
-
-## Video source
-
-`examples/video-source.yaml` demonstrates a full-duration video-file source and
-project-frame fitting. Generate its local video asset first as described in
-`examples/README.md`.
+`examples/scenic-sequence.yaml` combines three illustrated PPM still images in
+an isolated `glue` body. It demonstrates image fitting, authored durations, and
+automatic concatenation inside a body program.
 
 ```console
-cargo run -- validate examples/video-source.yaml
-cargo run -- render examples/video-source.yaml
+cargo run -- validate examples/scenic-sequence.yaml
+cargo run -- render examples/scenic-sequence.yaml
 ```
 
-## Repeat during a range
+## Gentle motion edit
 
-`examples/repeat-during.yaml` demonstrates selecting a closed-open time range,
-repeating only that selection, and splicing it back into the base Video.
+`examples/gentle-motion-edit.yaml` uses the committed two-second YUV4MPEG video.
+The asset contains a slowly moving boat and cloud rather than a flashing test
+pattern. The example applies `wobble` only to a selected middle range through
+postfix `during`.
 
 ```console
-cargo run -- validate examples/repeat-during.yaml
-cargo run -- render examples/repeat-during.yaml
+cargo run -- validate examples/gentle-motion-edit.yaml
+cargo run -- render examples/gentle-motion-edit.yaml
 ```
 
-## Clips and references
+## Reusable composition
 
-`examples/clips-and-references.yaml` demonstrates program-header clip
-declarations, immutable references, value reuse, and explicit concatenation.
+`examples/reusable-composition.yaml` demonstrates named clips, immutable
+references, an inline body supplying a fixed `flash` input, and explicit final
+concatenation. It intentionally reuses the opening clip to show that references
+do not consume or rebuild named values.
 
 ```console
-cargo run -- validate examples/clips-and-references.yaml
-cargo run -- render examples/clips-and-references.yaml
+cargo run -- validate examples/reusable-composition.yaml
+cargo run -- render examples/reusable-composition.yaml
 ```
 
-Generated media, outputs, manifests, and cache files remain untracked.
+The ASCII PPM images are small illustrated landscapes rather than flat color
+swatches. The YUV4MPEG file is raw but remains small because it is only 64×36,
+12 fps, and two seconds long. Generated outputs, manifests, and caches remain
+untracked.

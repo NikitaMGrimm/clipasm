@@ -1,9 +1,0 @@
-- program:
-    version: 1
-
-    project:
-      video: {width: 320, height: 180, fps: 30}
-
-    output: generated/video-source.mp4
-
-- video: {path: generated/sample.mp4, fit: contain}

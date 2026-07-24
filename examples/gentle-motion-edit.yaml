@@ -1,0 +1,11 @@
+- program:
+    version: 1
+
+    project:
+      video: {width: 320, height: 180, fps: 12}
+
+    output: generated/gentle-motion-edit.mp4
+
+- video: {path: assets/gentle-motion.y4m, fit: contain}
+- wobble: 2
+  during: 500ms..1500ms

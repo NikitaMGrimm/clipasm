@@ -1,0 +1,27 @@
+- program:
+    version: 1
+
+    project:
+      video: {width: 320, height: 180, fps: 24}
+
+    clips:
+      opening:
+        - image: {path: assets/morning.ppm, duration: 1s, fit: contain}
+        - zoom
+
+      closing:
+        image: {path: assets/evening.ppm, duration: 1s, fit: contain}
+
+    output: generated/reusable-composition.mp4
+
+- $opening
+
+- flash:
+    before: $opening
+    after:
+      - image: {path: assets/meadow.ppm, duration: 1s, fit: contain}
+      - wobble: 2
+    frames: 5
+
+- $closing
+- concat
