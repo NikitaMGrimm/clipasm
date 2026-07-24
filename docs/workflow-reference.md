@@ -120,17 +120,17 @@ CLI pipeline command:
 
 ```console
 clipasm validate template.yaml \
-  --input source=footage.mp4 \
+  --input video=footage.mp4 \
   --arg range=3s..8s \
   --arg count=2
 
 clipasm compile template.yaml \
-  --input source=footage.mp4 \
+  --input video=footage.mp4 \
   --arg range=3s..8s \
   --arg count=2
 
 clipasm render template.yaml \
-  --input source=footage.mp4 \
+  --input video=footage.mp4 \
   --arg range=3s..8s \
   --arg count=2 \
   --output final.mp4
@@ -179,7 +179,7 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `flash` | `before: Video`, `after: Video` | optional `frames` | none |
 | `join` | `before: Video`, `after: Video` | none | required |
 | `glue` | none | none | required |
-| `during` | `base: Video` | `range` | required |
+| `during` | `video: Video` | `range` | required |
 
 `fit` is `cover`, `contain`, or `stretch`. The default is `cover`.
 
@@ -497,10 +497,10 @@ boundary.
 
 ### During
 
-`during` consumes the nearest accessible base Video, selects the range,
+`during` consumes the nearest accessible Video, selects the range,
 evaluates its body with the selection as an owned value, and splices the single
 owned result between the unchanged prefix and suffix. Its default visible
-access lets it bind the base through an enclosing body boundary and exposes the
+access lets it bind that Video through an enclosing body boundary and exposes the
 same visible suffix to explicitly visible descendants.
 
 Canonical form:
@@ -520,7 +520,7 @@ Postfix shorthand:
 ```
 
 Both forms repeat only the selected middle range and normalize identically.
-An explicit `base: $name` reads that named value without consuming the outer
+An explicit `video: $name` reads that named value without consuming the outer
 stack.
 
 `id` and `ids` are item output annotations. A postfix-capable program such as

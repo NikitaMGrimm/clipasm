@@ -115,6 +115,24 @@ fn stack_access_is_generic_source_and_invocation_metadata() {
 }
 
 #[test]
+fn during_uses_video_as_its_single_input_name() {
+    let accepted = clipasm::frontend::yaml::parse_str(
+        Path::new("during-video.yaml"),
+        "- program:\n    version: 1\n    clips:\n      clip: {image: {path: card.ppm, duration: 2s}}\n\n- during:\n    video: $clip\n    range: 500ms..1500ms\n    body:\n      - repeat: 2\n",
+    )
+    .expect("during.video syntax");
+    clipasm::compiler::compile(&accepted).expect("during.video input");
+
+    let rejected = clipasm::frontend::yaml::parse_str(
+        Path::new("during-base.yaml"),
+        "- program:\n    version: 1\n    clips:\n      clip: {image: {path: card.ppm, duration: 2s}}\n\n- during:\n    base: $clip\n    range: 500ms..1500ms\n    body:\n      - repeat: 2\n",
+    )
+    .expect("canonical source");
+    let error = clipasm::compiler::compile(&rejected).expect_err("obsolete during.base");
+    assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
+}
+
+#[test]
 fn compiled_program_serializes_ordered_outputs() {
     let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
     let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)

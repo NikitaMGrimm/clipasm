@@ -53,20 +53,20 @@ A root source program may expose reusable inputs and parameters:
 - program:
     version: 1
     inputs:
-      - source: Video
+      - video: Video
     parameters:
       range: TimeRange
       count: Integer
 
 - trim:
-    video: $source
+    video: $video
     range: $range
 - repeat: $count
 ```
 
 ```console
 cargo run -- render template.yaml \
-  --input source=footage.mp4 \
+  --input video=footage.mp4 \
   --arg range=3s..8s \
   --arg count=2 \
   --output final.mp4

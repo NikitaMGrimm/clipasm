@@ -53,7 +53,7 @@ pub(crate) fn during() -> ProgramDefinition {
         descriptor(
             "during",
             1,
-            vec![input("base")],
+            vec![input("video")],
             vec![ParameterDescriptor {
                 name: "range".to_owned(),
                 parameter_type: ParameterType::TimeRange,
@@ -131,7 +131,7 @@ fn prepare_glue(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
 }
 
 fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
-    let base = call.one_input("base")?;
+    let base = call.one_input("video")?;
     let (range, span) = call.time_range_parameter("range")?;
     let range = range.to_frames(builder.video_spec().fps, span)?;
     let selected = builder.at_span(span.clone()).slice(base, range)?;

@@ -3,7 +3,7 @@
     project:
       video: {width: 320, height: 180, fps: 24}
     inputs:
-      - source: Video
+      - video: Video
     parameters:
       range:
         type: TimeRange
@@ -11,6 +11,6 @@
         type: Integer
 
 - trim:
-    video: $source
+    video: $video
     range: $range
 - repeat: $count

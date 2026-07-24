@@ -62,12 +62,12 @@ authored calls.
 
 ```console
 cargo run -- validate examples/root-bindings.yaml \
-  --input source=examples/assets/gentle-motion.mkv \
+  --input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2
 
 cargo run -- render examples/root-bindings.yaml \
-  --input source=examples/assets/gentle-motion.mkv \
+  --input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2 \
   --output root-bindings.mp4

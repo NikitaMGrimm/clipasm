@@ -494,7 +494,7 @@ fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
 }
 
 #[test]
-fn default_visible_during_binds_its_base_from_the_visible_suffix() {
+fn default_visible_during_binds_its_video_from_the_visible_suffix() {
     let (_directory, workflow) = project(
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- glue:\n    - during:\n        range: 500ms..1500ms\n        body:\n          - repeat: 2\n",
     );

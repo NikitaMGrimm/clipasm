@@ -1070,7 +1070,7 @@ mod tests {
     #[test]
     fn body_full_form_classifies_inputs_parameters_and_body() {
         parse(
-            "- program:\n    version: 1\n    clips:\n      base: {image: {path: a.png, duration: 2s}}\n\n- during:\n    base: $base\n    range: 0s..1s\n    body:\n      - repeat: 2\n",
+            "- program:\n    version: 1\n    clips:\n      clip: {image: {path: a.png, duration: 2s}}\n\n- during:\n    video: $clip\n    range: 0s..1s\n    body:\n      - repeat: 2\n",
         )
         .expect("full body form");
     }

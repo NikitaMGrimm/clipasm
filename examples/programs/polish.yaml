@@ -1,13 +1,13 @@
 - program:
     version: 1
     inputs:
-      - source: Video
+      - video: Video
     parameters:
       percent:
         type: Integer
         default: 6
 
 - zoom:
-    video: $source
+    video: $video
     percent: $percent
 - wobble: 2
