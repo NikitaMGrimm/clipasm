@@ -120,6 +120,18 @@ fn entrypoint_output_does_not_change_compiled_semantics() {
 }
 
 #[test]
+fn variadic_inputs_remain_reference_only() {
+    let error = clipasm::syntax::parse_str(
+        Path::new("program.yaml"),
+        "- program:\n    version: 1\n\n- concat:\n    videos:\n      - image: {path: card.ppm, duration: 1s}\n",
+    )
+    .expect_err("variadic inline body");
+
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    assert!(error.message.contains("variadic"));
+}
+
+#[test]
 fn pure_compile_does_not_require_assets_to_exist() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("workflow.yaml");

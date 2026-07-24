@@ -7,7 +7,7 @@ use crate::program::{
     ProgramDefinition, ResolvedCall,
 };
 use crate::semantic::{SourceOrigin, require_value_type};
-use crate::syntax::{Argument, Invocation};
+use crate::syntax::{Argument, InputExpression, Invocation, ParameterArgument};
 
 pub(super) fn bind_call(
     definition: &'static ProgramDefinition,
@@ -15,7 +15,7 @@ pub(super) fn bind_call(
     stack: &mut ValueStack,
     requested_frames: Option<FrameCount>,
     origin: SourceOrigin,
-    mut resolve_reference: impl FnMut(&str, &SourceSpan) -> Result<ValueRef>,
+    mut resolve_input_expression: impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<ResolvedCall> {
     let descriptor = &definition.descriptor;
     for (name, argument) in &invocation.arguments {
@@ -43,7 +43,7 @@ pub(super) fn bind_call(
                 descriptor.name,
                 argument,
                 port,
-                &mut resolve_reference,
+                &mut resolve_input_expression,
             )?);
         }
     }
@@ -146,16 +146,30 @@ fn bind_parameter(
     descriptor: &ParameterDescriptor,
     argument: &Argument,
 ) -> Result<Spanned<ParameterValue>> {
+    let Argument::Parameter(argument) = argument else {
+        return Err(Diagnostic::new(
+            "E_INVALID_ARGUMENT_TYPE",
+            format!(
+                "parameter `{}.{}` requires a scalar value",
+                program, descriptor.name
+            ),
+            argument.span().clone(),
+        ));
+    };
     let value = match (descriptor.parameter_type, argument) {
-        (ParameterType::Integer, Argument::Integer(value, _)) => ParameterValue::Integer(*value),
-        (ParameterType::File, Argument::String(value, _)) => ParameterValue::File(value.into()),
-        (ParameterType::Duration, Argument::String(value, span)) => {
+        (ParameterType::Integer, ParameterArgument::Integer(value, _)) => {
+            ParameterValue::Integer(*value)
+        }
+        (ParameterType::File, ParameterArgument::String(value, _)) => {
+            ParameterValue::File(value.into())
+        }
+        (ParameterType::Duration, ParameterArgument::String(value, span)) => {
             ParameterValue::Duration(SourceTime::parse(value, span)?)
         }
-        (ParameterType::TimeRange, Argument::String(value, span)) => {
+        (ParameterType::TimeRange, ParameterArgument::String(value, span)) => {
             ParameterValue::TimeRange(SourceTimeRange::parse(value, span)?)
         }
-        (ParameterType::Keyword(allowed), Argument::String(value, span)) => {
+        (ParameterType::Keyword(allowed), ParameterArgument::String(value, span)) => {
             let matched = allowed
                 .iter()
                 .copied()
@@ -191,54 +205,41 @@ fn resolve_explicit_input(
     program: &str,
     argument: &Argument,
     port: &InputPort,
-    resolve_reference: &mut impl FnMut(&str, &SourceSpan) -> Result<ValueRef>,
+    resolve_input_expression: &mut impl FnMut(&InputExpression, &InputPort) -> Result<Vec<ValueRef>>,
 ) -> Result<Vec<ValueRef>> {
-    let references = match (port.cardinality, argument) {
-        (_, Argument::Reference(name, span)) => vec![(name.as_str(), span)],
-        (Cardinality::Variadic { .. }, Argument::List(values, _)) => values
-            .iter()
-            .map(|value| match value {
-                Argument::Reference(name, span) => Ok((name.as_str(), span)),
-                _ => Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    "explicit graph inputs must be `$name` references",
-                    value.span().clone(),
-                )),
-            })
-            .collect::<Result<Vec<_>>>()?,
-        (Cardinality::One, Argument::List(_, _)) => {
-            return Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "input `{program}.{}` requires one `$name` reference",
-                    port.name
-                ),
-                argument.span().clone(),
-            ));
-        }
-        _ => {
-            return Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                "explicit graph inputs must be `$name` references",
-                argument.span().clone(),
-            ));
-        }
-    };
-
-    let mut values = Vec::with_capacity(references.len());
-    for (name, reference_span) in references {
-        let value = resolve_reference(name, reference_span)?;
-        require_value_type(value, port.value_type, program, port.name, reference_span)?;
-        values.push(value);
-    }
-    if let Cardinality::Variadic { min } = port.cardinality
-        && values.len() < min
-    {
+    let Argument::Input(expression) = argument else {
         return Err(Diagnostic::new(
-            "E_MISSING_REQUIRED_INPUT",
-            format!("input `{}` requires at least {min} values", port.name),
+            "E_INVALID_ARGUMENT_TYPE",
+            format!("input `{program}.{}` requires a graph input", port.name),
             argument.span().clone(),
         ));
+    };
+    let values = resolve_input_expression(expression, port)?;
+    match port.cardinality {
+        Cardinality::One if values.len() != 1 => {
+            return Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                format!("input `{program}.{}` requires exactly one value", port.name),
+                expression.span().clone(),
+            ));
+        }
+        Cardinality::Variadic { min } if values.len() < min => {
+            return Err(Diagnostic::new(
+                "E_MISSING_REQUIRED_INPUT",
+                format!("input `{}` requires at least {min} values", port.name),
+                expression.span().clone(),
+            ));
+        }
+        _ => {}
+    }
+    for value in &values {
+        require_value_type(
+            *value,
+            port.value_type,
+            program,
+            port.name,
+            expression.span(),
+        )?;
     }
     Ok(values)
 }
@@ -424,15 +425,15 @@ mod tests {
     fn fixed_explicit_input_rejects_reference_lists() {
         let error = resolve_explicit_input(
             "combine",
-            &Argument::List(
+            &Argument::Input(InputExpression::ReferenceList(
                 vec![
-                    Argument::Reference("first".to_owned(), span()),
-                    Argument::Reference("second".to_owned(), span()),
+                    Spanned::new("first".to_owned(), span()),
+                    Spanned::new("second".to_owned(), span()),
                 ],
                 span(),
-            ),
+            )),
             &PORTS[0],
-            &mut |_, _| Ok(video(1)),
+            &mut |_, _| Ok(vec![video(1), video(2)]),
         )
         .expect_err("fixed input list");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
@@ -441,11 +442,26 @@ mod tests {
     #[test]
     fn converts_every_declared_parameter_type() {
         let call = bind(&invocation([
-            ("count", Argument::Integer(3, span())),
-            ("path", Argument::String("card.png".to_owned(), span())),
-            ("duration", Argument::String("500ms".to_owned(), span())),
-            ("range", Argument::String("1s..3s".to_owned(), span())),
-            ("fit", Argument::String("contain".to_owned(), span())),
+            (
+                "count",
+                Argument::Parameter(ParameterArgument::Integer(3, span())),
+            ),
+            (
+                "path",
+                Argument::Parameter(ParameterArgument::String("card.png".to_owned(), span())),
+            ),
+            (
+                "duration",
+                Argument::Parameter(ParameterArgument::String("500ms".to_owned(), span())),
+            ),
+            (
+                "range",
+                Argument::Parameter(ParameterArgument::String("1s..3s".to_owned(), span())),
+            ),
+            (
+                "fit",
+                Argument::Parameter(ParameterArgument::String("contain".to_owned(), span())),
+            ),
         ]))
         .expect("bind");
 
@@ -479,7 +495,7 @@ mod tests {
         let error = bind_parameter(
             "typed",
             &PARAMETERS[4],
-            &Argument::String("crop".to_owned(), span()),
+            &Argument::Parameter(ParameterArgument::String("crop".to_owned(), span())),
         )
         .expect_err("invalid keyword");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_VALUE");
@@ -488,8 +504,12 @@ mod tests {
 
     #[test]
     fn rejects_wrong_parameter_representation() {
-        let error = bind_parameter("typed", &PARAMETERS[1], &Argument::Integer(3, span()))
-            .expect_err("wrong representation");
+        let error = bind_parameter(
+            "typed",
+            &PARAMETERS[1],
+            &Argument::Parameter(ParameterArgument::Integer(3, span())),
+        )
+        .expect_err("wrong representation");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
     }
 
@@ -504,7 +524,7 @@ mod tests {
     fn rejects_unknown_argument() {
         let error = bind(&invocation([(
             "mystery",
-            Argument::String("value".to_owned(), span()),
+            Argument::Parameter(ParameterArgument::String("value".to_owned(), span())),
         )]))
         .expect_err("unknown argument");
         assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");

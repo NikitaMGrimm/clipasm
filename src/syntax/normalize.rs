@@ -6,10 +6,10 @@ use yaml_rust2::scanner::TScalarStyle;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan, Spanned};
 use crate::language::{BODY_FIELD, ID_FIELD, Language, PROGRAM_HEADER_FIELD};
-use crate::program::{ProgramDefinition, ProgramImplementation, ProgramRegistry};
+use crate::program::{Cardinality, ProgramDefinition, ProgramImplementation, ProgramRegistry};
 use crate::syntax::ast::{
-    Argument, Invocation, Item, ItemKind, NamedClip, ProgramBody, Reference, SourceProgram,
-    VideoSettings,
+    Argument, InputExpression, Invocation, Item, ItemKind, NamedClip, ParameterArgument,
+    ProgramBody, Reference, SourceProgram, VideoSettings,
 };
 use crate::syntax::raw::{RawKind, RawNode};
 
@@ -62,14 +62,14 @@ fn parse_source_program(
         return Err(Diagnostic::new(
             "E_EXPECTED_SOURCE_PROGRAM",
             "a ClipAsm source program must be a YAML sequence beginning with `program`",
-            root_span,
+            root_span.clone(),
         ));
     };
     if items.is_empty() {
         return Err(Diagnostic::new(
             "E_MISSING_PROGRAM_HEADER",
             "a source program must begin with a `program` header",
-            root_span,
+            root_span.clone(),
         ));
     }
     let header = items.remove(0);
@@ -136,6 +136,7 @@ fn parse_source_program(
             .into_iter()
             .map(|item| parse_item(item, language))
             .collect::<Result<Vec<_>>>()?,
+        span: root_span,
     };
 
     Ok(SourceProgram {
@@ -215,9 +216,13 @@ fn parse_clips(node: RawNode, language: Language) -> Result<Vec<NamedClip>> {
         validate_name(&name, &span)?;
         let body = match value.kind {
             RawKind::Sequence(_) => parse_body(value, "a clip body", language)?,
-            RawKind::Mapping(_) | RawKind::Scalar { .. } => ProgramBody {
-                items: vec![parse_item(value, language)?],
-            },
+            RawKind::Mapping(_) | RawKind::Scalar { .. } => {
+                let body_span = value.span.clone();
+                ProgramBody {
+                    items: vec![parse_item(value, language)?],
+                    span: body_span,
+                }
+            }
         };
         clips.push(NamedClip { name, body, span });
     }
@@ -237,7 +242,7 @@ fn parse_body(node: RawNode, owner: &str, language: Language) -> Result<ProgramB
         .into_iter()
         .map(|value| parse_item(value, language))
         .collect::<Result<Vec<_>>>()?;
-    Ok(ProgramBody { items })
+    Ok(ProgramBody { items, span })
 }
 
 fn parse_item(node: RawNode, language: Language) -> Result<Item> {
@@ -391,12 +396,18 @@ fn parse_invocation(
         .postfix
         .expect("postfix candidate has postfix metadata");
     let mut arguments = BTreeMap::new();
-    arguments.insert(postfix.parameter.to_owned(), parse_argument(wrapper_value)?);
+    arguments.insert(
+        postfix.parameter.to_owned(),
+        Argument::Parameter(parse_parameter_argument(wrapper_value)?),
+    );
     Ok(Item {
         kind: ItemKind::Invocation(Invocation {
             program: Spanned::new(wrapper_name, wrapper_span),
             arguments,
-            body: Some(ProgramBody { items: vec![inner] }),
+            body: Some(ProgramBody {
+                items: vec![inner],
+                span: span.clone(),
+            }),
         }),
         id,
         span,
@@ -434,15 +445,24 @@ fn normalize_invocation(
                 && name == BODY_FIELD
             {
                 body = Some(parse_body(value, &format!("`{program}` body"), language)?);
-            } else if arguments
-                .insert(name.clone(), parse_argument(value)?)
-                .is_some()
-            {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_ARGUMENT",
-                    format!("duplicate argument `{name}`"),
-                    name_span,
-                ));
+            } else {
+                let argument = if let Some(input) = definition
+                    .descriptor
+                    .inputs
+                    .iter()
+                    .find(|input| input.name == name)
+                {
+                    Argument::Input(parse_input_expression(value, input.cardinality, language)?)
+                } else {
+                    Argument::Parameter(parse_parameter_argument(value)?)
+                };
+                if arguments.insert(name.clone(), argument).is_some() {
+                    return Err(Diagnostic::new(
+                        "E_DUPLICATE_ARGUMENT",
+                        format!("duplicate argument `{name}`"),
+                        name_span,
+                    ));
+                }
             }
         }
     } else if matches!(definition.implementation, ProgramImplementation::Body(_))
@@ -457,7 +477,10 @@ fn normalize_invocation(
                 value.span,
             ));
         };
-        arguments.insert(primary.to_owned(), parse_argument(value)?);
+        arguments.insert(
+            primary.to_owned(),
+            Argument::Parameter(parse_parameter_argument(value)?),
+        );
     }
     Ok(Invocation {
         program: Spanned::new(program.to_owned(), program_span),
@@ -466,34 +489,95 @@ fn normalize_invocation(
     })
 }
 
-fn parse_argument(node: RawNode) -> Result<Argument> {
+fn parse_parameter_argument(node: RawNode) -> Result<ParameterArgument> {
     let span = node.span.clone();
     match node.kind {
         RawKind::Scalar { value, style } => {
-            if style == TScalarStyle::Plain && value.starts_with('$') {
-                Ok(Argument::Reference(parse_reference(&value, &span)?, span))
-            } else if style == TScalarStyle::Plain {
+            if style == TScalarStyle::Plain {
                 if let Ok(value) = value.parse::<i64>() {
-                    Ok(Argument::Integer(value, span))
+                    Ok(ParameterArgument::Integer(value, span))
                 } else {
-                    Ok(Argument::String(value, span))
+                    Ok(ParameterArgument::String(value, span))
                 }
             } else {
-                Ok(Argument::String(value, span))
+                Ok(ParameterArgument::String(value, span))
             }
         }
-        RawKind::Sequence(values) => Ok(Argument::List(
-            values
-                .into_iter()
-                .map(parse_argument)
-                .collect::<Result<Vec<_>>>()?,
-            span,
-        )),
-        RawKind::Mapping(_) => Err(Diagnostic::new(
+        RawKind::Sequence(_) | RawKind::Mapping(_) => Err(Diagnostic::new(
             "E_INVALID_ARGUMENT",
-            "nested argument mappings are not supported",
+            "scalar parameters must be authored as scalar values",
             span,
         )),
+    }
+}
+
+fn parse_input_expression(
+    node: RawNode,
+    cardinality: Cardinality,
+    language: Language,
+) -> Result<InputExpression> {
+    let span = node.span.clone();
+    match cardinality {
+        Cardinality::One => match &node.kind {
+            RawKind::Scalar { value, style }
+                if *style == TScalarStyle::Plain && value.starts_with('$') =>
+            {
+                Ok(InputExpression::Reference(Spanned::new(
+                    parse_reference(value, &span)?,
+                    span,
+                )))
+            }
+            RawKind::Scalar { .. } | RawKind::Mapping(_) => {
+                Ok(InputExpression::Body(ProgramBody {
+                    items: vec![parse_item(node, language)?],
+                    span,
+                }))
+            }
+            RawKind::Sequence(_) => Ok(InputExpression::Body(parse_body(
+                node,
+                "an inline input body",
+                language,
+            )?)),
+        },
+        Cardinality::Variadic { .. } => match node.kind {
+            RawKind::Scalar { value, style }
+                if style == TScalarStyle::Plain && value.starts_with('$') =>
+            {
+                Ok(InputExpression::Reference(Spanned::new(
+                    parse_reference(&value, &span)?,
+                    span,
+                )))
+            }
+            RawKind::Sequence(values) => {
+                let references = values
+                    .into_iter()
+                    .map(|value| {
+                        let value_span = value.span.clone();
+                        let RawKind::Scalar {
+                            value: text,
+                            style: TScalarStyle::Plain,
+                        } = value.kind
+                        else {
+                            return Err(Diagnostic::new(
+                                "E_INVALID_ARGUMENT_TYPE",
+                                "explicit variadic inputs must be `$name` references",
+                                value_span,
+                            ));
+                        };
+                        Ok(Spanned::new(
+                            parse_reference(&text, &value_span)?,
+                            value_span,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(InputExpression::ReferenceList(references, span))
+            }
+            _ => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                "explicit variadic inputs must be `$name` references",
+                span,
+            )),
+        },
     }
 }
 

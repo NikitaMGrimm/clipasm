@@ -242,6 +242,118 @@ fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
 }
 
 #[test]
+fn fixed_inputs_accept_isolated_inline_program_bodies() {
+    let (_directory, program) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- flash:\n    before:\n      - image: {path: a.ppm, duration: 1s}\n      - zoom\n    after:\n      image: {path: b.ppm, duration: 1s}\n    frames: 2\n",
+    );
+
+    let compiled = compiler::compile(&program).expect("inline fixed inputs");
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 20);
+    let document = compiled_json(&compiled);
+    let flash = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "flash_join")
+        .expect("flash result");
+    assert_eq!(flash["kind"]["before"]["id"], 1);
+    assert_eq!(flash["kind"]["after"]["id"], 2);
+}
+
+#[test]
+fn inline_input_bodies_start_empty_and_preserve_the_outer_stack() {
+    let (_directory, isolated) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    video:\n      - repeat: 2\n    count: 2\n",
+    );
+    let error = compiler::compile(&isolated).expect_err("isolated input stack");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+
+    let (_directory, preserved) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    video:\n      image: {path: b.ppm, duration: 1s}\n    count: 2\n- concat\n",
+    );
+    let compiled = compiler::compile(&preserved).expect("preserved outer value");
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+}
+
+#[test]
+fn inline_input_body_requires_exactly_one_value() {
+    let (_directory, program) = project(
+        "- program:\n    version: 1\n\n- repeat:\n    video:\n      - image: {path: a.ppm, duration: 1s}\n      - image: {path: b.ppm, duration: 1s}\n    count: 2\n",
+    );
+    let error = compiler::compile(&program).expect_err("two inline results");
+    assert_eq!(error.code, "E_INPUT_BODY_OUTPUT_COUNT");
+    assert!(error.message.contains("repeat.video"));
+    assert!(error.message.contains("2 values remain"));
+}
+
+#[test]
+fn inline_input_bodies_inherit_requested_frames() {
+    let (_directory, program) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    body:\n      - flash:\n          before:\n            image: b.ppm\n          after:\n            image: c.ppm\n      - concat\n",
+    );
+    let compiled = compiler::compile(&program).expect("requested inline duration");
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 40);
+}
+
+#[test]
+fn inline_fixed_inputs_bind_in_descriptor_order_not_mapping_order() {
+    let source = |inputs: &str| {
+        format!(
+            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n\n- flash:\n{inputs}    frames: 2\n"
+        )
+    };
+    let before = "    before:\n      image: {path: a.ppm, duration: 1s}\n";
+    let after = "    after:\n      image: {path: b.ppm, duration: 1s}\n";
+    let (_first_directory, first) = project(&source(&format!("{before}{after}")));
+    let (_second_directory, second) = project(&source(&format!("{after}{before}")));
+
+    assert_eq!(
+        compiler::compile(&first)
+            .expect("declaration order")
+            .structure_hash(),
+        compiler::compile(&second)
+            .expect("reverse mapping order")
+            .structure_hash()
+    );
+}
+
+#[test]
+fn ids_inside_inline_inputs_use_the_global_named_value_namespace() {
+    let (_directory, program) = project(
+        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- flash:\n    before:\n      - image: {path: a.ppm, duration: 1s}\n        id: reusable\n      - zoom\n    after:\n      image: {path: b.ppm, duration: 1s}\n    frames: 2\n- $reusable\n- wobble\n- concat\n",
+    );
+    let compiled = compiler::compile(&program).expect("global inline id");
+    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+    assert!(compiled_json(&compiled)["named_values"]["reusable"].is_object());
+}
+
+#[test]
+fn duplicate_names_cross_inline_input_boundaries() {
+    let (_directory, duplicate) = project(
+        "- program:\n    version: 1\n\n- flash:\n    before:\n      - image: {path: a.ppm, duration: 1s}\n        id: duplicate\n    after:\n      image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 1s}\n  id: duplicate\n- concat\n",
+    );
+    assert_eq!(
+        compiler::compile(&duplicate)
+            .expect_err("duplicate inline id")
+            .code,
+        "E_DUPLICATE_NAME"
+    );
+}
+
+#[test]
+fn dependency_cycles_cross_inline_input_boundaries() {
+    let (_directory, cycle) = project(
+        "- program:\n    version: 1\n\n- flash:\n    before:\n      - $outer\n      - zoom:\n        id: inner\n    after:\n      - image: {path: b.ppm, duration: 1s}\n- $inner\n- zoom:\n  id: outer\n- concat\n",
+    );
+    assert_eq!(
+        compiler::compile(&cycle)
+            .expect_err("cross-boundary cycle")
+            .code,
+        "E_DEPENDENCY_CYCLE"
+    );
+}
+
+#[test]
 fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
     let source = |before: &str, after: &str, frames: &str| {
         format!(

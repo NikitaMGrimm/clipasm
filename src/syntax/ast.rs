@@ -81,6 +81,7 @@ pub(crate) struct NamedClip {
 #[derive(Clone, Debug)]
 pub(crate) struct ProgramBody {
     pub(crate) items: Vec<Item>,
+    pub(crate) span: SourceSpan,
 }
 
 #[derive(Clone, Debug)]
@@ -110,20 +111,49 @@ pub(crate) struct Invocation {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Argument {
-    Reference(String, SourceSpan),
+    Parameter(ParameterArgument),
+    Input(InputExpression),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ParameterArgument {
     String(String, SourceSpan),
     Integer(i64, SourceSpan),
-    List(Vec<Argument>, SourceSpan),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum InputExpression {
+    Reference(Spanned<String>),
+    Body(ProgramBody),
+    ReferenceList(Vec<Spanned<String>>, SourceSpan),
 }
 
 impl Argument {
     #[must_use]
     pub(crate) fn span(&self) -> &SourceSpan {
         match self {
-            Self::Reference(_, span)
-            | Self::String(_, span)
-            | Self::Integer(_, span)
-            | Self::List(_, span) => span,
+            Self::Parameter(argument) => argument.span(),
+            Self::Input(expression) => expression.span(),
+        }
+    }
+}
+
+impl ParameterArgument {
+    #[must_use]
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::String(_, span) | Self::Integer(_, span) => span,
+        }
+    }
+}
+
+impl InputExpression {
+    #[must_use]
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::Reference(reference) => &reference.span,
+            Self::Body(body) => &body.span,
+            Self::ReferenceList(_, span) => span,
         }
     }
 }

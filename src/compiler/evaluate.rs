@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result, SourceSpan};
 use crate::model::{FrameCount, ValueRef, ValueStack, ValueType, VideoSpec};
-use crate::program::{ProgramImplementation, ProgramRegistry};
+use crate::program::{InputPort, ProgramImplementation, ProgramRegistry};
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, require_value_type};
-use crate::syntax::{Invocation, Item, ItemKind, ProgramBody, Reference, SourceProgram};
+use crate::syntax::{
+    Argument, InputExpression, Invocation, Item, ItemKind, ProgramBody, Reference, SourceProgram,
+};
 
 #[derive(Clone, Debug)]
 pub(super) enum DeclaredValueType {
@@ -100,10 +102,15 @@ impl Evaluator<'_> {
         if let Some(id) = &item.id {
             self.add_symbol(&id.value, &id.span, self.item_output_type(&item.kind)?)?;
         }
-        if let ItemKind::Invocation(invocation) = &item.kind
-            && let Some(body) = &invocation.body
-        {
-            self.collect_body_names(body)?;
+        if let ItemKind::Invocation(invocation) = &item.kind {
+            if let Some(body) = &invocation.body {
+                self.collect_body_names(body)?;
+            }
+            for argument in invocation.arguments.values() {
+                if let Argument::Input(InputExpression::Body(body)) = argument {
+                    self.collect_body_names(body)?;
+                }
+            }
         }
         Ok(())
     }
@@ -288,7 +295,14 @@ impl Evaluator<'_> {
             stack,
             requested_frames,
             origin.clone(),
-            |name, reference_span| self.evaluate_reference_name(name, reference_span),
+            |expression, port| {
+                self.evaluate_input_expression(
+                    expression,
+                    port,
+                    definition.descriptor.name,
+                    requested_frames,
+                )
+            },
         );
         let call = call?;
 
@@ -347,6 +361,43 @@ impl Evaluator<'_> {
             ));
         }
         Ok(output)
+    }
+
+    fn evaluate_input_expression(
+        &mut self,
+        expression: &InputExpression,
+        port: &InputPort,
+        program: &str,
+        requested_frames: Option<FrameCount>,
+    ) -> Result<Vec<ValueRef>> {
+        match expression {
+            InputExpression::Reference(reference) => {
+                Ok(vec![self.evaluate_reference_name(
+                    &reference.value,
+                    &reference.span,
+                )?])
+            }
+            InputExpression::ReferenceList(references, _) => references
+                .iter()
+                .map(|reference| self.evaluate_reference_name(&reference.value, &reference.span))
+                .collect(),
+            InputExpression::Body(body) => {
+                let mut local = ValueStack::new();
+                self.evaluate_body(body, &mut local, requested_frames)?;
+                let [result] = local.as_slice() else {
+                    return Err(output_count_error(
+                        "E_INPUT_BODY_OUTPUT_COUNT",
+                        &format!("inline input body for `{program}.{}`", port.name),
+                        local.len(),
+                        &body.span,
+                    )
+                    .note(
+                        "combine multiple Videos explicitly with `concat` or a nested `timeline`",
+                    ));
+                };
+                Ok(vec![*result])
+            }
+        }
     }
 
     fn bind_symbol(&mut self, name: &str, value: ValueRef) -> Result<()> {
