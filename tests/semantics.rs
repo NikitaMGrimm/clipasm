@@ -975,3 +975,101 @@ fn generic_explicit_inputs_must_be_homogeneous_without_coercion() {
     let error = compiler::compile(&workflow).expect_err("mixed explicit generic input");
     assert_eq!(error.code, "E_GENERIC_TYPE_MISMATCH");
 }
+
+#[test]
+fn glue_concatenates_homogeneous_audio() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("Audio glue");
+    assert_eq!(compiled.outputs().len(), 1);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+    let document = compiled_json(&compiled);
+    assert!(
+        document["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["kind"]["operation"] == "audio_concat")
+    );
+}
+
+#[test]
+fn join_concatenates_homogeneous_audio() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- audio: first.wav\n- audio: second.wav\n- join:\n    - concat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("Audio join");
+    assert_eq!(compiled.outputs().len(), 1);
+    assert_eq!(
+        compiled.outputs()[0].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+    let document = compiled_json(&compiled);
+    assert!(
+        document["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["kind"]["operation"] == "audio_concat")
+    );
+}
+
+#[test]
+fn generic_body_programs_reject_mixed_outputs() {
+    for program in [
+        "- glue:\n    - audio: music.wav\n    - image: {path: a.ppm, duration: 1s}\n",
+        "- audio: first.wav\n- audio: second.wav\n- join:\n    - image: {path: a.ppm, duration: 1s}\n",
+    ] {
+        let (_directory, workflow) = project(&format!("- program:\n    version: 1\n\n{program}"));
+        let error = compiler::compile(&workflow).expect_err("mixed body output types");
+        assert!(matches!(
+            error.code,
+            "E_GENERIC_TYPE_MISMATCH" | "E_TYPE_MISMATCH"
+        ));
+    }
+}
+
+#[test]
+fn join_selector_chooses_one_homogeneous_stack_view() {
+    let (_directory, ambiguous) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- audio: first.wav\n- audio: second.wav\n- join:\n    - concat\n",
+    );
+    let error = compiler::compile(&ambiguous).expect_err("ambiguous join type");
+    assert_eq!(error.code, "E_AMBIGUOUS_GENERIC_TYPE");
+
+    let (_directory, selected) = project(
+        "- program:\n    version: 1\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- audio: first.wav\n- audio: second.wav\n- join:\n    type: Audio\n    body:\n      - concat\n",
+    );
+    let compiled = compiler::compile(&selected).expect("selected Audio join");
+    assert_eq!(compiled.outputs().len(), 3);
+    assert_eq!(
+        compiled.outputs()[2].value_type(),
+        clipasm::model::ValueType::Audio
+    );
+}
+
+#[test]
+fn named_glue_requires_or_uses_a_type_selector() {
+    let (_directory, untyped) = project(
+        "- program:\n    version: 1\n\n- glue:\n    - audio: first.wav\n    - audio: second.wav\n  id: combined\n",
+    );
+    let error = compiler::compile(&untyped).expect_err("named generic body output needs type");
+    assert_eq!(error.code, "E_GENERIC_OUTPUT_TYPE_REQUIRED");
+
+    let (_directory, typed) = project(
+        "- program:\n    version: 1\n\n- glue:\n    type: Audio\n    body:\n      - audio: first.wav\n      - audio: second.wav\n  id: combined\n- $combined\n",
+    );
+    let compiled = compiler::compile(&typed).expect("typed named glue");
+    assert_eq!(
+        compiled
+            .outputs()
+            .last()
+            .expect("reference output")
+            .value_type(),
+        clipasm::model::ValueType::Audio
+    );
+}

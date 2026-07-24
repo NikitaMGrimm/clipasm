@@ -174,6 +174,22 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         types
     }
 
+    pub(super) fn accessible_count(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        required: ValueType,
+    ) -> usize {
+        self.values
+            .iter()
+            .copied()
+            .zip(self.owners.iter().copied())
+            .filter(|(value, owner)| {
+                Self::accessible(*owner, frame, access) && value.value_type() == required
+            })
+            .count()
+    }
+
     pub(super) fn take_one_matching(
         &mut self,
         frame: &StackFrame,

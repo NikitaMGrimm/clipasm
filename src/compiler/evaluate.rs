@@ -1221,7 +1221,9 @@ mod tests {
         let body_contract = matches!(implementation, ProgramImplementation::Body(_)).then(|| {
             crate::program::BodyContract {
                 initial_values: Vec::new(),
-                outputs: crate::program::BodyOutputConstraint::Exactly(outputs.clone()),
+                outputs: crate::program::BodyOutputConstraint::Exactly(
+                    outputs.iter().copied().map(Into::into).collect(),
+                ),
                 count_error_code: "E_BODY_OUTPUT_COUNT",
             }
         });
@@ -1300,7 +1302,7 @@ mod tests {
             .body_contract
             .as_mut()
             .expect("body contract")
-            .initial_values = vec![ValueType::Video];
+            .initial_values = vec![ValueType::Video.into()];
         vec![
             definition(
                 "glue",

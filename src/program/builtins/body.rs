@@ -3,7 +3,8 @@ use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
     ParameterDescriptor, ParameterType, PostfixSyntax, ProgramDefinition, ProgramDescriptor,
-    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
+    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, TypeParameter,
+    ValueConstraint, ValueTypeSpec,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
@@ -12,18 +13,16 @@ const VIDEO: ValueType = ValueType::Video;
 
 pub(crate) fn join() -> ProgramDefinition {
     body(
-        descriptor(
+        generic_descriptor(
             "join",
             3,
-            vec![input("before"), input("after")],
-            vec![],
-            None,
+            vec![generic_input("before"), generic_input("after")],
         ),
         prepare_join,
         BodyContract {
-            initial_values: vec![VIDEO, VIDEO],
+            initial_values: vec![ValueTypeSpec::Generic, ValueTypeSpec::Generic],
             outputs: BodyOutputConstraint::Variadic {
-                value_type: VIDEO,
+                value_type: ValueTypeSpec::Generic,
                 min: 1,
             },
             count_error_code: "E_EMPTY_JOIN",
@@ -34,12 +33,12 @@ pub(crate) fn join() -> ProgramDefinition {
 
 pub(crate) fn glue() -> ProgramDefinition {
     body(
-        descriptor("glue", 2, vec![], vec![], None),
+        generic_descriptor("glue", 2, vec![]),
         prepare_glue,
         BodyContract {
             initial_values: vec![],
             outputs: BodyOutputConstraint::Variadic {
-                value_type: VIDEO,
+                value_type: ValueTypeSpec::Generic,
                 min: 1,
             },
             count_error_code: "E_EMPTY_GLUE",
@@ -63,14 +62,50 @@ pub(crate) fn during() -> ProgramDefinition {
         ),
         prepare_during,
         BodyContract {
-            initial_values: vec![VIDEO],
-            outputs: BodyOutputConstraint::Exactly(vec![VIDEO]),
+            initial_values: vec![VIDEO.into()],
+            outputs: BodyOutputConstraint::Exactly(vec![VIDEO.into()]),
             count_error_code: "E_BODY_OUTPUT_COUNT",
         },
         Some(PostfixSyntax {
             parameter: "range".to_owned(),
         }),
     )
+}
+
+fn generic_descriptor(
+    name: &str,
+    semantic_version: u32,
+    inputs: Vec<InputPort>,
+) -> ProgramDescriptor {
+    ProgramDescriptor {
+        name: name.to_owned(),
+        semantic_version,
+        default_stack_access: StackAccess::Visible,
+        inputs,
+        parameters: vec![type_selector()],
+        primary_parameter: None,
+        type_parameter: Some(TypeParameter {
+            constraint: ValueConstraint::Timeline,
+            selector: "type".to_owned(),
+        }),
+        outputs: vec![ValueTypeSpec::Generic],
+    }
+}
+
+fn generic_input(name: &str) -> InputPort {
+    InputPort {
+        name: name.to_owned(),
+        value_type: ValueTypeSpec::Generic,
+        cardinality: Cardinality::One,
+    }
+}
+
+fn type_selector() -> ParameterDescriptor {
+    ParameterDescriptor {
+        name: "type".to_owned(),
+        parameter_type: ParameterType::Keyword(vec!["Video".to_owned(), "Audio".to_owned()]),
+        required: false,
+    }
 }
 
 fn descriptor(
@@ -172,7 +207,7 @@ impl BodyFinalizer for FinalizeConcatBody {
         if stack.is_empty() {
             return Err(Diagnostic::new(
                 self.empty_code,
-                format!("{} must produce at least one Video", self.owner),
+                format!("{} must produce at least one Video or Audio", self.owner),
                 self.span,
             ));
         }

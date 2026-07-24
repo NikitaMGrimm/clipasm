@@ -1184,7 +1184,9 @@ mod tests {
                 implementation: ProgramImplementation::Body(prepare_synthetic_body),
                 body_contract: Some(crate::program::BodyContract {
                     initial_values: Vec::new(),
-                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![ValueType::Video]),
+                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                        ValueType::Video.into(),
+                    ]),
                     count_error_code: "E_BODY_OUTPUT_COUNT",
                 }),
                 postfix: None,
@@ -1207,7 +1209,9 @@ mod tests {
                 implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
                 body_contract: Some(crate::program::BodyContract {
                     initial_values: Vec::new(),
-                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![ValueType::Video]),
+                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                        ValueType::Video.into(),
+                    ]),
                     count_error_code: "E_BODY_OUTPUT_COUNT",
                 }),
                 postfix: Some(PostfixSyntax {

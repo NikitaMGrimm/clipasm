@@ -102,6 +102,7 @@ pub(crate) struct ResolvedInputPort {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSignature {
+    pub(crate) generic: Option<ValueType>,
     pub(crate) inputs: Vec<ResolvedInputPort>,
     pub(crate) outputs: Vec<ValueType>,
 }
@@ -158,6 +159,7 @@ impl ProgramDescriptor {
             ValueTypeSpec::Generic => generic.expect("generic descriptor has a resolved type"),
         };
         ResolvedSignature {
+            generic,
             inputs: self
                 .inputs
                 .iter()
@@ -180,13 +182,60 @@ pub(crate) struct PostfixSyntax {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BodyContract {
-    pub(crate) initial_values: Vec<ValueType>,
+    pub(crate) initial_values: Vec<ValueTypeSpec>,
     pub(crate) outputs: BodyOutputConstraint,
     pub(crate) count_error_code: &'static str,
 }
 
+impl BodyContract {
+    pub(crate) fn resolve(&self, generic: Option<ValueType>) -> ResolvedBodyContract {
+        let resolve = |spec: ValueTypeSpec| match spec {
+            ValueTypeSpec::Exact(value_type) => value_type,
+            ValueTypeSpec::Generic => generic.expect("generic body contract has a resolved type"),
+        };
+        ResolvedBodyContract {
+            initial_values: self.initial_values.iter().copied().map(resolve).collect(),
+            outputs: match &self.outputs {
+                BodyOutputConstraint::Exactly(outputs) => ResolvedBodyOutputConstraint::Exactly(
+                    outputs.iter().copied().map(resolve).collect(),
+                ),
+                BodyOutputConstraint::Variadic { value_type, min } => {
+                    ResolvedBodyOutputConstraint::Variadic {
+                        value_type: resolve(*value_type),
+                        min: *min,
+                    }
+                }
+            },
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn exact_initial_values(&self) -> Option<Vec<ValueType>> {
+        self.initial_values
+            .iter()
+            .copied()
+            .map(ValueTypeSpec::exact)
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum BodyOutputConstraint {
+    Exactly(Vec<ValueTypeSpec>),
+    Variadic {
+        value_type: ValueTypeSpec,
+        min: usize,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedBodyContract {
+    pub(crate) initial_values: Vec<ValueType>,
+    pub(crate) outputs: ResolvedBodyOutputConstraint,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedBodyOutputConstraint {
     Exactly(Vec<ValueType>),
     Variadic { value_type: ValueType, min: usize },
 }

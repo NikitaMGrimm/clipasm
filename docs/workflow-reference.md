@@ -182,8 +182,8 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `zoom` | `video: Video` | optional `percent` | none |
 | `wobble` | `video: Video` | optional `pixels` | none |
 | `flash` | `before: Video`, `after: Video` | optional `frames` | none |
-| `join` | `before: Video`, `after: Video` | none | required |
-| `glue` | none | none | required |
+| `join` | homogeneous `before`, `after`: Video or Audio | optional `type` | required |
+| `glue` | none | optional `type` | required |
 | `during` | `video: Video` | `range` | required |
 
 `fit` is `cover`, `contain`, or `stretch`. The default is `cover`.
@@ -538,9 +538,11 @@ direct programs. They evaluate one nested body exactly once.
 
 ### Join
 
-`join` consumes the nearest two accessible Videos, starts its body with both in
-order as locally owned values, exposes them as `$before` and `$after`, and
-concatenates all Videos left by the body.
+`join` resolves one homogeneous timeline type, consumes the nearest two
+accessible values of that type, starts its body with both in order as locally
+owned values, exposes them as `$before` and `$after`, and concatenates all owned
+body values. Bare `join` is ambiguous when both Video and Audio can satisfy both
+inputs; use `type: Video` or `type: Audio` to select the intended stack view.
 Its default visible access lets it bind those inputs through an enclosing body
 boundary. Default-owned children still consume only the two seeded values;
 explicitly visible children may reach farther down the inherited visible
@@ -564,15 +566,19 @@ stack values. Explicit adaptation makes audiovisual overrides concise:
         audio: $before
 ```
 
-Here `flash` consumes the two seeded Videos. `$before` still names the immutable
-original input; the explicit `set_audio.audio` port adapts that Video to Audio,
-and the missing `set_audio.video` port binds the flashed Video from the stack.
+Here `join` resolves to Video, so `flash` consumes the two seeded Videos.
+`$before` still names the immutable original input; the explicit
+`set_audio.audio` port adapts that Video to Audio, and the missing
+`set_audio.video` port binds the flashed Video from the stack.
 
 ### Glue
 
 A default `glue` has no inputs and starts its body with no owned values while
-inheriting the enclosing visible suffix. It concatenates the body's owned
-Videos and pushes the single result onto the surrounding stack.
+inheriting the enclosing visible suffix. It infers Video or Audio from the
+homogeneous owned values left by its body, concatenates them, and pushes the
+single result onto the surrounding stack. Mixed body outputs are an error.
+`type: Video` or `type: Audio` may constrain the body explicitly and is required
+when a `glue` result is named before body inference can establish its type.
 
 ```yaml
 - glue:
@@ -667,8 +673,8 @@ port. A body program with no fixed inputs exposes no aliases.
 | source program | empty | authored inputs | return all ordered owned values |
 | named clip | empty, isolated | none | exactly one Video |
 | inline fixed input | empty, isolated | inherited caller scope | exactly one accepted value |
-| `join` | two bound Videos | `$before`, `$after` | concatenate owned Videos in order |
-| `glue` | none | none | concatenate owned Videos in order |
+| `join` | two bound homogeneous timeline values | `$before`, `$after` | concatenate owned values of the resolved type |
+| `glue` | none | none | infer or select one timeline type, then concatenate owned values |
 | `during` | selected range | `$video` for the complete bound input | exactly one owned Video, then splice |
 
 A body invocation with `stack_access: owned` creates a visibility boundary, so a

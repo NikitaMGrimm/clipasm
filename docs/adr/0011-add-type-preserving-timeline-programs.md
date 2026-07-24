@@ -31,6 +31,8 @@ The type-preserving programs are:
 - `repeat<T: Timeline>(value: T, count: Integer) -> T`
 - `concat<T: Timeline>(values: T...) -> T`
 - `drop<T: Value>(value: T) -> []`
+- `join<T: Timeline>(before: T, after: T, body) -> T`
+- `glue<T: Timeline>(body) -> T`
 
 `Timeline` currently means Video or Audio. Generic inputs require exact types
 and never use contextual adaptation.
@@ -52,14 +54,25 @@ A named generic result may infer its declaration type from an explicit reference
 input. Otherwise it requires the type selector so forward references have a
 concrete declared type before execution.
 
-Body-program finalizers retain their own concrete contracts. In particular,
-`join` and `glue` finalize only Videos and call the Video graph concatenation
-directly; user-facing generic `concat` does not change their behavior.
+`join` resolves `T` from homogeneous explicit inputs, a selector, or a stack
+view that can satisfy both fixed ports. It seeds the body with both values and
+requires every owned body output to have that same type. When both Video and
+Audio can satisfy the missing inputs, bare `join` is ambiguous.
+
+`glue` has no graph inputs. An explicit selector fixes `T`; otherwise the checker
+defers only its signature resolution until the body finishes, then infers `T`
+from one or more homogeneous outputs. Mixed outputs are rejected before
+evaluation. A named `glue` result requires the selector because declaration
+collection needs a concrete output type before body execution.
+
+Both finalizers use the same type-preserving graph concatenation as `concat`.
+The checker owns the homogeneous-body guarantee; finalizer validation remains a
+defensive boundary.
 
 ## Consequences
 
-- Audio trim, repetition, and concatenation use native sample-domain graph and
-  renderer operations.
+- Audio trim, repetition, concatenation, `join`, and `glue` use native
+  sample-domain graph and renderer operations.
 - Existing Video operation identities remain unchanged.
 - Mixed stacks remain explicit at broad variadic reductions.
 - Checked source, rather than runtime evaluation, owns generic type resolution.

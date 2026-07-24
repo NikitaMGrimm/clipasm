@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    BodyOutputConstraint, Cardinality, InputPort, ParameterDescriptor, ParameterType,
-    ProgramDefinition, ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry,
-    ResolvedSignature, ValueTypeSpec, builtin_programs,
+    Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
+    ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry, ResolvedSignature,
+    ValueTypeSpec, builtin_programs,
 };
 use crate::source::{
     ArgumentValue, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
@@ -392,9 +392,8 @@ fn item_output_types(
                         .descriptor
                         .inputs
                         .iter()
-                        .find(|port| matches!(port.value_type, ValueTypeSpec::Generic))
-                        .expect("generic descriptor has a generic input");
-                    let inferred =
+                        .find(|port| matches!(port.value_type, ValueTypeSpec::Generic));
+                    let inferred = generic_port.and_then(|generic_port| {
                         invocation
                             .arguments
                             .get(&generic_port.name)
@@ -416,7 +415,8 @@ fn item_output_types(
                                     inferred
                                 }
                                 ArgumentValue::Literal(_) | ArgumentValue::Body(_) => None,
-                            });
+                            })
+                    });
                     Some(inferred.ok_or_else(|| {
                         Diagnostic::new(
                             "E_GENERIC_OUTPUT_TYPE_REQUIRED",
@@ -451,12 +451,12 @@ fn resolve_invocation_signature(
     frame: &super::stack::StackFrame,
     access: crate::program::StackAccess,
     span: &crate::source::SourceSpan,
-) -> Result<ResolvedSignature> {
+) -> Result<Option<ResolvedSignature>> {
     let descriptor = &definition.descriptor;
     let Some(type_parameter) = &descriptor.type_parameter else {
         let signature = descriptor.resolve_signature(None);
         validate_explicit_input_types(invocation, validated, &signature)?;
-        return Ok(signature);
+        return Ok(Some(signature));
     };
 
     let selected = invocation
@@ -510,12 +510,14 @@ fn resolve_invocation_signature(
     }
 
     let inferred = explicit.first().copied().or_else(|| {
-        let generic_port = descriptor
+        let generic_ports = descriptor
             .inputs
             .iter()
-            .find(|port| matches!(port.value_type, ValueTypeSpec::Generic))?;
+            .filter(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            .collect::<Vec<_>>();
+        let generic_port = generic_ports.first()?;
         match generic_port.cardinality {
-            Cardinality::One => stack
+            Cardinality::One if generic_ports.len() == 1 => stack
                 .nearest_accessible_type(frame, access, |value_type| {
                     type_parameter.constraint.accepts(value_type)
                 })
@@ -528,6 +530,31 @@ fn resolve_invocation_signature(
                         )
                     })?
                 }),
+            Cardinality::One => {
+                let missing = generic_ports
+                    .iter()
+                    .filter(|port| !invocation.arguments.contains_key(&port.name))
+                    .count();
+                let types = stack.accessible_types(frame, access, |value_type| {
+                    type_parameter.constraint.accepts(value_type)
+                });
+                let viable = types
+                    .iter()
+                    .copied()
+                    .filter(|value_type| {
+                        stack.accessible_count(frame, access, *value_type) >= missing
+                    })
+                    .collect::<Vec<_>>();
+                if viable.len() == 1 {
+                    Some(viable[0])
+                } else if viable.is_empty() {
+                    stack.nearest_accessible_type(frame, access, |value_type| {
+                        type_parameter.constraint.accepts(value_type)
+                    })
+                } else {
+                    None
+                }
+            }
             Cardinality::Variadic { .. } => {
                 let types = stack.accessible_types(frame, access, |value_type| {
                     type_parameter.constraint.accepts(value_type)
@@ -564,6 +591,14 @@ fn resolve_invocation_signature(
                     span.clone(),
                 ));
             }
+            if matches!(definition.implementation, ProgramImplementation::Body(_))
+                && !descriptor
+                    .inputs
+                    .iter()
+                    .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            {
+                return Ok(None);
+            }
             return Err(Diagnostic::new(
                 "E_STACK_UNDERFLOW",
                 format!(
@@ -583,7 +618,7 @@ fn resolve_invocation_signature(
     }
     let signature = descriptor.resolve_signature(Some(value_type));
     validate_explicit_input_types(invocation, validated, &signature)?;
-    Ok(signature)
+    Ok(Some(signature))
 }
 
 fn validate_explicit_input_types(
@@ -668,49 +703,51 @@ fn infer_body(
                     .map_or(definition.descriptor.default_stack_access, |access| {
                         access.value
                     });
-                let signature = resolve_invocation_signature(
+                let mut signature = resolve_invocation_signature(
                     definition, invocation, &validated, stack, frame, access, &item.span,
                 )?;
-                let explicit_inputs = signature
-                    .inputs
-                    .iter()
-                    .filter(|port| invocation.arguments.contains_key(&port.name))
-                    .count();
-                let missing = signature.inputs.len() - explicit_inputs;
-                if missing > 0 {
-                    if signature
+                if let Some(resolved) = &signature {
+                    let explicit_inputs = resolved
                         .inputs
                         .iter()
-                        .any(|port| matches!(port.cardinality, Cardinality::Variadic { .. }))
-                    {
-                        let port = &signature.inputs[0];
-                        let Cardinality::Variadic { min } = port.cardinality else {
-                            unreachable!("validated variadic descriptor")
-                        };
-                        stack.take_all_matching(
-                            frame,
-                            access,
-                            port.value_type,
-                            min,
-                            &invocation.program.value,
-                            &port.name,
-                            &item.span,
-                        )?;
-                    } else {
-                        for port in signature
+                        .filter(|port| invocation.arguments.contains_key(&port.name))
+                        .count();
+                    let missing = resolved.inputs.len() - explicit_inputs;
+                    if missing > 0 {
+                        if resolved
                             .inputs
                             .iter()
-                            .filter(|port| !invocation.arguments.contains_key(&port.name))
-                            .rev()
+                            .any(|port| matches!(port.cardinality, Cardinality::Variadic { .. }))
                         {
-                            stack.take_one_matching(
+                            let port = &resolved.inputs[0];
+                            let Cardinality::Variadic { min } = port.cardinality else {
+                                unreachable!("validated variadic descriptor")
+                            };
+                            stack.take_all_matching(
                                 frame,
                                 access,
                                 port.value_type,
+                                min,
                                 &invocation.program.value,
                                 &port.name,
                                 &item.span,
                             )?;
+                        } else {
+                            for port in resolved
+                                .inputs
+                                .iter()
+                                .filter(|port| !invocation.arguments.contains_key(&port.name))
+                                .rev()
+                            {
+                                stack.take_one_matching(
+                                    frame,
+                                    access,
+                                    port.value_type,
+                                    &invocation.program.value,
+                                    &port.name,
+                                    &item.span,
+                                )?;
+                            }
                         }
                     }
                 }
@@ -750,12 +787,24 @@ fn infer_body(
                             invocation.program.value.clone(),
                             invocation.program.span.clone(),
                         );
-                        stack.extend(&child, contract.initial_values.iter().copied());
+                        let initial_values = signature.as_ref().map_or_else(
+                            || {
+                                contract.exact_initial_values().expect(
+                                    "body-inferred generic contracts cannot require generic initial values",
+                                )
+                            },
+                            |resolved| contract.resolve(resolved.generic).initial_values,
+                        );
+                        stack.extend(&child, initial_values);
                         let mut body_locals = locals.clone();
-                        for port in &signature.inputs {
-                            if matches!(port.cardinality, Cardinality::One) {
-                                body_locals
-                                    .insert(port.name.clone(), LocalType::Value(port.value_type));
+                        if let Some(resolved) = &signature {
+                            for port in &resolved.inputs {
+                                if matches!(port.cardinality, Cardinality::One) {
+                                    body_locals.insert(
+                                        port.name.clone(),
+                                        LocalType::Value(port.value_type),
+                                    );
+                                }
                             }
                         }
                         let checked_body = infer_body(
@@ -769,16 +818,35 @@ fn infer_body(
                             &mut child,
                         )?;
                         let body_outputs = stack.finish_body(&child);
+                        if signature.is_none() {
+                            let type_parameter = definition
+                                .descriptor
+                                .type_parameter
+                                .as_ref()
+                                .expect("deferred body signature is generic");
+                            let value_type = infer_body_generic_type(
+                                &invocation.program.value,
+                                &body_outputs,
+                                type_parameter.constraint,
+                                contract.count_error_code,
+                                &body.span,
+                            )?;
+                            signature =
+                                Some(definition.descriptor.resolve_signature(Some(value_type)));
+                        }
+                        let resolved_contract = contract
+                            .resolve(signature.as_ref().expect("body signature resolved").generic);
                         validate_body_outputs(
                             &invocation.program.value,
                             &body_outputs,
-                            &contract.outputs,
+                            &resolved_contract.outputs,
                             contract.count_error_code,
                             &body.span,
                         )?;
                         Some(Box::new(checked_body))
                     }
                 };
+                let signature = signature.expect("invocation signature resolved");
                 let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
                 CheckedItem {
@@ -980,15 +1048,46 @@ fn validate_input_argument(
     Ok((values, checked_body))
 }
 
+fn infer_body_generic_type(
+    program: &str,
+    values: &[ValueType],
+    constraint: crate::program::ValueConstraint,
+    count_error_code: &'static str,
+    span: &crate::source::SourceSpan,
+) -> Result<ValueType> {
+    let Some(first) = values.first().copied() else {
+        return Err(Diagnostic::new(
+            count_error_code,
+            format!("`{program}` body must produce at least one Video or Audio value"),
+            span.clone(),
+        ));
+    };
+    if !constraint.accepts(first) {
+        return Err(Diagnostic::new(
+            "E_TYPE_MISMATCH",
+            format!("`{program}` body does not accept {first}"),
+            span.clone(),
+        ));
+    }
+    if let Some(other) = values.iter().copied().find(|value| *value != first) {
+        return Err(Diagnostic::new(
+            "E_GENERIC_TYPE_MISMATCH",
+            format!("`{program}` body cannot mix {first} and {other}"),
+            span.clone(),
+        ));
+    }
+    Ok(first)
+}
+
 fn validate_body_outputs(
     program: &str,
     values: &[ValueType],
-    constraint: &BodyOutputConstraint,
+    constraint: &crate::program::ResolvedBodyOutputConstraint,
     count_error_code: &'static str,
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     match constraint {
-        BodyOutputConstraint::Exactly(expected) => {
+        crate::program::ResolvedBodyOutputConstraint::Exactly(expected) => {
             if values.len() != expected.len() {
                 return Err(Diagnostic::new(
                     count_error_code,
@@ -1013,7 +1112,7 @@ fn validate_body_outputs(
                 }
             }
         }
-        BodyOutputConstraint::Variadic { value_type, min } => {
+        crate::program::ResolvedBodyOutputConstraint::Variadic { value_type, min } => {
             if values.len() < *min {
                 return Err(Diagnostic::new(
                     count_error_code,

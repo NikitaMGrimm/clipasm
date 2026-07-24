@@ -56,10 +56,11 @@ effective-access resolution, output-signature discovery, or structural body
 validation. One shared binder resolves explicit inputs in descriptor order,
 evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
 missing inputs by exact concrete type from the invocation's accessible values,
-and converts authored parameters to their declared Rust types. Before binding,
-the checker resolves the single closed type parameter used by type-preserving
-built-ins and stores the resulting concrete signature in checked source. The
-evaluator does not repeat type inference. Program implementations therefore
+and converts authored parameters to their declared Rust types. Before binding, the checker resolves the single closed type parameter used by
+type-preserving built-ins and stores the resulting concrete signature in checked
+source. A body-inferred program such as bare `glue` may defer only that resolution
+until its checked body has produced one homogeneous timeline type. The evaluator
+does not repeat type inference. Program implementations therefore
 receive a fully resolved call rather than frontend-layer arguments, generic
 types, or stack-frame metadata.
 

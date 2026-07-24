@@ -93,10 +93,11 @@ port. The body itself is structural invocation data, not a port. Programs with
 no fixed inputs, such as `glue`, expose no aliases.
 
 - A named clip is isolated, starts empty, and must leave exactly one Video.
-- `join` starts its body with two bound Videos in order, exposes `$before` and
-  `$after`, and concatenates the body's owned Videos in order.
-- A nested `glue` starts with no owned values and concatenates the body's owned
-  Videos in order.
+- `join` resolves one homogeneous timeline type, starts its body with two bound
+  values of that type, exposes `$before` and `$after`, and concatenates the
+  body's owned values in order.
+- A nested `glue` starts with no owned values, infers one homogeneous timeline
+  type from its body unless selected explicitly, and concatenates those values.
 - `during` exposes its complete bound `$video`, starts the body stack with only
   the selected range, requires one processed owned Video, and splices it back.
 
@@ -107,7 +108,7 @@ auxiliary Audio outputs. Named clips, inline inputs, and body contracts remain
 strict.
 
 Implicit stack binding always requires exact types. `trim`, `repeat`, `concat`,
-and `drop` are type-preserving over Video or Audio. Unary programs select the
+`drop`, `join`, and `glue` are type-preserving over Video or Audio. Unary programs select the
 nearest accessible compatible value. `concat` consumes one homogeneous typed
 view; `type: Video` or `type: Audio` selects it explicitly, while bare `concat`
 is an error when both timeline types are accessible. Generic explicit inputs
