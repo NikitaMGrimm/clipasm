@@ -50,28 +50,32 @@ type is accessible; a mixed Audio/Video stack is an ambiguity error. Explicit
 `drop` returns no values. Its implicit form removes the nearest accessible
 value; its selector can target the nearest Video or Audio specifically.
 
-Named generic outputs are registered as deferred declarations when their type is
-not immediately known. Declaration resolution follows aliases and referenced
-named values recursively, detects dependency cycles, and then uses the ordinary
-type checker to resolve the producer from an explicit input or a self-contained
-body. Body-port references obey normal lexical shadowing during dependency
-collection.
+Checked-source construction assigns compact type variables to generic
+invocations and graph-valued locals. Selectors, explicit inputs, body contracts,
+ordinary type-directed stack binding, generic outputs, lexical body ports, and
+names attached to outputs constrain the same variables. Naming therefore never
+changes inference, input selection, or stack effects.
 
-A generic output that depends on caller stack state rather than its own explicit
-inputs or body still requires an explicit input or type selector. This keeps
-forward-reference types deterministic without requiring annotations for
-self-contained producers.
+Inference narrows the closed Video-or-Audio domain monotonically and retries
+deferred stack choices when later constraints make progress. A concrete stack
+input skips values that cannot match and defers when a nearer unresolved value
+could change the selected occurrence. A unary generic input selects the nearest
+accessible value whose complete domain satisfies its constraint, so normal
+proximity remains deterministic even before its concrete type is known.
+`type:` remains necessary for genuine broad-stack ambiguity, deliberate typed
+selection, or an irreducible inference dependency. Dependency cycles remain
+cycles even when a selector makes their types concrete.
 
 `join` resolves `T` from homogeneous explicit inputs, a selector, or a stack
 view that can satisfy both fixed ports. It seeds the body with both values and
 requires every owned body output to have that same type. When both Video and
 Audio can satisfy the missing inputs, bare `join` is ambiguous.
 
-`glue` has no graph inputs. An explicit selector fixes `T`; otherwise the checker
-defers its signature until the body produces one or more homogeneous outputs.
-The same body inference resolves named `glue` declarations, including forward
-references and chains of named generic bodies. Mixed outputs are rejected, and
-cycles remain dependency errors rather than annotation requests.
+`glue` has no graph inputs. An explicit selector fixes `T`; otherwise one or
+more homogeneous body outputs constrain it. The same inference resolves named
+and unnamed `glue`, including forward references and chains of named generic
+bodies. Mixed outputs are rejected, and cycles remain dependency errors rather
+than annotation requests.
 
 Both finalizers use the same type-preserving graph concatenation as `concat`.
 The checker owns the homogeneous-body guarantee; finalizer validation remains a

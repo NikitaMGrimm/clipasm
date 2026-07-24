@@ -136,13 +136,14 @@ also uses checked coverage rounding.
 Clip names and invocation output names share one namespace. `id` names the
 single output of a one-output item. `ids` completely names a multi-output item
 in bottom-to-top stack order. Forward references affect dependency resolution,
-not list execution order. A named generic output may remain deferred during
-name collection; declaration resolution follows aliases and referenced values,
-infers self-contained bodies such as `glue`, and reports dependency cycles
-before evaluation. Generic outputs whose type depends on caller stack state
-still require an explicit input or `type` selector. References create semantic
-graph dependencies and never move, remove, or duplicate stack occurrences.
-Cycles, missing names, and duplicate names are compile errors.
+not list execution order. Naming attaches local identities to already-produced
+outputs and never changes type inference, input selection, stack effects, or
+body semantics. Generic types are inferred from selectors, explicit inputs,
+body contracts, and normal type-directed stack binding. `type:` is required
+only for genuine ambiguity, deliberate selection, or an irreducible inference
+dependency. References create semantic graph dependencies and never move,
+remove, or duplicate stack occurrences. Cycles, missing names, and duplicate
+names are compile errors.
 
 Each source-program invocation has an isolated local namespace containing its
 declared inputs, parameters, clips, and invocation output names. Inputs are

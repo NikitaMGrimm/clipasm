@@ -397,6 +397,19 @@ form uses `value` for an explicit graph input:
     count: 3
 ```
 
+Naming the result does not change inference. This infers `Video` from the same
+nearest stack value as an unnamed `repeat`:
+
+```yaml
+- image: {path: card.png, duration: 1s}
+- repeat: 2
+  id: doubled
+```
+
+Forward references to `doubled` use that inferred type. If an unresolved
+forward type could change an earlier stack selection, the checker retries that
+selection after later constraints resolve the type.
+
 ### Concat
 
 ```yaml
@@ -676,8 +689,7 @@ A default `glue` has no inputs and starts its body with no owned values while
 inheriting the enclosing visible suffix. It infers Video or Audio from the
 homogeneous owned values left by its body, concatenates them, and pushes the
 single result onto the surrounding stack. Mixed body outputs are an error.
-`type: Video` or `type: Audio` may constrain the body explicitly and is required
-when a `glue` result is named before body inference can establish its type.
+`type: Video` or `type: Audio` may constrain the body explicitly.
 
 ```yaml
 - glue:
@@ -699,9 +711,12 @@ through forward references to other named values:
 ```
 
 `type: Video` or `type: Audio` remains an optional constraint and readability
-aid. It is required only when a named generic producer depends on caller stack
-state rather than on explicit inputs or a self-contained body. Dependency cycles
-are reported as cycles; a type annotation does not make a cyclic graph valid.
+aid. Naming never changes generic inference: selectors, explicit inputs, body
+contracts, and ordinary stack binding provide the same evidence for named and
+unnamed invocations. A selector is required only for genuine ambiguity,
+deliberate selection, or an irreducible inference dependency. Dependency
+cycles are reported as cycles; a type annotation does not make a cyclic graph
+valid.
 
 A child invocation that consumes an enclosing value must independently use
 `stack_access: visible`:
