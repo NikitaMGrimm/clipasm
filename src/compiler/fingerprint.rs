@@ -234,12 +234,7 @@ mod tests {
         let target = ValueRef::new(ValueId::new(0), ValueType::Video);
         let reference = ValueRef::new(ValueId::new(1), ValueType::Video);
         let span = SourceSpan::file_start("workflow.yaml");
-        let domain = VideoDomain {
-            frames: FrameCount(1),
-            width: 1280,
-            height: 720,
-            frame_rate: VideoSpec::default().fps,
-        };
+        let domain = VideoDomain::new(FrameCount(1), VideoSpec::default());
         let source_symbol = SymbolId::new(0);
         let symbols = vec![Symbol {
             name: "source".to_owned(),
@@ -271,7 +266,7 @@ mod tests {
             surface: Vec::new(),
             outputs: vec![reference],
         };
-        let domains = vec![Some(domain.clone()), Some(domain)];
+        let domains = vec![Some(domain), Some(domain)];
         let hashes =
             value_hashes(&evaluation, &domains, &[target, reference]).expect("value hashes");
         let target_hash = hashes[target.id().get() as usize].as_ref().expect("target");
@@ -286,12 +281,7 @@ mod tests {
         const ALIASES: usize = 20_001;
         let span = SourceSpan::file_start("workflow.yaml");
         let video = VideoSpec::default();
-        let domain = VideoDomain {
-            frames: FrameCount(1),
-            width: video.width,
-            height: video.height,
-            frame_rate: video.fps,
-        };
+        let domain = VideoDomain::new(FrameCount(1), video);
         let mut nodes = Vec::with_capacity(ALIASES + 1);
         let mut symbols = Vec::with_capacity(ALIASES);
         let mut builder = GraphBuilder::for_program(
@@ -359,18 +349,8 @@ mod tests {
                 outputs: vec![root],
             };
             let domains = vec![
-                Some(VideoDomain {
-                    frames: FrameCount(5),
-                    width: video.width,
-                    height: video.height,
-                    frame_rate: video.fps,
-                }),
-                Some(VideoDomain {
-                    frames: FrameCount(5 * count),
-                    width: video.width,
-                    height: video.height,
-                    frame_rate: video.fps,
-                }),
+                Some(VideoDomain::new(FrameCount(5), video)),
+                Some(VideoDomain::new(FrameCount(5 * count), video)),
             ];
             value_hashes(&evaluation, &domains, &[source, root]).expect("hashes")
                 [root.id().get() as usize]

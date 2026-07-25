@@ -52,7 +52,7 @@ pub(super) fn finalize(
             CompiledNode::from_draft(
                 ValueId::new(u32::try_from(index).expect("draft node IDs already fit in u32")),
                 node,
-                domains[index].clone(),
+                domains[index],
             )
         })
         .collect();
@@ -306,7 +306,7 @@ fn infer_domains(
                     DomainKnowledge::Known(domain) => DomainKnowledge::Known(project_domain(
                         video,
                         domain
-                            .frames
+                            .frames()
                             .checked_mul(count.get(), &node.origin().span)?,
                     )),
                     DomainKnowledge::Deferred => DomainKnowledge::Deferred,
@@ -335,7 +335,7 @@ fn infer_domains(
             SemanticNodeKind::Slice { input, range } => {
                 if let DomainKnowledge::Known(input_domain) = &knowledge[input.id().get() as usize]
                 {
-                    validate_range(*range, input_domain.frames, &node.origin().span)?;
+                    validate_range(*range, input_domain.frames(), &node.origin().span)?;
                 }
                 DomainKnowledge::Known(project_domain(video, range.frames()))
             }
@@ -346,7 +346,7 @@ fn infer_domains(
             } => {
                 let base_domain = &knowledge[base.id().get() as usize];
                 if let DomainKnowledge::Known(base_domain) = base_domain {
-                    validate_range(*range, base_domain.frames, &node.origin().span)?;
+                    validate_range(*range, base_domain.frames(), &node.origin().span)?;
                 }
                 let replacement_domain = &knowledge[replacement.id().get() as usize];
                 match (base_domain, replacement_domain) {
@@ -355,8 +355,8 @@ fn infer_domains(
                         DomainKnowledge::Known(replacement_domain),
                     ) => DomainKnowledge::Known(project_domain(
                         video,
-                        FrameCount(base_domain.frames.0 - range.frames().0)
-                            .checked_add(replacement_domain.frames, &node.origin().span)?,
+                        FrameCount(base_domain.frames().0 - range.frames().0)
+                            .checked_add(replacement_domain.frames(), &node.origin().span)?,
                     )),
                     (DomainKnowledge::NotVideo, _) | (_, DomainKnowledge::NotVideo) => {
                         unreachable!("replace-range inputs are typed Video")
@@ -377,12 +377,7 @@ fn infer_domains(
 }
 
 fn project_domain(video: &VideoSpec, frames: FrameCount) -> VideoDomain {
-    VideoDomain {
-        frames,
-        width: video.width,
-        height: video.height,
-        frame_rate: video.fps,
-    }
+    VideoDomain::new(frames, *video)
 }
 
 fn validate_range(
@@ -431,11 +426,11 @@ fn infer_flash_domain(
     span: &crate::source::SourceSpan,
 ) -> Result<DomainKnowledge> {
     if let DomainKnowledge::Known(after) = after {
-        validate_flash_frames(frames, after.frames, span)?;
+        validate_flash_frames(frames, after.frames(), span)?;
     }
     Ok(match (before, after) {
         (DomainKnowledge::Known(before), DomainKnowledge::Known(after)) => DomainKnowledge::Known(
-            project_domain(video, before.frames.checked_add(after.frames, span)?),
+            project_domain(video, before.frames().checked_add(after.frames(), span)?),
         ),
         (DomainKnowledge::NotVideo, _) | (_, DomainKnowledge::NotVideo) => {
             unreachable!("flash inputs are typed Video")
@@ -462,7 +457,7 @@ fn infer_concat_domain(
     for input in inputs {
         match &knowledge[input.id().get() as usize] {
             DomainKnowledge::Known(domain) => {
-                total = total.checked_add(domain.frames, span)?;
+                total = total.checked_add(domain.frames(), span)?;
             }
             DomainKnowledge::Deferred => unreachable!("deferred concat handled before summing"),
             DomainKnowledge::NotVideo => unreachable!("concat inputs are typed Video"),
@@ -575,7 +570,7 @@ mod tests {
             domains[root.id().get() as usize]
                 .as_ref()
                 .expect("known repeat")
-                .frames,
+                .frames(),
             FrameCount(15)
         );
 

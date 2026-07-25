@@ -32,8 +32,8 @@ fn renders_and_reuses_verified_cache() {
     )
     .expect("workflow");
     let compiled = compile_yaml(&workflow_path).expect("compile");
-    assert_eq!(compiled.video().fps.numerator(), 10);
-    assert_eq!(compiled.video().fps.denominator(), 1);
+    assert_eq!(compiled.video().fps().numerator(), 10);
+    assert_eq!(compiled.video().fps().denominator(), 1);
     let plan = preflight::preflight(&compiled).expect("preflight");
     fs::write(plan.output(), b"previous valid destination").expect("old output");
     fs::write(plan.manifest(), b"previous manifest").expect("old manifest");
@@ -76,7 +76,10 @@ fn renders_during_with_an_exact_duration_change() {
     )
     .expect("workflow");
     let compiled = compile_yaml(&workflow_path).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 12);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        12
+    );
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render during");
     assert!(report.output.is_file());
@@ -140,14 +143,18 @@ fn renders_and_normalizes_a_video_source() {
         Some(preflight::PreparedVideoKind::VideoSource { .. })
     ));
     assert_eq!(
-        plan.nodes()[1].video_domain().expect("Video node").frames.0,
+        plan.nodes()[1]
+            .video_domain()
+            .expect("Video node")
+            .frames()
+            .0,
         20
     );
     assert_eq!(
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
             .expect("Video node")
-            .frames
+            .frames()
             .0,
         30
     );
@@ -221,7 +228,7 @@ fn video_source_duration_is_quantized_by_coverage() {
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
             .expect("Video node")
-            .frames
+            .frames()
             .0,
         30
     );
@@ -268,7 +275,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
             .expect("Video node")
-            .frames
+            .frames()
             .0,
         1
     );
@@ -513,7 +520,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
             .expect("Video node")
-            .frames
+            .frames()
             .0,
         20
     );

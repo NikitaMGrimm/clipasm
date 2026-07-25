@@ -433,12 +433,12 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn trim(&mut self, input: ValueRef, range: SourceTimeRange) -> Result<ValueRef> {
         match input.value_type() {
             ValueType::Video => {
-                let range = range.to_frames(self.video.fps, &self.origin.span)?;
+                let range = range.to_frames(self.video.fps(), &self.origin.span)?;
                 self.slice(input, range)
             }
             ValueType::Audio => {
                 let range =
-                    range.to_samples(AudioSpec::default().sample_rate, &self.origin.span)?;
+                    range.to_samples(AudioSpec::default().sample_rate(), &self.origin.span)?;
                 self.push(
                     SemanticNodeKind::AudioSlice { input, range },
                     ValueType::Audio,

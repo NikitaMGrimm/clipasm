@@ -107,7 +107,7 @@ impl CompiledProgram {
     /// )?;
     /// let compiled = clipasm::compiler::compile(&program)?;
     ///
-    /// assert_eq!(compiled.result_domain().expect("authored domain").frames.0, 30);
+    /// assert_eq!(compiled.result_domain().expect("authored domain").frames().0, 30);
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
     /// ```
     pub fn result_domain(&self) -> Option<&VideoDomain> {
@@ -338,20 +338,38 @@ fn video_output(outputs: &[ValueRef]) -> (Option<ValueRef>, usize) {
 }
 
 fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
-    let mut spec = VideoSpec::default();
+    let defaults = VideoSpec::default();
     let Some(project) = entrypoint.project() else {
-        return Ok(spec);
+        return Ok(defaults);
     };
-    if let Some(width) = &project.value.video.width {
-        spec.width = width.value;
+    let width = resolve_dimension(
+        project.value.video.width.as_ref(),
+        defaults.width(),
+        "width",
+    )?;
+    let height = resolve_dimension(
+        project.value.video.height.as_ref(),
+        defaults.height(),
+        "height",
+    )?;
+    let fps = match &project.value.video.fps {
+        Some(fps) => crate::model::FrameRate::parse(&fps.value, &fps.span)?,
+        None => defaults.fps(),
+    };
+    Ok(VideoSpec::new(width, height, fps)
+        .expect("positive dimensions and frame rate form a valid VideoSpec"))
+}
+
+fn resolve_dimension(setting: Option<&Spanned<u32>>, default: u32, name: &str) -> Result<u32> {
+    match setting {
+        Some(setting) if setting.value == 0 => Err(Diagnostic::new(
+            "E_INVALID_VIDEO_SPEC",
+            format!("`{name}` must be greater than zero"),
+            setting.span.clone(),
+        )),
+        Some(setting) => Ok(setting.value),
+        None => Ok(default),
     }
-    if let Some(height) = &project.value.video.height {
-        spec.height = height.value;
-    }
-    if let Some(fps) = &project.value.video.fps {
-        spec.fps = crate::model::FrameRate::parse(&fps.value, &fps.span)?;
-    }
-    Ok(spec)
 }
 
 #[cfg(test)]

@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
+
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::FrameCount;
@@ -91,41 +93,128 @@ pub enum ImageFit {
     Stretch,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 /// Project-wide output dimensions and frame rate.
+///
+/// Width and height are always greater than zero, and the frame rate is a
+/// positive reduced rational.
 pub struct VideoSpec {
-    /// Output width in pixels.
-    pub width: u32,
-    /// Output height in pixels.
-    pub height: u32,
-    /// Canonical project frame rate.
-    pub fps: FrameRate,
+    width: NonZeroU32,
+    height: NonZeroU32,
+    fps: FrameRate,
+}
+
+impl VideoSpec {
+    /// Construct a valid project video format.
+    ///
+    /// Returns `None` when either dimension is zero.
+    #[must_use]
+    pub const fn new(width: u32, height: u32, fps: FrameRate) -> Option<Self> {
+        let Some(width) = NonZeroU32::new(width) else {
+            return None;
+        };
+        let Some(height) = NonZeroU32::new(height) else {
+            return None;
+        };
+        Some(Self { width, height, fps })
+    }
+
+    /// Return the frame width in pixels.
+    #[must_use]
+    pub const fn width(self) -> u32 {
+        self.width.get()
+    }
+
+    /// Return the frame height in pixels.
+    #[must_use]
+    pub const fn height(self) -> u32 {
+        self.height.get()
+    }
+
+    /// Return the canonical project frame rate.
+    #[must_use]
+    pub const fn fps(self) -> FrameRate {
+        self.fps
+    }
 }
 
 impl Default for VideoSpec {
     fn default() -> Self {
-        Self {
-            width: 1280,
-            height: 720,
-            fps: FrameRate {
-                numerator: 30,
-                denominator: 1,
-            },
-        }
+        Self::new(
+            1280,
+            720,
+            FrameRate::new(30, 1).expect("default frame rate is positive"),
+        )
+        .expect("default video dimensions are positive")
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 /// Exact video properties for a compiled or prepared value.
 pub struct VideoDomain {
-    /// Exact duration in project frames.
-    pub frames: FrameCount,
-    /// Frame width in pixels.
-    pub width: u32,
-    /// Frame height in pixels.
-    pub height: u32,
-    /// Project frame rate used by the value.
-    pub frame_rate: FrameRate,
+    frames: FrameCount,
+    spec: VideoSpec,
+}
+
+impl VideoDomain {
+    /// Construct an exact domain in the supplied project video format.
+    #[must_use]
+    pub const fn new(frames: FrameCount, spec: VideoSpec) -> Self {
+        Self { frames, spec }
+    }
+
+    /// Return the exact duration in project frames.
+    #[must_use]
+    pub const fn frames(self) -> FrameCount {
+        self.frames
+    }
+
+    /// Return the complete video format.
+    #[must_use]
+    pub const fn video_spec(self) -> VideoSpec {
+        self.spec
+    }
+
+    /// Return the frame width in pixels.
+    #[must_use]
+    pub const fn width(self) -> u32 {
+        self.spec.width()
+    }
+
+    /// Return the frame height in pixels.
+    #[must_use]
+    pub const fn height(self) -> u32 {
+        self.spec.height()
+    }
+
+    /// Return the project frame rate used by this value.
+    #[must_use]
+    pub const fn frame_rate(self) -> FrameRate {
+        self.spec.fps()
+    }
+}
+
+impl Serialize for VideoDomain {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct Document {
+            frames: FrameCount,
+            width: u32,
+            height: u32,
+            frame_rate: FrameRate,
+        }
+
+        Document {
+            frames: self.frames,
+            width: self.width(),
+            height: self.height(),
+            frame_rate: self.frame_rate(),
+        }
+        .serialize(serializer)
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +247,30 @@ mod tests {
         let rate = FrameRate::new(60, 2).expect("frame rate");
         assert_eq!(rate.numerator(), 30);
         assert_eq!(rate.denominator(), 1);
+    }
+
+    #[test]
+    fn video_specs_and_domains_protect_dimensions_without_changing_json() {
+        let fps = FrameRate::new(30_000, 1_001).expect("frame rate");
+        assert!(VideoSpec::new(0, 720, fps).is_none());
+        assert!(VideoSpec::new(1280, 0, fps).is_none());
+
+        let spec = VideoSpec::new(1280, 720, fps).expect("video spec");
+        assert_eq!(spec.width(), 1280);
+        assert_eq!(spec.height(), 720);
+        assert_eq!(spec.fps(), fps);
+
+        let domain = VideoDomain::new(FrameCount(30), spec);
+        assert_eq!(domain.frames(), FrameCount(30));
+        assert_eq!(domain.video_spec(), spec);
+        assert_eq!(
+            serde_json::to_value(domain).expect("domain JSON"),
+            serde_json::json!({
+                "frames": 30,
+                "width": 1280,
+                "height": 720,
+                "frame_rate": {"numerator": 30000, "denominator": 1001},
+            })
+        );
     }
 }

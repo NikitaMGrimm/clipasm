@@ -105,12 +105,15 @@ pub(super) fn verify_video_artifact(
         ));
     }
     let video = videos[0];
-    if video.width != Some(domain.width) || video.height != Some(domain.height) {
+    if video.width != Some(domain.width()) || video.height != Some(domain.height()) {
         return Err(contract_error(
             path,
             &format!(
                 "expected {}x{}, found {:?}x{:?}",
-                domain.width, domain.height, video.width, video.height
+                domain.width(),
+                domain.height(),
+                video.width,
+                video.height
             ),
         ));
     }
@@ -122,10 +125,10 @@ pub(super) fn verify_video_artifact(
     }
     let expected_rate = format!(
         "{}/{}",
-        domain.frame_rate.numerator(),
-        domain.frame_rate.denominator()
+        domain.frame_rate().numerator(),
+        domain.frame_rate().denominator()
     );
-    if domain.frames.0 > 1 && video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
+    if domain.frames().0 > 1 && video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
         return Err(contract_error(
             path,
             &format!(
@@ -138,12 +141,13 @@ pub(super) fn verify_video_artifact(
         .nb_read_frames
         .as_deref()
         .and_then(|value| value.parse::<u64>().ok());
-    if actual_frames != Some(domain.frames.0) {
+    if actual_frames != Some(domain.frames().0) {
         return Err(contract_error(
             path,
             &format!(
                 "expected {} frames, FFprobe counted {:?}",
-                domain.frames.0, actual_frames
+                domain.frames().0,
+                actual_frames
             ),
         ));
     }
@@ -161,8 +165,8 @@ pub(super) fn verify_video_artifact(
         verify_audio_stream(path, audio_stream, audio)?;
         if exact_audio_samples {
             let expected_samples = audio.samples_for_frames(
-                domain.frames,
-                domain.frame_rate,
+                domain.frames(),
+                domain.frame_rate(),
                 &SourceSpan::file_start(path),
             )?;
             verify_audio_samples(ffprobe, path, expected_samples)?;
@@ -198,7 +202,7 @@ fn verify_audio_artifact(
         ));
     }
     verify_audio_stream(path, audios[0], audio)?;
-    verify_audio_samples(ffprobe, path, domain.samples)
+    verify_audio_samples(ffprobe, path, domain.samples())
 }
 
 fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()> {
@@ -218,22 +222,24 @@ fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()
 }
 
 fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: &AudioSpec) -> Result<()> {
-    let expected_sample_rate = audio.sample_rate.to_string();
+    let expected_sample_rate = audio.sample_rate().to_string();
     if stream.sample_rate.as_deref() != Some(expected_sample_rate.as_str()) {
         return Err(contract_error(
             path,
             &format!(
                 "expected audio sample rate {}, found {:?}",
-                audio.sample_rate, stream.sample_rate
+                audio.sample_rate(),
+                stream.sample_rate
             ),
         ));
     }
-    if stream.channels != Some(audio.channels) {
+    if stream.channels != Some(audio.channels()) {
         return Err(contract_error(
             path,
             &format!(
                 "expected {} audio channels, found {:?}",
-                audio.channels, stream.channels
+                audio.channels(),
+                stream.channels
             ),
         ));
     }

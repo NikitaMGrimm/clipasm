@@ -79,7 +79,7 @@ pub(super) fn node_fingerprint(
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
         value_type,
-        domain: domain.cloned(),
+        domain: domain.copied(),
         audio_domain: audio_domain.copied(),
         has_audio,
         operation,

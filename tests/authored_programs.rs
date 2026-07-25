@@ -33,7 +33,10 @@ fn yaml_programs_call_through_three_files() {
     let compiled = compiler::compile(&package).expect("compiled authored calls");
 
     assert_eq!(compiled.outputs().len(), 1);
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 60);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        60
+    );
 }
 
 #[test]
@@ -55,7 +58,7 @@ fn repeated_calls_isolate_local_ids_and_apply_defaults() {
     let compiled = compiler::compile(&package).expect("isolated authored calls");
 
     assert_eq!(
-        compiled.result_domain().expect("known domain").frames.0,
+        compiled.result_domain().expect("known domain").frames().0,
         120
     );
 }
@@ -79,7 +82,7 @@ fn two_aliases_may_reference_the_same_source_program() {
     let compiled = compiler::compile(&package).expect("separate calls through two aliases");
 
     assert_eq!(
-        compiled.result_domain().expect("known domain").frames.0,
+        compiled.result_domain().expect("known domain").frames().0,
         120
     );
 }
@@ -236,7 +239,10 @@ fn imported_multiple_outputs_use_normal_ids_binding() {
     let compiled = compiler::compile(&package).expect("compiled multiple outputs");
 
     assert_eq!(compiled.outputs().len(), 1);
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 60);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        60
+    );
 }
 
 #[test]

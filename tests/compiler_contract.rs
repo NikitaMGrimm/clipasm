@@ -38,7 +38,10 @@ fn source_program_body_returns_one_video_without_an_implicit_glue() {
         .expect("source program syntax");
     let compiled = clipasm::compiler::compile(&program).expect("source program result");
 
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -143,7 +146,10 @@ fn compiled_program_serializes_ordered_outputs() {
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
     assert_eq!(document["format_version"], 12);
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -386,4 +392,27 @@ fn video_sources_do_not_accept_an_authored_duration() {
 
     let error = compile_yaml(&workflow).expect_err("duration argument");
     assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
+}
+
+#[test]
+fn compiler_owns_positive_project_dimension_validation() {
+    for (field, source) in [
+        (
+            "width",
+            "- program:\n    version: 1\n    project:\n      video: {width: 0}\n",
+        ),
+        (
+            "height",
+            "- program:\n    version: 1\n    project:\n      video: {height: 0}\n",
+        ),
+    ] {
+        let package = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
+            .expect("zero is representable in canonical source");
+        let error = clipasm::compiler::compile(&package).expect_err("invalid project dimension");
+        assert_eq!(error.code, "E_INVALID_VIDEO_SPEC");
+        assert_eq!(
+            error.message,
+            format!("`{field}` must be greater than zero")
+        );
+    }
 }

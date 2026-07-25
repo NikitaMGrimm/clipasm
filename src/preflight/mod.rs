@@ -12,7 +12,7 @@
 //! let compiled = clipasm::compiler::compile(&source)?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
 //! let result = &plan.nodes()[plan.result().get() as usize];
-//! println!("prepared {} frames", result.video_domain().expect("Video result").frames.0);
+//! println!("prepared {} frames", result.video_domain().expect("Video result").frames().0);
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 
@@ -516,9 +516,9 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
             "E_MANIFEST_COLLISION",
         )?;
     }
-    let video = compiled.video().clone();
+    let video = *compiled.video();
     let audio = *compiled.audio();
-    if !video.width.is_multiple_of(2) || !video.height.is_multiple_of(2) {
+    if !video.width().is_multiple_of(2) || !video.height().is_multiple_of(2) {
         return Err(Diagnostic::new(
             "E_EXPORT_DIMENSIONS",
             "the MP4/H.264/yuv420p export profile requires even width and height",

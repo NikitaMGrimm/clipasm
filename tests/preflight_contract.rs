@@ -37,7 +37,7 @@ fn prepared_plan_serializes_one_distinguished_result() {
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
             .expect("Video node")
-            .frames
+            .frames()
             .0,
         30
     );
@@ -174,7 +174,7 @@ fn audio_preflight_counts_exact_decoded_samples() {
             )
         })
         .expect("prepared audio source");
-    assert_eq!(audio.audio_domain().expect("Audio node").samples, 12_345);
+    assert_eq!(audio.audio_domain().expect("Audio node").samples(), 12_345);
 }
 
 #[test]
@@ -539,7 +539,11 @@ fn video_preflight_derives_the_full_source_duration() {
     let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
-        plan.nodes()[0].video_domain().expect("Video node").frames.0,
+        plan.nodes()[0]
+            .video_domain()
+            .expect("Video node")
+            .frames()
+            .0,
         10
     );
 }
@@ -582,7 +586,7 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
     .expect("workflow");
 
     let compiled = compile_yaml(&workflow).expect("compile");
-    let input_domain = compiled.result_domain().expect("known zoom domain").clone();
+    let input_domain = *compiled.result_domain().expect("known zoom domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
     let Some(PreparedVideoKind::Zoom { input, percent }) = result.video_kind() else {
@@ -605,10 +609,7 @@ fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
     .expect("workflow");
 
     let compiled = compile_yaml(&workflow).expect("compile");
-    let input_domain = compiled
-        .result_domain()
-        .expect("known wobble domain")
-        .clone();
+    let input_domain = *compiled.result_domain().expect("known wobble domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
     let Some(PreparedVideoKind::Wobble { input, pixels }) = result.video_kind() else {
@@ -646,7 +647,7 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
     assert_eq!(before.get(), 0);
     assert_eq!(after.get(), 1);
     assert_eq!(frames.0, 4);
-    assert_eq!(result.video_domain().expect("Video node").frames.0, 20);
+    assert_eq!(result.video_domain().expect("Video node").frames().0, 20);
 }
 
 #[test]

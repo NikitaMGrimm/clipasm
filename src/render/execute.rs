@@ -162,7 +162,7 @@ impl<'a> Executor<'a> {
                 domain,
             } => {
                 command.arg("-i").arg(asset.source_path());
-                let filter = format!("[0:a:0]{}[a]", normalize_audio(domain.samples, audio));
+                let filter = format!("[0:a:0]{}[a]", normalize_audio(domain.samples(), audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
@@ -188,7 +188,7 @@ impl<'a> Executor<'a> {
                 command
                     .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples, audio));
+                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples(), audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
@@ -208,7 +208,7 @@ impl<'a> Executor<'a> {
                 let filter = format!(
                     "{labels}concat=n={}:v=0:a=1[joined];[joined]{}[a]",
                     inputs.len(),
-                    normalize_audio(domain.samples, audio)
+                    normalize_audio(domain.samples(), audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
@@ -261,14 +261,14 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]{}[v];[0:a]{}[a]",
-                    zoom_filter(*percent, domain.frames),
+                    zoom_filter(*percent, domain.frames()),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Video {
                 kind: PreparedVideoKind::Wobble { input, pixels },
@@ -278,14 +278,14 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]{}[v];[0:a]{}[a]",
                     wobble_filter(*pixels, spec),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Video {
                 kind:
@@ -303,14 +303,14 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *after, &node.origin().span)?);
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:v][0:a][after][1:a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
                     frames.0,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Video {
                 kind: PreparedVideoKind::Concat { inputs },
@@ -326,14 +326,14 @@ impl<'a> Executor<'a> {
                     let _ = write!(output, "[{index}:v][{index}:a]");
                     output
                 });
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "{labels}concat=n={}:v=1:a=1[v][joined];[joined]{}[a]",
                     inputs.len(),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Audio {
                 kind: PreparedAudioKind::ExtractAudio { video },
@@ -342,7 +342,7 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *video, &node.origin().span)?);
-                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples, audio));
+                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples(), audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
@@ -361,14 +361,14 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *video, &node.origin().span)?);
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[1:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{}[a]",
-                    domain.frames.0,
+                    domain.frames().0,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Video {
                 kind: PreparedVideoKind::AudioOnBlack { audio: audio_node },
@@ -377,23 +377,23 @@ impl<'a> Executor<'a> {
             } => {
                 command.args(["-f", "lavfi", "-i"]).arg(format!(
                     "color=c=black:s={}x{}:r={}/{}",
-                    spec.width,
-                    spec.height,
-                    spec.fps.numerator(),
-                    spec.fps.denominator()
+                    spec.width(),
+                    spec.height(),
+                    spec.fps().numerator(),
+                    spec.fps().denominator()
                 ));
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *audio_node, &node.origin().span)?);
-                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames(), spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
-                    domain.frames.0,
+                    domain.frames().0,
                     WORKING_PIXEL_FORMAT,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames(), spec, audio, &temporary);
             }
             PreparedNodeMedia::Video {
                 kind:
@@ -458,7 +458,7 @@ fn stage_export(
         staged,
         spec,
         audio,
-        domain.frames,
+        domain.frames(),
         has_audio,
         ffmpeg,
     )
@@ -499,8 +499,8 @@ fn export_mp4(
         .arg("-r")
         .arg(format!(
             "{}/{}",
-            spec.fps.numerator(),
-            spec.fps.denominator()
+            spec.fps().numerator(),
+            spec.fps().denominator()
         ));
     if has_audio {
         command.args([
@@ -509,9 +509,9 @@ fn export_mp4(
             "-c:a",
             "aac",
             "-ar",
-            &audio.sample_rate.to_string(),
+            &audio.sample_rate().to_string(),
             "-ac",
-            &audio.channels.to_string(),
+            &audio.channels().to_string(),
         ]);
     } else {
         command.arg("-an");
@@ -603,16 +603,16 @@ fn append_video_output(
         .args(["-level", "3", "-pix_fmt", WORKING_PIXEL_FORMAT, "-r"])
         .arg(format!(
             "{}/{}",
-            spec.fps.numerator(),
-            spec.fps.denominator()
+            spec.fps().numerator(),
+            spec.fps().denominator()
         ))
         .args([
             "-c:a",
             "flac",
             "-ar",
-            &audio.sample_rate.to_string(),
+            &audio.sample_rate().to_string(),
             "-ac",
-            &audio.channels.to_string(),
+            &audio.channels().to_string(),
         ])
         .arg(destination);
 }
@@ -623,9 +623,9 @@ fn append_audio_output(command: &mut Command, audio: &AudioSpec, destination: &P
             "-c:a",
             "flac",
             "-ar",
-            &audio.sample_rate.to_string(),
+            &audio.sample_rate().to_string(),
             "-ac",
-            &audio.channels.to_string(),
+            &audio.channels().to_string(),
             "-f",
             "matroska",
         ])
@@ -638,23 +638,24 @@ fn samples_for_video(
     audio: &AudioSpec,
     span: &SourceSpan,
 ) -> Result<u64> {
-    audio.samples_for_frames(frames, spec.fps, span)
+    audio.samples_for_frames(frames, spec.fps(), span)
 }
 
 fn silence_source(audio: &AudioSpec) -> String {
-    format!("anullsrc=r={}:cl=stereo", audio.sample_rate)
+    format!("anullsrc=r={}:cl=stereo", audio.sample_rate())
 }
 
 fn normalize_audio(samples: u64, audio: &AudioSpec) -> String {
     format!(
         "aresample={},aformat=sample_rates={}:channel_layouts=stereo,atrim=end_sample={samples},apad=whole_len={samples},asetpts=PTS-STARTPTS",
-        audio.sample_rate, audio.sample_rate
+        audio.sample_rate(),
+        audio.sample_rate()
     )
 }
 
 fn image_filter(fit: ImageFit, spec: &VideoSpec) -> String {
-    let width = spec.width;
-    let height = spec.height;
+    let width = spec.width();
+    let height = spec.height();
     let geometry = match fit {
         ImageFit::Cover => format!(
             "scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
@@ -666,8 +667,8 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec) -> String {
     };
     format!(
         "{geometry},fps={}/{},setsar=1,format={}",
-        spec.fps.numerator(),
-        spec.fps.denominator(),
+        spec.fps().numerator(),
+        spec.fps().denominator(),
         WORKING_PIXEL_FORMAT
     )
 }
@@ -693,23 +694,24 @@ fn zoom_filter(percent: u32, frames: FrameCount) -> String {
 fn wobble_filter(pixels: u32, spec: &VideoSpec) -> String {
     let padding = pixels * 2;
     let scaled_width = spec
-        .width
+        .width()
         .checked_add(padding)
         .expect("wobble dimensions were validated during compilation");
     let scaled_height = spec
-        .height
+        .height()
         .checked_add(padding)
         .expect("wobble dimensions were validated during compilation");
     let phase = format!(
         "2*PI*{}*n*{}/({}*{})",
         WOBBLE_FREQUENCY_NUMERATOR,
-        spec.fps.denominator(),
+        spec.fps().denominator(),
         WOBBLE_FREQUENCY_DENOMINATOR,
-        spec.fps.numerator()
+        spec.fps().numerator()
     );
     format!(
         "scale={scaled_width}:{scaled_height},setsar=1,crop={}:{}:x='{pixels}*(1+sin({phase}))':y='{pixels}*(1+sin({phase}+PI/2))',setpts=PTS-STARTPTS",
-        spec.width, spec.height
+        spec.width(),
+        spec.height()
     )
 }
 
@@ -798,17 +800,9 @@ mod tests {
         fs::write(&invalid_artifact, b"not video").expect("invalid artifact");
         fs::write(&output, b"existing valid output").expect("existing output");
         fs::write(&manifest, b"existing manifest").expect("existing manifest");
-        let spec = VideoSpec {
-            width: 64,
-            height: 64,
-            fps: FrameRate::new(10, 1).expect("frame rate"),
-        };
-        let domain = VideoDomain {
-            frames: FrameCount(10),
-            width: 64,
-            height: 64,
-            frame_rate: spec.fps,
-        };
+        let spec =
+            VideoSpec::new(64, 64, FrameRate::new(10, 1).expect("frame rate")).expect("video spec");
+        let domain = VideoDomain::new(FrameCount(10), spec);
         let publication = PublicationTransaction::new(&output, &manifest);
         stage_export(
             &invalid_artifact,

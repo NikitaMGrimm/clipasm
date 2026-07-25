@@ -34,7 +34,10 @@ fn repeat_reuses_one_upstream_value() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      doubled:\n        - $later\n        - repeat: 3\n      later:\n        image:\n          path: a.ppm\n          duration: 1s\n\n- glue:\n    - $doubled\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
     let json = compiled_json(&compiled);
     let repeat = json["nodes"]
         .as_array()
@@ -53,7 +56,10 @@ fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - zoom\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 10);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        10
+    );
 
     let json = compiled_json(&compiled);
     let zoom = json["nodes"]
@@ -105,7 +111,10 @@ fn zoom_consumes_only_the_top_video() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - zoom: 12\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 
     let json = compiled_json(&compiled);
     let nodes = json["nodes"].as_array().expect("nodes");
@@ -125,9 +134,9 @@ fn wobble_defaults_to_three_pixels_and_preserves_the_video_domain() {
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     let domain = compiled.result_domain().expect("known domain");
-    assert_eq!(domain.frames.0, 10);
-    assert_eq!(domain.width, 64);
-    assert_eq!(domain.height, 48);
+    assert_eq!(domain.frames().0, 10);
+    assert_eq!(domain.width(), 64);
+    assert_eq!(domain.height(), 48);
 
     let json = compiled_json(&compiled);
     let wobble = json["nodes"]
@@ -182,7 +191,10 @@ fn zoom_and_wobble_accept_values_above_the_old_policy_ceilings() {
         "- program:\n    version: 1\n    project:\n      video: {width: 1024, height: 768, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - zoom: 101\n    - wobble: 65\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 10);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        10
+    );
 }
 
 #[test]
@@ -191,7 +203,10 @@ fn wobble_consumes_only_the_top_video() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - wobble: 4\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 
     let json = compiled_json(&compiled);
     let nodes = json["nodes"].as_array().expect("nodes");
@@ -210,7 +225,10 @@ fn flash_inside_join_binds_in_order_and_preserves_the_summed_domain() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - flash\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 
     let json = compiled_json(&compiled);
     let flash = json["nodes"]
@@ -231,7 +249,10 @@ fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - flash:\n        before: $x\n        after: $y\n        frames: 2\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 40);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        40
+    );
 
     let json = compiled_json(&compiled);
     let result = json["nodes"]
@@ -253,7 +274,10 @@ fn fixed_inputs_accept_isolated_inline_program_bodies() {
     );
 
     let compiled = compiler::compile(&program).expect("inline fixed inputs");
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        20
+    );
     let document = compiled_json(&compiled);
     let flash = document["nodes"]
         .as_array()
@@ -277,7 +301,10 @@ fn inline_input_bodies_start_empty_and_preserve_the_outer_stack() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- repeat:\n    value:\n      image: {path: b.ppm, duration: 1s}\n    count: 2\n- concat\n",
     );
     let compiled = compiler::compile(&preserved).expect("preserved outer value");
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -297,7 +324,10 @@ fn inline_input_bodies_inherit_requested_frames() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    body:\n      - flash:\n          before:\n            image: b.ppm\n          after:\n            image: c.ppm\n      - concat\n",
     );
     let compiled = compiler::compile(&program).expect("requested inline duration");
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 40);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        40
+    );
 }
 
 #[test]
@@ -328,7 +358,10 @@ fn ids_inside_inline_inputs_use_the_global_named_value_namespace() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n\n- flash:\n    before:\n      - image: {path: a.ppm, duration: 1s}\n        id: reusable\n      - zoom\n    after:\n      image: {path: b.ppm, duration: 1s}\n    frames: 2\n- $reusable\n- wobble\n- concat\n",
     );
     let compiled = compiler::compile(&program).expect("global inline id");
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        30
+    );
     assert!(compiled_json(&compiled)["named_values"]["reusable"].is_object());
 }
 
@@ -338,7 +371,10 @@ fn ids_inside_named_clip_bodies_are_visible_to_the_source_body() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    clips:\n      decorated:\n        - image: {path: a.ppm, duration: 1s}\n          id: reusable\n        - zoom\n\n- $reusable\n- wobble\n",
     );
     let compiled = compiler::compile(&program).expect("global named-clip id");
-    assert_eq!(compiled.result_domain().expect("known result").frames.0, 10);
+    assert_eq!(
+        compiled.result_domain().expect("known result").frames().0,
+        10
+    );
     assert!(compiled_json(&compiled)["named_values"]["reusable"].is_object());
 }
 
@@ -425,7 +461,7 @@ fn during_changes_duration() {
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
-        compiled.result_domain().expect("known domain").frames.0,
+        compiled.result_domain().expect("known domain").frames().0,
         120
     );
     let json = compiled_json(&compiled);
@@ -444,7 +480,10 @@ fn trim_selects_an_authored_time_range() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 3s\n    - trim: 1s..2s\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 10);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        10
+    );
 
     let json = compiled_json(&compiled);
     let trim = json["nodes"]
@@ -472,7 +511,10 @@ fn nested_glue_starts_empty_and_does_not_consume_outer_values() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - glue:\n        - image: {path: b.ppm, duration: 1s}\n        - image: {path: c.ppm, duration: 1s}\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -481,7 +523,10 @@ fn body_program_defaults_to_visible_and_can_capture_through_a_visible_operation(
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - repeat:\n        count: 2\n        stack_access: visible\n",
     );
     let compiled = compiler::compile(&workflow).expect("default visible capture");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 }
 
 #[test]
@@ -490,7 +535,10 @@ fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- glue:\n    - join: []\n",
     );
     let compiled = compiler::compile(&workflow).expect("default visible join binding");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 }
 
 #[test]
@@ -499,7 +547,10 @@ fn default_visible_during_binds_its_video_from_the_visible_suffix() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- glue:\n    - during:\n        range: 500ms..1500ms\n        body:\n          - repeat: 2\n",
     );
     let compiled = compiler::compile(&workflow).expect("default visible during binding");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -521,7 +572,10 @@ fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- image: {path: c.ppm, duration: 2s}\n- during:\n    range: 500ms..1500ms\n    body:\n      - flash:\n          frames: 1\n          stack_access: visible\n      - image: {path: x.ppm, duration: 1s}\n      - concat\n- concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("selective capture");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 50);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        50
+    );
 
     let json = compiled_json(&compiled);
     let concat_inputs = json["nodes"]
@@ -545,7 +599,10 @@ fn visible_concat_deliberately_consumes_the_complete_visible_suffix() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- glue:\n    - image: {path: b.ppm, duration: 1s}\n    - concat:\n        stack_access: visible\n",
     );
     let compiled = compiler::compile(&workflow).expect("visible concat");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 }
 
 #[test]
@@ -653,7 +710,10 @@ fn join_concatenates_leftover_body_videos_in_order() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - wobble\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 
     let json = compiled_json(&compiled);
     let nodes = json["nodes"].as_array().expect("nodes");
@@ -676,7 +736,10 @@ fn join_reduces_only_the_top_two_outer_values() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - image:\n        path: c.ppm\n        duration: 1s\n    - join:\n        - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
     let json = compiled_json(&compiled);
     assert_eq!(
         json["nodes"]
@@ -695,7 +758,10 @@ fn explicit_inputs_do_not_consume_join_stack_occurrences() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - image:\n        path: b.ppm\n        duration: 1s\n    - join:\n        - concat:\n            values: [$x, $y]\n        - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 40);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        40
+    );
 }
 
 #[test]
@@ -704,7 +770,10 @@ fn explicit_join_inputs_preserve_the_outer_stack() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      x: {image: {path: x.ppm, duration: 1s}}\n      y: {image: {path: y.ppm, duration: 1s}}\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        before: $x\n        after: $y\n        body:\n          - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 40);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        40
+    );
 }
 
 #[test]
@@ -713,7 +782,10 @@ fn partial_explicit_join_binding_uses_the_preceding_value() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    clips:\n      y:\n        image:\n          path: y.ppm\n          duration: 1s\n\n- glue:\n    - image:\n        path: a.ppm\n        duration: 1s\n    - join:\n        after: $y\n        body:\n          - concat\n  ",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 20);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
 }
 
 #[test]
@@ -834,7 +906,10 @@ fn postfix_wrapper_accepts_stack_access_metadata() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 2s}\n- repeat: 2\n  during:\n    range: 500ms..1s\n    stack_access: visible\n",
     );
     let compiled = compiler::compile(&workflow).expect("postfix mapping");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 25);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        25
+    );
 }
 
 #[test]
@@ -843,7 +918,10 @@ fn body_program_inputs_are_available_as_local_references_after_stack_consumption
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- image: {path: a.ppm, duration: 1s}\n- image: {path: b.ppm, duration: 1s}\n- join:\n    - flash\n    - $before\n    - concat\n",
     );
     let compiled = compiler::compile(&workflow).expect("body input references");
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -853,7 +931,7 @@ fn nested_body_arguments_resolve_before_inner_port_shadowing() {
     );
     let compiled = compiler::compile(&workflow).expect("nested shadowing");
     assert_eq!(
-        compiled.result_domain().expect("known domain").frames.0,
+        compiled.result_domain().expect("known domain").frames().0,
         100
     );
 }
@@ -865,7 +943,10 @@ fn root_publication_ignores_auxiliary_audio_outputs() {
     );
     let compiled = compiler::compile(&workflow).expect("one Video plus auxiliary Audio");
     assert_eq!(compiled.outputs().len(), 2);
-    assert_eq!(compiled.result_domain().expect("Video result").frames.0, 30);
+    assert_eq!(
+        compiled.result_domain().expect("Video result").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -895,7 +976,10 @@ fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
         "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- set_audio:\n    video:\n      image: {path: a.ppm, duration: 4s}\n    audio:\n      zoom:\n        video:\n          audio: missing.wav\n",
     );
     let compiled = compiler::compile(&workflow).expect("composed explicit adaptations");
-    assert_eq!(compiled.result_domain().expect("Video result").frames.0, 40);
+    assert_eq!(
+        compiled.result_domain().expect("Video result").frames().0,
+        40
+    );
     let document = compiled_json(&compiled);
     let operations = document["nodes"]
         .as_array()
@@ -1160,7 +1244,10 @@ fn named_generic_output_infers_from_the_same_stack_value_as_an_unnamed_call() {
         compiled.outputs()[0].value_type(),
         clipasm::model::ValueType::Video
     );
-    assert_eq!(compiled.result_domain().expect("known domain").frames.0, 60);
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        60
+    );
 }
 
 #[test]

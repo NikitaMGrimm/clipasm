@@ -86,7 +86,7 @@ fn execute(cli: Cli) -> Result<()> {
                     println!(
                         "valid: {} semantic value(s), {} frame(s)",
                         compiled.value_count(),
-                        domain.frames.0
+                        domain.frames().0
                     );
                 } else {
                     println!(

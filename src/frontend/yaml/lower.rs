@@ -456,21 +456,13 @@ fn parse_project(node: RawNode) -> Result<VideoSettings> {
 }
 
 fn parse_u32(text: &str, span: &SourceSpan, field: &str) -> Result<u32> {
-    let value = text.parse::<u32>().map_err(|_| {
+    text.parse::<u32>().map_err(|_| {
         Diagnostic::new(
             "E_INVALID_VIDEO_SPEC",
-            format!("`{field}` must be a positive integer"),
+            format!("`{field}` must be an unsigned integer"),
             span.clone(),
         )
-    })?;
-    if value == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_VIDEO_SPEC",
-            format!("`{field}` must be greater than zero"),
-            span.clone(),
-        ));
-    }
-    Ok(value)
+    })
 }
 
 fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<NamedClip>> {
@@ -1311,6 +1303,9 @@ mod tests {
         .expect("generic parse");
         let compiled =
             crate::compiler::compile_with_registry(&workflow, &registry).expect("generic evaluate");
-        assert_eq!(compiled.result_domain().expect("known domain").frames.0, 1);
+        assert_eq!(
+            compiled.result_domain().expect("known domain").frames().0,
+            1
+        );
     }
 }

@@ -300,7 +300,7 @@ fn direct(
 fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let (path, path_span) = call.file_parameter("path")?;
     let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
-        FrameCount(duration.to_frames(builder.video_spec().fps, span)?)
+        FrameCount(duration.to_frames(builder.video_spec().fps(), span)?)
     } else {
         call.requested_frames().ok_or_else(|| {
             Diagnostic::new(
@@ -426,10 +426,10 @@ fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
             let Some(padding) = pixels.checked_mul(2) else {
                 return false;
             };
-            padding < builder.video_spec().width
-                && padding < builder.video_spec().height
-                && builder.video_spec().width.checked_add(padding).is_some()
-                && builder.video_spec().height.checked_add(padding).is_some()
+            padding < builder.video_spec().width()
+                && padding < builder.video_spec().height()
+                && builder.video_spec().width().checked_add(padding).is_some()
+                && builder.video_spec().height().checked_add(padding).is_some()
         })
         .ok_or_else(|| {
             Diagnostic::new(
@@ -460,7 +460,7 @@ fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
         None => FrameCount::covering_duration(
             u128::from(DEFAULT_FLASH_MILLISECONDS),
             1_000,
-            builder.video_spec().fps,
+            builder.video_spec().fps(),
             &call.origin().span,
         )?,
     };

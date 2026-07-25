@@ -548,11 +548,7 @@ pub(super) fn verify_audio_decodable(
             span.clone(),
         ));
     }
-    Ok(AudioDomain {
-        samples,
-        sample_rate: audio.sample_rate,
-        channels: audio.channels,
-    })
+    Ok(AudioDomain::new(samples, audio))
 }
 
 fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
@@ -657,7 +653,12 @@ fn validate_video_contract(
             span.clone(),
         ));
     };
-    FrameCount::covering_duration(available_numerator, available_denominator, video.fps, span)
+    FrameCount::covering_duration(
+        available_numerator,
+        available_denominator,
+        video.fps(),
+        span,
+    )
 }
 
 fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
