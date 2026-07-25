@@ -39,11 +39,15 @@ needs.
 
 ## Compilation
 
-Before evaluation, the compiler links each source unit's local program
-namespace and checks every authored program in import dependency order,
-including programs the root never invokes. Canonical bodies first become a
-compiler-owned resolved draft that records program IDs, effective stack access,
-descriptor-ordered input and parameter roles, and validated body presence once.
+Before evaluation, the compiler validates the complete linked source-unit
+graph, including the root and every import target, rejects cycles, and derives a
+deterministic dependency-first order from the graph itself. `SourcePackage`
+unit storage order is therefore not semantic. Every unit is checked, including
+units the root never invokes, while checked programs remain stored by
+their `SourceUnitId` for evaluation. The compiler then links each unit's local program
+namespace. Canonical bodies first become a compiler-owned resolved draft that
+records program IDs, effective stack access, descriptor-ordered input and
+parameter roles, and validated body presence once.
 Declaration collection and dependency discovery consume that draft before one
 compiler-owned type resolver assigns stable variables to graph-valued locals
 and generic invocations. The resolver owns selectors, explicit input types,
