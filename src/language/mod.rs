@@ -1,7 +1,8 @@
 //! Native `ClipAsm` source language.
 
-#![allow(dead_code)] // Wired into package loading after syntax lowering is implemented.
+#![allow(dead_code)] // File package loading and CLI integration follow this migration stage.
 
 mod lexer;
+mod lower;
 mod parser;
 mod syntax;

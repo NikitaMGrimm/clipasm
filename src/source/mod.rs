@@ -1,8 +1,8 @@
-//! Representation-neutral, fully desugared authored `ClipAsm` programs.
+//! Lowered, fully desugared authored `ClipAsm` programs.
 //!
 //! The public package types are currently opaque compiler inputs produced by
-//! built-in frontends. Construction remains crate-private until a second
-//! frontend demonstrates the shape of a stable external builder API.
+//! the native language loader. Construction remains crate-private; no stable
+//! alternate-frontend or external builder API is promised.
 
 mod location;
 mod name;
@@ -31,7 +31,7 @@ impl SourceUnitId {
 
 /// One opaque linked collection of authored source programs.
 ///
-/// Obtain a package from a frontend such as [`crate::frontend::yaml`].
+/// Obtain a package from the native language loader.
 #[derive(Clone, Debug)]
 pub struct SourcePackage {
     pub(crate) root: SourceUnitId,
@@ -203,7 +203,6 @@ pub(crate) enum OutputBindings {
 pub(crate) enum ItemKind {
     Reference(Reference),
     Invocation(Invocation),
-    #[allow(dead_code)] // Constructed by the native parser in the next migration stage.
     StackBlock(StackBlock),
 }
 

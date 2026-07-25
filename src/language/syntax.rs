@@ -78,6 +78,17 @@ pub(crate) enum Expression {
     Atom(Spanned<String>),
 }
 
+impl Expression {
+    #[must_use]
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::Reference(value) | Self::String(value) | Self::Atom(value) => &value.span,
+            Self::Invocation(invocation) => &invocation.span,
+            Self::Block(block) => &block.span,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Invocation {
     pub(crate) access: Option<Spanned<StackAccess>>,
