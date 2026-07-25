@@ -323,17 +323,28 @@ impl<T: Copy> EvaluationStack<T> {
                     .collect(),
             })
             .collect();
-        let mut indices = plan
+        debug_assert_eq!(self.values.len(), self.owners.len());
+        let mut consumed = vec![false; self.values.len()];
+        for index in plan
             .inputs
             .iter()
             .flat_map(|input| input.indices.iter().copied())
-            .collect::<Vec<_>>();
-        indices.sort_unstable();
-        debug_assert!(!indices.windows(2).any(|indices| indices[0] == indices[1]));
-        for index in indices.into_iter().rev() {
-            self.values.remove(index);
-            self.owners.remove(index);
+        {
+            debug_assert!(!consumed[index]);
+            consumed[index] = true;
         }
+        let mut index = 0;
+        self.values.retain(|_| {
+            let retain = !consumed[index];
+            index += 1;
+            retain
+        });
+        index = 0;
+        self.owners.retain(|_| {
+            let retain = !consumed[index];
+            index += 1;
+            retain
+        });
         bound
     }
 }
