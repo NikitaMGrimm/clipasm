@@ -64,6 +64,33 @@ fn repeated_calls_isolate_local_ids_and_apply_defaults() {
 }
 
 #[test]
+fn zero_argument_calls_require_parentheses_inside_expressions() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write(
+        directory.path(),
+        "producer.clipasm",
+        "clipasm 1\nimage(\"missing.png\", 1s)\n",
+    );
+    write(
+        directory.path(),
+        "valid.clipasm",
+        "clipasm 1\nimport \"producer.clipasm\" as producer\nset_audio(video=producer(), audio=audio(\"sound.wav\"))\n",
+    );
+    let package = language::parse_file(&directory.path().join("valid.clipasm"))
+        .expect("parenthesized expression call");
+    compiler::compile(&package).expect("compiled expression call");
+
+    write(
+        directory.path(),
+        "invalid.clipasm",
+        "clipasm 1\nimport \"producer.clipasm\" as producer\nset_audio(video=producer, audio=audio(\"sound.wav\"))\n",
+    );
+    let error = language::parse_file(&directory.path().join("invalid.clipasm"))
+        .expect_err("bare identifier is a scalar atom inside arguments");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+}
+
+#[test]
 fn two_aliases_may_reference_the_same_source_program() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write(

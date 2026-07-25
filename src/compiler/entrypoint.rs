@@ -8,7 +8,7 @@ use crate::program::{
     ResolvedInput,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin};
-use crate::source::{SourceSpan, Spanned};
+use crate::source::{SourceProgram, SourceSpan, Spanned};
 
 #[derive(Clone, Debug)]
 pub(super) struct MediaInputBinding {
@@ -133,12 +133,13 @@ impl EntrypointBindings {
 
 pub(super) fn bind_root_call<'a>(
     definition: &'a ProgramDefinition,
-    span: &SourceSpan,
+    program: &SourceProgram,
     registry: &'a ProgramRegistry,
     bindings: &EntrypointBindings,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
 ) -> Result<ResolvedCall<'a>> {
+    debug_assert_eq!(definition.descriptor.inputs.len(), program.inputs().len());
     for (name, binding) in &bindings.media_inputs {
         let Some(input) = definition
             .descriptor
@@ -191,23 +192,7 @@ pub(super) fn bind_root_call<'a>(
     }
 
     let signature = definition.descriptor.resolve_signature(None);
-    let inputs = definition
-        .descriptor
-        .inputs
-        .iter()
-        .map(|input| {
-            let binding = bindings.media_inputs.get(&input.name).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_MISSING_REQUIRED_INPUT",
-                    format!("root program is missing input `{}`", input.name),
-                    span.clone(),
-                )
-            })?;
-            Ok(ResolvedInput::One(lower_media_binding(
-                registry, binding, nodes, video,
-            )?))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let inputs = bind_root_inputs(definition, program, registry, bindings, nodes, video)?;
 
     let parameters = definition
         .descriptor
@@ -239,8 +224,36 @@ pub(super) fn bind_root_call<'a>(
         inputs,
         parameters,
         None,
-        SourceOrigin::new("root program", span.clone()),
+        SourceOrigin::new("root program", program.span().clone()),
     )
+}
+
+fn bind_root_inputs(
+    definition: &ProgramDefinition,
+    program: &SourceProgram,
+    registry: &ProgramRegistry,
+    bindings: &EntrypointBindings,
+    nodes: &mut Vec<DraftNode>,
+    video: &VideoSpec,
+) -> Result<Vec<ResolvedInput>> {
+    definition
+        .descriptor
+        .inputs
+        .iter()
+        .zip(program.inputs())
+        .map(|(input, source_input)| {
+            let binding = bindings.media_inputs.get(&input.name).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!("root program is missing input `{}`", input.name),
+                    source_input.declared_at.clone(),
+                )
+            })?;
+            Ok(ResolvedInput::One(lower_media_binding(
+                registry, binding, nodes, video,
+            )?))
+        })
+        .collect()
 }
 
 fn lower_media_binding(

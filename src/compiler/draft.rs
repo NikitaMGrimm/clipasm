@@ -122,12 +122,12 @@ impl DraftBody {
         invocation_count: &mut usize,
         stack_block_count: &mut usize,
     ) -> Result<Self> {
-        if depth > crate::source::MAX_BODY_NESTING {
+        if depth > crate::source::MAX_SYNTAX_NESTING {
             return Err(Diagnostic::new(
                 "E_BODY_NESTING_DEPTH",
                 format!(
                     "program body nesting exceeds the supported depth of {}",
-                    crate::source::MAX_BODY_NESTING
+                    crate::source::MAX_SYNTAX_NESTING
                 ),
                 source.span.clone(),
             ));

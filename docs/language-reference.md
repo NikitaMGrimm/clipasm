@@ -135,6 +135,10 @@ operation as result
 operation as (first, second)
 ```
 
+At statement position, a zero-argument call may omit `()`, as in `concat` or
+`operation as result`. Inside an argument expression, write `producer()`;
+an unparenthesized identifier there is a scalar atom, not a program call.
+
 `@owned` and `@visible` control stack access. Direct programs default to owned
 access. `join`, `glue`, and `during` default to visible access. An enclosing
 owned boundary cannot be pierced by an inner visible invocation.

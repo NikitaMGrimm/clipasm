@@ -403,19 +403,50 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 return Err(collision_error(&descriptor.name, &parameter.name));
             }
         }
-        if let ProgramImplementation::Body { contract, .. } = &definition.implementation
-            && matches!(
+        if let ProgramImplementation::Body { contract, .. } = &definition.implementation {
+            if descriptor
+                .inputs
+                .iter()
+                .any(|port| matches!(port.cardinality, Cardinality::Variadic { .. }))
+            {
+                return Err(definition_error(format!(
+                    "body program `{}` has a variadic input; body lexical bindings require fixed inputs",
+                    descriptor.name
+                )));
+            }
+            if matches!(
                 contract.outputs,
                 BodyOutputConstraint::Variadic { min: 0, .. }
-            )
-        {
-            return Err(definition_error(format!(
-                "body program `{}` has a variadic body output minimum of zero",
-                descriptor.name
-            )));
+            ) {
+                return Err(definition_error(format!(
+                    "body program `{}` has a variadic body output minimum of zero",
+                    descriptor.name
+                )));
+            }
+            if body_contract_uses_generic(contract) && !descriptor.is_generic() {
+                return Err(definition_error(format!(
+                    "body program `{}` uses generic body values without a generic descriptor",
+                    descriptor.name
+                )));
+            }
         }
     }
     Ok(())
+}
+
+fn body_contract_uses_generic(contract: &BodyContract) -> bool {
+    contract
+        .initial_values
+        .iter()
+        .any(|value| matches!(value, ValueTypeSpec::Generic))
+        || match &contract.outputs {
+            BodyOutputConstraint::Exactly(values) => values
+                .iter()
+                .any(|value| matches!(value, ValueTypeSpec::Generic)),
+            BodyOutputConstraint::Variadic { value_type, .. } => {
+                matches!(value_type, ValueTypeSpec::Generic)
+            }
+        }
 }
 
 fn collision_error(program: &str, name: &str) -> Diagnostic {
@@ -448,6 +479,10 @@ mod tests {
     use super::*;
 
     fn direct_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
+        unreachable!("validation does not execute programs")
+    }
+
+    fn body_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
         unreachable!("validation does not execute programs")
     }
 
@@ -524,5 +559,73 @@ mod tests {
             ProgramImplementation::Direct(direct_stub),
         )];
         ProgramRegistry::from_definitions(definitions).expect_err("mixed cardinalities");
+    }
+
+    #[test]
+    fn rejects_generic_body_initial_values_without_descriptor_generic() {
+        let mut definition = definition(
+            "bad-body-generic",
+            vec![],
+            vec![],
+            ProgramImplementation::Body {
+                prepare: body_stub,
+                contract: BodyContract {
+                    initial_values: vec![ValueTypeSpec::Generic],
+                    outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
+                    count_error_code: "E_TEST",
+                },
+            },
+        );
+        definition.descriptor.outputs = vec![ValueType::Video.into()];
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("generic body contract requires a generic descriptor");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+    }
+
+    #[test]
+    fn rejects_generic_body_outputs_without_descriptor_generic() {
+        let definition = definition(
+            "bad-body-output",
+            vec![],
+            vec![],
+            ProgramImplementation::Body {
+                prepare: body_stub,
+                contract: BodyContract {
+                    initial_values: vec![],
+                    outputs: BodyOutputConstraint::Exactly(vec![ValueTypeSpec::Generic]),
+                    count_error_code: "E_TEST",
+                },
+            },
+        );
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("generic body output requires a generic descriptor");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+    }
+
+    #[test]
+    fn rejects_variadic_inputs_on_body_programs() {
+        let definition = definition(
+            "bad-variadic-body",
+            vec![InputPort {
+                name: "items".to_owned(),
+                value_type: ValueType::Video.into(),
+                cardinality: Cardinality::Variadic { min: 1 },
+            }],
+            vec![],
+            ProgramImplementation::Body {
+                prepare: body_stub,
+                contract: BodyContract {
+                    initial_values: vec![],
+                    outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
+                    count_error_code: "E_TEST",
+                },
+            },
+        );
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("variadic body input has no lexical binding semantics");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
     }
 }

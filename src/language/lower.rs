@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::program::{Cardinality, InputPort, ProgramDescriptor, ProgramRegistry, StackAccess};
+use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
     STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImplementation, SourceFile, SourceImport,
-    SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation, SourceUnit,
-    SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
+    SourceInput, SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation,
+    SourceUnit, SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
 };
 
 use super::syntax::{
@@ -190,7 +190,7 @@ struct LoweredDeclarations {
     external: Option<SourceExternalImplementation>,
     project: Option<Spanned<ProjectSettings>>,
     output: Option<Spanned<PathBuf>>,
-    inputs: Vec<InputPort>,
+    inputs: Vec<SourceInput>,
     parameters: Vec<SourceParameter>,
 }
 
@@ -247,10 +247,11 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
                 }
                 external = Some(lower_external_declaration(declaration)?);
             }
-            Declaration::Input(input) => inputs.push(InputPort {
+            Declaration::Input(input) => inputs.push(SourceInput {
                 name: input.name.value,
                 value_type: input.value_type.value.into(),
                 cardinality: Cardinality::One,
+                declared_at: input.name.span,
             }),
             Declaration::Parameter(parameter) => parameters.push(SourceParameter {
                 name: parameter.name,

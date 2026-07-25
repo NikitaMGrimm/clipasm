@@ -48,7 +48,7 @@ pub(super) struct Evaluation {
 
 pub(super) fn evaluate(
     video: &VideoSpec,
-    root_span: &SourceSpan,
+    root_source: &crate::source::SourceProgram,
     checked: &CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
@@ -68,7 +68,7 @@ pub(super) fn evaluate(
     let root_definition = context.registry.definition(root_program);
     let root_call = super::entrypoint::bind_root_call(
         root_definition,
-        root_span,
+        root_source,
         context.registry,
         bindings,
         &mut evaluator.nodes,
@@ -79,7 +79,7 @@ pub(super) fn evaluate(
             evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?
         }
         ProgramImplementation::External(external) => {
-            let origin = SourceOrigin::new("root program", root_span.clone());
+            let origin = SourceOrigin::new("root program", root_source.span().clone());
             let invocation = external.invocation(&root_call)?;
             let mut builder = GraphBuilder::for_program(
                 &mut evaluator.nodes,
@@ -207,7 +207,7 @@ impl Evaluator {
             return Err(Diagnostic::new(
                 "E_MISSING_REQUIRED_INPUT",
                 format!("root program is missing input `{}`", input.name),
-                checked_program.span.clone(),
+                input.declared_at.clone(),
             ));
         }
         let (mut stack, parent) =
