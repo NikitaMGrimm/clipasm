@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_arguments, clippy::trivially_copy_pass_by_ref)]
-
 //! Verified execution, caching, and rollback-capable publication of prepared plans.
 //!
 //! Rendering accepts only [`PreparedPlan`],
@@ -13,17 +11,16 @@ mod lock;
 mod publication;
 
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{AudioSpec, FrameCount, ValueType, VideoDomain, VideoSpec};
+use crate::model::ValueType;
 use crate::preflight::tools::verify_external_tool;
-use crate::preflight::{PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset};
+use crate::preflight::{PreparedNodeKind, PreparedPlan, verify_prepared_asset};
 use crate::source::SourceSpan;
-use artifact::{verify_prepared_artifact, verify_video_artifact};
+use artifact::verify_prepared_artifact;
 use lock::{FileLock, sibling_lock_path};
 use publication::PublicationTransaction;
 
@@ -204,17 +201,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         &SourceSpan::file_start(plan.output()),
     )?;
     let publication = PublicationTransaction::new(plan.output(), plan.manifest());
-    stage_export(
-        result_artifact,
-        publication.staged_output(),
-        plan.video(),
-        plan.audio(),
-        result_node.domain(),
-        result_node.has_audio(),
-        plan.media_policy(),
-        plan.ffmpeg().executable(),
-        plan.ffprobe().executable(),
-    )?;
+    executor.stage_export(result_artifact, publication.staged_output(), result_node)?;
 
     let manifest = Manifest {
         engine_version: env!("CARGO_PKG_VERSION"),
@@ -240,144 +227,4 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         cache_hits,
         cache_misses,
     })
-}
-
-fn stage_export(
-    artifact: &Path,
-    staged: &Path,
-    spec: &VideoSpec,
-    audio: &AudioSpec,
-    domain: &VideoDomain,
-    has_audio: bool,
-    media_policy: RenderMediaPolicy,
-    ffmpeg: &Path,
-    ffprobe: &Path,
-) -> Result<()> {
-    let result = export_mp4(
-        artifact,
-        staged,
-        spec,
-        audio,
-        domain.frames,
-        has_audio,
-        media_policy,
-        ffmpeg,
-    )
-    .and_then(|()| {
-        verify_video_artifact(
-            ffprobe,
-            staged,
-            domain,
-            audio,
-            has_audio,
-            false,
-            media_policy.export_pixel_format(),
-        )
-    });
-    if let Err(error) = result {
-        let _ = fs::remove_file(staged);
-        return Err(error);
-    }
-    Ok(())
-}
-
-fn export_mp4(
-    artifact: &Path,
-    output: &Path,
-    spec: &VideoSpec,
-    audio: &AudioSpec,
-    frames: FrameCount,
-    has_audio: bool,
-    media_policy: RenderMediaPolicy,
-    ffmpeg: &Path,
-) -> Result<()> {
-    let mut command = Command::new(ffmpeg);
-    command
-        .args(["-y", "-v", "error", "-i"])
-        .arg(artifact)
-        .args(["-map", "0:v:0", "-c:v", "libx264", "-pix_fmt"])
-        .arg(media_policy.export_pixel_format())
-        .arg("-r")
-        .arg(format!(
-            "{}/{}",
-            spec.fps.numerator(),
-            spec.fps.denominator()
-        ));
-    if has_audio {
-        command.args([
-            "-map",
-            "0:a:0",
-            "-c:a",
-            "aac",
-            "-ar",
-            &audio.sample_rate.to_string(),
-            "-ac",
-            &audio.channels.to_string(),
-        ]);
-    } else {
-        command.arg("-an");
-    }
-    command
-        .args([
-            "-frames:v",
-            &frames.0.to_string(),
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-        ])
-        .arg(output);
-    execute::run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::FrameRate;
-
-    #[test]
-    fn failed_final_export_preserves_existing_pair() {
-        if Command::new("ffmpeg").arg("-version").output().is_err() {
-            return;
-        }
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let invalid_artifact = directory.path().join("invalid.mkv");
-        let output = directory.path().join("final.mp4");
-        let manifest = directory.path().join("final.mp4.manifest.json");
-        fs::write(&invalid_artifact, b"not video").expect("invalid artifact");
-        fs::write(&output, b"existing valid output").expect("existing output");
-        fs::write(&manifest, b"existing manifest").expect("existing manifest");
-        let spec = VideoSpec {
-            width: 64,
-            height: 64,
-            fps: FrameRate::new(10, 1).expect("frame rate"),
-        };
-        let domain = VideoDomain {
-            frames: FrameCount(10),
-            width: 64,
-            height: 64,
-            frame_rate: spec.fps,
-        };
-        let publication = PublicationTransaction::new(&output, &manifest);
-        stage_export(
-            &invalid_artifact,
-            publication.staged_output(),
-            &spec,
-            &AudioSpec::default(),
-            &domain,
-            false,
-            RenderMediaPolicy::default(),
-            Path::new("ffmpeg"),
-            Path::new("ffprobe"),
-        )
-        .expect_err("export failure");
-        assert_eq!(
-            fs::read(&output).expect("preserved output"),
-            b"existing valid output"
-        );
-        assert_eq!(
-            fs::read(&manifest).expect("preserved manifest"),
-            b"existing manifest"
-        );
-    }
 }

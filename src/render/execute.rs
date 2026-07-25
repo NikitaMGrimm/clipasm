@@ -1,3 +1,5 @@
+#![allow(clippy::trivially_copy_pass_by_ref)]
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -15,6 +17,8 @@ use crate::model::{
 };
 use crate::preflight::{PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy};
 use crate::source::SourceSpan;
+
+use super::artifact::verify_video_artifact;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 const WOBBLE_FREQUENCY_NUMERATOR: u32 = 13;
@@ -58,6 +62,25 @@ struct ExternalRunTools<'a> {
 impl<'a> Executor<'a> {
     pub(super) const fn new(plan: &'a PreparedPlan) -> Self {
         Self { plan }
+    }
+
+    pub(super) fn stage_export(
+        &self,
+        artifact: &Path,
+        staged: &Path,
+        result: &PreparedNode,
+    ) -> Result<()> {
+        stage_export(
+            artifact,
+            staged,
+            self.plan.video(),
+            self.plan.audio(),
+            result.domain(),
+            result.has_audio(),
+            self.plan.media_policy(),
+            self.plan.ffmpeg().executable(),
+            self.plan.ffprobe().executable(),
+        )
     }
 
     #[allow(clippy::too_many_lines)]
@@ -415,6 +438,96 @@ impl<'a> Executor<'a> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn stage_export(
+    artifact: &Path,
+    staged: &Path,
+    spec: &VideoSpec,
+    audio: &AudioSpec,
+    domain: &VideoDomain,
+    has_audio: bool,
+    media_policy: RenderMediaPolicy,
+    ffmpeg: &Path,
+    ffprobe: &Path,
+) -> Result<()> {
+    let result = export_mp4(
+        artifact,
+        staged,
+        spec,
+        audio,
+        domain.frames,
+        has_audio,
+        media_policy,
+        ffmpeg,
+    )
+    .and_then(|()| {
+        verify_video_artifact(
+            ffprobe,
+            staged,
+            domain,
+            audio,
+            has_audio,
+            false,
+            media_policy.export_pixel_format(),
+        )
+    });
+    if let Err(error) = result {
+        let _ = fs::remove_file(staged);
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn export_mp4(
+    artifact: &Path,
+    output: &Path,
+    spec: &VideoSpec,
+    audio: &AudioSpec,
+    frames: FrameCount,
+    has_audio: bool,
+    media_policy: RenderMediaPolicy,
+    ffmpeg: &Path,
+) -> Result<()> {
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-y", "-v", "error", "-i"])
+        .arg(artifact)
+        .args(["-map", "0:v:0", "-c:v", "libx264", "-pix_fmt"])
+        .arg(media_policy.export_pixel_format())
+        .arg("-r")
+        .arg(format!(
+            "{}/{}",
+            spec.fps.numerator(),
+            spec.fps.denominator()
+        ));
+    if has_audio {
+        command.args([
+            "-map",
+            "0:a:0",
+            "-c:a",
+            "aac",
+            "-ar",
+            &audio.sample_rate.to_string(),
+            "-ac",
+            &audio.channels.to_string(),
+        ]);
+    } else {
+        command.arg("-an");
+    }
+    command
+        .args([
+            "-frames:v",
+            &frames.0.to_string(),
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+        ])
+        .arg(output);
+    run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
+}
+
 fn run_external(
     executable: &Path,
     request: &ExternalRunRequest<'_>,
@@ -676,4 +789,57 @@ fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Re
         .note(debug));
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::publication::PublicationTransaction;
+    use super::*;
+    use crate::model::FrameRate;
+
+    #[test]
+    fn failed_final_export_preserves_existing_pair() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let invalid_artifact = directory.path().join("invalid.mkv");
+        let output = directory.path().join("final.mp4");
+        let manifest = directory.path().join("final.mp4.manifest.json");
+        fs::write(&invalid_artifact, b"not video").expect("invalid artifact");
+        fs::write(&output, b"existing valid output").expect("existing output");
+        fs::write(&manifest, b"existing manifest").expect("existing manifest");
+        let spec = VideoSpec {
+            width: 64,
+            height: 64,
+            fps: FrameRate::new(10, 1).expect("frame rate"),
+        };
+        let domain = VideoDomain {
+            frames: FrameCount(10),
+            width: 64,
+            height: 64,
+            frame_rate: spec.fps,
+        };
+        let publication = PublicationTransaction::new(&output, &manifest);
+        stage_export(
+            &invalid_artifact,
+            publication.staged_output(),
+            &spec,
+            &AudioSpec::default(),
+            &domain,
+            false,
+            RenderMediaPolicy::default(),
+            Path::new("ffmpeg"),
+            Path::new("ffprobe"),
+        )
+        .expect_err("export failure");
+        assert_eq!(
+            fs::read(&output).expect("preserved output"),
+            b"existing valid output"
+        );
+        assert_eq!(
+            fs::read(&manifest).expect("preserved manifest"),
+            b"existing manifest"
+        );
+    }
 }

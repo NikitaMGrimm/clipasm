@@ -1,3 +1,5 @@
+#![allow(clippy::trivially_copy_pass_by_ref)]
+
 use std::path::Path;
 use std::process::{Command, Output};
 
