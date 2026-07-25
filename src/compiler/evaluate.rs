@@ -290,9 +290,9 @@ impl Evaluator {
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         let outputs = match &checked.kind {
-            CheckedItemKind::Reference {
-                target: Some(target),
-            } => vec![self.evaluate_checked_reference(context, *target, &checked.span, scope)?],
+            CheckedItemKind::Reference { target } => {
+                vec![self.evaluate_checked_reference(context, *target, &checked.span, scope)?]
+            }
             CheckedItemKind::Invocation {
                 program,
                 signature,
@@ -320,9 +320,6 @@ impl Evaluator {
                 requested_frames,
                 &checked.span,
             )?,
-            CheckedItemKind::Reference { target: None } => {
-                unreachable!("checked reference target is resolved")
-            }
         };
         debug_assert_eq!(outputs.len(), checked.outputs.len());
         for (output, metadata) in outputs.iter().copied().zip(&checked.outputs) {

@@ -7,10 +7,7 @@ use crate::program::{
     ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry, ResolvedSignature,
     ValueTypeSpec, builtin_programs,
 };
-use crate::source::{
-    ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage, SourceProgram,
-    SourceUnitId,
-};
+use crate::source::{Literal, OutputBindings, SourcePackage, SourceProgram, SourceUnitId};
 
 use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
 use super::stack::{
@@ -185,17 +182,17 @@ pub(super) fn check_with_registry(
 
 #[allow(clippy::too_many_lines)]
 fn check_program(
-    unit: SourceUnitId,
+    _unit: SourceUnitId,
     program: &SourceProgram,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<(Vec<ValueType>, CheckedProgram)> {
     let draft = super::draft::DraftProgram::build(program, definitions, builtins, namespace)?;
-    let mut locals = BTreeMap::new();
+    let mut local_types = BTreeMap::new();
     for input in program.inputs() {
         insert_local(
-            &mut locals,
+            &mut local_types,
             &input.name,
             LocalType::Value(
                 input
@@ -208,7 +205,7 @@ fn check_program(
     }
     for parameter in program.parameters() {
         insert_local(
-            &mut locals,
+            &mut local_types,
             &parameter.name.value,
             LocalType::Parameter(parameter.parameter_type.clone()),
             &parameter.name.span,
@@ -216,29 +213,37 @@ fn check_program(
     }
     for clip in program.clips() {
         insert_local(
-            &mut locals,
+            &mut local_types,
             &clip.name,
             LocalType::Value(ValueType::Video),
             &clip.span,
         )?;
     }
     for clip in &draft.clips {
-        collect_body_names(&clip.body, &mut locals, definitions)?;
+        collect_body_names(&clip.body, &mut local_types, definitions)?;
     }
-    collect_body_names(&draft.body, &mut locals, definitions)?;
-    super::infer::infer_local_types(&draft, &mut locals, definitions)?;
-    ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
+    collect_body_names(&draft.body, &mut local_types, definitions)?;
+    super::infer::infer_local_types(&draft, &mut local_types, definitions)?;
+    ensure_local_types_resolved(&mut local_types)?;
 
+    let bindings = prepare_program_bindings(program, &draft, &local_types)?;
+    let mut body_input_count = 0_usize;
+    let lexical_types = BTreeMap::new();
+    let lexical_ids = BTreeMap::new();
     let mut checked_clips = Vec::with_capacity(draft.clips.len());
     for clip in &draft.clips {
         let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
             format!("named clip `{}` inference", clip.name),
             clip.span.clone(),
         );
-        let checked = infer_body(
+        let checked = check_body(
             &clip.body,
-            &locals,
-            unit,
+            &local_types,
+            &bindings.local_ids,
+            &bindings.parameter_ids,
+            &lexical_types,
+            &lexical_ids,
+            &mut body_input_count,
             definitions,
             &mut stack,
             &mut frame,
@@ -271,22 +276,19 @@ fn check_program(
         "authored program inference",
         program.span().clone(),
     );
-    let mut checked_body = infer_body(
+    let checked_body = check_body(
         &draft.body,
-        &locals,
-        unit,
+        &local_types,
+        &bindings.local_ids,
+        &bindings.parameter_ids,
+        &lexical_types,
+        &lexical_ids,
+        &mut body_input_count,
         definitions,
         &mut stack,
         &mut frame,
     )?;
     let outputs = stack.values().to_vec();
-    let (locals, parameters, body_input_count) = assign_local_ids(
-        program,
-        &locals,
-        definitions,
-        &mut checked_clips,
-        &mut checked_body,
-    )?;
     let mut clips = program
         .clips()
         .iter()
@@ -314,8 +316,8 @@ fn check_program(
                         .expect("authored program inputs are concrete"),
                 })
                 .collect(),
-            locals,
-            parameters,
+            locals: bindings.locals,
+            parameters: bindings.parameters,
             body_input_count,
             clips,
             body: checked_body,
@@ -323,17 +325,20 @@ fn check_program(
     ))
 }
 
-fn assign_local_ids(
+struct ProgramBindings {
+    locals: Vec<CheckedLocal>,
+    local_ids: BTreeMap<String, ValueLocalId>,
+    parameters: Vec<CheckedParameter>,
+    parameter_ids: BTreeMap<String, ParameterId>,
+}
+
+fn prepare_program_bindings(
     program: &SourceProgram,
+    draft: &super::draft::DraftProgram,
     local_types: &BTreeMap<String, LocalType>,
-    definitions: &[ProgramDefinition],
-    clips: &mut [CheckedBody],
-    body: &mut CheckedBody,
-) -> Result<(Vec<CheckedLocal>, Vec<CheckedParameter>, usize)> {
-    let mut locals = Vec::new();
-    let mut ids = BTreeMap::new();
-    let mut parameter_ids = BTreeMap::new();
+) -> Result<ProgramBindings> {
     let mut parameters = Vec::with_capacity(program.parameters().len());
+    let mut parameter_ids = BTreeMap::new();
     for parameter in program.parameters() {
         let id = ParameterId(u32::try_from(parameters.len()).map_err(|_| {
             Diagnostic::new(
@@ -364,7 +369,9 @@ fn assign_local_ids(
         });
     }
 
-    let mut declare = |name: &str, span: &crate::source::SourceSpan| -> Result<ValueLocalId> {
+    let mut locals = Vec::new();
+    let mut local_ids = BTreeMap::new();
+    let mut declare = |name: &str, span: &crate::source::SourceSpan| -> Result<()> {
         let value_type = value_local(local_types, name, span)?;
         let id = ValueLocalId(u32::try_from(locals.len()).map_err(|_| {
             Diagnostic::new(
@@ -373,96 +380,55 @@ fn assign_local_ids(
                 span.clone(),
             )
         })?);
-        ids.insert(name.to_owned(), id);
+        local_ids.insert(name.to_owned(), id);
         locals.push(CheckedLocal {
             name: name.to_owned(),
             declared_at: span.clone(),
             value_type,
         });
-        Ok(id)
+        Ok(())
     };
-
     for input in program.inputs() {
         declare(&input.name, program.span())?;
     }
     for clip in program.clips() {
         declare(&clip.name, &clip.span)?;
     }
-    for (clip, checked) in program.clips().iter().zip(&mut *clips) {
-        assign_body_output_ids(&clip.body, checked, &mut declare)?;
+    for clip in &draft.clips {
+        declare_body_outputs(&clip.body, &mut declare)?;
     }
-    assign_body_output_ids(program.body(), body, &mut declare)?;
+    declare_body_outputs(&draft.body, &mut declare)?;
 
-    let mut body_input_count = 0_usize;
-    let lexical = BTreeMap::new();
-    for (clip, checked) in program.clips().iter().zip(&mut *clips) {
-        resolve_body_references(
-            &clip.body,
-            checked,
-            &ids,
-            &parameter_ids,
-            definitions,
-            &lexical,
-            &mut body_input_count,
-        )?;
-    }
-    resolve_body_references(
-        program.body(),
-        body,
-        &ids,
-        &parameter_ids,
-        definitions,
-        &lexical,
-        &mut body_input_count,
-    )?;
-    Ok((locals, parameters, body_input_count))
+    Ok(ProgramBindings {
+        locals,
+        local_ids,
+        parameters,
+        parameter_ids,
+    })
 }
 
-fn assign_body_output_ids(
-    source: &ProgramBody,
-    checked: &mut CheckedBody,
-    declare: &mut impl FnMut(&str, &crate::source::SourceSpan) -> Result<ValueLocalId>,
+fn declare_body_outputs(
+    body: &DraftBody,
+    declare: &mut impl FnMut(&str, &crate::source::SourceSpan) -> Result<()>,
 ) -> Result<()> {
-    debug_assert_eq!(source.items.len(), checked.items.len());
-    for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
-        let bindings = match &item.output_bindings {
-            OutputBindings::None => vec![None; checked_item.outputs.len()],
-            OutputBindings::One(name) => vec![Some(declare(&name.value, &name.span)?)],
-            OutputBindings::Many(names, _) => names
-                .iter()
-                .map(|name| declare(&name.value, &name.span).map(Some))
-                .collect::<Result<Vec<_>>>()?,
-        };
-        debug_assert_eq!(bindings.len(), checked_item.outputs.len());
-        for (output, binding) in checked_item.outputs.iter_mut().zip(bindings) {
-            output.binding = binding;
-        }
-        if let (
-            ItemKind::Invocation(invocation),
-            CheckedItemKind::Invocation {
-                signature,
-                inputs,
-                body,
-                ..
-            },
-        ) = (&item.kind, &mut checked_item.kind)
-        {
-            if let (Some(source_body), Some(checked_body)) = (&invocation.body, body.as_deref_mut())
-            {
-                assign_body_output_ids(source_body, checked_body, declare)?;
+    for item in &body.items {
+        match &item.output_bindings {
+            OutputBindings::None => {}
+            OutputBindings::One(name) => declare(&name.value, &name.span)?,
+            OutputBindings::Many(names, _) => {
+                for name in names {
+                    declare(&name.value, &name.span)?;
+                }
             }
-            for (port, input) in signature.inputs.iter().zip(inputs) {
-                let Some(CheckedInputValue::Body(checked_body, _)) = input else {
-                    continue;
-                };
-                let ArgumentValue::Body(source_body) = invocation
-                    .arguments
-                    .get(&port.name)
-                    .expect("checked input body has a source argument")
-                else {
-                    unreachable!("checked input body matches canonical source")
-                };
-                assign_body_output_ids(source_body, checked_body, declare)?;
+        }
+        if let DraftItemKind::Invocation(invocation) = &item.kind {
+            if let Some(body) = invocation.body.as_deref() {
+                declare_body_outputs(body, declare)?;
+            }
+            for input in invocation.inputs.iter().flatten() {
+                if let DraftInput::Body(body) = input {
+                    declare_body_outputs(body, declare)?;
+                }
             }
         }
     }
@@ -481,166 +447,6 @@ fn resolve_value_target(
         .map(ReferenceTarget::BodyInput)
         .or_else(|| locals.get(name).copied().map(ReferenceTarget::Local))
         .ok_or_else(|| missing_reference(name, span))
-}
-
-#[allow(clippy::too_many_lines)]
-fn resolve_body_references(
-    source: &ProgramBody,
-    checked: &mut CheckedBody,
-    locals: &BTreeMap<String, ValueLocalId>,
-    parameter_ids: &BTreeMap<String, ParameterId>,
-    definitions: &[ProgramDefinition],
-    lexical: &BTreeMap<String, BodyInputId>,
-    body_input_count: &mut usize,
-) -> Result<()> {
-    debug_assert_eq!(source.items.len(), checked.items.len());
-    for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
-        match (&item.kind, &mut checked_item.kind) {
-            (ItemKind::Reference(reference), CheckedItemKind::Reference { target }) => {
-                let resolved = resolve_value_target(
-                    &reference.name.value,
-                    &reference.name.span,
-                    locals,
-                    lexical,
-                )?;
-                *target = Some(resolved);
-            }
-            (
-                ItemKind::Invocation(invocation),
-                CheckedItemKind::Invocation {
-                    program,
-                    signature,
-                    inputs,
-                    parameters,
-                    body,
-                    body_input_ids,
-                    ..
-                },
-            ) => {
-                let definition = &definitions[program.index()];
-                for (index, port) in signature.inputs.iter().enumerate() {
-                    let Some(argument) = invocation.arguments.get(&port.name) else {
-                        debug_assert!(inputs[index].is_none());
-                        continue;
-                    };
-                    inputs[index] = Some(match argument {
-                        ArgumentValue::Reference(reference) => CheckedInputValue::References(
-                            vec![resolve_value_target(
-                                &reference.value,
-                                &reference.span,
-                                locals,
-                                lexical,
-                            )?],
-                            reference.span.clone(),
-                        ),
-                        ArgumentValue::References(references, span) => {
-                            CheckedInputValue::References(
-                                references
-                                    .iter()
-                                    .map(|reference| {
-                                        resolve_value_target(
-                                            &reference.value,
-                                            &reference.span,
-                                            locals,
-                                            lexical,
-                                        )
-                                    })
-                                    .collect::<Result<Vec<_>>>()?,
-                                span.clone(),
-                            )
-                        }
-                        ArgumentValue::Body(source_body) => {
-                            let Some(CheckedInputValue::Body(mut checked_body, span)) =
-                                inputs[index].take()
-                            else {
-                                unreachable!("checked input body was constructed")
-                            };
-                            resolve_body_references(
-                                source_body,
-                                &mut checked_body,
-                                locals,
-                                parameter_ids,
-                                definitions,
-                                lexical,
-                                body_input_count,
-                            )?;
-                            CheckedInputValue::Body(checked_body, span)
-                        }
-                        ArgumentValue::Literal(_) => {
-                            unreachable!("validated graph input is not a literal")
-                        }
-                    });
-                }
-                *parameters = definition
-                    .descriptor
-                    .parameters
-                    .iter()
-                    .map(|descriptor| {
-                        let Some(argument) = invocation.arguments.get(&descriptor.name) else {
-                            return Ok(None);
-                        };
-                        let value = match argument {
-                            ArgumentValue::Literal(literal) => {
-                                CheckedParameterValue::Literal(crate::source::Spanned::new(
-                                    super::parameter::from_literal(
-                                        &definition.descriptor.name,
-                                        &descriptor.name,
-                                        &descriptor.parameter_type,
-                                        literal,
-                                    )?,
-                                    literal.span().clone(),
-                                ))
-                            }
-                            ArgumentValue::Reference(reference) => {
-                                CheckedParameterValue::Reference(
-                                    *parameter_ids.get(&reference.value).ok_or_else(|| {
-                                        missing_reference(&reference.value, &reference.span)
-                                    })?,
-                                )
-                            }
-                            ArgumentValue::References(_, _) | ArgumentValue::Body(_) => {
-                                unreachable!("validated scalar parameter representation")
-                            }
-                        };
-                        Ok(Some(value))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                if let (Some(source_body), Some(checked_body)) =
-                    (&invocation.body, body.as_deref_mut())
-                {
-                    let mut child_lexical = lexical.clone();
-                    for port in &signature.inputs {
-                        if !matches!(port.cardinality, Cardinality::One) {
-                            continue;
-                        }
-                        let id = BodyInputId(u32::try_from(*body_input_count).map_err(|_| {
-                            Diagnostic::new(
-                                "E_GRAPH_TOO_LARGE",
-                                "too many lexical body inputs were declared",
-                                item.span.clone(),
-                            )
-                        })?);
-                        *body_input_count = body_input_count
-                            .checked_add(1)
-                            .expect("body input count fits in usize");
-                        body_input_ids.insert(port.name.clone(), id);
-                        child_lexical.insert(port.name.clone(), id);
-                    }
-                    resolve_body_references(
-                        source_body,
-                        checked_body,
-                        locals,
-                        parameter_ids,
-                        definitions,
-                        &child_lexical,
-                        body_input_count,
-                    )?;
-                }
-            }
-            _ => unreachable!("checked item kind matches canonical source"),
-        }
-    }
-    Ok(())
 }
 
 fn collect_body_names(
@@ -955,7 +761,11 @@ fn validate_explicit_input_types(
     Ok(())
 }
 
-fn checked_outputs(bindings: &OutputBindings, types: &[ValueType]) -> Vec<CheckedOutput> {
+fn checked_outputs(
+    bindings: &OutputBindings,
+    types: &[ValueType],
+    local_ids: &BTreeMap<String, ValueLocalId>,
+) -> Result<Vec<CheckedOutput>> {
     let names = match bindings {
         OutputBindings::None => vec![None; types.len()],
         OutputBindings::One(name) => vec![Some(name.value.clone())],
@@ -967,10 +777,24 @@ fn checked_outputs(bindings: &OutputBindings, types: &[ValueType]) -> Vec<Checke
     names
         .into_iter()
         .zip(types.iter().copied())
-        .map(|(name, value_type)| CheckedOutput {
-            name,
-            value_type,
-            binding: None,
+        .map(|(name, value_type)| {
+            let binding = name
+                .as_ref()
+                .map(|name| {
+                    local_ids.get(name).copied().ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_INTERNAL_BINDING",
+                            format!("checked output `{name}` has no local identity"),
+                            crate::source::SourceSpan::file_start("<checked-source>"),
+                        )
+                    })
+                })
+                .transpose()?;
+            Ok(CheckedOutput {
+                name,
+                value_type,
+                binding,
+            })
         })
         .collect()
 }
@@ -1039,10 +863,14 @@ fn checked_stack_plan(
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn infer_body(
+fn check_body(
     body: &DraftBody,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    local_types: &BTreeMap<String, LocalType>,
+    local_ids: &BTreeMap<String, ValueLocalId>,
+    parameter_ids: &BTreeMap<String, ParameterId>,
+    lexical_types: &BTreeMap<String, ValueType>,
+    lexical_ids: &BTreeMap<String, BodyInputId>,
+    body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
     stack: &mut EvaluationStack<ValueType>,
     frame: &mut super::stack::StackFrame,
@@ -1051,20 +879,40 @@ fn infer_body(
     for item in &body.items {
         let checked = match &item.kind {
             DraftItemKind::Reference(reference) => {
-                let output = value_local(locals, &reference.value, &reference.span)?;
+                let output = resolved_value_type(
+                    local_types,
+                    lexical_types,
+                    &reference.value,
+                    &reference.span,
+                )?;
+                let target = resolve_value_target(
+                    &reference.value,
+                    &reference.span,
+                    local_ids,
+                    lexical_ids,
+                )?;
                 stack.extend(frame, [output]);
                 CheckedItem {
                     span: item.span.clone(),
                     construct: "reference".to_owned(),
-                    outputs: checked_outputs(&item.output_bindings, &[output]),
-                    kind: CheckedItemKind::Reference { target: None },
+                    outputs: checked_outputs(&item.output_bindings, &[output], local_ids)?,
+                    kind: CheckedItemKind::Reference { target },
                 }
             }
             DraftItemKind::Invocation(invocation) => {
                 let program = invocation.program;
                 let definition = &definitions[program.index()];
-                let validated =
-                    validate_explicit_arguments(invocation, definition, locals, unit, definitions)?;
+                let validated = validate_explicit_arguments(
+                    invocation,
+                    definition,
+                    local_types,
+                    local_ids,
+                    parameter_ids,
+                    lexical_types,
+                    lexical_ids,
+                    body_input_count,
+                    definitions,
+                )?;
                 let access = invocation.access;
                 let mut signature = resolve_invocation_signature(
                     definition, invocation, &validated, stack, frame, access, &item.span,
@@ -1085,6 +933,7 @@ fn infer_body(
                     StackBindingPlan { inputs: Vec::new() }
                 };
 
+                let mut body_input_ids = BTreeMap::new();
                 let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_)
                     | ProgramImplementation::Authored(_)
@@ -1109,19 +958,31 @@ fn infer_body(
                             |resolved| contract.resolve(resolved.generic).initial_values,
                         );
                         stack.extend(&child, initial_values);
-                        let mut body_locals = locals.clone();
+                        let mut body_local_types = lexical_types.clone();
+                        let mut body_lexical_ids = lexical_ids.clone();
                         if let Some(resolved) = &signature {
                             for port in &resolved.inputs {
-                                if matches!(port.cardinality, Cardinality::One) {
-                                    body_locals.insert(
-                                        port.name.clone(),
-                                        LocalType::Value(port.value_type),
-                                    );
+                                if !matches!(port.cardinality, Cardinality::One) {
+                                    continue;
                                 }
+                                let id = allocate_body_input(body_input_count, &item.span)?;
+                                body_input_ids.insert(port.name.clone(), id);
+                                body_local_types.insert(port.name.clone(), port.value_type);
+                                body_lexical_ids.insert(port.name.clone(), id);
                             }
                         }
-                        let checked_body =
-                            infer_body(body, &body_locals, unit, definitions, stack, &mut child)?;
+                        let checked_body = check_body(
+                            body,
+                            local_types,
+                            local_ids,
+                            parameter_ids,
+                            &body_local_types,
+                            &body_lexical_ids,
+                            body_input_count,
+                            definitions,
+                            stack,
+                            &mut child,
+                        )?;
                         let body_outputs = stack.finish_body(&child);
                         if signature.is_none() {
                             let value_type = infer_body_generic_type(
@@ -1148,32 +1009,19 @@ fn infer_body(
                 let signature = signature.expect("invocation signature resolved");
                 let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
-                let inputs = validated
-                    .input_bodies
-                    .into_iter()
-                    .zip(&invocation.inputs)
-                    .map(|(body, input)| {
-                        body.map(|body| {
-                            CheckedInputValue::Body(
-                                Box::new(body),
-                                input.as_ref().expect("checked input body").span().clone(),
-                            )
-                        })
-                    })
-                    .collect();
                 CheckedItem {
                     span: item.span.clone(),
                     construct: invocation.name.value.clone(),
-                    outputs: checked_outputs(&item.output_bindings, &output_types),
+                    outputs: checked_outputs(&item.output_bindings, &output_types, local_ids)?,
                     kind: CheckedItemKind::Invocation {
                         program,
                         signature,
                         access,
                         stack_plan,
-                        inputs,
-                        parameters: Vec::new(),
+                        inputs: validated.inputs,
+                        parameters: validated.parameters,
                         body: checked_body,
-                        body_input_ids: BTreeMap::new(),
+                        body_input_ids,
                     },
                 }
             }
@@ -1185,64 +1033,139 @@ fn infer_body(
     })
 }
 
-struct ValidatedArguments {
-    input_bodies: Vec<Option<CheckedBody>>,
-    input_types: Vec<Option<Vec<ValueType>>>,
+fn allocate_body_input(
+    body_input_count: &mut usize,
+    span: &crate::source::SourceSpan,
+) -> Result<BodyInputId> {
+    let id = BodyInputId(u32::try_from(*body_input_count).map_err(|_| {
+        Diagnostic::new(
+            "E_GRAPH_TOO_LARGE",
+            "too many lexical body inputs were declared",
+            span.clone(),
+        )
+    })?);
+    *body_input_count = body_input_count
+        .checked_add(1)
+        .expect("body input count fits in usize");
+    Ok(id)
 }
 
+struct ValidatedArguments {
+    inputs: Vec<Option<CheckedInputValue>>,
+    input_types: Vec<Option<Vec<ValueType>>>,
+    parameters: Vec<Option<CheckedParameterValue>>,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn validate_explicit_arguments(
     invocation: &DraftInvocation,
     definition: &ProgramDefinition,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    local_types: &BTreeMap<String, LocalType>,
+    local_ids: &BTreeMap<String, ValueLocalId>,
+    parameter_ids: &BTreeMap<String, ParameterId>,
+    lexical_types: &BTreeMap<String, ValueType>,
+    lexical_ids: &BTreeMap<String, BodyInputId>,
+    body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
 ) -> Result<ValidatedArguments> {
-    let mut input_bodies = Vec::with_capacity(invocation.inputs.len());
+    let mut inputs = Vec::with_capacity(invocation.inputs.len());
     let mut input_types = Vec::with_capacity(invocation.inputs.len());
     for (port, argument) in definition.descriptor.inputs.iter().zip(&invocation.inputs) {
         let Some(argument) = argument else {
-            input_bodies.push(None);
+            inputs.push(None);
             input_types.push(None);
             continue;
         };
-        let (values, body) =
-            validate_input_argument(invocation, port, argument, locals, unit, definitions)?;
-        input_bodies.push(body);
+        let (values, checked) = validate_input_argument(
+            invocation,
+            port,
+            argument,
+            local_types,
+            local_ids,
+            parameter_ids,
+            lexical_types,
+            lexical_ids,
+            body_input_count,
+            definitions,
+        )?;
+        inputs.push(Some(checked));
         input_types.push(Some(values));
     }
-    for (parameter, argument) in definition
+    let parameters = definition
         .descriptor
         .parameters
         .iter()
         .zip(&invocation.parameters)
-    {
-        if let Some(argument) = argument {
-            validate_parameter_argument(&invocation.name.value, parameter, argument, locals)?;
-        }
-    }
+        .map(|(parameter, argument)| {
+            argument
+                .as_ref()
+                .map(|argument| {
+                    check_parameter_argument(
+                        &invocation.name.value,
+                        parameter,
+                        argument,
+                        local_types,
+                        parameter_ids,
+                    )
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(ValidatedArguments {
-        input_bodies,
+        inputs,
         input_types,
+        parameters,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_input_argument(
     invocation: &DraftInvocation,
     port: &InputPort,
     argument: &DraftInput,
-    locals: &BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
+    local_types: &BTreeMap<String, LocalType>,
+    local_ids: &BTreeMap<String, ValueLocalId>,
+    parameter_ids: &BTreeMap<String, ParameterId>,
+    lexical_types: &BTreeMap<String, ValueType>,
+    lexical_ids: &BTreeMap<String, BodyInputId>,
+    body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
-) -> Result<(Vec<ValueType>, Option<CheckedBody>)> {
-    let mut checked_body = None;
-    let values = match argument {
+) -> Result<(Vec<ValueType>, CheckedInputValue)> {
+    match argument {
         DraftInput::Reference(reference) => {
-            vec![value_local(locals, &reference.value, &reference.span)?]
+            let value_type = resolved_value_type(
+                local_types,
+                lexical_types,
+                &reference.value,
+                &reference.span,
+            )?;
+            let target =
+                resolve_value_target(&reference.value, &reference.span, local_ids, lexical_ids)?;
+            Ok((
+                vec![value_type],
+                CheckedInputValue::References(vec![target], reference.span.clone()),
+            ))
         }
-        DraftInput::References(references, _) => references
-            .iter()
-            .map(|reference| value_local(locals, &reference.value, &reference.span))
-            .collect::<Result<Vec<_>>>()?,
+        DraftInput::References(references, span) => {
+            let values = references
+                .iter()
+                .map(|reference| {
+                    resolved_value_type(
+                        local_types,
+                        lexical_types,
+                        &reference.value,
+                        &reference.span,
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let targets = references
+                .iter()
+                .map(|reference| {
+                    resolve_value_target(&reference.value, &reference.span, local_ids, lexical_ids)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok((values, CheckedInputValue::References(targets, span.clone())))
+        }
         DraftInput::Body(body) => {
             let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
                 format!(
@@ -1251,8 +1174,18 @@ fn validate_input_argument(
                 ),
                 body.span.clone(),
             );
-            let checked = infer_body(body, locals, unit, definitions, &mut stack, &mut frame)?;
-            checked_body = Some(checked);
+            let checked = check_body(
+                body,
+                local_types,
+                local_ids,
+                parameter_ids,
+                lexical_types,
+                lexical_ids,
+                body_input_count,
+                definitions,
+                &mut stack,
+                &mut frame,
+            )?;
             let [value] = stack.values() else {
                 return Err(Diagnostic::new(
                     "E_INPUT_BODY_OUTPUT_COUNT",
@@ -1265,35 +1198,41 @@ fn validate_input_argument(
                     body.span.clone(),
                 ));
             };
-            vec![*value]
+            Ok((
+                vec![*value],
+                CheckedInputValue::Body(Box::new(checked), body.span.clone()),
+            ))
         }
-    };
-    Ok((values, checked_body))
+    }
 }
 
-fn validate_parameter_argument(
+fn check_parameter_argument(
     program: &str,
     parameter: &ParameterDescriptor,
     argument: &DraftParameter,
-    locals: &BTreeMap<String, LocalType>,
-) -> Result<()> {
+    local_types: &BTreeMap<String, LocalType>,
+    parameter_ids: &BTreeMap<String, ParameterId>,
+) -> Result<CheckedParameterValue> {
     match argument {
         DraftParameter::Literal(literal) => {
-            if literal_matches(&parameter.parameter_type, literal) {
-                Ok(())
-            } else {
-                Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    format!(
-                        "parameter `{program}.{}` has the wrong value type",
-                        parameter.name
-                    ),
-                    literal.span().clone(),
+            Ok(CheckedParameterValue::Literal(crate::source::Spanned::new(
+                super::parameter::from_literal(
+                    program,
+                    &parameter.name,
+                    &parameter.parameter_type,
+                    literal,
+                )?,
+                literal.span().clone(),
+            )))
+        }
+        DraftParameter::Reference(reference) => match local_types.get(&reference.value) {
+            Some(LocalType::Parameter(actual)) if actual == &parameter.parameter_type => {
+                Ok(CheckedParameterValue::Reference(
+                    *parameter_ids
+                        .get(&reference.value)
+                        .ok_or_else(|| missing_reference(&reference.value, &reference.span))?,
                 ))
             }
-        }
-        DraftParameter::Reference(reference) => match locals.get(&reference.value) {
-            Some(LocalType::Parameter(actual)) if actual == &parameter.parameter_type => Ok(()),
             Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
@@ -1313,6 +1252,18 @@ fn validate_parameter_argument(
             None => Err(missing_reference(&reference.value, &reference.span)),
         },
     }
+}
+
+fn resolved_value_type(
+    locals: &BTreeMap<String, LocalType>,
+    lexical: &BTreeMap<String, ValueType>,
+    name: &str,
+    span: &crate::source::SourceSpan,
+) -> Result<ValueType> {
+    lexical
+        .get(name)
+        .copied()
+        .map_or_else(|| value_local(locals, name, span), Ok)
 }
 
 fn infer_body_generic_type(
@@ -1411,13 +1362,7 @@ fn insert_local(
     Ok(())
 }
 
-fn ensure_local_types_resolved(
-    locals: &mut BTreeMap<String, LocalType>,
-    _unit: SourceUnitId,
-    _definitions: &[ProgramDefinition],
-    _builtins: &BTreeMap<String, ProgramId>,
-    _namespace: &BTreeMap<String, ProgramId>,
-) -> Result<()> {
+fn ensure_local_types_resolved(locals: &mut BTreeMap<String, LocalType>) -> Result<()> {
     struct Frame {
         name: String,
         dependencies: Vec<String>,
@@ -1596,20 +1541,6 @@ fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Res
         default,
     )?;
     Ok(())
-}
-
-fn literal_matches(parameter_type: &ParameterType, literal: &Literal) -> bool {
-    matches!(
-        (parameter_type, literal),
-        (ParameterType::Integer, Literal::Integer(_, _))
-            | (
-                ParameterType::File
-                    | ParameterType::Duration
-                    | ParameterType::TimeRange
-                    | ParameterType::Keyword(_),
-                Literal::String(_, _)
-            )
-    )
 }
 
 fn missing_reference(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {

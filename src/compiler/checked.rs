@@ -88,7 +88,7 @@ pub(super) struct CheckedItem {
 #[derive(Clone, Debug)]
 pub(super) enum CheckedItemKind {
     Reference {
-        target: Option<ReferenceTarget>,
+        target: ReferenceTarget,
     },
     Invocation {
         program: ProgramId,
