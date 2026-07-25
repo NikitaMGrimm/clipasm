@@ -2,7 +2,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
-    ParameterDescriptor, ParameterSlot, ParameterType, ProgramDefinition, ProgramDescriptor,
+    ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
     ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, ValueTypeSpec,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
@@ -75,8 +75,7 @@ fn generic_descriptor(
         semantic_version,
         default_stack_access: StackAccess::Visible,
         inputs,
-        parameters: vec![type_selector()],
-        type_selector: Some(ParameterSlot::new(0)),
+        parameters: vec![],
         outputs: vec![ValueTypeSpec::Generic],
     }
 }
@@ -86,14 +85,6 @@ fn generic_input(name: &str) -> InputPort {
         name: name.to_owned(),
         value_type: ValueTypeSpec::Generic,
         cardinality: Cardinality::One,
-    }
-}
-
-fn type_selector() -> ParameterDescriptor {
-    ParameterDescriptor {
-        name: "type".to_owned(),
-        parameter_type: ParameterType::Keyword(vec!["Video".to_owned(), "Audio".to_owned()]),
-        required: false,
     }
 }
 
@@ -109,7 +100,6 @@ fn descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters,
-        type_selector: None,
         outputs: vec![VIDEO.into()],
     }
 }

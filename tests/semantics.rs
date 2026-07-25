@@ -1003,8 +1003,8 @@ fn bare_concat_rejects_mixed_timeline_types() {
     );
     let error = compiler::compile(&workflow).expect_err("mixed concat must select a type");
     assert_eq!(error.code, "E_AMBIGUOUS_GENERIC_TYPE");
-    assert!(error.message.contains("type: Video"));
-    assert!(error.message.contains("type: Audio"));
+    assert!(error.message.contains("<Video>"));
+    assert!(error.message.contains("<Audio>"));
 }
 
 #[test]

@@ -55,6 +55,7 @@ impl Language {
             })?;
             let definition = programs.definition(id);
             if let Some(primary) = primary_parameter
+                && !(primary == "type" && definition.descriptor.is_generic())
                 && !definition
                     .descriptor
                     .parameters
@@ -161,7 +162,6 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters: vec![],
-                type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation: ProgramImplementation::Direct(direct),

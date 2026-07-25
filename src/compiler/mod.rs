@@ -428,6 +428,7 @@ mod tests {
                         items: vec![Item {
                             kind: ItemKind::Invocation(Invocation {
                                 program: Spanned::new("image".to_owned(), item_span.clone()),
+                                type_argument: None,
                                 stack_access: None,
                                 arguments,
                                 body: None,
@@ -458,6 +459,7 @@ mod tests {
         let invocation = |name: &str, arguments: &[(&str, &str)]| Item {
             kind: ItemKind::Invocation(Invocation {
                 program: Spanned::new(name.to_owned(), span.clone()),
+                type_argument: None,
                 stack_access: None,
                 arguments: arguments
                     .iter()

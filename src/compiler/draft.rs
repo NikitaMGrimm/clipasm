@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::model::ValueType;
 use crate::program::{
     Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess,
 };
@@ -58,6 +59,7 @@ pub(super) struct DraftInvocation {
     pub(super) name: Spanned<String>,
     pub(super) program: ProgramId,
     pub(super) access: StackAccess,
+    pub(super) type_argument: Option<Spanned<ValueType>>,
     pub(super) inputs: Vec<Option<DraftInput>>,
     pub(super) parameters: Vec<Option<DraftParameter>>,
     pub(super) body: Option<Box<DraftBody>>,
@@ -196,6 +198,15 @@ impl DraftInvocation {
             &source.program.span,
         )?;
         let definition = &definitions[program.index()];
+        if let Some(type_argument) = &source.type_argument
+            && !definition.descriptor.is_generic()
+        {
+            return Err(Diagnostic::new(
+                "E_UNEXPECTED_TYPE_ARGUMENT",
+                format!("program `{}` is not generic", source.program.value),
+                type_argument.span.clone(),
+            ));
+        }
         let access = source
             .stack_access
             .as_ref()
@@ -356,6 +367,7 @@ impl DraftInvocation {
             name: source.program.clone(),
             program,
             access,
+            type_argument: source.type_argument.clone(),
             inputs,
             parameters,
             body,

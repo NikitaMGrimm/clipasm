@@ -821,7 +821,6 @@ mod tests {
                 default_stack_access,
                 inputs,
                 parameters: vec![],
-                type_selector: None,
                 outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation,

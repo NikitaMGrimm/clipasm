@@ -8,6 +8,7 @@ use super::language::{
 };
 use super::raw::{RawKind, RawNode};
 use crate::diagnostic::{Diagnostic, Result};
+use crate::model::ValueType;
 use crate::program::{
     Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation, StackAccess,
 };
@@ -484,6 +485,7 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
         items.push(Item {
             kind: ItemKind::Invocation(Invocation {
                 program: Spanned::new("glue".to_owned(), span.clone()),
+                type_argument: None,
                 stack_access: Some(Spanned::new(StackAccess::Owned, span.clone())),
                 arguments: BTreeMap::new(),
                 body: Some(body),
@@ -494,6 +496,7 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
         items.push(Item {
             kind: ItemKind::Invocation(Invocation {
                 program: Spanned::new("drop".to_owned(), span.clone()),
+                type_argument: None,
                 stack_access: Some(Spanned::new(StackAccess::Owned, span.clone())),
                 arguments: BTreeMap::new(),
                 body: None,
@@ -538,6 +541,7 @@ fn parse_item(node: RawNode, language: &Language) -> Result<Item> {
                 Ok(Item {
                     kind: ItemKind::Invocation(Invocation {
                         program: Spanned::new(value, item_span.clone()),
+                        type_argument: None,
                         stack_access: None,
                         arguments: BTreeMap::new(),
                         body: None,
@@ -770,6 +774,7 @@ fn normalize_generic_invocation(
     }
     Ok(Invocation {
         program: Spanned::new(program, program_span),
+        type_argument: None,
         stack_access,
         arguments,
         body,
@@ -801,12 +806,15 @@ fn normalize_invocation(
     let mut arguments = BTreeMap::new();
     let mut body = None;
     let mut stack_access = None;
+    let mut type_argument = None;
     if is_empty_scalar(&value) {
         // Missing inputs are bound from the invocation's accessible stack suffix.
     } else if matches!(value.kind, RawKind::Mapping(_)) {
         for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
             if name == STACK_ACCESS_FIELD {
                 stack_access = Some(parse_stack_access(&value)?);
+            } else if name == "type" && definition.descriptor.is_generic() {
+                type_argument = Some(parse_type_argument(&value)?);
             } else if matches!(
                 definition.implementation,
                 ProgramImplementation::Body { .. }
@@ -838,14 +846,36 @@ fn normalize_invocation(
                 value.span,
             ));
         };
-        arguments.insert(primary.to_owned(), parse_argument_value(value, language)?);
+        if primary == "type" && definition.descriptor.is_generic() {
+            type_argument = Some(parse_type_argument(&value)?);
+        } else {
+            arguments.insert(primary.to_owned(), parse_argument_value(value, language)?);
+        }
     }
     Ok(Invocation {
         program: Spanned::new(program.clone(), program_span),
+        type_argument,
         stack_access,
         arguments,
         body,
     })
+}
+
+fn parse_type_argument(node: &RawNode) -> Result<Spanned<ValueType>> {
+    let span = node.span.clone();
+    let (value, _) = scalar(node, "`type`")?;
+    let value = match value {
+        "Video" => ValueType::Video,
+        "Audio" => ValueType::Audio,
+        _ => {
+            return Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_VALUE",
+                "`type` must be `Video` or `Audio`",
+                span,
+            ));
+        }
+    };
+    Ok(Spanned::new(value, span))
 }
 
 fn parse_stack_access(node: &RawNode) -> Result<Spanned<StackAccess>> {
@@ -1222,7 +1252,6 @@ mod tests {
                         parameter_type: ParameterType::File,
                         required: true,
                     }],
-                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Direct(lower_synthetic_source),
@@ -1234,7 +1263,6 @@ mod tests {
                     default_stack_access: StackAccess::Owned,
                     inputs: vec![],
                     parameters: vec![],
-                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body {
@@ -1259,7 +1287,6 @@ mod tests {
                         parameter_type: ParameterType::TimeRange,
                         required: true,
                     }],
-                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body {

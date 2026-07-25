@@ -13,12 +13,10 @@ use crate::program::{
     Cardinality, InputSlot, ProgramDefinition, ProgramImplementation, ResolvedSignature,
     StackAccess, ValueTypeSpec,
 };
-use crate::source::{Literal, OutputBindings, SourceSpan};
+use crate::source::{OutputBindings, SourceSpan};
 
 use super::check::LocalType;
-use super::draft::{
-    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, DraftProgram,
-};
+use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftProgram};
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
     StackFrame,
@@ -346,7 +344,7 @@ fn allocate_body_generics(
             DraftItemKind::Reference(_) => {}
             DraftItemKind::Invocation(invocation) => {
                 let definition = &definitions[invocation.program.index()];
-                if definition.descriptor.type_selector.is_some() {
+                if definition.descriptor.is_generic() {
                     generics[invocation.id.0] = Some(arena.allocate());
                 }
                 for input in invocation.inputs.iter().flatten() {
@@ -568,7 +566,7 @@ fn concrete_values(
 fn inference_dependency(span: &SourceSpan) -> Diagnostic {
     Diagnostic::new(
         "E_TYPE_INFERENCE_DEPENDENCY",
-        "generic type inference depends on an unresolved stack selection; add `type: Video` or `type: Audio`",
+        "generic type inference depends on an unresolved stack selection; add `<Video>` or `<Audio>`",
         span.clone(),
     )
 }
@@ -654,43 +652,10 @@ fn infer_invocation(
     let access = invocation.access;
 
     let generic = invocation_generics[invocation.id.0];
-    if let Some(variable) = generic {
-        let selector = definition
-            .descriptor
-            .type_selector
-            .expect("generic definition");
-        let selector_name = &definition.descriptor.parameter(selector).name;
-        if let Some(argument) = &invocation.parameters[selector.index()] {
-            let (selected, span) = match argument {
-                DraftParameter::Literal(Literal::String(value, span)) if value == "Video" => {
-                    (ValueType::Video, span)
-                }
-                DraftParameter::Literal(Literal::String(value, span)) if value == "Audio" => {
-                    (ValueType::Audio, span)
-                }
-                DraftParameter::Literal(literal) => {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_ARGUMENT_VALUE",
-                        format!(
-                            "parameter `{}.{selector_name}` must be `Video` or `Audio`",
-                            definition.descriptor.name
-                        ),
-                        literal.span().clone(),
-                    ));
-                }
-                DraftParameter::Reference(reference) => {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_ARGUMENT_VALUE",
-                        format!(
-                            "parameter `{}.{selector_name}` must be `Video` or `Audio`",
-                            definition.descriptor.name
-                        ),
-                        reference.span.clone(),
-                    ));
-                }
-            };
-            constrain(arena, variable, selected, span)?;
-        }
+    if let Some(variable) = generic
+        && let Some(argument) = &invocation.type_argument
+    {
+        constrain(arena, variable, argument.value, &argument.span)?;
     }
 
     let mut slots = vec![None; definition.descriptor.inputs.len()];
@@ -960,7 +925,7 @@ fn infer_generic_from_stack(
         return Err(Diagnostic::new(
             "E_AMBIGUOUS_GENERIC_TYPE",
             format!(
-                "program `{}` can bind both Video and Audio; set `type: Video` or `type: Audio`",
+                "program `{}` can bind both Video and Audio; use `<Video>` or `<Audio>`",
                 invocation.name.value
             ),
             invocation.name.span.clone(),

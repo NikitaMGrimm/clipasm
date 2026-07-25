@@ -182,7 +182,6 @@ fn authored_definition(
             default_stack_access: program.stack_access(),
             inputs: program.inputs().to_vec(),
             parameters,
-            type_selector: None,
             outputs: outputs.into_iter().map(Into::into).collect(),
         },
         implementation: ProgramImplementation::Authored(unit),
@@ -976,7 +975,7 @@ fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagno
     Diagnostic::new(
         "E_TYPE_INFERENCE_DEPENDENCY",
         format!(
-            "cannot infer the type of named value `${name}` from available constraints; add `type: Video` or `type: Audio`"
+            "cannot infer the type of named value `${name}` from available constraints; add `<Video>` or `<Audio>`"
         ),
         span.clone(),
     )

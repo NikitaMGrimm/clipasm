@@ -147,7 +147,6 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) default_stack_access: StackAccess,
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<ParameterDescriptor>,
-    pub(crate) type_selector: Option<ParameterSlot>,
     pub(crate) outputs: Vec<ValueTypeSpec>,
 }
 
@@ -155,11 +154,6 @@ impl ProgramDescriptor {
     #[must_use]
     pub(crate) fn input(&self, slot: InputSlot) -> &InputPort {
         &self.inputs[slot.index()]
-    }
-
-    #[must_use]
-    pub(crate) fn parameter(&self, slot: ParameterSlot) -> &ParameterDescriptor {
-        &self.parameters[slot.index()]
     }
 
     #[must_use]
@@ -176,6 +170,17 @@ impl ProgramDescriptor {
             .iter()
             .position(|parameter| parameter.name == name)
             .map(ParameterSlot::new)
+    }
+
+    #[must_use]
+    pub(crate) fn is_generic(&self) -> bool {
+        self.inputs
+            .iter()
+            .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            || self
+                .outputs
+                .iter()
+                .any(|output| matches!(output, ValueTypeSpec::Generic))
     }
 
     pub(crate) fn resolve_signature(&self, generic: Option<ValueType>) -> ResolvedSignature {
@@ -394,51 +399,6 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 return Err(collision_error(&descriptor.name, &parameter.name));
             }
         }
-        let has_generic = descriptor
-            .inputs
-            .iter()
-            .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
-            || descriptor
-                .outputs
-                .iter()
-                .any(|output| matches!(output, ValueTypeSpec::Generic));
-        match descriptor.type_selector {
-            Some(type_selector) => {
-                if !has_generic {
-                    return Err(definition_error(format!(
-                        "program `{}` declares a type parameter without generic inputs or outputs",
-                        descriptor.name
-                    )));
-                }
-                let Some(selector) = descriptor.parameters.get(type_selector.index()) else {
-                    return Err(definition_error(format!(
-                        "program `{}` names a nonexistent type selector slot {}",
-                        descriptor.name,
-                        type_selector.index()
-                    )));
-                };
-                if selector.required
-                    || !matches!(
-                        &selector.parameter_type,
-                        ParameterType::Keyword(values)
-                            if values == &["Video".to_owned(), "Audio".to_owned()]
-                    )
-                {
-                    return Err(definition_error(format!(
-                        "program `{}` type selector `{}` must be an optional Video/Audio Keyword",
-                        descriptor.name, selector.name
-                    )));
-                }
-            }
-            None if has_generic => {
-                return Err(definition_error(format!(
-                    "program `{}` uses generic value types without a type parameter",
-                    descriptor.name
-                )));
-            }
-            None => {}
-        }
-
         if let ProgramImplementation::Body { contract, .. } = &definition.implementation
             && matches!(
                 contract.outputs,
@@ -500,7 +460,6 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
-                type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation,

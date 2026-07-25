@@ -1,7 +1,7 @@
 use crate::diagnostic::Result;
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
-    Cardinality, InputPort, ParameterDescriptor, ParameterSlot, ParameterType, ProgramDefinition,
+    Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramImplementation, ProgramOutputs, StackAccess, ValueTypeSpec,
 };
 
@@ -28,7 +28,6 @@ pub(super) fn exact_descriptor(
         default_stack_access: StackAccess::Owned,
         inputs,
         parameters,
-        type_selector: None,
         outputs: vec![output.into()],
     }
 }
@@ -42,7 +41,6 @@ pub(super) fn generic_descriptor(
     parameters: Vec<ParameterDescriptor>,
     has_output: bool,
 ) -> ProgramDescriptor {
-    let type_selector = ParameterSlot::new(parameters.len() - 1);
     ProgramDescriptor {
         name: name.to_owned(),
         semantic_version,
@@ -53,7 +51,6 @@ pub(super) fn generic_descriptor(
             cardinality,
         }],
         parameters,
-        type_selector: Some(type_selector),
         outputs: has_output
             .then_some(ValueTypeSpec::Generic)
             .into_iter()
@@ -79,14 +76,6 @@ pub(super) fn parameter(
         parameter_type,
         required,
     }
-}
-
-pub(super) fn type_selector() -> ParameterDescriptor {
-    parameter(
-        "type",
-        ParameterType::Keyword(vec!["Video".to_owned(), "Audio".to_owned()]),
-        false,
-    )
 }
 
 pub(super) fn one_output(output: Result<ValueRef>) -> Result<ProgramOutputs> {

@@ -221,6 +221,7 @@ pub(crate) struct Reference {
 #[derive(Clone, Debug)]
 pub(crate) struct Invocation {
     pub(crate) program: Spanned<String>,
+    pub(crate) type_argument: Option<Spanned<crate::model::ValueType>>,
     pub(crate) stack_access: Option<Spanned<StackAccess>>,
     pub(crate) arguments: BTreeMap<String, ArgumentValue>,
     pub(crate) body: Option<ProgramBody>,

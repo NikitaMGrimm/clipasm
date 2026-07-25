@@ -324,7 +324,6 @@ mod tests {
                 parameter_type: ParameterType::Integer,
                 required: false,
             }],
-            type_selector: None,
             outputs: vec![ValueType::Video.into()],
         }
     }

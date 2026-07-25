@@ -4,7 +4,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
 
-use super::support::{direct, generic_descriptor, one_output, parameter, type_selector};
+use super::support::{direct, generic_descriptor, one_output, parameter};
 
 pub(super) fn concat() -> ProgramDefinition {
     direct(
@@ -13,7 +13,7 @@ pub(super) fn concat() -> ProgramDefinition {
             2,
             "values",
             Cardinality::Variadic { min: 1 },
-            vec![type_selector()],
+            vec![],
             true,
         ),
         lower_concat,
@@ -27,10 +27,7 @@ pub(super) fn repeat() -> ProgramDefinition {
             3,
             "value",
             Cardinality::One,
-            vec![
-                parameter("count", ParameterType::Integer, true),
-                type_selector(),
-            ],
+            vec![parameter("count", ParameterType::Integer, true)],
             true,
         ),
         lower_repeat,
@@ -44,10 +41,7 @@ pub(super) fn trim() -> ProgramDefinition {
             2,
             "value",
             Cardinality::One,
-            vec![
-                parameter("range", ParameterType::TimeRange, true),
-                type_selector(),
-            ],
+            vec![parameter("range", ParameterType::TimeRange, true)],
             true,
         ),
         lower_trim,
@@ -56,14 +50,7 @@ pub(super) fn trim() -> ProgramDefinition {
 
 pub(super) fn drop_value() -> ProgramDefinition {
     direct(
-        generic_descriptor(
-            "drop",
-            1,
-            "value",
-            Cardinality::One,
-            vec![type_selector()],
-            false,
-        ),
+        generic_descriptor("drop", 1, "value", Cardinality::One, vec![], false),
         lower_drop,
     )
 }
