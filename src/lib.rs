@@ -33,6 +33,7 @@ pub mod diagnostic;
 pub(crate) mod external;
 pub(crate) mod format;
 pub mod language;
+pub(crate) mod media_tool;
 pub mod model;
 pub mod preflight;
 pub(crate) mod program;

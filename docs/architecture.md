@@ -298,7 +298,12 @@ input to global output boundaries. See
 `render` verifies the prepared FFmpeg and FFprobe build identities and source
 hashes again, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
-exports one H.264/yuv420p MP4 with AAC when the result Video has audio. The
+exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
+FFmpeg/FFprobe metadata and capability output is captured with fixed limits,
+long-running commands retain only bounded diagnostic stderr, and exact Audio
+sample counts are consumed as a bounded line stream rather than one complete
+frame document. Media-tool execution has no fixed deadline because valid render
+time scales with the input and operation graph. The
 sibling render manifest has its own versioned schema and records only project
 media properties, semantic/result identity, tool version summaries, and cache
 statistics; it does not serialize the executable prepared plan or local paths.

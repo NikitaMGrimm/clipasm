@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::media_tool;
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedPlan};
 use crate::source::SourceSpan;
@@ -106,32 +107,7 @@ impl StagedArtifact {
 }
 
 pub(super) fn run_command(command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {
-    run_output(command, code, span).map(|_| ())
-}
-
-fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Result<Output> {
-    let debug = format!("{command:?}");
-    let output = command.output().map_err(|error| {
-        Diagnostic::new(
-            code,
-            format!("could not start external tool: {error}"),
-            span.clone(),
-        )
-        .note(debug.clone())
-    })?;
-    if !output.status.success() {
-        return Err(Diagnostic::new(
-            code,
-            format!(
-                "external tool exited with {}\n{}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            span.clone(),
-        )
-        .note(debug));
-    }
-    Ok(output)
+    media_tool::run(command, code, span)
 }
 
 #[cfg(test)]

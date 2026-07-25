@@ -4,14 +4,15 @@ pub(crate) use probe::decoded_audio_samples;
 pub(super) use probe::{verify_audio_decodable, verify_image_decodable, verify_video_decodable};
 
 use std::fs;
-use std::io::{self, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Command;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::media_tool::{self, CapturedOutput};
 use crate::source::SourceSpan;
 
 use super::REQUIRED_FFMPEG_FILTERS;
@@ -351,51 +352,14 @@ fn tool_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<St
         + &String::from_utf8_lossy(&output.stderr))
 }
 
-fn tool_command_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<Output> {
-    const START_ATTEMPTS: usize = 5;
-    let mut attempt = 0;
-    let output = loop {
-        attempt += 1;
-        match Command::new(tool).args(arguments).output() {
-            Ok(output) => break Ok(output),
-            Err(error) if executable_is_temporarily_busy(&error) && attempt < START_ATTEMPTS => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            Err(error) => break Err(error),
-        }
-    }
-    .map_err(|error| {
-        Diagnostic::new(
-            code,
-            format!("could not start `{}`: {error}", tool.display()),
-            SourceSpan::file_start(tool),
-        )
-    })?;
-    if !output.status.success() {
-        return Err(Diagnostic::new(
-            code,
-            format!(
-                "`{}` exited with {}\n{}",
-                tool.display(),
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            SourceSpan::file_start(tool),
-        ));
-    }
-    Ok(output)
-}
-
-fn executable_is_temporarily_busy(error: &io::Error) -> bool {
-    #[cfg(unix)]
-    {
-        error.raw_os_error() == Some(26)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = error;
-        false
-    }
+fn tool_command_output(
+    tool: &Path,
+    arguments: &[&str],
+    code: &'static str,
+) -> Result<CapturedOutput> {
+    let mut command = Command::new(tool);
+    command.args(arguments);
+    media_tool::capture(command, code, &SourceSpan::file_start(tool))
 }
 
 #[cfg(test)]

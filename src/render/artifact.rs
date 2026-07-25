@@ -1,11 +1,12 @@
 #![allow(clippy::trivially_copy_pass_by_ref)]
 
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Command;
 
 use serde::Deserialize;
 
 use crate::diagnostic::{Diagnostic, Result};
+use crate::media_tool;
 use crate::model::{AudioDomain, AudioSpec, TimelineRate, VideoDomain};
 use crate::preflight::tools::decoded_audio_samples;
 use crate::preflight::{PreparedNode, PreparedNodeMedia};
@@ -59,7 +60,7 @@ fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
             "json",
         ])
         .arg(path);
-    let output = run_output(command, "E_FFPROBE", &SourceSpan::file_start(path))?;
+    let output = media_tool::capture(command, "E_FFPROBE", &SourceSpan::file_start(path))?;
     serde_json::from_slice(&output.stdout).map_err(|error| {
         Diagnostic::new(
             "E_ARTIFACT_CONTRACT",
@@ -267,29 +268,4 @@ fn contract_error(path: &Path, message: &str) -> Diagnostic {
         ),
         SourceSpan::file_start(path),
     )
-}
-
-fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Result<Output> {
-    let debug = format!("{command:?}");
-    let output = command.output().map_err(|error| {
-        Diagnostic::new(
-            code,
-            format!("could not start external tool: {error}"),
-            span.clone(),
-        )
-        .note(debug.clone())
-    })?;
-    if !output.status.success() {
-        return Err(Diagnostic::new(
-            code,
-            format!(
-                "external tool exited with {}\n{}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            span.clone(),
-        )
-        .note(debug));
-    }
-    Ok(output)
 }
