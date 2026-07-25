@@ -8,6 +8,7 @@
 //! transaction.
 
 mod artifact;
+mod lock;
 mod publication;
 
 use std::collections::BTreeMap;
@@ -31,6 +32,7 @@ use crate::preflight::{
 };
 use crate::source::SourceSpan;
 use artifact::{verify_prepared_artifact, verify_video_artifact};
+use lock::{FileLock, sibling_lock_path};
 use publication::PublicationTransaction;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -140,6 +142,13 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 verify_external_tool(executable, &node.origin().span)?;
             }
         }
+        let lock_path = sibling_lock_path(&artifact, "cache");
+        let _lock = FileLock::acquire(
+            &lock_path,
+            "E_CACHE_LOCK",
+            "cache artifact",
+            &node.origin().span,
+        )?;
         let hit = artifact.is_file()
             && verify_prepared_artifact(
                 plan.ffprobe().executable(),
@@ -208,6 +217,13 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         })?;
     }
 
+    let publication_lock_path = sibling_lock_path(plan.output(), "publication");
+    let _publication_lock = FileLock::acquire(
+        &publication_lock_path,
+        "E_PUBLICATION_LOCK",
+        "publication",
+        &SourceSpan::file_start(plan.output()),
+    )?;
     let publication = PublicationTransaction::new(plan.output(), plan.manifest());
     stage_export(
         result_artifact,

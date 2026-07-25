@@ -19,7 +19,7 @@ Current features:
 
 ## Requirements
 
-- Rust 1.88 or newer
+- Rust 1.89 or newer
 - FFmpeg and FFprobe on `PATH` for rendering
 
 Compilation and validation do not open media files or invoke external tools.
