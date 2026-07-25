@@ -219,7 +219,7 @@ fn check_program(
     }
     collect_body_names(&draft.body, &mut local_types, definitions)?;
     validate_local_dependencies(&local_types)?;
-    let inference = super::infer::resolve_program_types(&draft, &mut local_types, definitions)?;
+    let inference = super::typecheck::resolve_program_types(&draft, &mut local_types, definitions)?;
     ensure_local_types_resolved(&local_types)?;
 
     let bindings = prepare_program_bindings(program, &draft, &local_types)?;
@@ -567,7 +567,7 @@ fn materialize_body(
     lexical_ids: &BTreeMap<String, BodyInputId>,
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
-    invocations: &[super::infer::ResolvedInvocation],
+    invocations: &[super::typecheck::ResolvedInvocation],
 ) -> Result<CheckedBody> {
     let mut checked_items = Vec::with_capacity(body.items.len());
     for item in &body.items {
@@ -699,7 +699,7 @@ fn materialize_explicit_arguments(
     lexical_ids: &BTreeMap<String, BodyInputId>,
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
-    invocations: &[super::infer::ResolvedInvocation],
+    invocations: &[super::typecheck::ResolvedInvocation],
 ) -> Result<MaterializedArguments> {
     let inputs = invocation
         .inputs
@@ -756,7 +756,7 @@ fn materialize_input_argument(
     lexical_ids: &BTreeMap<String, BodyInputId>,
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
-    invocations: &[super::infer::ResolvedInvocation],
+    invocations: &[super::typecheck::ResolvedInvocation],
 ) -> Result<CheckedInputValue> {
     match argument {
         DraftInput::Reference(reference) => Ok(CheckedInputValue::References(

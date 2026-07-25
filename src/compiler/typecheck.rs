@@ -1,3 +1,10 @@
+//! Monotonic type and stack resolution for authored programs.
+//!
+//! One recursive resolver owns selectors, explicit inputs, stack plans, body
+//! contracts, and ordered output types. Exploratory passes narrow stable type
+//! variables; the final pass records the concrete invocation decisions consumed
+//! by checked-source materialization.
+
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};

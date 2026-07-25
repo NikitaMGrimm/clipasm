@@ -11,11 +11,11 @@ mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod ids;
-mod infer;
 mod parameter;
 mod resolve;
 mod stack;
 pub(crate) mod traversal;
+mod typecheck;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
