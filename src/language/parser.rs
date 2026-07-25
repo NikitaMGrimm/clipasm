@@ -767,6 +767,26 @@ mod tests {
     }
 
     #[test]
+    fn indentation_is_ignored_but_newlines_separate_statements() {
+        let compact = parse_text("clipasm 1\nclip { image(\"card.png\", 1s) } as card\n$card\n");
+        assert_eq!(compact.statements.len(), 2);
+
+        let irregular =
+            parse_text("clipasm 1\n\tclip {\nimage(\"card.png\", 1s)\n        zoom(8)\n}\n");
+        let Expression::Invocation(clip) = &irregular.statements[0].expression else {
+            panic!("clip invocation");
+        };
+        assert_eq!(clip.body.as_ref().expect("clip body").statements.len(), 2);
+
+        let error = parse(SourceFile::new(
+            "test.clipasm",
+            "clipasm 1\nclip { image(\"card.png\", 1s) zoom(8) }\n",
+        ))
+        .expect_err("two statements require a newline");
+        assert_eq!(error.code, "E_EXPECTED_STATEMENT_END");
+    }
+
+    #[test]
     fn parses_file_declarations_before_execution() {
         let syntax = parse_text(
             "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal \"programs/brighten.json\" as brighten\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n\n$source\n",
