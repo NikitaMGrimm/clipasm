@@ -720,17 +720,12 @@ fn collision_error(program: &str, name: &str) -> Diagnostic {
 }
 
 fn validate_definition_name(role: &str, name: &str) -> Result<()> {
-    let mut characters = name.chars();
-    let valid_start = characters
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
-    let valid_rest = characters
-        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
-    if valid_start && valid_rest {
+    if crate::source::is_valid_public_name(name) {
         Ok(())
     } else {
         Err(definition_error(format!(
-            "{role} name `{name}` must match [A-Za-z_][A-Za-z0-9_-]*"
+            "{role} name `{name}` must match {}",
+            crate::source::PUBLIC_NAME_GRAMMAR
         )))
     }
 }

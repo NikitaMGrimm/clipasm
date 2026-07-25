@@ -5,6 +5,7 @@
 //! frontend demonstrates the shape of a stable external builder API.
 
 mod location;
+mod name;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -15,6 +16,7 @@ use crate::program::{InputPort, ParameterType, StackAccess};
 
 pub(crate) use location::Spanned;
 pub use location::{SourceFile, SourceSpan};
+pub(crate) use name::{PUBLIC_NAME_GRAMMAR, is_valid_public_name};
 
 pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
 

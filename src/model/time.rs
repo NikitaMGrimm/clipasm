@@ -99,7 +99,6 @@ impl FrameRange {
     /// Construct a nonempty closed-open frame range.
     ///
     /// Returns `None` when `start` is not earlier than `end`.
-    /// Construct a nonempty closed-open sample range.
     #[must_use]
     pub const fn new(start: u64, end: u64) -> Option<Self> {
         if start < end {

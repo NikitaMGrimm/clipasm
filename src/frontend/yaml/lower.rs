@@ -935,16 +935,13 @@ fn parse_reference(text: &str, span: &SourceSpan) -> Result<String> {
 /// Returns `E_INVALID_NAME` when `name` does not match the public identifier
 /// grammar.
 fn validate_name(name: &str, span: &SourceSpan) -> Result<()> {
-    let mut chars = name.chars();
-    let valid_start = chars
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_');
-    let valid_rest =
-        chars.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'));
-    if !valid_start || !valid_rest {
+    if !crate::source::is_valid_public_name(name) {
         return Err(Diagnostic::new(
             "E_INVALID_NAME",
-            format!("`{name}` is not a valid name; use [A-Za-z_][A-Za-z0-9_-]*"),
+            format!(
+                "`{name}` is not a valid name; use {}",
+                crate::source::PUBLIC_NAME_GRAMMAR
+            ),
             span.clone(),
         ));
     }
