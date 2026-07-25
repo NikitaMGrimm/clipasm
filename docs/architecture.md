@@ -41,18 +41,20 @@ needs.
 
 Before evaluation, the compiler links each source unit's local program
 namespace and checks every authored program in import dependency order,
-including programs the root never invokes. This pass resolves program IDs,
-effective stack access, argument and body contracts, named-value types, and
-ordered output types into self-contained compiler-owned checked source.
-Structural collection assigns compact type variables to graph-valued locals
-and generic invocations before source-order
+including programs the root never invokes. Canonical bodies first become a
+compiler-owned resolved draft that records program IDs, effective stack access,
+descriptor-ordered input and parameter roles, and validated body presence once.
+Declaration collection, dependency discovery, generic inference, and concrete
+checking all consume that draft. Structural collection assigns compact type
+variables to graph-valued locals and generic invocations before source-order
 inference. Monotonic inference connects selectors, explicit inputs, body
 contracts, normal stack binding, generic outputs, and any names attached to
 those outputs. Stack choices that depend on unresolved forward types are
 retried after later constraints make progress. Forward references therefore
 participate in the same inference path as ordinary stack values, while
 dependency cycles remain explicit errors.
-Imported definitions and built-ins then share one runtime catalog.
+The result becomes self-contained checked source. Imported definitions and
+built-ins share one runtime catalog.
 
 Checked-source construction resolves graph and scalar references to compact
 local identities, parses scalar literals, orders explicit inputs by descriptor,

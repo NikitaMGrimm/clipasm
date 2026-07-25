@@ -32,7 +32,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Change | Primary code | Required review |
 |---|---|---|
 | Change canonical source semantics | `src/source`, compiler | every frontend, source-body contracts, [architecture](../architecture.md), semantic identity |
-| Change checked-source construction | `src/compiler/check.rs`, `src/compiler/checked.rs` | linked-program validation, output inference, evaluator interface, every frontend through canonical source |
+| Change checked-source construction | `src/compiler/draft.rs`, `src/compiler/check.rs`, `src/compiler/checked.rs` | linked-program validation, argument roles, output inference, evaluator interface, every frontend through canonical source |
 | Change YAML source-program or header syntax | `src/frontend/yaml` | canonical lowering, examples, [YAML frontend reference](../workflow-reference.md), [ADR 0005](../adr/0005-treat-source-files-as-programs.md) |
 | Change inline input syntax or evaluation | frontend, `src/compiler/bind.rs`, `src/compiler/evaluate.rs` | descriptor-order binding, isolated-stack tests, requested-frame inheritance, global IDs and dependencies |
 | Add a direct program | `src/program/builtins/direct.rs`, registry | normalization, binding, domains, [YAML frontend reference](../workflow-reference.md), semantic version |
