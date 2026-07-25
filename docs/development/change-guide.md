@@ -18,7 +18,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | `src/source` | Canonical authored programs, entrypoints, and source-unit context |
 | `src/frontend/yaml` | Restricted YAML parsing, surface invariants, and desugaring |
 | `src/program` | Definitions, typed calls, lowerers, and body lifecycles |
-| `src/semantic.rs` | Semantic operations and constrained graph builder |
+| `src/semantic` | Structurally typed semantic operations and constrained graph builder |
 | `src/compiler` | Checked-source construction, binding, stack evaluation, references, domains, and hashes |
 | `src/format` | Explicit downstream serialized document formats |
 | `src/preflight` | Assets, tools, exact typed domains, and prepared Video/Audio primitives |
@@ -36,18 +36,18 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Change checked-source construction | `src/compiler/draft.rs`, `src/compiler/typecheck.rs`, `src/compiler/check.rs`, `src/compiler/checked.rs` | declaration dependencies, signatures, stack plans, evaluator interface, every frontend through canonical source |
 | Change YAML source-program or header syntax | `src/frontend/yaml` | canonical lowering, examples, [YAML frontend reference](../workflow-reference.md), [ADR 0005](../adr/0005-treat-source-files-as-programs.md) |
 | Change inline input syntax or evaluation | frontend, `src/compiler/typecheck.rs`, `src/compiler/check.rs`, `src/compiler/evaluate.rs` | descriptor-order resolution, isolated-stack tests, requested-frame inheritance, global IDs and dependencies |
-| Add a direct program | `src/program/builtins/direct.rs`, registry | normalization, binding, domains, [YAML frontend reference](../workflow-reference.md), semantic version |
+| Add a direct program | matching family under `src/program/builtins`, registry | YAML shorthand, semantic operation, domains, prepared lowering, rendering, identities, [YAML frontend reference](../workflow-reference.md), semantic version, [ADR 0014](../adr/0014-keep-native-operations-phase-owned.md) |
 | Add a body program | `src/program/builtins/body.rs`, registry | body syntax, stack contract, finalizer tests, [YAML frontend reference](../workflow-reference.md) |
 | Change an existing program | its definition and lowerer/finalizer | semantic version, domain tests, [YAML frontend reference](../workflow-reference.md), hashes |
 | Change YAML syntax | `src/frontend/yaml` | canonical-source tests, compiler contracts, examples, [YAML frontend reference](../workflow-reference.md) |
 | Add a frontend | `src/frontend`, `src/source` | canonical equivalence tests, source locations, relative paths, CLI selection |
 | Change compiled JSON | `src/format/json.rs` | format version, compiler contracts, [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md) |
 | Change call or stack binding | `src/program/call.rs`, `src/program/mod.rs`, `src/compiler/typecheck.rs`, `src/compiler/stack.rs`, `src/compiler/check.rs`, `src/compiler/evaluate.rs`, `src/compiler/entrypoint.rs` | descriptor-slot alignment, resolved input cardinality, root and authored bindings, body-port IDs, external protocol naming, stack diagnostics |
-| Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
+| Add a semantic operation | `src/semantic/operation.rs`, builder | result type, canonical dependency order, `src/compiler/domain.rs`, compiled JSON/identity, prepared lowering/model/identity, renderer dispatch, [ADR 0014](../adr/0014-keep-native-operations-phase-owned.md) |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
 | Change media formats or frame/sample mapping | `src/model`, `src/preflight`, `src/render` | positive format invariants, [ADR 0013](../adr/0013-map-frame-and-sample-boundaries.md), cumulative boundary tests, serialized domain shape, execution/cache identity |
-| Change prepared primitive or rendering | `src/preflight/mod.rs`, `src/preflight/lower.rs`, `src/preflight/identity.rs`, `src/render` | Video/Audio variant invariants, serialized prepared shape, semantic/cache identity, FFmpeg requirements, render integration |
+| Change prepared primitive or rendering | `src/preflight/plan.rs`, matching `src/preflight/lower` family, `src/preflight/identity.rs`, matching `src/render/execute` family | Video/Audio variant invariants, canonical input order, exhaustive dispatch, serialized prepared shape, semantic/cache identity, FFmpeg requirements, render integration, [ADR 0014](../adr/0014-keep-native-operations-phase-owned.md) |
 | Change CLI behavior | `src/cli.rs`, library boundary | CLI tests, `README.md`, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change terminology | `CONTEXT.md` first | [YAML frontend reference](../workflow-reference.md), architecture, diagnostics, code names |

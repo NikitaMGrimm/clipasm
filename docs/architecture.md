@@ -178,14 +178,26 @@ Registered programs are:
 - body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
-inherits the active program's semantic version and origin. Adding a program
-does not require parser or evaluator program-name control flow.
+inherits the active program's semantic version and origin. Built-in declarations
+are grouped by responsibility under `program::builtins`: media sources, explicit
+Audio adaptations, generic timeline operations, visual effects, transitions,
+and body programs. Small programs share a family module; a substantial program
+may use a focused module within its phase. Adding a program does not require
+parser or evaluator program-name control flow.
+
+Semantic operations are structurally typed: each variant owns its result type
+and canonical dependency order. Traversal, named-reference discovery, and
+compiled fingerprinting consume that dependency authority rather than
+reconstructing topology independently. Pure Video domain inference is a
+separate compiler owner from final graph assembly.
 
 Exhaustive matches over the closed semantic-operation and prepared-primitive
-enums are healthy: each owner must handle every supported operation. Branching
+enums are healthy: each phase keeps one dispatcher that must handle every
+supported operation. Operation-specific work may live in family modules, but a
+native operation is not a dynamically registered cross-phase plugin. Branching
 on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
-implementations.
+implementations. See [ADR 0014](adr/0014-keep-native-operations-phase-owned.md).
 
 The YAML `program` header is frontend syntax, not a registered invocation.
 The evaluator treats its body uniformly without granting any registered
@@ -232,13 +244,20 @@ identity.
   renderer primitives
 - assigns content fingerprints and an execution namespace
 
-The prepared plan represents Video and Audio nodes as separate structural
-variants. A Video variant always carries a Video primitive, exact frame domain,
-and attached-audio state; an Audio variant always carries an Audio primitive and
-exact sample domain. Wrong-media operations and missing domains are therefore not
-representable in a prepared node. The serialized prepared-plan adapter preserves
+The prepared-plan model is separate from preflight orchestration. It represents
+Video and Audio nodes as separate structural variants. A Video variant always
+carries a Video primitive, exact frame domain, and attached-audio state; an
+Audio variant always carries an Audio primitive and exact sample domain. Wrong-
+media operations and missing domains are therefore not representable in a
+prepared node. Each prepared variant owns its canonical input order, which
+prepared fingerprinting reuses. The serialized prepared-plan adapter preserves
 the existing `kind`, `value_type`, `domain`, `audio_domain`, and `has_audio`
 fields.
+
+Preflight keeps one exhaustive semantic-operation dispatcher. Media, timeline,
+effect, transition, and external modules implement the individual preparation
+rules while shared graph lookup, exact-domain access, node construction, and
+fingerprinting remain centralized.
 
 Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
 one lossless normalized audio stream, using silence for semantically silent
@@ -261,16 +280,19 @@ segmentation cannot accumulate audio drift. See
 hashes again, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
 exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
-Cache and publication orchestration remain in `render`, while one concrete
-executor owns the exhaustive prepared-primitive match, FFmpeg filters and
-commands, external-process requests, cumulative frame/sample boundary
-allocation, working-artifact replacement, and final MP4 staging. Video joins
-normalize each child audio stream to its cumulative allocation before concat.
-Fractional Video repeats remain compact and timestamp repeated audio segments at
-cumulative boundaries so FFmpeg distributes unavoidable sample corrections
-through the timeline. Artifact verification, locking, and rollback-capable
-publication remain separate deep modules; there is no generic process runner or
-renderer backend interface.
+Cache and publication orchestration remain in `render`. The native executor
+keeps one exhaustive prepared-primitive dispatcher and delegates media, Audio,
+timeline, effect, transition, external-process, and export work to focused
+modules. One shared render context owns FFmpeg command initialization, upstream
+artifact lookup, temporary output naming, failure cleanup, and atomic cache
+replacement, so operation modules cannot diverge on execution lifecycle.
+
+Video joins normalize each child audio stream to its cumulative allocation
+before concat. Fractional Video repeats remain compact and timestamp repeated
+audio segments at cumulative boundaries so FFmpeg distributes unavoidable
+sample corrections through the timeline. Artifact verification, locking, and
+rollback-capable publication remain separate deep modules; there is no generic
+process runner, operation trait hierarchy, or renderer backend interface.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

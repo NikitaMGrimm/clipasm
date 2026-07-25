@@ -24,6 +24,7 @@
 - [Add type-preserving timeline programs](adr/0011-add-type-preserving-timeline-programs.md)
 - [Run registered external programs](adr/0012-run-external-programs.md)
 - [Map frame and sample boundaries cumulatively](adr/0013-map-frame-and-sample-boundaries.md)
+- [Keep native operations closed and phase-owned](adr/0014-keep-native-operations-phase-owned.md)
 
 # Development
 
