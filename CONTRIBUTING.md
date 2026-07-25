@@ -32,6 +32,15 @@ Use Conventional Commits for commit messages, for example `feat: add trim progra
 ./scripts/check.sh
 ```
 
+## Releases
+
+A release tag must exactly match `v` followed by the version in `Cargo.toml`. The
+tag workflow reruns the full repository check, dependency policy, and Cargo
+publish dry run before building native Linux x64, macOS arm64, and Windows x64
+archives. Each archive includes a SHA-256 checksum. The GitHub release is created
+only after every build succeeds. Publishing to crates.io remains a separate
+manual decision.
+
 ## Examples and fixtures
 
 Keep committed examples small, readable, and representative of the public language.
