@@ -14,6 +14,7 @@ use super::{DraftNode, SemanticNodeKind, SourceOrigin, SymbolId};
 pub(crate) struct GraphBuilder<'a> {
     nodes: &'a mut Vec<DraftNode>,
     video: &'a VideoSpec,
+    audio: AudioSpec,
     semantic_version: u32,
     origin: SourceOrigin,
 }
@@ -22,12 +23,14 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn for_program(
         nodes: &'a mut Vec<DraftNode>,
         video: &'a VideoSpec,
+        audio: AudioSpec,
         semantic_version: u32,
         origin: SourceOrigin,
     ) -> Self {
         Self {
             nodes,
             video,
+            audio,
             semantic_version,
             origin,
         }
@@ -42,6 +45,7 @@ impl<'a> GraphBuilder<'a> {
         GraphBuilder {
             nodes: &mut *self.nodes,
             video: self.video,
+            audio: self.audio,
             semantic_version: self.semantic_version,
             origin: SourceOrigin::new(self.origin.construct.clone(), span),
         }
@@ -246,8 +250,7 @@ impl<'a> GraphBuilder<'a> {
                 self.slice(input, range)
             }
             ValueType::Audio => {
-                let range =
-                    range.to_samples(AudioSpec::default().sample_rate(), &self.origin.span)?;
+                let range = range.to_samples(self.audio.sample_rate(), &self.origin.span)?;
                 self.push(SemanticNodeKind::AudioSlice { input, range })
             }
         }
@@ -336,9 +339,15 @@ mod tests {
     fn builder_propagates_version_and_owner() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        GraphBuilder::for_program(&mut nodes, &video, 7, origin("image", 2))
-            .image_video("card.png".into(), FrameCount(1), ImageFit::Cover)
-            .expect("image");
+        GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            7,
+            origin("image", 2),
+        )
+        .image_video("card.png".into(), FrameCount(1), ImageFit::Cover)
+        .expect("image");
 
         assert_eq!(nodes[0].semantic_version(), 7);
         assert_eq!(nodes[0].origin().construct, "image");
@@ -349,7 +358,13 @@ mod tests {
     fn derived_span_does_not_mutate_parent_builder() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 3, origin("during", 4));
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            3,
+            origin("during", 4),
+        );
         let source = builder
             .image_video("base.png".into(), FrameCount(2), ImageFit::Cover)
             .expect("source");
@@ -373,7 +388,13 @@ mod tests {
     fn single_concat_aliases_without_adding_a_node() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin("concat", 1));
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin("concat", 1),
+        );
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
             .expect("source");
@@ -387,7 +408,13 @@ mod tests {
     fn repeat_one_aliases_and_larger_counts_stay_compact() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 2, origin("repeat", 1));
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            2,
+            origin("repeat", 1),
+        );
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
             .expect("source");
@@ -411,7 +438,13 @@ mod tests {
     fn concat_errors_use_the_scoped_owner() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin("join", 6));
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin("join", 6),
+        );
 
         let empty = builder.concat(Vec::new()).expect_err("empty concat");
         assert_eq!(empty.code, "E_EMPTY_CONCAT");

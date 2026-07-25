@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
-    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
+    ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
+    ProgramBody, ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
     STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImplementation, SourceFile, SourceImport,
     SourceInput, SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation,
     SourceUnit, SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
@@ -213,20 +213,39 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
                         config.span,
                     ));
                 }
-                if let Some(video) = config.video {
-                    let settings = VideoSettings {
-                        width: video
-                            .width
-                            .map(|value| parse_u32(value, "width"))
-                            .transpose()?,
-                        height: video
-                            .height
-                            .map(|value| parse_u32(value, "height"))
-                            .transpose()?,
-                        fps: video.fps,
-                    };
+                let video = config
+                    .video
+                    .map(|video| {
+                        Ok::<_, Diagnostic>(VideoSettings {
+                            width: video
+                                .width
+                                .map(|value| parse_u32(value, "width"))
+                                .transpose()?,
+                            height: video
+                                .height
+                                .map(|value| parse_u32(value, "height"))
+                                .transpose()?,
+                            fps: video.fps,
+                        })
+                    })
+                    .transpose()?;
+                let audio = config
+                    .audio
+                    .map(|audio| {
+                        Ok::<_, Diagnostic>(AudioSettings {
+                            sample_rate: audio
+                                .sample_rate
+                                .map(|value| parse_u32(value, "sample_rate"))
+                                .transpose()?,
+                        })
+                    })
+                    .transpose()?;
+                if video.is_some() || audio.is_some() {
                     project = Some(Spanned::new(
-                        ProjectSettings { video: settings },
+                        ProjectSettings {
+                            video: video.unwrap_or_default(),
+                            audio: audio.unwrap_or_default(),
+                        },
                         config.span.clone(),
                     ));
                 }

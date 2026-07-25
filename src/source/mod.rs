@@ -180,6 +180,7 @@ pub(crate) struct SourceParameter {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ProjectSettings {
     pub(crate) video: VideoSettings,
+    pub(crate) audio: AudioSettings,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -187,6 +188,11 @@ pub(crate) struct VideoSettings {
     pub(crate) width: Option<Spanned<u32>>,
     pub(crate) height: Option<Spanned<u32>>,
     pub(crate) fps: Option<Spanned<String>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AudioSettings {
+    pub(crate) sample_rate: Option<Spanned<u32>>,
 }
 
 #[derive(Clone, Debug)]

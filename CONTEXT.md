@@ -135,8 +135,8 @@ direct adaptation.
 
 A full-duration video source is quantized to the smallest integral project frame
 count that covers its complete source interval. Audio domains use exact sample
-counts at the canonical 48 kHz stereo project format; frame/sample conversion
-also uses checked coverage rounding.
+counts at the configured stereo project sample rate, which defaults to 48 kHz;
+frame/sample conversion also uses checked coverage rounding.
 
 ## Names, references, and dependencies
 

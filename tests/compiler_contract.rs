@@ -416,6 +416,39 @@ fn compiler_owns_positive_project_dimension_validation() {
 }
 
 #[test]
+fn project_audio_sample_rate_controls_audio_timeline_semantics() {
+    let compiled = compile_source(
+        Path::new("audio-rate.clipasm"),
+        "clipasm 1\nconfig { audio { sample_rate = 44100 } }\naudio(\"missing.wav\")\ntrim(0s..1s)\n",
+    )
+    .expect("configured audio sample rate");
+
+    assert_eq!(compiled.audio().sample_rate(), 44_100);
+    let document: serde_json::Value =
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))
+            .expect("compiled document");
+    let slice = document["nodes"]
+        .as_array()
+        .expect("compiled nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "audio_slice")
+        .expect("audio slice");
+    assert_eq!(slice["kind"]["range"]["start"], 0);
+    assert_eq!(slice["kind"]["range"]["end"], 44_100);
+}
+
+#[test]
+fn project_audio_sample_rate_must_be_positive() {
+    let error = compile_source(
+        Path::new("invalid-audio-rate.clipasm"),
+        "clipasm 1\nconfig { audio { sample_rate = 0 } }\n",
+    )
+    .expect_err("zero sample rate");
+
+    assert_eq!(error.code, "E_INVALID_AUDIO_SPEC");
+}
+
+#[test]
 fn root_audio_inputs_use_the_native_audio_source_adapter() {
     let package = clipasm::language::parse_str(
         Path::new("audio-root.clipasm"),

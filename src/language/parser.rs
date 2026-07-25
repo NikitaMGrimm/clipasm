@@ -5,9 +5,9 @@ use crate::source::{SourceFile, SourceSpan, Spanned};
 
 use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
-    Argument, Block, ConfigDeclaration, Declaration, Expression, ExternalDeclaration,
-    InputDeclaration, Invocation, OutputBindings, ParameterDeclaration, PathDeclaration, Scalar,
-    SourceFileSyntax, Statement, VideoConfigDeclaration,
+    Argument, AudioConfigDeclaration, Block, ConfigDeclaration, Declaration, Expression,
+    ExternalDeclaration, InputDeclaration, Invocation, OutputBindings, ParameterDeclaration,
+    PathDeclaration, Scalar, SourceFileSyntax, Statement, VideoConfigDeclaration,
 };
 
 pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
@@ -120,6 +120,7 @@ impl Parser {
         self.skip_newlines();
 
         let mut video = None;
+        let mut audio = None;
         let mut output = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
@@ -136,6 +137,12 @@ impl Parser {
                         return Err(duplicate_declaration_field("config", "video", field.span));
                     }
                     video = Some(self.parse_video_config(field.span)?);
+                }
+                "audio" => {
+                    if audio.is_some() {
+                        return Err(duplicate_declaration_field("config", "audio", field.span));
+                    }
+                    audio = Some(self.parse_audio_config(field.span)?);
                 }
                 "output" => {
                     if output.is_some() {
@@ -157,6 +164,7 @@ impl Parser {
         self.advance();
         Ok(ConfigDeclaration {
             video,
+            audio,
             output,
             span,
         })
@@ -207,6 +215,44 @@ impl Parser {
             fps,
             span,
         })
+    }
+
+    fn parse_audio_config(&mut self, span: SourceSpan) -> Result<AudioConfigDeclaration> {
+        self.expect(&TokenKind::LeftBrace, "`{` after `audio`")?;
+        self.skip_newlines();
+        let mut sample_rate = None;
+        while !self.at(&TokenKind::RightBrace) {
+            if self.at(&TokenKind::End) {
+                return Err(Diagnostic::new(
+                    "E_UNTERMINATED_CONFIG",
+                    "audio config block is missing its closing `}`",
+                    span,
+                ));
+            }
+            let field = self.expect_identifier("an audio config field")?;
+            self.expect(&TokenKind::Equal, "`=` after the audio config field")?;
+            let value = self.expect_scalar_text("an audio config value")?;
+            let target = match field.value.as_str() {
+                "sample_rate" => &mut sample_rate,
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_AUDIO_FIELD",
+                        format!("unknown audio config field `{}`", field.value),
+                        field.span,
+                    ));
+                }
+            };
+            if target.replace(value).is_some() {
+                return Err(duplicate_declaration_field(
+                    "audio config",
+                    &field.value,
+                    field.span,
+                ));
+            }
+            self.expect_statement_end("audio config field")?;
+        }
+        self.advance();
+        Ok(AudioConfigDeclaration { sample_rate, span })
     }
 
     fn parse_path_declaration(&mut self, keyword: &str) -> Result<PathDeclaration> {
@@ -932,7 +978,7 @@ mod tests {
     #[test]
     fn parses_file_declarations_before_execution() {
         let syntax = parse_text(
-            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal {\n  command = \"./brighten.py\"\n  semantic_version = 1\n  preserve = source\n}\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n",
+            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  audio {\n    sample_rate = 44100\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal {\n  command = \"./brighten.py\"\n  semantic_version = 1\n  preserve = source\n}\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n",
         );
         assert_eq!(syntax.declarations.len(), 7);
         let Declaration::Config(config) = &syntax.declarations[0] else {
@@ -946,6 +992,14 @@ mod tests {
         assert_eq!(
             video.fps.as_ref().map(|value| value.value.as_str()),
             Some("30000/1001")
+        );
+        assert_eq!(
+            config
+                .audio
+                .as_ref()
+                .and_then(|audio| audio.sample_rate.as_ref())
+                .map(|value| value.value.as_str()),
+            Some("44100")
         );
         assert_eq!(
             config.output.as_ref().map(|value| value.value.as_str()),

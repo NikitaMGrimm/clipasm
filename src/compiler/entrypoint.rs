@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ValueRef, ValueType, VideoSpec};
+use crate::model::{AudioSpec, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     ParameterValue, ProgramDefinition, ProgramImplementation, ProgramRegistry, ResolvedCall,
     ResolvedInput,
@@ -138,6 +138,7 @@ pub(super) fn bind_root_call<'a>(
     bindings: &EntrypointBindings,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
+    audio: AudioSpec,
 ) -> Result<ResolvedCall<'a>> {
     debug_assert_eq!(definition.descriptor.inputs.len(), program.inputs().len());
     for (name, binding) in &bindings.media_inputs {
@@ -192,7 +193,7 @@ pub(super) fn bind_root_call<'a>(
     }
 
     let signature = definition.descriptor.resolve_signature(None);
-    let inputs = bind_root_inputs(definition, program, registry, bindings, nodes, video)?;
+    let inputs = bind_root_inputs(definition, program, registry, bindings, nodes, video, audio)?;
 
     let parameters = definition
         .descriptor
@@ -235,6 +236,7 @@ fn bind_root_inputs(
     bindings: &EntrypointBindings,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
+    audio: AudioSpec,
 ) -> Result<Vec<ResolvedInput>> {
     definition
         .descriptor
@@ -250,7 +252,7 @@ fn bind_root_inputs(
                 )
             })?;
             Ok(ResolvedInput::One(lower_media_binding(
-                registry, binding, nodes, video,
+                registry, binding, nodes, video, audio,
             )?))
         })
         .collect()
@@ -261,6 +263,7 @@ fn lower_media_binding(
     binding: &MediaInputBinding,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
+    audio: AudioSpec,
 ) -> Result<ValueRef> {
     let program_name = match binding.value_type {
         ValueType::Video => "video",
@@ -295,6 +298,7 @@ fn lower_media_binding(
     let mut builder = GraphBuilder::for_program(
         nodes,
         video,
+        audio,
         definition.descriptor.semantic_version,
         SourceOrigin::new(program_name, span.clone()),
     );

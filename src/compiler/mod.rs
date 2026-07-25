@@ -290,14 +290,15 @@ fn compile_checked(
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(&video, entrypoint.program(), checked, bindings)?;
+    let audio = resolve_audio_spec(entrypoint)?;
+    let evaluation = evaluate::evaluate(&video, audio, entrypoint.program(), checked, bindings)?;
     let output = bindings.output.as_ref().or_else(|| entrypoint.output());
     validate_publication_output(entrypoint, output, &evaluation)?;
     finalize::finalize(
         entrypoint,
         output.cloned(),
         video,
-        AudioSpec::default(),
+        audio,
         evaluation,
         COMPILED_FORMAT_VERSION,
     )
@@ -359,6 +360,26 @@ fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
     };
     Ok(VideoSpec::new(width, height, fps)
         .expect("positive dimensions and frame rate form a valid VideoSpec"))
+}
+
+fn resolve_audio_spec(entrypoint: &SourceUnit) -> Result<AudioSpec> {
+    let defaults = AudioSpec::default();
+    let Some(project) = entrypoint.project() else {
+        return Ok(defaults);
+    };
+    let sample_rate = match &project.value.audio.sample_rate {
+        Some(sample_rate) if sample_rate.value == 0 => {
+            return Err(Diagnostic::new(
+                "E_INVALID_AUDIO_SPEC",
+                "`sample_rate` must be greater than zero",
+                sample_rate.span.clone(),
+            ));
+        }
+        Some(sample_rate) => sample_rate.value,
+        None => defaults.sample_rate(),
+    };
+    Ok(AudioSpec::new(sample_rate, defaults.channels())
+        .expect("positive project audio settings form a valid AudioSpec"))
 }
 
 fn resolve_dimension(setting: Option<&Spanned<u32>>, default: u32, name: &str) -> Result<u32> {

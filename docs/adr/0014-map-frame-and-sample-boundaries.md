@@ -7,7 +7,7 @@ status: accepted
 Video duration remains an integer number of project frames. Standalone Audio
 duration remains an integer number of samples in the project audio format.
 ClipAsm does not replace either native unit with a least-common-denominator
-master tick.
+master tick. The project sample rate is configurable and defaults to 48 kHz.
 
 One exact rational mapper owns every conversion between the two grids. For
 frame boundary `f`, sample rate `s`, and reduced frame rate `p/q`, the covering

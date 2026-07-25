@@ -268,7 +268,13 @@ mod tests {
         let video = VideoSpec::default();
         let mut nodes = Vec::with_capacity(NAMES);
         let mut symbols = Vec::with_capacity(NAMES);
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin(),
+        );
         let mut root = None;
         for index in 0..NAMES {
             let symbol_id = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
@@ -295,7 +301,13 @@ mod tests {
     fn deferred_repeat_chains_are_memoized_and_remain_deferred() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 2, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            2,
+            origin(),
+        );
         let mut root = builder
             .video_source("source.mp4".into(), ImageFit::Cover)
             .expect("video source");
@@ -319,7 +331,13 @@ mod tests {
     fn repeat_domains_multiply_exactly_and_check_overflow() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 2, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            2,
+            origin(),
+        );
         let source = builder
             .image_video("source.png".into(), FrameCount(5), ImageFit::Cover)
             .expect("source");
@@ -340,7 +358,13 @@ mod tests {
         );
 
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 2, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            2,
+            origin(),
+        );
         let source = builder
             .image_video("huge.png".into(), FrameCount(u64::MAX), ImageFit::Cover)
             .expect("source");

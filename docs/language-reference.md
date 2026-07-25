@@ -49,6 +49,9 @@ config {
         height = 1080
         fps = 30000/1001
     }
+    audio {
+        sample_rate = 48000
+    }
     output = "generated/final.mp4"
 }
 
@@ -65,7 +68,8 @@ Graph input types are `Video` and `Audio`. Scalar parameter types are
 Parameters without defaults are required when another program or the CLI calls
 the source program.
 
-Only the root file may set project video configuration or an output path.
+Only the root file may set project media configuration or an output path.
+Current limits: project audio is stereo, and publication is MP4 only.
 
 ## Imports
 

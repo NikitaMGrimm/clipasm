@@ -220,6 +220,7 @@ mod tests {
         GraphBuilder::for_program(
             &mut nodes,
             &VideoSpec::default(),
+            crate::model::AudioSpec::default(),
             7,
             SourceOrigin::new("source", span.clone()),
         )
@@ -228,6 +229,7 @@ mod tests {
         GraphBuilder::for_program(
             &mut nodes,
             &VideoSpec::default(),
+            crate::model::AudioSpec::default(),
             1,
             SourceOrigin::new("reference", span),
         )
@@ -261,6 +263,7 @@ mod tests {
         let mut builder = GraphBuilder::for_program(
             &mut nodes,
             &video,
+            crate::model::AudioSpec::default(),
             1,
             SourceOrigin::new("test", span.clone()),
         );
@@ -307,8 +310,13 @@ mod tests {
             let span = SourceSpan::file_start("workflow.clipasm");
             let video = VideoSpec::default();
             let mut nodes = Vec::new();
-            let mut builder =
-                GraphBuilder::for_program(&mut nodes, &video, 2, SourceOrigin::new("repeat", span));
+            let mut builder = GraphBuilder::for_program(
+                &mut nodes,
+                &video,
+                crate::model::AudioSpec::default(),
+                2,
+                SourceOrigin::new("repeat", span),
+            );
             let source = builder
                 .image_video("source.png".into(), FrameCount(5), ImageFit::Cover)
                 .expect("source");

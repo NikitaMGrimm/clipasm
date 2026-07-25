@@ -30,6 +30,7 @@ pub(crate) struct ExternalDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ConfigDeclaration {
     pub(crate) video: Option<VideoConfigDeclaration>,
+    pub(crate) audio: Option<AudioConfigDeclaration>,
     pub(crate) output: Option<Spanned<String>>,
     pub(crate) span: SourceSpan,
 }
@@ -39,6 +40,12 @@ pub(crate) struct VideoConfigDeclaration {
     pub(crate) width: Option<Spanned<String>>,
     pub(crate) height: Option<Spanned<String>>,
     pub(crate) fps: Option<Spanned<String>>,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AudioConfigDeclaration {
+    pub(crate) sample_rate: Option<Spanned<String>>,
     pub(crate) span: SourceSpan,
 }
 

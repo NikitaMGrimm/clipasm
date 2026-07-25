@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
+use crate::model::{AudioSpec, FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation, ResolvedCall,
     ResolvedInput, ValueTypeSpec,
@@ -48,12 +48,14 @@ pub(super) struct Evaluation {
 
 pub(super) fn evaluate(
     video: &VideoSpec,
+    audio: AudioSpec,
     root_source: &crate::source::SourceProgram,
     checked: &CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
     let context = EvaluationContext {
         video,
+        audio,
         registry: &checked.registry,
         programs: &checked.programs,
         root: checked.root,
@@ -73,6 +75,7 @@ pub(super) fn evaluate(
         bindings,
         &mut evaluator.nodes,
         context.video,
+        context.audio,
     )?;
     let outputs = match &root_definition.implementation {
         ProgramImplementation::ClipAsm(_) => {
@@ -84,6 +87,7 @@ pub(super) fn evaluate(
             let mut builder = GraphBuilder::for_program(
                 &mut evaluator.nodes,
                 context.video,
+                context.audio,
                 root_definition.descriptor.semantic_version,
                 origin,
             );
@@ -104,6 +108,7 @@ pub(super) fn evaluate(
 
 struct EvaluationContext<'a> {
     video: &'a VideoSpec,
+    audio: AudioSpec,
     registry: &'a crate::program::ProgramRegistry,
     programs: &'a [CheckedSourceProgram],
     root: SourceUnitId,
@@ -351,7 +356,7 @@ impl Evaluator {
                 let symbol = scope.local_symbols[local.index()];
                 let value_type = self.symbols[symbol.index()].value_type;
                 let origin = SourceOrigin::new("reference", span.clone());
-                GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin)
+                GraphBuilder::for_program(&mut self.nodes, context.video, context.audio, 1, origin)
                     .reference(symbol, value_type)
             }
             ReferenceTarget::BodyInput(input) => {
@@ -474,6 +479,7 @@ impl Evaluator {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     context.video,
+                    context.audio,
                     definition.descriptor.semantic_version,
                     origin,
                 );
@@ -488,6 +494,7 @@ impl Evaluator {
                     let mut builder = GraphBuilder::for_program(
                         &mut self.nodes,
                         context.video,
+                        context.audio,
                         definition.descriptor.semantic_version,
                         origin.clone(),
                     );
@@ -539,6 +546,7 @@ impl Evaluator {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     context.video,
+                    context.audio,
                     definition.descriptor.semantic_version,
                     origin,
                 );
@@ -552,6 +560,7 @@ impl Evaluator {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
                     context.video,
+                    context.audio,
                     definition.descriptor.semantic_version,
                     origin,
                 );
@@ -624,8 +633,13 @@ impl Evaluator {
                     ));
                 }
                 let origin = SourceOrigin::new("input adaptation", span.clone());
-                let mut builder =
-                    GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin);
+                let mut builder = GraphBuilder::for_program(
+                    &mut self.nodes,
+                    context.video,
+                    context.audio,
+                    1,
+                    origin,
+                );
                 match (value_ref.value_type(), expected_type) {
                     (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref),
                     (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref),

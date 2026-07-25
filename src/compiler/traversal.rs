@@ -141,7 +141,13 @@ mod tests {
         let video = VideoSpec::default();
         let mut nodes = Vec::with_capacity(ALIASES + 1);
         let mut symbols = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin(),
+        );
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
             .expect("source");
@@ -166,7 +172,13 @@ mod tests {
     fn reports_a_semantic_reference_cycle() {
         let video = VideoSpec::default();
         let mut nodes = Vec::new();
-        let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin(),
+        );
         let a_symbol = SymbolId::new(0);
         let b_symbol = SymbolId::new(1);
         let c_symbol = SymbolId::new(2);
