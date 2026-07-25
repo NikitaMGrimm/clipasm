@@ -134,7 +134,7 @@ impl Loader {
             if let Some(project) = &unit.project {
                 return Err(Diagnostic::new(
                     "E_IMPORTED_PROJECT_SETTINGS",
-                    "imported programs cannot declare video project settings",
+                    "imported programs cannot declare project settings",
                     project.span.clone(),
                 ));
             }
