@@ -20,22 +20,22 @@ Optional entrypoint publication
 The reasons behind the load-bearing boundaries are recorded in the
 [architecture decision records](adr/).
 
-## Frontends and canonical source
+## Language and canonical source
 
-`source` owns the representation-neutral authored model: linked source
-packages, source units, imports, root project/publication settings, source
-program signatures, bodies, invocations, references, literals, and output
-bindings. The compiler consumes only this canonical model.
+`source` owns the lowered authored model: linked source packages, source units,
+imports, root project/publication settings, source program signatures, bodies,
+invocations, references, literals, and output bindings. The compiler consumes
+only this model.
 
-`frontend::yaml` parses restricted YAML and lowers it into canonical source.
-It owns YAML mappings, scalar styles, reserved fields, the `program` header,
-postfix and primary-argument sugar, duplicate keys, anchors, aliases, tags, and
-document-count restrictions. Those surface details disappear before
-compilation. This internal boundary permits future frontends to provide
-different syntax and sugar without changing compiler behavior. The canonical
-source structs are intentionally opaque to external crates today; no stable
-public builder API is promised before a second frontend demonstrates what it
-needs.
+The native `.clipasm` language is the sole supported source language. Its lexer,
+parser, package loader, and lowerer own surface grammar and sugar. Those details
+disappear before compilation. The source structs remain intentionally opaque;
+the project does not promise a stable alternate-frontend or external builder
+API.
+
+The current YAML parser remains temporary migration scaffolding while native
+language support and tests are implemented. It will be removed rather than
+maintained as a second frontend.
 
 ## Compilation
 
