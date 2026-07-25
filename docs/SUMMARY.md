@@ -5,7 +5,7 @@
 
 # Language
 
-- [YAML frontend reference](workflow-reference.md)
+- [Language reference](workflow-reference.md)
 - [Examples](examples.md)
 
 # Design
@@ -18,11 +18,12 @@
 - [Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
 - [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
 - [Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
-- [Separate frontends from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
+- [Separate parsing from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
 - [Call authored source programs](adr/0009-call-authored-source-programs.md)
 - [Add typed Audio and body input scopes](adr/0010-add-typed-audio-and-body-input-scopes.md)
 - [Add type-preserving timeline programs](adr/0011-add-type-preserving-timeline-programs.md)
 - [Run registered external programs](adr/0012-run-external-programs.md)
+- [Adopt the native ClipAsm language](adr/0013-adopt-native-clipasm-language.md)
 - [Map frame and sample boundaries cumulatively](adr/0013-map-frame-and-sample-boundaries.md)
 - [Keep native operations closed and phase-owned](adr/0014-keep-native-operations-phase-owned.md)
 - [Overlap audiovisual transitions on exact boundaries](adr/0015-overlap-audiovisual-transitions-exactly.md)

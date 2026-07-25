@@ -1,0 +1,7 @@
+clipasm 1
+
+input video: Video
+param percent: Integer = 6
+
+zoom($video, $percent)
+wobble(2)

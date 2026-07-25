@@ -141,9 +141,9 @@ structure hash.
 
 Project media formats are invariant-protected model values: Video dimensions,
 frame-rate components, audio sample rate, and channel count are positive by
-construction. Canonical frontends may carry representable raw settings such as
+construction. Language lowering may carry representable raw settings such as
 a zero dimension, but the compiler owns semantic project-format validation so
-future frontends cannot bypass it. Video domains compose an exact frame count
+the language layer cannot bypass it. Video domains compose an exact frame count
 with a `VideoSpec`; Audio domains compose an exact sample count with an
 `AudioSpec`. Explicit serialization adapters preserve the established flat JSON
 schemas.

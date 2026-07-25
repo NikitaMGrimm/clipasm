@@ -1,24 +1,15 @@
 # ClipAsm
 
-ClipAsm is a strict, typed stack language with a representation-neutral
-canonical source model. The current YAML frontend desugars authored YAML into
-that model; the compiler then builds a pure semantic graph, prepares
-result-reachable media and tools, and renders an MP4 through verified cached
-artifacts.
-
-The current language supports still-image and video-file sources, named clips,
-references, inline fixed-input bodies, concatenation, repetition, effects, and
-the `join`, `glue`, and `during` body programs. YAML files may import and call
-other YAML source programs with ordered Video or Audio inputs and typed scalar
-parameters. Audio output and plugins are outside the current foundation.
+ClipAsm is a typed, stack-based language for building Video and Audio graphs.
+The native `.clipasm` loader lowers source into an internal authored model; the
+compiler then creates a pure semantic graph, preflight resolves reachable media
+and tools, and the renderer produces verified cached artifacts and an MP4.
 
 Start with:
 
-- the [YAML frontend reference](workflow-reference.md) to write ClipAsm YAML;
-- the [examples](examples.md) to run representative source programs;
-- the [architecture](architecture.md) to understand compiler phases;
-- the [change guide](development/change-guide.md) to locate implementation,
-  tests, documentation, and identity impact.
+- the [language reference](workflow-reference.md) for syntax and stack rules;
+- the [examples](examples.md) for runnable programs;
+- the [architecture](architecture.md) for compiler phases;
+- the [change guide](development/change-guide.md) for implementation ownership.
 
-Rust applications embedding ClipAsm should use the separately generated
-rustdoc API reference.
+The generated rustdoc is the API reference for embedding ClipAsm in Rust.

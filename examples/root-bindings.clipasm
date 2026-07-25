@@ -1,0 +1,16 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 24
+    }
+}
+
+input video: Video
+param range: TimeRange
+param count: Integer
+
+trim($video, $range)
+repeat($count)

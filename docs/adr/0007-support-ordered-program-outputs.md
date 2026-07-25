@@ -35,13 +35,12 @@ compiled format version 8 while preserving the ordered-output contract.
 Prepared plans remain singular and their format and cache versions do not
 change.
 
-Named clips still require exactly one Video. Inline fixed-input bodies still
-require exactly one value of the port type. Existing body programs retain their
-one-output finalization behavior. Callable or imported YAML programs, their
-signatures, and program-call cycle detection remain separate future work.
+Inline fixed-input bodies still require exactly one value of the port type.
+Existing body programs retain their one-output finalization behavior. Callable
+authored programs and imports were added later by ADR 0009.
 
 Requiring authored output declarations on source programs was rejected because
 the compiler already evaluates an acyclic composition of statically described
 program effects and therefore knows the exact ordered output sequence. An
-optional checked interface declaration may be considered with callable YAML
-programs, where separate compilation or recursion could make it useful.
+optional checked interface declaration may be considered if separate
+compilation or recursion later makes it useful.

@@ -4,12 +4,15 @@ status: accepted
 
 # Call authored source programs
 
+The callable-source-program decision remains current. References to YAML and a
+generic frontend boundary are historical; the native `.clipasm` loader now owns
+imports and package construction.
+
 ## Context
 
-Canonical source already models source files as typed stack programs, and the
-frontend boundary permits future authoring representations. Reusable authored
-programs therefore need to become ordinary callable program definitions rather
-than a YAML-specific include or macro mechanism.
+Canonical source already models source files as typed stack programs. Reusable
+authored programs therefore become ordinary callable program definitions rather
+than includes or textual macros.
 
 The existing built-in registry was static, source compilation had one global
 name scope, and program output types were known only from built-in descriptors.
@@ -19,10 +22,10 @@ can be type checked.
 
 ## Decision
 
-A frontend produces a representation-neutral `SourcePackage` containing one
-root source unit and its linked imported units. Each source unit defines one
-callable source program. Imports bind explicit local aliases to other source
-units; aliases are not re-exported and may not shadow built-ins.
+The native loader produces a `SourcePackage` containing one root source unit and
+its linked imported units. Each source unit defines one callable source program.
+Imports bind explicit local aliases to other source units; aliases are not
+re-exported and may not shadow built-ins or sugar.
 
 The compiler builds one runtime program catalog containing built-ins and
 authored definitions. Authored definitions use the same input ports, parameter
@@ -41,28 +44,24 @@ remain a separate compiled interface. Compiled JSON serializes a reference's
 resolved semantic target rather than an internal symbol identity. This changes
 the compiled format to version 9.
 
-For the YAML frontend, import paths are resolved relative to the importing
-file, parsed units are deduplicated by canonical filesystem path, and import
-cycles are rejected during package loading. Imported files may not declare
-root-only `project` or `output` settings. Recursive authored-program calls are
-not supported.
+Import paths are resolved relative to the importing file, parsed units are
+deduplicated by canonical filesystem path, and import cycles are rejected during
+package loading. Imported files may not declare root-only project or output
+settings. Recursive authored-program calls are not supported.
 
 The authored interface supports ordered fixed `Video` or `Audio` inputs and the
 existing shared scalar parameter types: `Integer`, `File`, `Duration`,
-`TimeRange`, and `Keyword`. It does not add authored variadic inputs, primary or
-postfix YAML sugar, caller-supplied bodies, output declarations, re-exports, or
-recursion.
+`TimeRange`, and `Keyword`. It does not add authored variadic inputs,
+caller-supplied bodies, re-exports, or recursion.
 
 ## Consequences
 
-- YAML-to-YAML calls use ordinary program binding and stack semantics.
-- Future frontends can produce the same package, imports, signatures, and
-  bodies without changing compiler behavior.
+- Imported `.clipasm` calls use ordinary program binding and stack semantics.
 - The same source definition can be imported under several aliases or called
   repeatedly without merging invocation-local names.
 - Literal file defaults retain the defining source unit's path base; values
   supplied by a caller retain the caller's path base.
-- Import cycles such as `yaml1 -> yaml2 -> yaml3 -> yaml1` fail before output
+- Import cycles such as `one -> two -> three -> one` fail before output
   inference or semantic evaluation.
 - Supporting recursion later would require a separate decision covering
   termination, output inference, and graph representation.

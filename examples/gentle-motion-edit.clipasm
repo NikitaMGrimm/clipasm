@@ -1,0 +1,15 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 24
+    }
+    output = "generated/gentle-motion-edit.mp4"
+}
+
+video("assets/gentle-motion.mkv", contain)
+during(500ms..1500ms) {
+    wobble(2)
+}

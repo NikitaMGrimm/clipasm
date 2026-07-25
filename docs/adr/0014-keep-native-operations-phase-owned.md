@@ -44,8 +44,8 @@ The execution context owns FFmpeg command initialization, dependency artifact
 lookup, temporary output placement, failure cleanup, and atomic cache commit.
 Operation modules own only their media command and filter construction.
 
-YAML shorthand metadata remains frontend-owned. It is not added to canonical
-program definitions, because another frontend may choose different syntax.
+Native syntax and sugar remain language-owned. They lower into canonical items
+and are not added to program definitions or semantic-operation dispatch.
 
 ## Consequences
 

@@ -4,6 +4,10 @@ status: accepted
 
 # Run registered external programs
 
+The external-program architecture remains current. References to YAML and
+multiple frontends are historical; the native `.clipasm` loader now owns the
+`external "manifest.json" as alias` declaration.
+
 ## Context
 
 Some useful media operations should remain ordinary scripts or standalone
@@ -17,16 +21,15 @@ shell source would also introduce platform-specific quoting and command
 injection behavior. A long-lived plugin ABI or in-process dynamic library would
 be disproportionate for the first external operation.
 
-YAML is only one frontend. External registration therefore cannot exist solely
-as parser state or YAML-specific execution syntax.
+External registration cannot exist solely as transient parser state because the
+compiler, preflight, renderer, and cache all need the validated specification.
 
 ## Decision
 
 Canonical `SourcePackage` data owns external program specifications. Each source
-unit maps local aliases to those specifications. A frontend is responsible for
-loading or constructing the specifications before compilation. The YAML
-frontend exposes this through `program.externals`, whose manifest paths resolve
-relative to the declaring YAML source.
+unit maps local aliases to those specifications. The native loader reads the
+manifest before compilation, and manifest paths resolve relative to the
+declaring `.clipasm` source.
 
 An external specification becomes an ordinary runtime `ProgramDefinition` with
 `ProgramImplementation::External`. It uses the shared descriptor validator,
@@ -81,8 +84,8 @@ manifest semantic version whenever such dependencies change output semantics.
 
 - External programs share the normal program model rather than creating a
   second call language.
-- Future frontends can populate the same canonical external catalog without
-  adopting YAML manifests or syntax.
+- External programs share the same canonical catalog as built-ins and imported
+  authored programs.
 - Scripts can be authored in any language that produces an executable and can
   read JSON from standard input.
 - Script bytes, parameters, and upstream artifacts invalidate cache identity.

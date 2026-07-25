@@ -1,0 +1,14 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 30
+    }
+    output = "crossfade.mp4"
+}
+
+image("assets/morning.png", 2s)
+image("assets/evening.png", 2s)
+crossfade(500ms)

@@ -1,0 +1,10 @@
+clipasm 1
+
+config {
+    output = "external-brighten.mp4"
+}
+
+external "programs/brighten/program.json" as brighten
+
+video("assets/gentle-motion.mkv")
+brighten(amount=15)

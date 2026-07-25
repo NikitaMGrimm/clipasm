@@ -1,0 +1,31 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 24
+    }
+    output = "generated/reusable-composition.mp4"
+}
+
+clip {
+    image("assets/morning.png", 1s, contain)
+    zoom
+} as opening
+
+clip {
+    image("assets/evening.png", 1s, contain)
+} as closing
+
+$opening
+flash(
+    before=$opening,
+    after={
+        image("assets/meadow.png", 1s, contain)
+        wobble(2)
+    },
+    frames=5,
+)
+$closing
+concat

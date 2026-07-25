@@ -14,7 +14,7 @@ ADR 0009 supersedes this record's original static-registry limitation by
 introducing runtime-owned authored program definitions in the same crate-private
 catalog. The one-program model and direct/body lifecycle remain unchanged.
 
-Every callable ClipAsm construct is a registered typed program. A program is
+Every executable program call resolves to a registered typed program. A program is
 either direct, meaning it lowers one resolved call immediately, or body-based,
 meaning it prepares one nested body evaluation and finalizes that body's owned
 suffix into an ordered output sequence. Both kinds use the same descriptors, typed parameter
@@ -25,19 +25,19 @@ This preserves the literal language model without pretending that a program
 which owns an unevaluated body is identical to one that lowers immediately.
 `join`, `glue`, and `during` therefore do not receive parser or evaluator
 branches based on their names. Body programs instead use the common
-prepare, evaluate once, and finalize lifecycle. Surface forms such as postfix
-`during` normalize into ordinary invocations before compilation.
+prepare, evaluate once, and finalize lifecycle. Native sugar may generate
+ordinary invocations before compilation without becoming a registered program.
 
 The registry was originally static and remains crate-private. ADR 0009 later
 made its definitions runtime-owned so authored source programs can join the
 same catalog without adding plugins, a public registration API, or dynamically
 extensible semantic operations.
 
-The source-program header is definition syntax rather than a callable registry
-entry. Its executable body still uses the same item parser, binder, evaluator,
-graph builder, IDs, and references as registered program bodies. Inline fixed
-inputs reuse that evaluator through isolated bodies; neither case requires
-parser or evaluator branches on a registered program name.
+File declarations are definition syntax rather than callable registry entries.
+The executable source body still uses the same binder, evaluator, graph builder,
+IDs, and references as registered program bodies. Inline fixed inputs reuse that
+evaluator through isolated bodies; neither case requires evaluator branches on
+a registered program name.
 
-Named clips remain declarations, and `$name` remains a reference expression;
-neither is callable, so neither is represented as a program.
+`clip` is language sugar, structural stack blocks are canonical items, and
+`$name` is a reference expression; none is represented as a registered program.

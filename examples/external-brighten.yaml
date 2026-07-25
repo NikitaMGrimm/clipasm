@@ -1,9 +1,0 @@
-- program:
-    version: 1
-    externals:
-      brighten: programs/brighten/program.json
-    output: external-brighten.mp4
-
-- video: assets/gentle-motion.mkv
-- brighten:
-    amount: 15

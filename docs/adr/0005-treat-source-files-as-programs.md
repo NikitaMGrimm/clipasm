@@ -4,6 +4,10 @@ status: accepted
 
 # Treat source files as programs
 
+The file-as-program decision remains current. The YAML header and named-clip
+surface syntax described below are historical and were replaced by the native
+`.clipasm` declarations and `clip` sugar in ADR 0013.
+
 ADR 0006 refines the stack-storage and visibility wording below. ADR 0007
 supersedes the single-source-result restriction: source programs now return
 their ordered final owned values, while publication still requires exactly one Video among the outputs.
@@ -14,11 +18,9 @@ program definitions, and ordinary calls between authored source files. The
 file-as-program and entrypoint-publication decisions below remain unchanged.
 
 A ClipAsm source file defines one typed stack program whose outputs are its
-ordered final owned values. The YAML document is a sequence: its required first item is a
-non-executable `program` header, and every remaining item belongs to the
-executable source-program body. The header owns language version bootstrapping,
-project Video settings, local named-clip declarations, and the optional
-entrypoint output path.
+ordered final owned values. Non-executable file declarations own language
+versioning, project settings, imports, inputs, parameters, and optional
+entrypoint publication. Executable statements form the source-program body.
 
 The source-program body starts with an empty evaluation stack and receives no
 implicit finalizer. Zero, one, or multiple remaining owned values are returned

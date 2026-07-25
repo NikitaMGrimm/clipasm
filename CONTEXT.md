@@ -177,9 +177,9 @@ Every linked source program is checked even when the root does not invoke it.
 
 Canonical source packages may contain external program specifications and
 source-unit-local aliases to them. External calls use the ordinary descriptor,
-binder, stack, reference, output, and semantic-version rules. YAML exposes the
-alias mapping through `program.externals`, but the catalog belongs to canonical
-source so future frontends can construct the same registrations.
+binder, stack, reference, output, and semantic-version rules. The native
+`external "manifest.json" as alias` declaration loads the manifest before
+lowering; the compiler consumes the resulting ordinary package catalog.
 
 The initial external protocol supports fixed Video or Audio inputs, Integer and
 Keyword parameters, and one Video output whose exact domain and meaningful-audio

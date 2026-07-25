@@ -1,0 +1,15 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 24
+    }
+    output = "generated/imported-program.mp4"
+}
+
+import "programs/polish.clipasm" as polish
+
+video("assets/gentle-motion.mkv", contain)
+polish(10)

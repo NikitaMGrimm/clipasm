@@ -1,8 +1,13 @@
 ---
-status: accepted
+status: superseded
+superseded-by: 0013-adopt-native-clipasm-language
 ---
 
 # Separate frontends from canonical source
+
+This record is retained as history. ADR 0013 keeps the internal
+parse/lower/compile boundary but replaces the multi-frontend direction with one
+native `.clipasm` language and no stable frontend extension API.
 
 ClipAsm uses one representation-neutral canonical authored model between
 authoring representations and compilation. A frontend parses and desugars its
