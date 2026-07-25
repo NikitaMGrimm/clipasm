@@ -1116,6 +1116,24 @@ fn named_glue_type_inference_reports_dependency_cycles() {
 }
 
 #[test]
+fn selected_named_glue_cycle_remains_a_dependency_cycle() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n\n- glue:\n    type: Audio\n    body:\n      - $second\n  id: first\n- glue:\n    type: Audio\n    body:\n      - $first\n  id: second\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("selected named glue cycle");
+    assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
+    assert!(error.message.contains("first -> second -> first"));
+}
+
+#[test]
+fn self_dependent_stack_inference_reports_an_inference_dependency() {
+    let (_directory, workflow) =
+        project("- program:\n    version: 1\n\n- $future\n- repeat: 2\n  id: future\n");
+    let error = compiler::compile(&workflow).expect_err("self-dependent generic stack binding");
+    assert_eq!(error.code, "E_TYPE_INFERENCE_DEPENDENCY");
+}
+
+#[test]
 fn named_glue_type_inference_respects_body_port_shadowing() {
     let (_directory, workflow) = project(
         "- program:\n    version: 1\n\n- glue:\n    - image: {path: a.ppm, duration: 1s}\n    - image: {path: b.ppm, duration: 1s}\n    - join:\n        - drop\n        - drop\n        - $before\n  id: combined\n- $combined\n",
