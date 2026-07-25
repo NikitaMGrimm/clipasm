@@ -203,9 +203,15 @@ hashes again, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
 exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
 
-The cache lives under `.clipasm/cache/` beside the entrypoint source. Output and
-manifest files are staged as temporary siblings and committed through one
-rollback-capable in-process publication transaction after verification.
+The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
+file locks serialize validation and replacement across ClipAsm processes without
+blocking unrelated fingerprints. Output and manifest files are staged as
+temporary siblings and committed under a destination-specific file lock through
+one rollback-capable publication transaction after verification.
+
+The YAML frontend, import loader, and compiler enforce explicit nesting limits
+for authored structures. Semantic graph dependency, hashing, and domain passes
+remain iterative so graph depth is not limited by the Rust call stack.
 
 ## Ownership rules
 

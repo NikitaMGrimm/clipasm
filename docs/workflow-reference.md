@@ -211,7 +211,13 @@ the renderer's working media contract. ClipAsm probes the result before cache
 commit. Standard error is included in failure diagnostics.
 
 External executables are trusted native code. Render only projects and manifests
-you trust. Compilation itself remains media- and execution-pure.
+you trust. ClipAsm does not sandbox them, impose a timeout, guarantee
+termination, or make nondeterministic programs reproducible. Cache identity
+cannot discover undeclared runtime dependencies such as interpreter versions,
+imported modules, environment variables, clocks, random input, or network
+responses; update the executable or manifest `semantic_version` whenever those
+dependencies change output semantics. Compilation itself remains media- and
+execution-pure.
 
 ### Root CLI bindings
 

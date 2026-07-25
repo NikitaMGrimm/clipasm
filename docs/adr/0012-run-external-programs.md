@@ -64,7 +64,18 @@ ordinary prepared-artifact verification before committing the cache entry.
 
 External code is trusted native code. Importing a manifest is explicit, but
 rendering an unfamiliar project can execute that program and should only be done
-for trusted sources. Validation and compilation do not execute it.
+for trusted sources. Validation and compilation do not execute it. ClipAsm does
+not sandbox external programs, impose an execution timeout, or attempt to prove
+that they terminate or behave deterministically. An external process may hang,
+crash, consume arbitrary machine resources, access the network or filesystem,
+or produce different results for identical requests.
+
+Cache identity covers the declared semantic version, executable bytes, bound
+parameters, upstream artifacts, project settings, and provided FFmpeg/FFprobe
+identities. It cannot automatically discover interpreter versions, imported
+modules, environment variables, clocks, random input, network responses, or
+undeclared files. Authors must change the executable bytes or increment the
+manifest semantic version whenever such dependencies change output semantics.
 
 ## Consequences
 
@@ -75,6 +86,8 @@ for trusted sources. Validation and compilation do not execute it.
 - Scripts can be authored in any language that produces an executable and can
   read JSON from standard input.
 - Script bytes, parameters, and upstream artifacts invalidate cache identity.
+- Nondeterministic or environmentally dependent external programs may reuse a
+  cached prior result; reproducibility remains the external author's contract.
 - Output-changing programs that do not preserve an input domain require a later
   protocol extension with explicit prepared-domain discovery.
 - Multiple outputs, File/Duration/TimeRange parameters, variadic inputs,
