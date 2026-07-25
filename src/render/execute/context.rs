@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -7,7 +6,7 @@ use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedPlan};
 use crate::source::SourceSpan;
 
-use super::super::staging::StagingDirectory;
+use super::super::{cache, staging::StagingDirectory};
 
 pub(super) struct RenderContext<'a> {
     plan: &'a PreparedPlan,
@@ -82,6 +81,7 @@ impl<'a> RenderContext<'a> {
 pub(in crate::render) struct StagedArtifact {
     _staging: StagingDirectory,
     path: PathBuf,
+    metadata: PathBuf,
     destination: PathBuf,
 }
 
@@ -90,6 +90,7 @@ impl StagedArtifact {
         let staging = StagingDirectory::beside(destination, "cache", "E_CACHE_IO")?;
         Ok(Self {
             path: staging.path(&format!("artifact.{extension}")),
+            metadata: staging.path("artifact.cache.json"),
             destination: destination.to_path_buf(),
             _staging: staging,
         })
@@ -99,23 +100,9 @@ impl StagedArtifact {
         &self.path
     }
 
-    pub(in crate::render) fn commit(self) -> Result<()> {
-        atomic_replace(&self.path, &self.destination, "E_CACHE_IO")
+    pub(in crate::render) fn commit(self, fingerprint: &str) -> Result<()> {
+        cache::commit_verified(&self.path, &self.metadata, &self.destination, fingerprint)
     }
-}
-
-pub(super) fn atomic_replace(source: &Path, destination: &Path, code: &'static str) -> Result<()> {
-    fs::rename(source, destination).map_err(|error| {
-        Diagnostic::new(
-            code,
-            format!(
-                "could not atomically replace `{}` from `{}`: {error}",
-                destination.display(),
-                source.display()
-            ),
-            SourceSpan::file_start(destination),
-        )
-    })
 }
 
 pub(super) fn run_command(command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {
@@ -149,6 +136,8 @@ fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Re
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]
@@ -175,11 +164,12 @@ mod tests {
             .expect("staging parent")
             .to_path_buf();
         fs::write(staged.path(), b"verified artifact").expect("staged bytes");
-        staged.commit().expect("commit");
+        staged.commit("fingerprint").expect("commit");
         assert_eq!(
             fs::read(&destination).expect("artifact"),
             b"verified artifact"
         );
         assert!(!staging_parent.exists());
+        cache::verify_entry(&destination, "fingerprint").expect("cache metadata");
     }
 }

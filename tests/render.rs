@@ -13,6 +13,23 @@ fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledPr
     compiler::compile(&source)
 }
 
+fn color_project(color: &str) -> (tempfile::TempDir, compiler::CompiledProgram) {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        format!("P3\n1 1\n255\n{color}\n"),
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s, stretch)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    (directory, compiled)
+}
+
 #[test]
 fn renders_and_reuses_verified_cache() {
     if !common::media_tools_available() {
@@ -59,6 +76,40 @@ fn renders_and_reuses_verified_cache() {
     assert_eq!(second.cache_hits, plan.nodes().len());
     assert_eq!(second.cache_misses, 0);
     assert!(second.manifest.is_file());
+}
+
+#[test]
+fn shape_compatible_cache_substitution_is_rejected() {
+    if !common::media_tools_available() {
+        eprintln!("skipping cache substitution test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let (red_directory, red_compiled) = color_project("255 0 0");
+    let red_plan = preflight::preflight(&red_compiled).expect("red preflight");
+    render::render(&red_plan).expect("red render");
+    let red_node = &red_plan.nodes()[red_plan.result().get() as usize];
+    let red_artifact = common::cache_artifact(red_directory.path(), red_node.fingerprint(), "mkv");
+
+    let (blue_directory, blue_compiled) = color_project("0 0 255");
+    let blue_plan = preflight::preflight(&blue_compiled).expect("blue preflight");
+    render::render(&blue_plan).expect("blue render");
+    let blue_node = &blue_plan.nodes()[blue_plan.result().get() as usize];
+    let blue_artifact =
+        common::cache_artifact(blue_directory.path(), blue_node.fingerprint(), "mkv");
+    fs::copy(&blue_artifact, &red_artifact).expect("substitute shape-compatible artifact");
+
+    let report = render::render(&red_plan).expect("rerender substituted cache");
+    assert_eq!(report.cache_hits, 0);
+    assert_eq!(report.cache_misses, 1);
+    let decoded = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&report.output)
+        .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .expect("decode output");
+    assert!(decoded.status.success());
+    assert!(decoded.stdout[0] > 200, "expected red output");
+    assert!(decoded.stdout[2] < 50, "unexpected blue substitution");
 }
 
 #[test]

@@ -326,7 +326,11 @@ renderer backend interface.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without
-blocking unrelated fingerprints. Output and manifest files are staged as
+blocking unrelated fingerprints. A cache hit requires both the exact media
+contract and a versioned sidecar whose recorded SHA-256 matches the artifact.
+This detects accidental corruption or shape-compatible swaps. The cache remains
+trusted local state rather than an authenticated boundary: an actor able to
+replace both artifact and sidecar can define that local state. Output and manifest files are staged as
 temporary siblings and committed under a destination-specific file lock through
 one rollback-capable publication transaction after verification.
 

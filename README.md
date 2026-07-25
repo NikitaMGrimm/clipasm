@@ -76,8 +76,10 @@ cargo run -- render template.clipasm \
 CLI-supplied media, `File` parameters, and output overrides resolve from the
 caller's working directory. Paths written in source resolve from the `.clipasm`
 file containing them. Rendering writes the MP4, a versioned sibling manifest,
-and cached intermediates under `.clipasm/cache/` beside the entrypoint source.
-The manifest records render identity and media/tool summaries without embedding
+and content-hashed cached intermediates under `.clipasm/cache/` beside the
+entrypoint source. Cache sidecars detect accidental artifact substitution; the
+cache is trusted local state, not an authenticated shared-cache boundary. The
+manifest records render identity and media/tool summaries without embedding
 local source or executable paths.
 
 ## Documentation

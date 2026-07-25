@@ -6,6 +6,7 @@
 //! transaction.
 
 mod artifact;
+mod cache;
 mod execute;
 mod lock;
 mod manifest;
@@ -136,7 +137,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             "cache artifact",
             &node.origin().span,
         )?;
-        let hit = artifact.is_file()
+        let hit = cache::verify_entry(&artifact, node.fingerprint()).is_ok()
             && verify_prepared_artifact(
                 plan.ffprobe().executable(),
                 &artifact,
@@ -149,18 +150,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             cache_hits += 1;
         } else {
             cache_misses += 1;
-            if artifact.exists() {
-                fs::remove_file(&artifact).map_err(|error| {
-                    Diagnostic::new(
-                        "E_CACHE_IO",
-                        format!(
-                            "could not replace invalid cache artifact `{}`: {error}",
-                            artifact.display()
-                        ),
-                        node.origin().span.clone(),
-                    )
-                })?;
-            }
+            cache::remove_entry(&artifact)?;
             let staged = executor.render_node(node, &artifacts, &artifact)?;
             verify_prepared_artifact(
                 plan.ffprobe().executable(),
@@ -169,7 +159,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 plan.audio(),
                 crate::preflight::WORKING_PIXEL_FORMAT,
             )?;
-            staged.commit()?;
+            staged.commit(node.fingerprint())?;
         }
         artifacts.push(artifact);
     }
