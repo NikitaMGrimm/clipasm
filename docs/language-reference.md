@@ -182,9 +182,11 @@ owned by that frame, in order:
 } as (picture, sound)
 ```
 
-A plain block is owned, so inner operations cannot implicitly consume older
-outer values. `@visible { ... }` permits normal visible access. A stack block is
-not a lexical name scope.
+A plain block is visible, but ordinary programs inside still default to owned
+access and therefore cannot consume older outer values. An inner operation that
+deliberately uses `@visible` may reach outward without also annotating the block.
+Use `@owned { ... }` when the block itself must establish a visibility boundary.
+A stack block is not a lexical name scope.
 
 ## `clip` sugar
 

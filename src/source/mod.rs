@@ -18,6 +18,7 @@ pub use location::{SourceFile, SourceSpan};
 pub(crate) use name::{PUBLIC_NAME_GRAMMAR, is_valid_public_name};
 
 pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
+pub(crate) const STACK_BLOCK_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Visible;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SourceUnitId(pub(crate) usize);

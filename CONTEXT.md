@@ -104,8 +104,9 @@ no fixed inputs, such as `glue`, expose no aliases.
   type from its body unless selected explicitly, and concatenates those values.
 - `during` exposes its complete bound `$video`, starts the body stack with only
   the selected range, requires one processed owned Video, and splices it back.
-- A plain stack block starts an owned child frame and returns its complete
-  ordered remainder. `@visible { ... }` uses the normal visible stack rules.
+- A plain stack block starts a visible child frame and returns its complete
+  ordered owned remainder. `@owned { ... }` establishes an explicit visibility
+  boundary.
 - A clip block defaults its generated `glue` to owned access. An explicit
   access modifier applies to that `glue`; the generated cleanup `drop` remains
   owned.

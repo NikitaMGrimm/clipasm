@@ -529,6 +529,39 @@ fn body_program_defaults_to_visible_and_can_capture_through_a_visible_operation(
 }
 
 #[test]
+fn stack_block_is_transparent_to_explicit_visible_consumers_by_default() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\n{ @visible repeat(2) }\nconcat\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("default visible stack block");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn default_visible_body_program_can_bind_through_a_default_stack_block() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\n{ during(500ms..1500ms) { repeat(2) } }\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("body program through stack block");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
+}
+
+#[test]
+fn owned_stack_block_still_blocks_explicit_visible_consumers() {
+    let (_directory, workflow) =
+        project("clipasm 1\nimage(\"a.ppm\", 1s)\n@owned { @visible repeat(2) }\n");
+    let error = compiler::compile(&workflow).expect_err("owned stack block boundary");
+    assert_eq!(error.code, "E_STACK_UNDERFLOW");
+    assert!(error.message.contains("preceding Video or Audio value"));
+}
+
+#[test]
 fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
     let (_directory, workflow) = project(
         "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\nglue { join {} }\n",

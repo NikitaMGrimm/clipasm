@@ -5,9 +5,10 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{Cardinality, InputPort, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
-    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceExternalImport,
-    SourceFile, SourceImport, SourcePackage, SourceParameter, SourceProgram, SourceUnit,
-    SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
+    ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
+    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImport, SourceFile, SourceImport,
+    SourcePackage, SourceParameter, SourceProgram, SourceUnit, SourceUnitId, Spanned, StackBlock,
+    UnlinkedSourceUnit, VideoSettings,
 };
 
 use super::syntax::{
@@ -602,7 +603,7 @@ impl Lowerer<'_> {
                 stack_access: block
                     .access
                     .as_ref()
-                    .map_or(StackAccess::Owned, |access| access.value),
+                    .map_or(STACK_BLOCK_DEFAULT_STACK_ACCESS, |access| access.value),
                 body: self.lower_program_body(block, lexical)?,
             }),
             output_bindings,
@@ -664,8 +665,25 @@ mod tests {
             "clipasm 1\nparam duration: Duration = 1s\n{\n  set_audio(video=video(\"source.mp4\"), audio=audio(\"sound.wav\"))\n  image(\"card.png\", $duration, contain)\n} as (video, card)\ndrop<Video>\ndrop<Video>\n",
         )
         .expect("native source");
+        let ItemKind::StackBlock(block) = &package.root().program().body().items[0].kind else {
+            panic!("stack block");
+        };
+        assert_eq!(block.stack_access, StackAccess::Visible);
         let compiled = compiler::compile(&package).expect("compiled source");
         assert!(compiled.outputs().is_empty());
+    }
+
+    #[test]
+    fn explicit_owned_stack_block_overrides_the_visible_default() {
+        let package = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\n@owned { image(\"card.png\", 1s) }\n",
+        )
+        .expect("native source");
+        let ItemKind::StackBlock(block) = &package.root().program().body().items[0].kind else {
+            panic!("stack block");
+        };
+        assert_eq!(block.stack_access, StackAccess::Owned);
     }
 
     #[test]

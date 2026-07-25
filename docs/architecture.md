@@ -35,9 +35,11 @@ the project does not promise a stable external builder API.
 `StackBlock` is a structural canonical-source item rather than a registered
 program. It evaluates a nested body in a child stack frame and returns every
 remaining value owned by that frame, preserving order and types. Blocks default
-to owned access in the native language; explicit visible access uses the normal
-stack visibility boundary rules. Output bindings apply to the block's complete
-ordered result sequence, while output names declared inside remain program-wide.
+to visible access in the native language, so an explicitly visible descendant
+may consume enclosing values without a redundant modifier on the block itself;
+`@owned { ... }` establishes an explicit visibility boundary. Output bindings
+apply to the block's complete ordered result sequence, while output names
+declared inside remain program-wide.
 
 Every canonical item also carries one surface origin separate from its
 executable target. The origin records the authored construct name and span,

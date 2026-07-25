@@ -29,9 +29,11 @@ order. Named graph arguments retain explicit isolated-input semantics. The
 parser records structure only; program lookup, graph classification, type
 inference, and stack binding occur later.
 
-Plain braces define a structural stack block. It defaults to owned access,
+Plain braces define a structural stack block. It defaults to visible access,
 evaluates a child stack frame, and returns every remaining child-owned value in
-order. It is not a registered program or a lexical name scope.
+order. Ordinary child programs still keep their own defaults; `@owned { ... }`
+is the explicit isolation form. A stack block is not a registered program or a
+lexical name scope.
 
 `clip` is language sugar. It lowers to a `glue` result followed by an owned
 `drop`. An explicit access modifier applies to the generated `glue`; an output
@@ -47,8 +49,8 @@ names, and sugar expansion produces ordinary canonical source items in memory.
 
 - ClipAsm has one documented source language and one package loader.
 - Program descriptors remain authoritative for input and parameter order.
-- Stack blocks provide explicit isolation without changing ordinary call
-  semantics.
+- Stack blocks group ordered outputs without changing ordinary call semantics;
+  explicit owned blocks provide isolation.
 - Sugar can expand structurally without generated text or reparsing.
 - Canonical source remains an internal compiler boundary rather than a public
   extension interface.
