@@ -44,30 +44,29 @@ namespace and checks every authored program in import dependency order,
 including programs the root never invokes. Canonical bodies first become a
 compiler-owned resolved draft that records program IDs, effective stack access,
 descriptor-ordered input and parameter roles, and validated body presence once.
-Declaration collection, dependency discovery, generic inference, and concrete
-checking all consume that draft. Structural collection assigns compact type
-variables to graph-valued locals and generic invocations before source-order
-inference. Monotonic inference connects selectors, explicit inputs, body
-contracts, normal stack binding, generic outputs, and any names attached to
-those outputs. Stack choices that depend on unresolved forward types are
-retried after later constraints make progress. Forward references therefore
-participate in the same inference path as ordinary stack values, while
-dependency cycles remain explicit errors.
-The result becomes self-contained checked source. Imported definitions and
-built-ins share one runtime catalog. Generic inference and final concrete
-checking currently share the resolved draft and stack planner but remain
-separate passes; checked source is emitted only by the concrete pass.
+Declaration collection and dependency discovery consume that draft before one
+compiler-owned type resolver assigns stable variables to graph-valued locals
+and generic invocations. The resolver owns selectors, explicit input types,
+body contracts, normal stack binding, generic outputs, and names attached to
+those outputs. Exploratory source-order passes narrow the variables
+monotonically, retrying stack choices that depend on unresolved forward types.
+Forward references therefore participate in the same resolution path as
+ordinary stack values, while dependency cycles remain explicit errors.
 
-Checked-source construction allocates compact local and parameter identities
-before recursive body checking, so forward references can resolve without
-retaining authored names at evaluation time. The recursive checker resolves
-graph and scalar references, parses scalar literals, orders explicit inputs by
-descriptor, assigns lexical body-port identities, resolves concrete signatures
-and body contracts, and records each invocation's concrete stack-binding plan.
-Checked items are complete when constructed; no later source/checked lockstep
-pass repairs references or output bindings. Inline input bodies and lexical
-body-port aliases are represented directly in checked source. Canonical bodies
-and invocations are not retained for ordinary evaluation.
+After the fixpoint stabilizes, the same recursive resolver performs final
+resolution and records every invocation's concrete signature and stack-binding
+plan together with the ordered output types of clips and the source body. There
+is no separate concrete type or stack interpreter. Imported definitions and
+built-ins share the resulting runtime catalog.
+
+Checked-source materialization allocates compact local and parameter identities,
+resolves graph and scalar references, parses scalar literals, and assigns
+lexical body-port identities. It consumes the resolver's concrete signatures,
+stack plans, and output types rather than recomputing them. Checked items are
+complete when constructed; no later source/checked lockstep pass repairs
+references or output bindings. Inline input bodies and lexical body-port aliases
+are represented directly in checked source. Canonical bodies and invocations
+are not retained for ordinary evaluation.
 
 `compiler` evaluates the checked body and every nested body as a typed postfix
 stack program over one physical heterogeneous evaluation stack. Each stack
@@ -80,8 +79,8 @@ structural body validation, or stack selection. It applies the stored stack
 plan, evaluates checked inline input bodies on isolated evaluation stacks, and
 materializes the ordinary resolved-call interface consumed by program
 implementations. Root values supplied by a CLI or another host after source
-checking use a dedicated entrypoint adapter. The checker
-resolves the single closed Video-or-Audio selector used by type-preserving built-ins and
+checking use a dedicated entrypoint adapter. The type resolver resolves the
+single closed Video-or-Audio selector used by type-preserving built-ins and
 stores the resulting concrete signature in checked source. A body-inferred
 program such as bare `glue` contributes its homogeneous owned body outputs to
 that same inference, including when the result is named or referenced before

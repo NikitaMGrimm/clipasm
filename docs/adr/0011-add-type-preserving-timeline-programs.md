@@ -50,7 +50,7 @@ type is accessible; a mixed Audio/Video stack is an ambiguity error. Explicit
 `drop` returns no values. Its implicit form removes the nearest accessible
 value; its selector can target the nearest Video or Audio specifically.
 
-Checked-source construction assigns compact type variables to generic
+Compiler type resolution assigns compact type variables to generic
 invocations and graph-valued locals. Selectors, explicit inputs, body contracts,
 ordinary type-directed stack binding, generic outputs, lexical body ports, and
 names attached to outputs constrain the same variables. Naming therefore never
