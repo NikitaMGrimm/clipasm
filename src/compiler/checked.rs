@@ -44,6 +44,7 @@ pub(super) struct CheckedPackage {
 pub(super) struct CheckedProgramInput {
     pub(super) name: String,
     pub(super) value_type: ValueType,
+    pub(super) local: ValueLocalId,
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +63,7 @@ pub(super) struct CheckedProgram {
 pub(super) struct CheckedClip {
     pub(super) name: String,
     pub(super) span: crate::source::SourceSpan,
+    pub(super) local: ValueLocalId,
     pub(super) body: CheckedBody,
 }
 

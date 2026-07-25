@@ -89,7 +89,6 @@ struct Evaluator {
 }
 
 struct EvalScope {
-    values: BTreeMap<String, SymbolId>,
     local_symbols: Vec<SymbolId>,
     body_inputs: Vec<Option<ValueRef>>,
     parameters: Vec<Spanned<crate::program::ParameterValue>>,
@@ -120,7 +119,6 @@ impl Evaluator {
     ) -> Result<Vec<ValueRef>> {
         let checked_program = &context.programs[unit.0];
         let mut scope = EvalScope {
-            values: BTreeMap::new(),
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
             body_inputs: vec![None; checked_program.body_input_count],
             parameters: checked_program
@@ -155,7 +153,6 @@ impl Evaluator {
         };
         for local in &checked_program.locals {
             let symbol = self.add_symbol(&local.name, &local.declared_at, local.value_type)?;
-            scope.values.insert(local.name.clone(), symbol);
             scope.local_symbols.push(symbol);
             if public {
                 self.public_symbols.insert(local.name.clone(), symbol);
@@ -181,8 +178,8 @@ impl Evaluator {
                         checked_program.span.clone(),
                     ));
                 };
-                let key = scope.values[&input.name];
-                self.bind_symbol(key, *value)?;
+                let symbol = scope.local_symbols[input.local.index()];
+                self.bind_symbol(symbol, *value)?;
             }
         } else if let Some(input) = checked_program.inputs.first() {
             return Err(Diagnostic::new(
@@ -212,8 +209,8 @@ impl Evaluator {
                 "output",
                 &clip.span,
             )?;
-            let key = scope.values[&clip.name];
-            self.bind_symbol(key, *output)?;
+            let symbol = scope.local_symbols[clip.local.index()];
+            self.bind_symbol(symbol, *output)?;
             self.surface.push(SurfaceRecord {
                 construct: "named clip".to_owned(),
                 outputs: vec![SurfaceOutput {

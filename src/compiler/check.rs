@@ -296,6 +296,7 @@ fn check_program(
         .map(|(clip, body)| CheckedClip {
             name: clip.name.clone(),
             span: clip.span.clone(),
+            local: bindings.local_ids[&clip.name],
             body,
         })
         .collect::<Vec<_>>();
@@ -314,6 +315,7 @@ fn check_program(
                         .value_type
                         .exact()
                         .expect("authored program inputs are concrete"),
+                    local: bindings.local_ids[&input.name],
                 })
                 .collect(),
             locals: bindings.locals,
