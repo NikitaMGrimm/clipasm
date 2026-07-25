@@ -188,7 +188,7 @@ directory without rewriting authored source.
 Registered programs are:
 
 - direct: `image`, `video`, `audio`, `extract_audio`, `set_audio`, `concat`,
-  `repeat`, `trim`, `zoom`, `wobble`, `flash`, `crossfade`
+  `repeat`, `trim`, `drop`, `zoom`, `wobble`, `flash`, `crossfade`
 - body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation

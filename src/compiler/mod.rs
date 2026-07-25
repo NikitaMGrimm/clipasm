@@ -260,7 +260,7 @@ pub fn compile(package: &SourcePackage) -> Result<CompiledProgram> {
 ///
 /// Bindings are matched against the root program's declared `inputs` and
 /// `parameters`. Relative file paths use the source base carried by each
-/// binding span. An optional output binding overrides `program.output` for this
+/// binding span. An optional output binding overrides `config.output` for this
 /// compilation without changing the authored package.
 ///
 /// # Errors

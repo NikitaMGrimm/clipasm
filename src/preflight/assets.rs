@@ -19,7 +19,7 @@ pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf>
     let output = compiled.output().ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_OUTPUT",
-            "`render` requires `program.output`",
+            "`render` requires `config.output`",
             SourceSpan::source_start(compiled.entrypoint_source().clone()),
         )
     })?;

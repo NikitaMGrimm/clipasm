@@ -106,10 +106,10 @@ publishable `Video` among the root program's ordered outputs.
 
 ## The output or manifest destination is rejected
 
-ClipAsm preserves existing files and rejects unsafe destination collisions.
-Choose a different output path when the MP4, its sibling manifest, a reachable
-input asset, an external executable, or an incompatible filesystem object
-occupies the destination.
+ClipAsm transactionally replaces existing regular MP4 and manifest files while
+preserving them if publication fails. It rejects unsafe destination collisions.
+Choose a different output path when a reachable input asset, an external
+executable, or an incompatible filesystem object occupies either destination.
 
 Do not point output at a source asset. Publication writes both the MP4 and
 `<output>.manifest.json`.

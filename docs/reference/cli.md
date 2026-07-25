@@ -68,7 +68,8 @@ semantic program as JSON. By default it writes JSON to standard output.
 cargo run -- inspect examples/scenic-sequence.clipasm
 ```
 
-Use `-o` or `--output` to write a new file:
+Use `-o` or `--output` to write a new file. Create the parent directory first
+when it does not already exist:
 
 ```console
 cargo run -- inspect examples/scenic-sequence.clipasm \
