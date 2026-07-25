@@ -1,14 +1,14 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::source::SourceSpan;
 
-static PUBLICATION_COUNTER: AtomicU64 = AtomicU64::new(0);
+use super::staging::StagingDirectory;
 
 pub(super) struct PublicationTransaction {
+    _staging: StagingDirectory,
     output: PublicationFile,
     manifest: PublicationFile,
 }
@@ -23,11 +23,23 @@ struct PublicationFile {
 }
 
 impl PublicationTransaction {
-    pub(super) fn new(output: &Path, manifest: &Path) -> Self {
-        Self {
-            output: PublicationFile::new("output", output, "mp4"),
-            manifest: PublicationFile::new("manifest", manifest, "json"),
-        }
+    pub(super) fn new(output: &Path, manifest: &Path) -> Result<Self> {
+        let staging = StagingDirectory::beside(output, "publication", "E_PUBLICATION")?;
+        Ok(Self {
+            output: PublicationFile::new(
+                "output",
+                output,
+                staging.path("output.mp4"),
+                staging.path("output.bak"),
+            ),
+            manifest: PublicationFile::new(
+                "manifest",
+                manifest,
+                staging.path("manifest.json"),
+                staging.path("manifest.bak"),
+            ),
+            _staging: staging,
+        })
     }
 
     pub(super) fn staged_output(&self) -> &Path {
@@ -164,16 +176,12 @@ impl Drop for PublicationTransaction {
 }
 
 impl PublicationFile {
-    fn new(role: &'static str, destination: &Path, extension: &str) -> Self {
+    fn new(role: &'static str, destination: &Path, staged: PathBuf, backup: PathBuf) -> Self {
         Self {
             role,
             destination: destination.to_path_buf(),
-            staged: unique_sibling(
-                destination,
-                &format!("publication-{role}-staged"),
-                extension,
-            ),
-            backup: unique_sibling(destination, &format!("publication-{role}-backup"), "bak"),
+            staged,
+            backup,
             backed_up: false,
             published: false,
         }
@@ -293,17 +301,6 @@ fn rename_error(
     )
 }
 
-fn unique_sibling(path: &Path, role: &str, extension: &str) -> PathBuf {
-    let counter = PUBLICATION_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut name = std::ffi::OsString::from(".");
-    name.push(path.file_name().unwrap_or_default());
-    name.push(format!(
-        ".{role}-{}-{counter}.{extension}",
-        std::process::id()
-    ));
-    path.parent().unwrap_or_else(|| Path::new(".")).join(name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +310,7 @@ mod tests {
             &directory.join("final.mp4"),
             &directory.join("final.mp4.manifest.json"),
         )
+        .expect("publication transaction")
     }
 
     fn write_old_pair(directory: &Path) {
@@ -342,6 +340,20 @@ mod tests {
             2,
             "unexpected publication residue: {entries:?}"
         );
+    }
+
+    #[test]
+    fn stages_and_backups_live_inside_a_private_directory() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let publication = transaction(directory.path());
+        let staging = publication
+            .staged_output()
+            .parent()
+            .expect("staging directory");
+        assert_ne!(staging, directory.path());
+        assert_eq!(publication.manifest.staged.parent(), Some(staging));
+        assert_eq!(publication.output.backup.parent(), Some(staging));
+        assert_eq!(publication.manifest.backup.parent(), Some(staging));
     }
 
     #[test]

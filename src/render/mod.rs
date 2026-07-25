@@ -9,6 +9,7 @@ mod artifact;
 mod execute;
 mod lock;
 mod publication;
+mod staging;
 
 use std::fs;
 use std::path::PathBuf;
@@ -168,14 +169,15 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                     )
                 })?;
             }
-            executor.render_node(node, &artifacts, &artifact)?;
+            let staged = executor.render_node(node, &artifacts, &artifact)?;
             verify_prepared_artifact(
                 plan.ffprobe().executable(),
-                &artifact,
+                staged.path(),
                 node,
                 plan.audio(),
                 crate::preflight::WORKING_PIXEL_FORMAT,
             )?;
+            staged.commit()?;
         }
         artifacts.push(artifact);
     }
@@ -208,7 +210,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         "publication",
         &SourceSpan::file_start(plan.output()),
     )?;
-    let publication = PublicationTransaction::new(plan.output(), plan.manifest());
+    let publication = PublicationTransaction::new(plan.output(), plan.manifest())?;
     executor.stage_export(result_artifact, publication.staged_output(), result_node)?;
 
     let manifest = Manifest {

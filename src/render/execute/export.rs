@@ -101,7 +101,8 @@ mod tests {
         let spec =
             VideoSpec::new(64, 64, FrameRate::new(10, 1).expect("frame rate")).expect("video spec");
         let domain = VideoDomain::new(FrameCount(10), spec);
-        let publication = PublicationTransaction::new(&output, &manifest);
+        let publication =
+            PublicationTransaction::new(&output, &manifest).expect("publication transaction");
         stage_export(
             &invalid_artifact,
             publication.staged_output(),

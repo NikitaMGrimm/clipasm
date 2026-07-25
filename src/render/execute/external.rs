@@ -105,8 +105,7 @@ pub(super) fn video(
             ffprobe: context.plan().ffprobe().executable(),
         },
     };
-    run_external(executable.executable(), &request, context.span())?;
-    context.commit_temporary()
+    run_external(executable.executable(), &request, context.span())
 }
 
 fn run_external(

@@ -1,40 +1,33 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedPlan};
 use crate::source::SourceSpan;
 
-static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
+use super::super::staging::StagingDirectory;
 
 pub(super) struct RenderContext<'a> {
     plan: &'a PreparedPlan,
     node: &'a PreparedNode,
     artifacts: &'a [PathBuf],
-    destination: &'a Path,
-    temporary: PathBuf,
+    temporary: &'a Path,
 }
 
 impl<'a> RenderContext<'a> {
-    pub(super) fn new(
+    pub(super) const fn new(
         plan: &'a PreparedPlan,
         node: &'a PreparedNode,
         artifacts: &'a [PathBuf],
-        destination: &'a Path,
+        temporary: &'a Path,
     ) -> Self {
-        let extension = match node.value_type() {
-            crate::model::ValueType::Audio => "mka",
-            crate::model::ValueType::Video => "mkv",
-        };
         Self {
             plan,
             node,
             artifacts,
-            destination,
-            temporary: temporary_sibling(destination, "cache", extension),
+            temporary,
         }
     }
 
@@ -55,7 +48,7 @@ impl<'a> RenderContext<'a> {
     }
 
     pub(super) fn temporary(&self) -> &Path {
-        self.temporary.as_path()
+        self.temporary
     }
 
     pub(super) fn span(&self) -> &SourceSpan {
@@ -82,27 +75,33 @@ impl<'a> RenderContext<'a> {
     }
 
     pub(super) fn finish_ffmpeg(&self, command: Command) -> Result<()> {
-        if let Err(error) = run_command(command, "E_FFMPEG", self.span()) {
-            let _ = fs::remove_file(&self.temporary);
-            return Err(error);
-        }
-        self.commit_temporary()
-    }
-
-    pub(super) fn commit_temporary(&self) -> Result<()> {
-        atomic_replace(&self.temporary, self.destination, "E_CACHE_IO")
+        run_command(command, "E_FFMPEG", self.span())
     }
 }
 
-fn temporary_sibling(path: &Path, role: &str, extension: &str) -> PathBuf {
-    let counter = TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut name = std::ffi::OsString::from(".");
-    name.push(path.file_name().unwrap_or_default());
-    name.push(format!(
-        ".{role}-{}-{counter}.{extension}",
-        std::process::id()
-    ));
-    path.parent().unwrap_or_else(|| Path::new(".")).join(name)
+pub(in crate::render) struct StagedArtifact {
+    _staging: StagingDirectory,
+    path: PathBuf,
+    destination: PathBuf,
+}
+
+impl StagedArtifact {
+    pub(super) fn new(destination: &Path, extension: &str) -> Result<Self> {
+        let staging = StagingDirectory::beside(destination, "cache", "E_CACHE_IO")?;
+        Ok(Self {
+            path: staging.path(&format!("artifact.{extension}")),
+            destination: destination.to_path_buf(),
+            _staging: staging,
+        })
+    }
+
+    pub(in crate::render) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(in crate::render) fn commit(self) -> Result<()> {
+        atomic_replace(&self.path, &self.destination, "E_CACHE_IO")
+    }
 }
 
 pub(super) fn atomic_replace(source: &Path, destination: &Path, code: &'static str) -> Result<()> {
@@ -146,4 +145,41 @@ fn run_output(mut command: Command, code: &'static str, span: &SourceSpan) -> Re
         .note(debug));
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uncommitted_cache_staging_is_removed_on_drop() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("artifact.mkv");
+        let staged_path = {
+            let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
+            fs::write(staged.path(), b"invalid artifact").expect("staged bytes");
+            staged.path().to_path_buf()
+        };
+        assert!(!staged_path.exists());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn committed_cache_staging_moves_only_the_staged_file() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("artifact.mkv");
+        let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
+        let staging_parent = staged
+            .path()
+            .parent()
+            .expect("staging parent")
+            .to_path_buf();
+        fs::write(staged.path(), b"verified artifact").expect("staged bytes");
+        staged.commit().expect("commit");
+        assert_eq!(
+            fs::read(&destination).expect("artifact"),
+            b"verified artifact"
+        );
+        assert!(!staging_parent.exists());
+    }
 }

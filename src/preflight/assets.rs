@@ -101,10 +101,29 @@ pub(super) fn reject_asset_collisions(
 ) -> Result<()> {
     for node in nodes {
         if let PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::ExternalVideo { parameters, .. },
+            kind:
+                PreparedVideoKind::ExternalVideo {
+                    executable,
+                    parameters,
+                    ..
+                },
             ..
         } = node.media()
         {
+            reject_path_collision(
+                output,
+                "output",
+                executable.executable(),
+                "external executable",
+                "E_OUTPUT_COLLISION",
+            )?;
+            reject_path_collision(
+                manifest,
+                "manifest",
+                executable.executable(),
+                "external executable",
+                "E_MANIFEST_COLLISION",
+            )?;
             for asset in parameters.values().filter_map(|value| match value {
                 super::PreparedExternalParameterValue::File(asset) => Some(asset),
                 super::PreparedExternalParameterValue::Integer(_)

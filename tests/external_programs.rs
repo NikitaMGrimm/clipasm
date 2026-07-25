@@ -124,6 +124,59 @@ fn external_programs_reject_imports_in_favor_of_wrapper_programs() {
 
 #[cfg(unix)]
 #[test]
+fn publication_paths_cannot_collide_with_external_executables() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if !common::media_tools_available() {
+        return;
+    }
+
+    for (executable_name, output, expected_code) in [
+        ("effect.mp4", "effect.mp4", "E_OUTPUT_COLLISION"),
+        (
+            "result.mp4.manifest.json",
+            "result.mp4",
+            "E_MANIFEST_COLLISION",
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let executable = directory.path().join(executable_name);
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").expect("external executable");
+        let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("executable permissions");
+        fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/assets/morning.png"),
+            directory.path().join("card.png"),
+        )
+        .expect("image");
+        let command = format!("./{executable_name}");
+        fs::write(
+            directory.path().join("effect.clipasm"),
+            format!(
+                "clipasm 1\ninput video: Video\nexternal {{\n  command = {command:?}\n  semantic_version = 1\n  preserve = video\n}}\n"
+            ),
+        )
+        .expect("external source");
+        let workflow = directory.path().join("workflow.clipasm");
+        fs::write(
+            &workflow,
+            format!(
+                "clipasm 1\nconfig {{ output = {output:?} }}\nimport \"effect.clipasm\" as effect\nimage(\"card.png\", 1s)\neffect\n"
+            ),
+        )
+        .expect("workflow");
+
+        let package = language::parse_file(&workflow).expect("external package");
+        let compiled = compiler::compile(&package).expect("pure compilation");
+        let error = preflight::preflight(&compiled).expect_err("executable collision");
+        assert_eq!(error.code, expected_code);
+        assert!(executable.is_file(), "preflight must preserve executable");
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     use std::os::unix::fs::PermissionsExt as _;
 
