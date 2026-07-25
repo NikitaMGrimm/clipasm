@@ -75,42 +75,12 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 ));
             }
         }
-        let (outputs, checked_program) = check_program(
-            unit_id,
-            unit.program(),
-            &definitions,
-            &builtin_names,
-            &namespace,
-        )?;
-        let parameters = unit
-            .program()
-            .parameters()
-            .iter()
-            .map(|parameter| {
-                validate_parameter_default(parameter)?;
-                Ok(ParameterDescriptor {
-                    name: parameter.name.value.clone(),
-                    parameter_type: parameter.parameter_type.clone(),
-                    required: parameter.default.is_none(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let definition = ProgramDefinition {
-            descriptor: ProgramDescriptor {
-                name: format!("source_program_{}", unit_id.index()),
-                semantic_version: 1,
-                default_stack_access: unit.program().stack_access(),
-                inputs: unit.program().inputs().to_vec(),
-                parameters,
-                type_selector: None,
-                outputs: outputs.into_iter().map(Into::into).collect(),
-            },
-            implementation: ProgramImplementation::Authored(unit_id),
-        };
         let id = ProgramId::new(
             u32::try_from(definitions.len()).expect("linked program catalog fits in u32"),
         );
-        definitions.push(definition);
+        let (outputs, checked_program) =
+            check_program(id, unit.program(), &definitions, &builtin_names, &namespace)?;
+        definitions.push(authored_definition(unit_id, unit.program(), outputs)?);
         unit_programs[unit_id.index()] = Some(id);
         programs[unit_id.index()] = Some(checked_program);
     }
@@ -151,11 +121,11 @@ fn register_external_programs(
 #[cfg(test)]
 pub(super) fn check_with_registry(
     package: &SourcePackage,
-    registry: ProgramRegistry,
+    registry: &ProgramRegistry,
 ) -> Result<CheckedPackage> {
     debug_assert_eq!(package.units().len(), 1);
     debug_assert!(package.root().imports.is_empty());
-    let definitions = registry.definitions();
+    let mut definitions = registry.definitions().to_vec();
     let names = definitions
         .iter()
         .enumerate()
@@ -166,23 +136,61 @@ pub(super) fn check_with_registry(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let (_, program) = check_program(
-        package.root,
+    let definition =
+        ProgramId::new(u32::try_from(definitions.len()).expect("test catalog fits in u32"));
+    let (outputs, program) = check_program(
+        definition,
         package.root().program(),
-        definitions,
+        &definitions,
         &names,
         &BTreeMap::new(),
     )?;
+    definitions.push(authored_definition(
+        package.root,
+        package.root().program(),
+        outputs,
+    )?);
     Ok(CheckedPackage {
         root: package.root,
-        registry,
+        registry: ProgramRegistry::from_definitions(definitions)?,
         programs: vec![program],
+    })
+}
+
+fn authored_definition(
+    unit: SourceUnitId,
+    program: &SourceProgram,
+    outputs: Vec<ValueType>,
+) -> Result<ProgramDefinition> {
+    let parameters = program
+        .parameters()
+        .iter()
+        .map(|parameter| {
+            validate_parameter_default(parameter)?;
+            Ok(ParameterDescriptor {
+                name: parameter.name.value.clone(),
+                parameter_type: parameter.parameter_type.clone(),
+                required: parameter.default.is_none(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: format!("source_program_{}", unit.index()),
+            semantic_version: 1,
+            default_stack_access: program.stack_access(),
+            inputs: program.inputs().to_vec(),
+            parameters,
+            type_selector: None,
+            outputs: outputs.into_iter().map(Into::into).collect(),
+        },
+        implementation: ProgramImplementation::Authored(unit),
     })
 }
 
 #[allow(clippy::too_many_lines)]
 fn check_program(
-    _unit: SourceUnitId,
+    definition: ProgramId,
     program: &SourceProgram,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
@@ -293,6 +301,7 @@ fn check_program(
     Ok((
         inference.outputs,
         CheckedProgram {
+            definition,
             span: program.span().clone(),
             stack_access: program.stack_access(),
             inputs: program

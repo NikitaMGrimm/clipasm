@@ -76,9 +76,9 @@ impl ExternalRuntime {
             .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
         let parameters = call
             .parameters()
-            .iter()
-            .map(|(name, value)| {
-                let value = match &value.value {
+            .filter_map(|(descriptor, value)| value.map(|value| (descriptor, value)))
+            .map(|(descriptor, value)| {
+                let parameter = match &value.value {
                     ParameterValue::Integer(value) => ExternalParameterValue::Integer(*value),
                     ParameterValue::Keyword(value) => {
                         ExternalParameterValue::Keyword(value.clone())
@@ -88,12 +88,15 @@ impl ExternalRuntime {
                     | ParameterValue::TimeRange(_) => {
                         return Err(Diagnostic::new(
                             "E_INVALID_EXTERNAL_PROGRAM",
-                            format!("external parameter `{name}` uses an unsupported runtime type"),
+                            format!(
+                                "external parameter `{}` uses an unsupported runtime type",
+                                descriptor.name
+                            ),
                             value.span.clone(),
                         ));
                     }
                 };
-                Ok((name.clone(), value))
+                Ok((descriptor.name.clone(), parameter))
             })
             .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
         Ok(ExternalInvocation {

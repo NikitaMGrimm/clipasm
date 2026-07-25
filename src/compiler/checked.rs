@@ -49,6 +49,7 @@ pub(super) struct CheckedProgramInput {
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgram {
+    pub(super) definition: ProgramId,
     pub(super) span: crate::source::SourceSpan,
     pub(super) stack_access: crate::program::StackAccess,
     pub(super) inputs: Vec<CheckedProgramInput>,

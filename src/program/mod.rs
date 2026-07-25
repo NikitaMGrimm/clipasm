@@ -1,15 +1,17 @@
 mod builtins;
+mod call;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
-use crate::semantic::{GraphBuilder, SourceOrigin};
-use crate::source::{SourceSpan, SourceUnitId, Spanned};
+use crate::semantic::GraphBuilder;
+use crate::source::{SourceSpan, SourceUnitId};
 
 pub(crate) use builtins::builtin_programs;
+pub(crate) use call::{ResolvedCall, ResolvedInput};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ProgramId(u32);
@@ -131,8 +133,6 @@ pub(crate) enum ParameterValue {
     Keyword(String),
 }
 
-pub(crate) type BoundParameters = BTreeMap<String, Spanned<ParameterValue>>;
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterDescriptor {
     pub(crate) name: String,
@@ -211,10 +211,12 @@ pub(crate) enum BodyOutputConstraint {
 }
 
 pub(crate) type ProgramOutputs = Vec<ValueRef>;
-pub(crate) type DirectLowerFn =
-    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<ProgramOutputs>;
+pub(crate) type DirectLowerFn = for<'call, 'graph> fn(
+    &ResolvedCall<'call>,
+    &mut GraphBuilder<'graph>,
+) -> Result<ProgramOutputs>;
 pub(crate) type BodyPrepareFn =
-    for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<BodyPlan>;
+    for<'call, 'graph> fn(&ResolvedCall<'call>, &mut GraphBuilder<'graph>) -> Result<BodyPlan>;
 
 #[derive(Clone)]
 pub(crate) enum ProgramImplementation {
@@ -263,163 +265,6 @@ pub(crate) trait BodyFinalizer {
         values: Vec<ValueRef>,
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ProgramOutputs>;
-}
-
-#[derive(Debug)]
-pub(crate) struct ResolvedCall {
-    program_name: String,
-    inputs: BTreeMap<String, Vec<ValueRef>>,
-    parameters: BoundParameters,
-    requested_frames: Option<FrameCount>,
-    origin: SourceOrigin,
-}
-
-impl ResolvedCall {
-    pub(crate) fn new(
-        program_name: String,
-        inputs: BTreeMap<String, Vec<ValueRef>>,
-        parameters: BoundParameters,
-        requested_frames: Option<FrameCount>,
-        origin: SourceOrigin,
-    ) -> Self {
-        Self {
-            program_name,
-            inputs,
-            parameters,
-            requested_frames,
-            origin,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn program_name(&self) -> &str {
-        &self.program_name
-    }
-
-    #[must_use]
-    pub(crate) const fn requested_frames(&self) -> Option<FrameCount> {
-        self.requested_frames
-    }
-
-    #[must_use]
-    pub(crate) const fn origin(&self) -> &SourceOrigin {
-        &self.origin
-    }
-
-    #[must_use]
-    pub(crate) fn inputs(&self) -> &BTreeMap<String, Vec<ValueRef>> {
-        &self.inputs
-    }
-
-    #[must_use]
-    pub(crate) fn parameters(&self) -> &BoundParameters {
-        &self.parameters
-    }
-
-    pub(crate) fn one_input(&self, name: &str) -> Result<ValueRef> {
-        self.inputs
-            .get(name)
-            .and_then(|values| match values.as_slice() {
-                [value] => Some(*value),
-                _ => None,
-            })
-            .ok_or_else(|| self.binding_error(name))
-    }
-
-    pub(crate) fn variadic_input(&self, name: &str) -> Result<&[ValueRef]> {
-        self.inputs
-            .get(name)
-            .map(Vec::as_slice)
-            .ok_or_else(|| self.binding_error(name))
-    }
-
-    pub(crate) fn integer_parameter(&self, name: &str) -> Result<(i64, &SourceSpan)> {
-        let parameter = self.parameter(name)?;
-        match &parameter.value {
-            ParameterValue::Integer(value) => Ok((*value, &parameter.span)),
-            _ => Err(self.parameter_type_error(name, "integer")),
-        }
-    }
-
-    pub(crate) fn optional_integer_parameter(
-        &self,
-        name: &str,
-    ) -> Result<Option<(i64, &SourceSpan)>> {
-        let Some(parameter) = self.parameters.get(name) else {
-            return Ok(None);
-        };
-        match &parameter.value {
-            ParameterValue::Integer(value) => Ok(Some((*value, &parameter.span))),
-            _ => Err(self.parameter_type_error(name, "integer")),
-        }
-    }
-
-    pub(crate) fn file_parameter(&self, name: &str) -> Result<(&Path, &SourceSpan)> {
-        let parameter = self.parameter(name)?;
-        match &parameter.value {
-            ParameterValue::File(value) => Ok((value.as_path(), &parameter.span)),
-            _ => Err(self.parameter_type_error(name, "file")),
-        }
-    }
-
-    pub(crate) fn optional_duration_parameter(
-        &self,
-        name: &str,
-    ) -> Result<Option<(SourceTime, &SourceSpan)>> {
-        let Some(parameter) = self.parameters.get(name) else {
-            return Ok(None);
-        };
-        match &parameter.value {
-            ParameterValue::Duration(value) => Ok(Some((*value, &parameter.span))),
-            _ => Err(self.parameter_type_error(name, "duration")),
-        }
-    }
-
-    pub(crate) fn time_range_parameter(
-        &self,
-        name: &str,
-    ) -> Result<(SourceTimeRange, &SourceSpan)> {
-        let parameter = self.parameter(name)?;
-        match &parameter.value {
-            ParameterValue::TimeRange(value) => Ok((*value, &parameter.span)),
-            _ => Err(self.parameter_type_error(name, "time range")),
-        }
-    }
-
-    pub(crate) fn optional_keyword_parameter(
-        &self,
-        name: &str,
-    ) -> Result<Option<(&str, &SourceSpan)>> {
-        let Some(parameter) = self.parameters.get(name) else {
-            return Ok(None);
-        };
-        match &parameter.value {
-            ParameterValue::Keyword(value) => Ok(Some((value, &parameter.span))),
-            _ => Err(self.parameter_type_error(name, "keyword")),
-        }
-    }
-
-    fn parameter(&self, name: &str) -> Result<&Spanned<ParameterValue>> {
-        self.parameters
-            .get(name)
-            .ok_or_else(|| self.binding_error(name))
-    }
-
-    fn binding_error(&self, name: &str) -> Diagnostic {
-        Diagnostic::new(
-            "E_INTERNAL_BINDING",
-            format!("resolved call has an invalid or missing binding for `{name}`"),
-            self.origin.span.clone(),
-        )
-    }
-
-    fn parameter_type_error(&self, name: &str, expected: &str) -> Diagnostic {
-        Diagnostic::new(
-            "E_INTERNAL_BINDING",
-            format!("resolved parameter `{name}` is not a {expected}"),
-            self.origin.span.clone(),
-        )
-    }
 }
 
 #[derive(Debug)]

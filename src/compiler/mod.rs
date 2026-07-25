@@ -276,7 +276,7 @@ pub fn compile_with_bindings(
 #[cfg(test)]
 pub(crate) fn compile_with_registry(
     package: &SourcePackage,
-    registry: ProgramRegistry,
+    registry: &ProgramRegistry,
 ) -> Result<CompiledProgram> {
     let checked = check::check_with_registry(package, registry)?;
     compile_checked(package, &checked, &EntrypointBindings::new())

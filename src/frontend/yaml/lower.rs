@@ -1310,7 +1310,7 @@ mod tests {
         )
         .expect("generic parse");
         let compiled =
-            crate::compiler::compile_with_registry(&workflow, registry).expect("generic evaluate");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect("generic evaluate");
         assert_eq!(compiled.result_domain().expect("known domain").frames.0, 1);
     }
 }

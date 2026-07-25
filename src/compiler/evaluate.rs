@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, InputPort, ProgramDefinition, ProgramImplementation, ResolvedCall,
-    ResolvedSignature, ValueTypeSpec,
+    Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation, ResolvedCall,
+    ResolvedInput, ResolvedSignature, ValueTypeSpec,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
@@ -63,7 +63,13 @@ pub(super) fn evaluate(
         public_symbols: BTreeMap::new(),
         surface: Vec::new(),
     };
-    let root_call = evaluator.bind_entrypoint_call(&context, bindings)?;
+    let root_call = super::entrypoint::bind_root_call(
+        &context.programs[context.root.index()],
+        context.registry,
+        bindings,
+        &mut evaluator.nodes,
+        context.video,
+    )?;
     let outputs = evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
@@ -95,20 +101,6 @@ struct EvalScope {
 }
 
 impl Evaluator {
-    fn bind_entrypoint_call(
-        &mut self,
-        context: &EvaluationContext<'_>,
-        bindings: &EntrypointBindings,
-    ) -> Result<ResolvedCall> {
-        super::entrypoint::bind_root_call(
-            &context.programs[context.root.index()],
-            context.registry,
-            bindings,
-            &mut self.nodes,
-            context.video,
-        )
-    }
-
     #[allow(clippy::too_many_lines)]
     fn evaluate_program(
         &mut self,
@@ -124,8 +116,9 @@ impl Evaluator {
             parameters: checked_program
                 .parameters
                 .iter()
-                .map(|parameter| {
-                    call.and_then(|call| call.parameters().get(&parameter.name).cloned())
+                .enumerate()
+                .map(|(index, parameter)| {
+                    call.and_then(|call| call.parameter_at(ParameterSlot::new(index)).cloned())
                         .or_else(|| parameter.default.clone())
                         .ok_or_else(|| {
                             Diagnostic::new(
@@ -160,15 +153,9 @@ impl Evaluator {
         }
 
         if let Some(call) = call {
-            for input in &checked_program.inputs {
-                let values = call.inputs().get(&input.name).ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_BINDING",
-                        format!("authored program input `{}` was not bound", input.name),
-                        checked_program.span.clone(),
-                    )
-                })?;
-                let [value] = values.as_slice() else {
+            debug_assert_eq!(checked_program.inputs.len(), call.inputs().len());
+            for (input, (_, binding)) in checked_program.inputs.iter().zip(call.inputs()) {
+                let ResolvedInput::One(value) = binding else {
                     return Err(Diagnostic::new(
                         "E_INTERNAL_BINDING",
                         format!(
@@ -421,49 +408,58 @@ impl Evaluator {
             .iter()
             .zip(slots)
             .map(|(port, values)| {
-                values
-                    .map(|values| (port.name.clone(), values))
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
-                            format!(
-                                "checked call to `{construct}` has no binding for input `{}`",
-                                port.name
-                            ),
-                            span.clone(),
-                        )
-                    })
+                let values = values.ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_INTERNAL_BINDING",
+                        format!(
+                            "checked call to `{construct}` has no binding for input `{}`",
+                            port.name
+                        ),
+                        span.clone(),
+                    )
+                })?;
+                match port.cardinality {
+                    Cardinality::One => {
+                        let [value] = values.as_slice() else {
+                            return Err(Diagnostic::new(
+                                "E_INTERNAL_BINDING",
+                                format!(
+                                    "checked call to `{construct}` has invalid cardinality for input `{}`",
+                                    port.name
+                                ),
+                                span.clone(),
+                            ));
+                        };
+                        Ok(ResolvedInput::One(*value))
+                    }
+                    Cardinality::Variadic { .. } => Ok(ResolvedInput::Variadic(values)),
+                }
             })
-            .collect::<Result<BTreeMap<_, _>>>()?;
+            .collect::<Result<Vec<_>>>()?;
 
         debug_assert_eq!(
             definition.descriptor.parameters.len(),
             checked_parameters.len()
         );
-        let parameters = definition
-            .descriptor
-            .parameters
+        let parameters = checked_parameters
             .iter()
-            .zip(checked_parameters)
-            .filter_map(|(descriptor, binding)| {
-                binding.as_ref().map(|binding| {
-                    let value = match binding {
-                        CheckedParameterValue::Literal(value) => value.clone(),
-                        CheckedParameterValue::Reference(parameter) => {
-                            scope.parameters[parameter.index()].clone()
-                        }
-                    };
-                    (descriptor.name.clone(), value)
+            .map(|binding| {
+                binding.as_ref().map(|binding| match binding {
+                    CheckedParameterValue::Literal(value) => value.clone(),
+                    CheckedParameterValue::Reference(parameter) => {
+                        scope.parameters[parameter.index()].clone()
+                    }
                 })
             })
-            .collect::<BoundParameters>();
+            .collect::<Vec<_>>();
         let call = ResolvedCall::new(
-            definition.descriptor.name.clone(),
+            &definition.descriptor,
+            signature,
             inputs,
             parameters,
             requested_frames,
             origin.clone(),
-        );
+        )?;
 
         let outputs = match &definition.implementation {
             ProgramImplementation::Direct(lower) => {
@@ -1048,7 +1044,7 @@ mod tests {
             "- program:\n    version: 1\n    clips:\n      combined:\n        - $before\n        - $after\n        - concat\n\n- two_output:\n  ids: [before, after]\n- concat\n",
         );
         let compiled =
-            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
 
         let before = compiled.named_values()["before"];
         let after = compiled.named_values()["after"];
@@ -1069,7 +1065,7 @@ mod tests {
             "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n- zero_output\n",
         );
         let compiled =
-            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
         let entry = compiled
             .explain()
             .iter()
@@ -1083,7 +1079,7 @@ mod tests {
         let (workflow, registry) =
             parse_with_synthetic_outputs("- program:\n    version: 1\n\n- two_output\n- concat\n");
         let compiled =
-            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
         assert_eq!(compiled.outputs().len(), 1);
     }
 
@@ -1108,7 +1104,7 @@ mod tests {
             ),
         ] {
             let (workflow, registry) = parse_with_synthetic_outputs(source);
-            let error = crate::compiler::compile_with_registry(&workflow, registry)
+            let error = crate::compiler::compile_with_registry(&workflow, &registry)
                 .expect_err("invalid output binding");
             assert_eq!(error.code, "E_OUTPUT_BINDING_COUNT");
             assert!(error.message.contains(expected), "{}", error.message);
@@ -1123,7 +1119,7 @@ mod tests {
         ] {
             let (workflow, registry) = parse_with_registry(source, output_programs());
             let error =
-                crate::compiler::compile_with_registry(&workflow, registry).expect_err("type");
+                crate::compiler::compile_with_registry(&workflow, &registry).expect_err("type");
             assert_eq!(error.code, "E_PROGRAM_OUTPUT_TYPE");
         }
     }
@@ -1135,7 +1131,7 @@ mod tests {
             output_programs(),
         );
         let error =
-            crate::compiler::compile_with_registry(&workflow, registry).expect_err("output count");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect_err("output count");
         assert_eq!(error.code, "E_PROGRAM_OUTPUT_COUNT");
     }
 
@@ -1146,7 +1142,7 @@ mod tests {
             version_programs(),
         );
         let compiled =
-            crate::compiler::compile_with_registry(&workflow, registry).expect("compile");
+            crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
 
         let direct = compiled
             .nodes()
@@ -1170,14 +1166,14 @@ mod tests {
             "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary\n",
             visible_default_programs(),
         );
-        crate::compiler::compile_with_registry(&workflow, registry)
+        crate::compiler::compile_with_registry(&workflow, &registry)
             .expect("visible descriptor defaults capture the source");
 
         let (workflow, registry) = parse_with_registry(
             "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary:\n        stack_access: owned\n",
             visible_default_programs(),
         );
-        let error = crate::compiler::compile_with_registry(&workflow, registry)
+        let error = crate::compiler::compile_with_registry(&workflow, &registry)
             .expect_err("owned override blocks capture");
         assert_eq!(error.code, "E_STACK_UNDERFLOW");
         assert!(error.message.contains("only 0 owned"));

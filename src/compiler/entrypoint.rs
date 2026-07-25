@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, ParameterValue, ProgramImplementation, ProgramRegistry, ResolvedCall,
+    ParameterValue, ProgramImplementation, ProgramRegistry, ResolvedCall, ResolvedInput,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
@@ -106,13 +106,13 @@ impl EntrypointBindings {
     }
 }
 
-pub(super) fn bind_root_call(
+pub(super) fn bind_root_call<'a>(
     program: &CheckedProgram,
-    registry: &ProgramRegistry,
+    registry: &'a ProgramRegistry,
     bindings: &EntrypointBindings,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
-) -> Result<ResolvedCall> {
+) -> Result<ResolvedCall<'a>> {
     for (name, binding) in &bindings.video_inputs {
         let Some(input) = program.inputs.iter().find(|input| input.name == *name) else {
             return Err(unknown_binding(name, &binding.span));
@@ -154,47 +154,65 @@ pub(super) fn bind_root_call(
         }
     }
 
-    let mut inputs = BTreeMap::new();
-    for input in &program.inputs {
-        let binding = bindings.video_inputs.get(&input.name).ok_or_else(|| {
-            Diagnostic::new(
-                "E_MISSING_REQUIRED_INPUT",
-                format!("root program is missing input `{}`", input.name),
-                program.span.clone(),
-            )
-        })?;
-        inputs.insert(
-            input.name.clone(),
-            lower_video_binding(registry, binding, nodes, video)?,
-        );
-    }
+    let definition = registry.definition(program.definition);
+    let signature = definition.descriptor.resolve_signature(None);
+    debug_assert_eq!(program.inputs.len(), definition.descriptor.inputs.len());
+    let inputs = program
+        .inputs
+        .iter()
+        .zip(&definition.descriptor.inputs)
+        .map(|(input, descriptor)| {
+            debug_assert_eq!(input.name, descriptor.name);
+            let binding = bindings.video_inputs.get(&input.name).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!("root program is missing input `{}`", input.name),
+                    program.span.clone(),
+                )
+            })?;
+            Ok(ResolvedInput::One(lower_video_binding(
+                registry, binding, nodes, video,
+            )?))
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-    let mut parameters = BoundParameters::new();
-    for parameter in &program.parameters {
-        if let Some(binding) = bindings.parameters.get(&parameter.name) {
-            parameters.insert(
-                parameter.name.clone(),
-                Spanned::new(
-                    super::parameter::from_text(
-                        "root",
-                        &parameter.name,
-                        &parameter.parameter_type,
-                        &binding.value,
-                        &binding.span,
-                    )?,
-                    binding.span.clone(),
-                ),
-            );
-        }
-    }
+    debug_assert_eq!(
+        program.parameters.len(),
+        definition.descriptor.parameters.len()
+    );
+    let parameters = program
+        .parameters
+        .iter()
+        .zip(&definition.descriptor.parameters)
+        .map(|(parameter, descriptor)| {
+            debug_assert_eq!(parameter.name, descriptor.name);
+            bindings
+                .parameters
+                .get(&parameter.name)
+                .map(|binding| {
+                    Ok(Spanned::new(
+                        super::parameter::from_text(
+                            "root",
+                            &parameter.name,
+                            &parameter.parameter_type,
+                            &binding.value,
+                            &binding.span,
+                        )?,
+                        binding.span.clone(),
+                    ))
+                })
+                .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-    Ok(ResolvedCall::new(
-        "root".to_owned(),
+    ResolvedCall::new(
+        &definition.descriptor,
+        &signature,
         inputs,
         parameters,
         None,
         SourceOrigin::new("root program", program.span.clone()),
-    ))
+    )
 }
 
 fn lower_video_binding(
@@ -202,23 +220,30 @@ fn lower_video_binding(
     binding: &VideoInputBinding,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
-) -> Result<Vec<ValueRef>> {
+) -> Result<ValueRef> {
     let program = registry
         .id("video")
         .expect("native video program is registered");
     let definition = registry.definition(program);
     let signature = definition.descriptor.resolve_signature(None);
     let span = binding.span.clone();
+    let parameters = definition
+        .descriptor
+        .parameters
+        .iter()
+        .map(|parameter| {
+            (parameter.name == "path")
+                .then(|| Spanned::new(ParameterValue::File(binding.path.clone()), span.clone()))
+        })
+        .collect();
     let call = ResolvedCall::new(
-        definition.descriptor.name.clone(),
-        BTreeMap::new(),
-        BTreeMap::from([(
-            "path".to_owned(),
-            Spanned::new(ParameterValue::File(binding.path.clone()), span.clone()),
-        )]),
+        &definition.descriptor,
+        &signature,
+        Vec::new(),
+        parameters,
         None,
         SourceOrigin::new("video", span.clone()),
-    );
+    )?;
     let ProgramImplementation::Direct(lower) = &definition.implementation else {
         unreachable!("video is a direct program")
     };
@@ -229,19 +254,21 @@ fn lower_video_binding(
         SourceOrigin::new("video", span.clone()),
     );
     let outputs = lower(&call, &mut builder)?;
-    if outputs.len() != signature.outputs.len()
-        || outputs
-            .iter()
-            .zip(&signature.outputs)
-            .any(|(output, expected)| output.value_type() != *expected)
-    {
+    let [output] = outputs.as_slice() else {
+        return Err(Diagnostic::new(
+            "E_PROGRAM_OUTPUT_TYPE",
+            "native video input adapter returned outputs outside its declared signature",
+            span,
+        ));
+    };
+    if signature.outputs != [output.value_type()] {
         return Err(Diagnostic::new(
             "E_PROGRAM_OUTPUT_TYPE",
             "native video input adapter returned outputs outside its declared signature",
             span,
         ));
     }
-    Ok(outputs)
+    Ok(*output)
 }
 
 fn unknown_binding(name: &str, span: &SourceSpan) -> Diagnostic {
