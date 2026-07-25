@@ -4,10 +4,6 @@ status: accepted
 
 # Call authored source programs
 
-The callable-source-program decision remains current. References to YAML and a
-generic frontend boundary are historical; the native `.clipasm` loader now owns
-imports and package construction.
-
 ## Context
 
 Canonical source already models source files as typed stack programs. Reusable
@@ -35,7 +31,7 @@ complete ordered final owned values of each body.
 
 An authored invocation opens an isolated local scope and an empty local stack.
 Bound inputs become local graph-value bindings. Bound parameters become local
-scalar bindings. Inputs, parameters, clips, and local `id`/`ids` names share one
+scalar bindings. Inputs, parameters, body aliases, and output bindings share one
 local namespace and do not escape the invocation. Only the ordered program
 outputs return to the caller.
 

@@ -14,7 +14,7 @@ cache identity.
 
 This separation avoids two opposite errors: invalidating meaningful results for
 an unrelated release-number change, and reusing artifacts produced under an
-incompatible toolchain or media policy. Source spans, comments, YAML mapping
+incompatible toolchain or media policy. Source spans, comments, named argument
 order, project location, and internal numeric node IDs therefore do not define
 semantic identity. Authored source selection does: the pure authored image or
 video path belongs to compiled identity, while project relocation does not.

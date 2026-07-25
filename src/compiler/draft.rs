@@ -68,7 +68,6 @@ pub(super) struct DraftInvocation {
 #[derive(Clone, Debug)]
 pub(super) enum DraftInput {
     Reference(Spanned<String>),
-    References(Vec<Spanned<String>>, SourceSpan),
     Body(Box<DraftBody>),
 }
 
@@ -76,7 +75,6 @@ impl DraftInput {
     pub(super) const fn span(&self) -> &SourceSpan {
         match self {
             Self::Reference(reference) => &reference.span,
-            Self::References(_, span) => span,
             Self::Body(body) => &body.span,
         }
     }
@@ -221,9 +219,6 @@ impl DraftInvocation {
                 let port = definition.descriptor.input(slot);
                 let input = match argument {
                     ArgumentValue::Reference(reference) => DraftInput::Reference(reference.clone()),
-                    ArgumentValue::References(references, span) => {
-                        DraftInput::References(references.clone(), span.clone())
-                    }
                     ArgumentValue::Body(body) => {
                         if matches!(port.cardinality, Cardinality::Variadic { .. }) {
                             return Err(Diagnostic::new(
@@ -256,10 +251,7 @@ impl DraftInvocation {
                         ));
                     }
                 };
-                let count = match &input {
-                    DraftInput::Reference(_) | DraftInput::Body(_) => 1,
-                    DraftInput::References(references, _) => references.len(),
-                };
+                let count = 1;
                 match port.cardinality {
                     Cardinality::One if count != 1 => {
                         return Err(Diagnostic::new(
@@ -290,7 +282,7 @@ impl DraftInvocation {
                     ArgumentValue::Reference(reference) => {
                         DraftParameter::Reference(reference.clone())
                     }
-                    ArgumentValue::References(_, _) | ArgumentValue::Body(_) => {
+                    ArgumentValue::Body(_) => {
                         return Err(Diagnostic::new(
                             "E_INVALID_ARGUMENT_TYPE",
                             format!(

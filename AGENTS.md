@@ -7,7 +7,7 @@ documents rather than reconstructing decisions from code or prior conversation.
 
 1. Read `CONTEXT.md`.
 2. Use `docs/development/change-guide.md` to scope the task.
-3. Read the architecture, YAML frontend reference, and ADRs routed by that guide.
+3. Read the architecture, language reference, and ADRs routed by that guide.
 4. Follow `CONTRIBUTING.md`.
 
 ## Guardrails

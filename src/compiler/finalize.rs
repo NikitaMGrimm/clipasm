@@ -240,13 +240,13 @@ mod tests {
     use crate::source::SourceSpan;
 
     fn origin() -> SourceOrigin {
-        SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))
+        SourceOrigin::new("test", SourceSpan::file_start("test.clipasm"))
     }
 
     fn symbol(name: String, value: ValueRef) -> Symbol {
         Symbol {
             name,
-            declared_at: SourceSpan::file_start("test.yaml"),
+            declared_at: SourceSpan::file_start("test.clipasm"),
             value: Some(value),
             value_type: ValueType::Video,
         }

@@ -105,7 +105,7 @@ fn diagnostics_produce_a_failure_exit_code() {
 #[test]
 fn cli_rejects_non_clipasm_source_paths() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.txt");
     fs::write(&workflow, "clipasm 1\n").expect("source");
 
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))

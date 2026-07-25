@@ -231,11 +231,9 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
             }
             Declaration::Import(import) => imports.push(SourceImport {
                 alias: import.alias,
-                path: Spanned::new(PathBuf::from(import.path.value), import.path.span),
             }),
             Declaration::External(external) => externals.push(SourceExternalImport {
                 alias: external.alias,
-                path: Spanned::new(PathBuf::from(external.path.value), external.path.span),
             }),
             Declaration::Input(input) => inputs.push(InputPort {
                 name: input.name.value,

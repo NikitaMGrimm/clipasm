@@ -20,9 +20,6 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | `tests` | Public compiler, preflight, CLI, and render contracts |
 | `examples` | Small runnable `.clipasm` programs |
 
-`src/frontend/yaml` is temporary migration scaffolding. Do not add features to
-it; migrate remaining coverage and delete it.
-
 ## Change-impact matrix
 
 | Change | Primary code | Required review |

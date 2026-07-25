@@ -441,15 +441,15 @@ mod tests {
     #[test]
     fn requires_clipasm_extensions_for_root_and_imported_sources() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let root = write(directory.path(), "root.yaml", "clipasm 1\n");
+        let root = write(directory.path(), "root.txt", "clipasm 1\n");
         let error = parse_file(&root).expect_err("root extension");
         assert_eq!(error.code, "E_SOURCE_EXTENSION");
 
-        write(directory.path(), "child.yaml", "clipasm 1\n");
+        write(directory.path(), "child.txt", "clipasm 1\n");
         let root = write(
             directory.path(),
             "root.clipasm",
-            "clipasm 1\nimport \"child.yaml\" as child\n",
+            "clipasm 1\nimport \"child.txt\" as child\n",
         );
         let error = parse_file(&root).expect_err("import extension");
         assert_eq!(error.code, "E_SOURCE_EXTENSION");

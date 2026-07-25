@@ -28,7 +28,7 @@ pub(super) struct ParameterBinding {
 /// Video inputs and scalar parameters are matched by name against the root
 /// program's declared interface. Relative file paths resolve from the
 /// [`SourceSpan`] supplied with each binding, allowing callers such as the CLI
-/// to use their own working directory without rewriting authored YAML.
+/// to use their own working directory without rewriting authored source.
 #[derive(Clone, Debug, Default)]
 pub struct EntrypointBindings {
     pub(super) video_inputs: BTreeMap<String, VideoInputBinding>,

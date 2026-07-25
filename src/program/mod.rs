@@ -268,13 +268,6 @@ pub(crate) struct ProgramDefinition {
     pub(crate) implementation: ProgramImplementation,
 }
 
-impl ProgramDefinition {
-    #[must_use]
-    pub(crate) const fn is_body(&self) -> bool {
-        matches!(self.implementation, ProgramImplementation::Body { .. })
-    }
-}
-
 pub(crate) struct BodyPlan {
     pub(crate) initial_values: Vec<ValueRef>,
     pub(crate) requested_frames: Option<FrameCount>,
@@ -347,11 +340,6 @@ impl ProgramRegistry {
     #[must_use]
     pub(crate) fn id(&self, name: &str) -> Option<ProgramId> {
         self.data.names.get(name).copied()
-    }
-
-    #[must_use]
-    pub(crate) fn get(&self, name: &str) -> Option<&ProgramDefinition> {
-        self.id(name).map(|id| self.definition(id))
     }
 
     #[must_use]

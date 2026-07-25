@@ -227,7 +227,7 @@ mod tests {
         assert_eq!(FrameRate::new(60, 2), FrameRate::new(30, 1));
         assert_eq!(FrameRate::new(60_000, 2_002), FrameRate::new(30_000, 1_001));
         assert_eq!(
-            FrameRate::parse("60/2", &SourceSpan::file_start("test.yaml")).expect("frame rate"),
+            FrameRate::parse("60/2", &SourceSpan::file_start("test.clipasm")).expect("frame rate"),
             FrameRate::new(30, 1).expect("frame rate")
         );
     }

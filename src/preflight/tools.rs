@@ -1010,7 +1010,7 @@ mod tests {
         let png = directory.path().join("still.png");
         let jpeg = directory.path().join("still.jpg");
         let ppm = directory.path().join("still.ppm");
-        let span = SourceSpan::file_start("workflow.yaml");
+        let span = SourceSpan::file_start("workflow.clipasm");
         let ffmpeg = inspect_ffmpeg().expect("FFmpeg");
         let ffprobe = inspect_ffprobe().expect("FFprobe");
         assert!(ffmpeg.executable().is_absolute());

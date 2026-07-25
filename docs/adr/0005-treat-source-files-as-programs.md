@@ -4,14 +4,10 @@ status: accepted
 
 # Treat source files as programs
 
-The file-as-program decision remains current. The YAML header and named-clip
-surface syntax described below are historical and were replaced by the native
-`.clipasm` declarations and `clip` sugar in ADR 0013.
-
 ADR 0006 refines the stack-storage and visibility wording below. ADR 0007
 supersedes the single-source-result restriction: source programs now return
 their ordered final owned values, while publication still requires exactly one Video among the outputs.
-Named clips and inline input bodies remain isolated and single-valued.
+Inline fixed-input bodies remain isolated and single-valued.
 
 ADR 0009 subsequently adds source-program signatures, imports, runtime-owned
 program definitions, and ordinary calls between authored source files. The

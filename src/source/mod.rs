@@ -2,7 +2,7 @@
 //!
 //! The public package types are currently opaque compiler inputs produced by
 //! the native language loader. Construction remains crate-private; no stable
-//! alternate-frontend or external builder API is promised.
+//! external builder API is promised.
 
 mod location;
 mod name;
@@ -102,13 +102,11 @@ impl SourceUnit {
 #[derive(Clone, Debug)]
 pub(crate) struct SourceImport {
     pub(crate) alias: Spanned<String>,
-    pub(crate) path: Spanned<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct SourceExternalImport {
     pub(crate) alias: Spanned<String>,
-    pub(crate) path: Spanned<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -284,7 +282,6 @@ pub(crate) struct Invocation {
 pub(crate) enum ArgumentValue {
     Literal(Literal),
     Reference(Spanned<String>),
-    References(Vec<Spanned<String>>, SourceSpan),
     Body(ProgramBody),
 }
 
@@ -300,7 +297,6 @@ impl ArgumentValue {
         match self {
             Self::Literal(literal) => literal.span(),
             Self::Reference(reference) => &reference.span,
-            Self::References(_, span) => span,
             Self::Body(body) => &body.span,
         }
     }

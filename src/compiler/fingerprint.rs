@@ -207,7 +207,7 @@ mod tests {
     fn reference_hash_is_exactly_its_target_hash() {
         let target = ValueRef::new(ValueId::new(0), ValueType::Video);
         let reference = ValueRef::new(ValueId::new(1), ValueType::Video);
-        let span = SourceSpan::file_start("workflow.yaml");
+        let span = SourceSpan::file_start("workflow.clipasm");
         let domain = VideoDomain::new(FrameCount(1), VideoSpec::default());
         let source_symbol = SymbolId::new(0);
         let symbols = vec![Symbol {
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn hashes_a_deep_reference_chain_iteratively() {
         const ALIASES: usize = 20_001;
-        let span = SourceSpan::file_start("workflow.yaml");
+        let span = SourceSpan::file_start("workflow.clipasm");
         let video = VideoSpec::default();
         let domain = VideoDomain::new(FrameCount(1), video);
         let mut nodes = Vec::with_capacity(ALIASES + 1);
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn repeat_fingerprints_include_the_count() {
         fn repeat_hash(count: u64) -> String {
-            let span = SourceSpan::file_start("workflow.yaml");
+            let span = SourceSpan::file_start("workflow.clipasm");
             let video = VideoSpec::default();
             let mut nodes = Vec::new();
             let mut builder =

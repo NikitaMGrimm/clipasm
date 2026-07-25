@@ -177,7 +177,7 @@ mod tests {
     use crate::model::FrameRate;
 
     fn span() -> SourceSpan {
-        SourceSpan::file_start("timeline.yaml")
+        SourceSpan::file_start("timeline.clipasm")
     }
 
     fn ntsc_timeline() -> TimelineRate {

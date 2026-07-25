@@ -30,20 +30,14 @@ only this model.
 The native `.clipasm` language is the sole supported source language. Its lexer,
 parser, package loader, and lowerer own surface grammar and sugar. Those details
 disappear before compilation. The source structs remain intentionally opaque;
-the project does not promise a stable alternate-frontend or external builder
-API.
-
-The CLI and public Rust API use the native language loader. The current YAML
-parser remains temporary internal migration scaffolding for tests that have not
-yet been converted. It will be removed rather than maintained as a second
-frontend.
+the project does not promise a stable external builder API.
 
 `StackBlock` is a structural canonical-source item rather than a registered
 program. It evaluates a nested body in a child stack frame and returns every
 remaining value owned by that frame, preserving order and types. Blocks default
 to owned access in the native language; explicit visible access uses the normal
 stack visibility boundary rules. Output bindings apply to the block's complete
-ordered result sequence, while IDs declared inside remain program-wide.
+ordered result sequence, while output names declared inside remain program-wide.
 
 Every canonical item also carries one surface origin separate from its
 executable target. The origin records the authored construct name and span,
@@ -119,11 +113,11 @@ signature in checked source. A body-inferred program such as bare `glue`
 contributes its homogeneous owned body outputs to that same inference, including
 when the result is named or referenced before its declaration. The evaluator
 does not repeat type inference. Program implementations therefore receive a
-fully resolved call rather than frontend-layer arguments, generic types, or
+fully resolved call rather than surface arguments, generic types, or
 stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
-invocation metadata may override it with `stack_access: owned|visible`.
+invocation metadata may override it with `@owned` or `@visible`.
 `owned` binding is limited to values owned by the current frame. `visible`
 binding may also consume enclosing values down to the frame's visibility
 boundary. Values of unrelated types remain ordered and untouched. The setting is per invocation and does not propagate to child calls. Direct built-ins and source programs default to

@@ -10,8 +10,7 @@ authoring semantics. The native `.clipasm` grammar is implemented under
 - The **native language** is the sole supported `.clipasm` authoring syntax.
   Its lexer, parser, package loader, and lowerer own grammar and sugar.
 - **Canonical source** is the lowered authored `ClipAsm` model consumed by the
-  compiler. It is an internal phase boundary, not a promised alternate-frontend
-  API.
+  compiler. It is an internal phase boundary, not a public construction API.
 - **Checked source** is the compiler-owned executable representation derived
   from canonical source after program names, references, effective stack
   access, arguments, body contracts, stack bindings, named-value types, and
@@ -61,7 +60,7 @@ authoring semantics. The native `.clipasm` grammar is implemented under
 - The **semantic graph** is the pure result of compilation. Media-derived facts
   such as a video-file source duration may remain deferred.
 - The **compiled JSON document** is a downstream serialization of compiled
-  semantics. It is not canonical source and is not a frontend input format.
+  semantics. It is not canonical source and is not an authoring format.
 - A source program's **outputs** are its ordered final owned values. An
   entrypoint configured with `output` must contain exactly one Video output;
   any additional Audio outputs are auxiliary and are not published.
@@ -72,7 +71,7 @@ authoring semantics. The native `.clipasm` grammar is implemented under
 
 ## Settled stack semantics
 
-Sequence order is executable order; frontend mapping order has no executable
+Sequence order is executable order; named argument order has no executable
 meaning. The stack is one physical ordered sequence containing typed value
 occurrences. Each occurrence records which active body owns it.
 

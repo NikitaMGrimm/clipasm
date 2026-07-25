@@ -34,7 +34,7 @@ Use Conventional Commits for commit messages, for example `feat: add trim progra
 
 ## Examples and fixtures
 
-Keep committed examples small, readable, and representative of public YAML.
+Keep committed examples small, readable, and representative of the public language.
 Update `docs/examples.md` when adding or changing a committed source program.
 
 Prefer deterministic text fixtures such as PPM images. Keep generated media,

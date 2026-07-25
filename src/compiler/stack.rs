@@ -549,13 +549,13 @@ mod tests {
     }
 
     fn root() -> (EvaluationStack, StackFrame) {
-        EvaluationStack::isolated("source program", SourceSpan::file_start("workflow.yaml"))
+        EvaluationStack::isolated("source program", SourceSpan::file_start("workflow.clipasm"))
     }
 
     #[test]
     fn planner_selects_missing_fixed_inputs_from_last_port_to_first() {
         let (mut stack, frame) =
-            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.clipasm"));
         stack.extend(
             &frame,
             [
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn planner_defers_when_a_nearer_value_may_match_a_fixed_input() {
         let (mut stack, frame) =
-            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.clipasm"));
         stack.extend(
             &frame,
             [
@@ -651,7 +651,7 @@ mod tests {
     #[test]
     fn planner_defers_a_variadic_binding_when_its_consumed_set_is_uncertain() {
         let (mut stack, frame) =
-            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.clipasm"));
         stack.extend(
             &frame,
             [
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn planner_distinguishes_impossible_binding_from_deferred_binding() {
         let (mut stack, frame) =
-            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.yaml"));
+            EvaluationStack::isolated("inference", SourceSpan::file_start("workflow.clipasm"));
         stack.push(
             &frame,
             AbstractValue {
@@ -712,7 +712,7 @@ mod tests {
             &root,
             StackAccess::Visible,
             "body",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));
 
@@ -723,7 +723,7 @@ mod tests {
                 ValueType::Video,
                 "repeat",
                 "video",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("owned value");
 
@@ -739,7 +739,7 @@ mod tests {
             &root,
             StackAccess::Visible,
             "body",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));
 
@@ -750,7 +750,7 @@ mod tests {
                 ValueType::Video,
                 "flash",
                 "after",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("after");
         let before = stack
@@ -760,7 +760,7 @@ mod tests {
                 ValueType::Video,
                 "flash",
                 "before",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("before");
 
@@ -776,7 +776,7 @@ mod tests {
             &root,
             StackAccess::Visible,
             "body",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));
 
@@ -794,7 +794,7 @@ mod tests {
             &root,
             StackAccess::Owned,
             "during",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(1));
         let _ = stack
@@ -804,7 +804,7 @@ mod tests {
                 ValueType::Video,
                 "flash",
                 "after",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("child value");
 
@@ -815,7 +815,7 @@ mod tests {
                 ValueType::Video,
                 "flash",
                 "before",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect_err("boundary blocks outer value");
 
@@ -831,7 +831,7 @@ mod tests {
             &root,
             StackAccess::Visible,
             "glue",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
 
         let error = stack
@@ -842,7 +842,7 @@ mod tests {
                 1,
                 "concat",
                 "videos",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect_err("owned concat cannot capture");
 
@@ -864,7 +864,7 @@ mod tests {
             &root,
             StackAccess::Visible,
             "glue",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));
 
@@ -876,7 +876,7 @@ mod tests {
                 1,
                 "concat",
                 "videos",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("visible suffix");
 
@@ -897,7 +897,7 @@ mod tests {
                 1,
                 "concat",
                 "videos",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("Videos");
 
@@ -913,14 +913,14 @@ mod tests {
             &root,
             StackAccess::Visible,
             "parent",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&parent, value(1));
         let child = EvaluationStack::<ValueRef>::enter_body(
             &parent,
             StackAccess::Visible,
             "child",
-            SourceSpan::file_start("workflow.yaml"),
+            SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));
 
@@ -932,7 +932,7 @@ mod tests {
                 1,
                 "concat",
                 "videos",
-                &SourceSpan::file_start("workflow.yaml"),
+                &SourceSpan::file_start("workflow.clipasm"),
             )
             .expect("visible values");
 

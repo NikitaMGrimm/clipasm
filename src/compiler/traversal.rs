@@ -132,7 +132,7 @@ mod tests {
     use crate::source::SourceSpan;
 
     fn origin() -> SourceOrigin {
-        SourceOrigin::new("test", SourceSpan::file_start("test.yaml"))
+        SourceOrigin::new("test", SourceSpan::file_start("test.clipasm"))
     }
 
     #[test]

@@ -338,9 +338,9 @@ mod tests {
 
     #[test]
     fn relative_paths_resolve_from_their_own_source_units() {
-        let main = SourceFile::with_base("main.yaml", Some(PathBuf::from("/project")), "");
+        let main = SourceFile::with_base("main.clipasm", Some(PathBuf::from("/project")), "");
         let imported = SourceFile::with_base(
-            "effects/intro.yaml",
+            "effects/intro.clipasm",
             Some(PathBuf::from("/project/effects")),
             "",
         );

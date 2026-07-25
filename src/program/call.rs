@@ -336,7 +336,7 @@ mod tests {
     fn validates_descriptor_aligned_bindings() {
         let descriptor = descriptor();
         let signature = descriptor.resolve_signature(None);
-        let origin = SourceOrigin::new("test", SourceSpan::file_start("test.yaml"));
+        let origin = SourceOrigin::new("test", SourceSpan::file_start("test.clipasm"));
         let call = ResolvedCall::new(
             &descriptor,
             &signature,
@@ -346,7 +346,7 @@ mod tests {
             ],
             vec![Some(Spanned::new(
                 ParameterValue::Integer(2),
-                SourceSpan::file_start("test.yaml"),
+                SourceSpan::file_start("test.clipasm"),
             ))],
             None,
             origin,
@@ -364,7 +364,7 @@ mod tests {
     fn rejects_misaligned_cardinality_and_types() {
         let descriptor = descriptor();
         let signature = descriptor.resolve_signature(None);
-        let origin = SourceOrigin::new("test", SourceSpan::file_start("test.yaml"));
+        let origin = SourceOrigin::new("test", SourceSpan::file_start("test.clipasm"));
         let error = ResolvedCall::new(
             &descriptor,
             &signature,

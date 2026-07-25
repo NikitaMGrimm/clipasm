@@ -80,7 +80,7 @@ intermediates under `.clipasm/cache/` beside the entrypoint source.
 
 ## Documentation
 
-- [Language reference](docs/workflow-reference.md)
+- [Language reference](docs/language-reference.md)
 - [Runnable examples](docs/examples.md)
 - [Architecture](docs/architecture.md)
 - [Architecture decisions](docs/adr/)

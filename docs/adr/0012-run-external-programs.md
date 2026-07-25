@@ -4,10 +4,6 @@ status: accepted
 
 # Run registered external programs
 
-The external-program architecture remains current. References to YAML and
-multiple frontends are historical; the native `.clipasm` loader now owns the
-`external "manifest.json" as alias` declaration.
-
 ## Context
 
 Some useful media operations should remain ordinary scripts or standalone

@@ -780,15 +780,6 @@ fn materialize_input_argument(
             )?],
             reference.span.clone(),
         )),
-        DraftInput::References(references, span) => Ok(CheckedInputValue::References(
-            references
-                .iter()
-                .map(|reference| {
-                    resolve_value_target(&reference.value, &reference.span, local_ids, lexical_ids)
-                })
-                .collect::<Result<Vec<_>>>()?,
-            span.clone(),
-        )),
         DraftInput::Body(body) => Ok(CheckedInputValue::Body(
             Box::new(materialize_body(
                 body,
@@ -1012,13 +1003,6 @@ fn collect_invocation_dependencies(
             DraftInput::Reference(reference) => {
                 if !shadows.contains(&reference.value) {
                     dependencies.insert(reference.value.clone());
-                }
-            }
-            DraftInput::References(references, _) => {
-                for reference in references {
-                    if !shadows.contains(&reference.value) {
-                        dependencies.insert(reference.value.clone());
-                    }
                 }
             }
             DraftInput::Body(body) => {

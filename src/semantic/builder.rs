@@ -329,7 +329,7 @@ mod tests {
     use super::*;
 
     fn origin(construct: &'static str, line: usize) -> SourceOrigin {
-        SourceOrigin::new(construct, SourceSpan::new("test.yaml", line, 1))
+        SourceOrigin::new(construct, SourceSpan::new("test.clipasm", line, 1))
     }
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
             .image_video("base.png".into(), FrameCount(2), ImageFit::Cover)
             .expect("source");
         {
-            let mut selection = builder.at_span(SourceSpan::new("test.yaml", 9, 3));
+            let mut selection = builder.at_span(SourceSpan::new("test.clipasm", 9, 3));
             selection
                 .slice(source, FrameRange::new(0, 1).expect("range"))
                 .expect("slice");

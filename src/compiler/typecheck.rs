@@ -815,10 +815,6 @@ fn explicit_values(
             &reference.value,
             &reference.span,
         )?]),
-        DraftInput::References(references, _) => references
-            .iter()
-            .map(|reference| lookup_value(globals, lexical, &reference.value, &reference.span))
-            .collect(),
         DraftInput::Body(body) => {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated("inline input type inference", body.span.clone());

@@ -7,7 +7,7 @@ and tools, and the renderer produces verified cached artifacts and an MP4.
 
 Start with:
 
-- the [language reference](workflow-reference.md) for syntax and stack rules;
+- the [language reference](language-reference.md) for syntax and stack rules;
 - the [examples](examples.md) for runnable programs;
 - the [architecture](architecture.md) for compiler phases;
 - the [change guide](development/change-guide.md) for implementation ownership.

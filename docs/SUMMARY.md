@@ -5,7 +5,7 @@
 
 # Language
 
-- [Language reference](workflow-reference.md)
+- [Language reference](language-reference.md)
 - [Examples](examples.md)
 
 # Design
@@ -18,7 +18,7 @@
 - [Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
 - [Add explicit stack access](adr/0006-add-explicit-stack-access.md)
 - [Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
-- [Separate parsing from canonical source](adr/0008-separate-frontends-from-canonical-source.md)
+- [Separate parsing from canonical source](adr/0008-separate-parsing-from-canonical-source.md)
 - [Call authored source programs](adr/0009-call-authored-source-programs.md)
 - [Add typed Audio and body input scopes](adr/0010-add-typed-audio-and-body-input-scopes.md)
 - [Add type-preserving timeline programs](adr/0011-add-type-preserving-timeline-programs.md)

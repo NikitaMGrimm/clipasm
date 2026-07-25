@@ -86,7 +86,7 @@ mod tests {
     use crate::program::ParameterValue;
 
     fn span() -> SourceSpan {
-        SourceSpan::file_start("test.yaml")
+        SourceSpan::file_start("test.clipasm")
     }
 
     #[test]

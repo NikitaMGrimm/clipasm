@@ -370,7 +370,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn span() -> SourceSpan {
-        SourceSpan::file_start(PathBuf::from("test.yaml"))
+        SourceSpan::file_start(PathBuf::from("test.clipasm"))
     }
 
     #[test]
