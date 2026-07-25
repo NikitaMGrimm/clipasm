@@ -267,6 +267,31 @@ impl PassState {
     }
 }
 
+fn allocate_body_generics(
+    body: &DraftBody,
+    definitions: &[ProgramDefinition],
+    arena: &mut TypeArena,
+    generics: &mut [Option<TypeVarId>],
+) {
+    for item in &body.items {
+        let DraftItemKind::Invocation(invocation) = &item.kind else {
+            continue;
+        };
+        let definition = &definitions[invocation.program.index()];
+        if definition.descriptor.type_selector.is_some() {
+            generics[invocation.id.0] = Some(arena.allocate());
+        }
+        for input in invocation.inputs.iter().flatten() {
+            if let DraftInput::Body(body) = input {
+                allocate_body_generics(body, definitions, arena, generics);
+            }
+        }
+        if let Some(body) = invocation.body.as_deref() {
+            allocate_body_generics(body, definitions, arena, generics);
+        }
+    }
+}
+
 pub(super) fn infer_local_types(
     program: &DraftProgram,
     locals: &mut BTreeMap<String, LocalType>,
@@ -283,6 +308,21 @@ pub(super) fn infer_local_types(
         };
         slots.insert(name.clone(), slot);
     }
+    let mut invocation_generics = vec![None; program.invocation_count];
+    for clip in &program.clips {
+        allocate_body_generics(
+            &clip.body,
+            definitions,
+            &mut arena,
+            &mut invocation_generics,
+        );
+    }
+    allocate_body_generics(
+        &program.body,
+        definitions,
+        &mut arena,
+        &mut invocation_generics,
+    );
 
     loop {
         let before = arena.revision();
@@ -299,6 +339,7 @@ pub(super) fn infer_local_types(
                 &slots,
                 &BTreeMap::new(),
                 definitions,
+                &invocation_generics,
                 &mut attempt,
                 &mut stack,
                 &mut frame,
@@ -313,18 +354,24 @@ pub(super) fn infer_local_types(
             &slots,
             &BTreeMap::new(),
             definitions,
+            &invocation_generics,
             &mut attempt,
             &mut stack,
             &mut frame,
             &mut state,
         )?;
 
-        for slot in slots.values().copied() {
-            if let LocalSlot::Value(variable) = slot {
-                arena
-                    .constrain_domain(variable, attempt.domain(variable))
-                    .map_err(|_| type_mismatch(&program.span))?;
-            }
+        for variable in slots
+            .values()
+            .filter_map(|slot| match slot {
+                LocalSlot::Value(variable) => Some(*variable),
+                LocalSlot::Parameter => None,
+            })
+            .chain(invocation_generics.iter().flatten().copied())
+        {
+            arena
+                .constrain_domain(variable, attempt.domain(variable))
+                .map_err(|_| type_mismatch(&program.span))?;
         }
 
         if arena.revision() == before {
@@ -357,6 +404,7 @@ fn infer_body(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    invocation_generics: &[Option<TypeVarId>],
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
@@ -377,6 +425,7 @@ fn infer_body(
                 globals,
                 lexical,
                 definitions,
+                invocation_generics,
                 arena,
                 stack,
                 frame,
@@ -395,6 +444,7 @@ fn infer_invocation(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    invocation_generics: &[Option<TypeVarId>],
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
@@ -404,11 +454,7 @@ fn infer_invocation(
     let definition = &definitions[invocation.program.index()];
     let access = invocation.access;
 
-    let generic = definition
-        .descriptor
-        .type_selector
-        .as_ref()
-        .map(|_| arena.allocate());
+    let generic = invocation_generics[invocation.id.0];
     if let Some(variable) = generic {
         let selector = definition
             .descriptor
@@ -442,7 +488,15 @@ fn infer_invocation(
         let Some(argument) = argument else {
             continue;
         };
-        let values = explicit_values(argument, globals, lexical, definitions, arena, state)?;
+        let values = explicit_values(
+            argument,
+            globals,
+            lexical,
+            definitions,
+            invocation_generics,
+            arena,
+            state,
+        )?;
         if let (Some(variable), ValueTypeSpec::Generic) = (generic, port.value_type) {
             for value in &values {
                 equate(arena, variable, *value, argument.span())?;
@@ -494,6 +548,7 @@ fn infer_invocation(
             globals,
             &lexical_body,
             definitions,
+            invocation_generics,
             arena,
             stack,
             &mut child,
@@ -568,6 +623,7 @@ fn explicit_values(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    invocation_generics: &[Option<TypeVarId>],
     arena: &mut TypeArena,
     state: &mut PassState,
 ) -> Result<Vec<TypeVarId>> {
@@ -590,6 +646,7 @@ fn explicit_values(
                 globals,
                 lexical,
                 definitions,
+                invocation_generics,
                 arena,
                 &mut stack,
                 &mut frame,

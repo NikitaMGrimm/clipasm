@@ -11,11 +11,15 @@ use crate::source::{
 
 const MAX_BODY_NESTING: usize = 256;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct InvocationId(pub(super) usize);
+
 #[derive(Clone, Debug)]
 pub(super) struct DraftProgram {
     pub(super) span: SourceSpan,
     pub(super) clips: Vec<DraftClip>,
     pub(super) body: DraftBody,
+    pub(super) invocation_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +50,7 @@ pub(super) enum DraftItemKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct DraftInvocation {
+    pub(super) id: InvocationId,
     pub(super) name: Spanned<String>,
     pub(super) program: ProgramId,
     pub(super) access: StackAccess,
@@ -84,20 +89,38 @@ impl DraftProgram {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
     ) -> Result<Self> {
+        let mut invocation_count = 0;
+        let clips = source
+            .clips()
+            .iter()
+            .map(|clip| {
+                Ok(DraftClip {
+                    name: clip.name.clone(),
+                    span: clip.span.clone(),
+                    body: DraftBody::build(
+                        &clip.body,
+                        definitions,
+                        builtins,
+                        namespace,
+                        0,
+                        &mut invocation_count,
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let body = DraftBody::build(
+            source.body(),
+            definitions,
+            builtins,
+            namespace,
+            0,
+            &mut invocation_count,
+        )?;
         Ok(Self {
             span: source.span().clone(),
-            clips: source
-                .clips()
-                .iter()
-                .map(|clip| {
-                    Ok(DraftClip {
-                        name: clip.name.clone(),
-                        span: clip.span.clone(),
-                        body: DraftBody::build(&clip.body, definitions, builtins, namespace, 0)?,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?,
-            body: DraftBody::build(source.body(), definitions, builtins, namespace, 0)?,
+            clips,
+            body,
+            invocation_count,
         })
     }
 }
@@ -109,6 +132,7 @@ impl DraftBody {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
         depth: usize,
+        invocation_count: &mut usize,
     ) -> Result<Self> {
         if depth > MAX_BODY_NESTING {
             return Err(Diagnostic::new(
@@ -134,6 +158,7 @@ impl DraftBody {
                                 builtins,
                                 namespace,
                                 depth,
+                                invocation_count,
                             )?)
                         }
                     };
@@ -156,7 +181,12 @@ impl DraftInvocation {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
         depth: usize,
+        invocation_count: &mut usize,
     ) -> Result<Self> {
+        let id = InvocationId(*invocation_count);
+        *invocation_count = invocation_count
+            .checked_add(1)
+            .expect("draft invocation count fits in usize");
         let program = program_id_for(
             &source.program.value,
             builtins,
@@ -203,6 +233,7 @@ impl DraftInvocation {
                             builtins,
                             namespace,
                             depth + 1,
+                            invocation_count,
                         )?))
                     }
                     ArgumentValue::Literal(_) => {
@@ -322,11 +353,13 @@ impl DraftInvocation {
                     builtins,
                     namespace,
                     depth + 1,
+                    invocation_count,
                 )?))
             }
         };
 
         Ok(Self {
+            id,
             name: source.program.clone(),
             program,
             access,
