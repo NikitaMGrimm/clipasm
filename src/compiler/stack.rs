@@ -383,6 +383,34 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         selected: &[usize],
         span: &SourceSpan,
     ) -> Diagnostic {
+        self.underflow_with(
+            frame,
+            access,
+            code,
+            requirement,
+            required,
+            available,
+            selected,
+            span,
+            |value| Some(value.value_type()),
+        )
+    }
+}
+
+impl<T: Copy> EvaluationStack<T> {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn underflow_with(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        code: &'static str,
+        requirement: &str,
+        required: ValueType,
+        available: usize,
+        selected: &[usize],
+        span: &SourceSpan,
+        value_type: impl Fn(T) -> Option<ValueType>,
+    ) -> Diagnostic {
         let mut diagnostic = Diagnostic::new(
             code,
             format!(
@@ -401,7 +429,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
                 .filter(|(index, (value, owner))| {
                     !selected.contains(index)
                         && Self::accessible(*owner, frame, StackAccess::Visible)
-                        && value.value_type() == required
+                        && value_type(*value) == Some(required)
                 })
                 .count();
             if visible > available {
