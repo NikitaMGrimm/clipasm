@@ -135,6 +135,7 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
             preserve_input,
         } => serde_json::json!({
             "operation": "external_video",
+            "protocol_version": crate::external::EXTERNAL_PROTOCOL_VERSION,
             "executable_content_hash": executable.content_hash(),
             "arguments": arguments.iter().map(|argument| match argument {
                 super::PreparedExternalArgument::Text(value) => {

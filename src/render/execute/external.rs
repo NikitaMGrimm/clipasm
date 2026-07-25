@@ -87,7 +87,7 @@ pub(super) fn video(
                 }
                 PreparedExternalParameterValue::Keyword(value) => ExternalRunParameter::Text(value),
                 PreparedExternalParameterValue::File(asset) => {
-                    ExternalRunParameter::File(asset.source_path())
+                    ExternalRunParameter::File(asset.execution_path())
                 }
             };
             (name.as_str(), value)
@@ -109,7 +109,7 @@ pub(super) fn video(
     };
     let arguments = arguments.iter().map(|argument| match argument {
         PreparedExternalArgument::Text(value) => std::ffi::OsString::from(value),
-        PreparedExternalArgument::File(asset) => asset.source_path().as_os_str().to_owned(),
+        PreparedExternalArgument::File(asset) => asset.execution_path().as_os_str().to_owned(),
     });
     run_external(executable.executable(), arguments, &request, context.span())
 }
@@ -274,7 +274,7 @@ fn main() {
     }
     let mut request = String::new();
     std::io::stdin().read_to_string(&mut request).expect("request");
-    if !request.contains("\"protocol_version\":1") {
+    if !request.contains("\"protocol_version\":2") {
         eprintln!("missing protocol version");
         std::process::exit(22);
     }

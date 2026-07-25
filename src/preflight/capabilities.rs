@@ -120,7 +120,11 @@ mod tests {
     use crate::preflight::PreparedAsset;
 
     fn asset() -> PreparedAsset {
-        PreparedAsset::new(PathBuf::from("asset"), "content".to_owned())
+        PreparedAsset::new(
+            PathBuf::from("asset"),
+            PathBuf::from("snapshot"),
+            "content".to_owned(),
+        )
     }
 
     #[test]

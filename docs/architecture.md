@@ -240,9 +240,9 @@ programs. Composition uses a ClipAsm wrapper.
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves and hashes the executable and turns the node into an exact prepared
 primitive. File arguments and File parameters follow the same source-relative
-resolution, hashing, collision, and re-verification rules as other assets.
-Rendering reverifies those hashes, passes executable and argv separately, sends
-the versioned JSON request, and verifies the artifact before cache commit.
+resolution, snapshotting, and collision rules as other data assets. Rendering
+passes immutable snapshot paths, executable, and argv separately, sends the
+versioned JSON request, and verifies the artifact before cache commit.
 Executable and file-argument bytes belong to prepared identity; authored
 executable, arguments, parameters, and graph inputs belong to compiled semantic
 identity.
@@ -252,7 +252,7 @@ identity.
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
 - resolves each authored path relative to the source unit that contains it
-- hashes reachable source files
+- captures reachable data assets into private plan-scoped snapshots
 - validates image and video contracts
 - resolves video-source durations
 - verifies FFmpeg identity and only the capabilities required by the reachable
@@ -306,8 +306,8 @@ input to global output boundaries. See
 
 ## Rendering
 
-`render` verifies the prepared FFmpeg and FFprobe build identities and source
-hashes again, reuses only verified cached artifacts, renders missing
+`render` verifies the prepared FFmpeg and FFprobe build identities and private
+asset snapshots, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
 exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
 FFmpeg/FFprobe metadata and capability output is captured with fixed limits,

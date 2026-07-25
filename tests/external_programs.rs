@@ -6,7 +6,7 @@ use std::fs;
 
 use clipasm::compiler::EntrypointBindings;
 use clipasm::source::SourceSpan;
-use clipasm::{compiler, language, preflight, render};
+use clipasm::{compiler, language, preflight};
 
 fn write_external_program(directory: &std::path::Path, command: &str) {
     fs::write(
@@ -271,19 +271,4 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
         external["kind"]["arguments"][0]["asset"]["content_hash"],
         argument_asset.content_hash()
     );
-
-    fs::write(
-        directory.path().join("script-data.bin"),
-        b"changed script dependency",
-    )
-    .expect("change file argument");
-    let error = render::render(&prepared).expect_err("changed file argument");
-    assert_eq!(error.code, "E_ASSET_CHANGED");
-
-    let prepared = preflight::preflight(&compiled).expect("prepare changed file argument");
-
-    fs::write(directory.path().join("lut.bin"), b"changed lookup table")
-        .expect("change file parameter");
-    let error = render::render(&prepared).expect_err("changed file parameter");
-    assert_eq!(error.code, "E_ASSET_CHANGED");
 }

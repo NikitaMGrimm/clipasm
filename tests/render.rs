@@ -789,8 +789,6 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
 #[cfg(unix)]
 #[test]
 fn renders_an_external_video_program() {
-    use std::os::unix::fs::PermissionsExt as _;
-
     if !common::media_tools_available() || !common::executable_available("python3", "--version") {
         eprintln!("skipping external render test because a required tool is unavailable");
         return;
@@ -804,23 +802,19 @@ fn renders_an_external_video_program() {
     let script = directory.path().join("effect.py");
     fs::write(
         &script,
-        r#"#!/usr/bin/env python3
-import json, subprocess, sys
+        r#"import json, pathlib, subprocess, sys
 r = json.load(sys.stdin)
-assert r["protocol_version"] == 1
+assert r["protocol_version"] == 2
 assert r["parameters"]["amount"] == 7
+assert pathlib.Path(r["parameters"]["lut"]).read_bytes() == b"original lookup"
 subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
 "#,
     )
     .expect("script");
-    let mut permissions = fs::metadata(&script)
-        .expect("script metadata")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&script, permissions).expect("executable script");
+    fs::write(directory.path().join("lut.bin"), b"original lookup").expect("lookup file");
     fs::write(
         directory.path().join("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  executable = \"./effect.py\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam amount: Integer\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"python3\"\n  arguments = [file(\"effect.py\")]\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("external program");
     let workflow = directory.path().join("workflow.clipasm");
@@ -832,6 +826,9 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
 
     let compiled = compile_file(&workflow).expect("compile external program");
     let plan = preflight::preflight(&compiled).expect("preflight external program");
+    fs::write(&script, "raise RuntimeError('authored script changed')\n")
+        .expect("change authored script");
+    fs::write(directory.path().join("lut.bin"), b"changed lookup").expect("change lookup file");
     let report = render::render(&plan).expect("render external program");
     assert!(report.output.is_file());
     assert_eq!(report.cache_misses, 2);

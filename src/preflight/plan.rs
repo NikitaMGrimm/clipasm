@@ -10,6 +10,7 @@ use crate::model::{
 use crate::semantic::SourceOrigin;
 use crate::source::SourceFile;
 
+use super::snapshots::SnapshotGuard;
 use super::tools::{self, ExternalToolIdentity, ToolIdentity};
 
 #[derive(Clone, Debug)]
@@ -55,6 +56,7 @@ pub struct PreparedPlan {
     ffprobe: ToolIdentity,
     execution_namespace: String,
     entrypoint_source: SourceFile,
+    _snapshot_guard: SnapshotGuard,
 }
 
 impl PreparedPlan {
@@ -74,6 +76,7 @@ impl PreparedPlan {
         ffprobe: ToolIdentity,
         execution_namespace: String,
         entrypoint_source: SourceFile,
+        snapshot_guard: SnapshotGuard,
     ) -> Self {
         Self {
             format_version,
@@ -90,6 +93,7 @@ impl PreparedPlan {
             ffprobe,
             execution_namespace,
             entrypoint_source,
+            _snapshot_guard: snapshot_guard,
         }
     }
 
@@ -516,17 +520,29 @@ impl PreparedAudioKind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 /// A source file verified during preflight and bound to its content hash.
 pub struct PreparedAsset {
     source_path: PathBuf,
+    execution_path: PathBuf,
     content_hash: String,
 }
 
+impl std::fmt::Debug for PreparedAsset {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedAsset")
+            .field("source_path", &self.source_path)
+            .field("content_hash", &self.content_hash)
+            .finish_non_exhaustive()
+    }
+}
+
 impl PreparedAsset {
-    pub(super) fn new(source_path: PathBuf, content_hash: String) -> Self {
+    pub(super) fn new(source_path: PathBuf, execution_path: PathBuf, content_hash: String) -> Self {
         Self {
             source_path,
+            execution_path,
             content_hash,
         }
     }
@@ -541,5 +557,9 @@ impl PreparedAsset {
     /// Return the SHA-256 hash recorded for later change detection.
     pub fn content_hash(&self) -> &str {
         &self.content_hash
+    }
+
+    pub(crate) fn execution_path(&self) -> &Path {
+        &self.execution_path
     }
 }

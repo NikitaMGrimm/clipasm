@@ -13,6 +13,7 @@ use crate::semantic::{SemanticNodeKind, SourceOrigin};
 
 use super::identity::node_fingerprint;
 use super::plan::PreparedMedia;
+use super::snapshots::AssetSnapshotStore;
 use super::tools::ToolIdentity;
 use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
@@ -22,6 +23,7 @@ pub(super) struct PreflightLowerer<'a> {
     pub(super) ffprobe: &'a ToolIdentity,
     pub(super) nodes: Vec<PreparedNode>,
     pub(super) lowered: HashMap<ValueId, NodeId>,
+    pub(super) snapshots: AssetSnapshotStore,
 }
 
 impl PreflightLowerer<'_> {

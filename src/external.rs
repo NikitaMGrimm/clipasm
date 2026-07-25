@@ -7,7 +7,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{InputSlot, ParameterValue, ResolvedCall, ResolvedInput};
 use crate::source::Spanned;
 
-pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 1;
+pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ExternalInvocation {

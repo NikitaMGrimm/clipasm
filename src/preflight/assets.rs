@@ -10,6 +10,7 @@ use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceFile, SourceSpan};
 
+use super::snapshots::AssetSnapshotStore;
 use super::tools::{
     ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
 };
@@ -261,9 +262,10 @@ pub(super) fn prepare_image_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
+    snapshots: &mut AssetSnapshotStore,
 ) -> Result<PreparedAsset> {
-    let asset = prepare_file_asset(authored, origin, "image", "E_MISSING_IMAGE_FILE")?;
-    verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
+    let asset = prepare_file_asset(authored, origin, "image", "E_MISSING_IMAGE_FILE", snapshots)?;
+    verify_image_decodable(asset.execution_path(), &origin.span, ffmpeg, ffprobe)?;
     Ok(asset)
 }
 
@@ -273,10 +275,11 @@ pub(super) fn prepare_video_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
+    snapshots: &mut AssetSnapshotStore,
 ) -> Result<(PreparedAsset, FrameCount, bool)> {
-    let asset = prepare_file_asset(authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
+    let asset = prepare_file_asset(authored, origin, "video", "E_MISSING_VIDEO_FILE", snapshots)?;
     let (frames, has_audio) =
-        verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
+        verify_video_decodable(asset.execution_path(), video, &origin.span, ffmpeg, ffprobe)?;
     Ok((asset, frames, has_audio))
 }
 
@@ -286,9 +289,11 @@ pub(super) fn prepare_audio_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
+    snapshots: &mut AssetSnapshotStore,
 ) -> Result<(PreparedAsset, AudioDomain)> {
-    let asset = prepare_file_asset(authored, origin, "audio", "E_MISSING_AUDIO_FILE")?;
-    let domain = verify_audio_decodable(asset.source_path(), audio, &origin.span, ffmpeg, ffprobe)?;
+    let asset = prepare_file_asset(authored, origin, "audio", "E_MISSING_AUDIO_FILE", snapshots)?;
+    let domain =
+        verify_audio_decodable(asset.execution_path(), audio, &origin.span, ffmpeg, ffprobe)?;
     Ok((asset, domain))
 }
 
@@ -297,6 +302,7 @@ fn prepare_file_asset(
     origin: &SourceOrigin,
     role: &str,
     missing_code: &'static str,
+    snapshots: &mut AssetSnapshotStore,
 ) -> Result<PreparedAsset> {
     let source_path = resolve_authored_path(authored, &origin.span)?;
     let metadata = fs::metadata(&source_path).map_err(|error| {
@@ -317,31 +323,37 @@ fn prepare_file_asset(
         ));
     }
     let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
-    let content_hash = hash_file(&source_path, &origin.span)?;
-    Ok(PreparedAsset::new(source_path, content_hash))
+    let snapshot = snapshots.materialize(&source_path, &origin.span)?;
+    Ok(PreparedAsset::new(
+        source_path,
+        snapshot.path,
+        snapshot.digest,
+    ))
 }
 
 pub(super) fn prepare_external_file_asset(
     authored: &Path,
     span: &SourceSpan,
+    snapshots: &mut AssetSnapshotStore,
 ) -> Result<PreparedAsset> {
     prepare_file_asset(
         authored,
         &SourceOrigin::new("external file parameter", span.clone()),
         "external parameter",
         "E_MISSING_EXTERNAL_FILE",
+        snapshots,
     )
 }
 
 pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) -> Result<()> {
-    let actual = hash_file(asset.source_path(), span)?;
+    let actual = hash_file(asset.execution_path(), span)?;
     if actual == asset.content_hash() {
         Ok(())
     } else {
         Err(Diagnostic::new(
             "E_ASSET_CHANGED",
             format!(
-                "asset `{}` changed after preflight",
+                "prepared snapshot for asset `{}` changed after preflight",
                 asset.source_path().display()
             ),
             span.clone(),
