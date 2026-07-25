@@ -12,7 +12,7 @@ use crate::source::{SourceSpan, SourceUnitId, Spanned, SurfaceVisibility};
 use super::EntrypointBindings;
 use super::checked::{
     CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
-    CheckedPackage, CheckedParameterValue, CheckedProgram, ReferenceTarget,
+    CheckedPackage, CheckedParameterValue, CheckedSourceProgram, ReferenceTarget,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -48,6 +48,7 @@ pub(super) struct Evaluation {
 
 pub(super) fn evaluate(
     video: &VideoSpec,
+    root_span: &SourceSpan,
     checked: &CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
@@ -63,21 +64,22 @@ pub(super) fn evaluate(
         public_symbols: BTreeMap::new(),
         surface: Vec::new(),
     };
+    let root_program = context.programs[context.root.index()].definition();
+    let root_definition = context.registry.definition(root_program);
     let root_call = super::entrypoint::bind_root_call(
-        &context.programs[context.root.index()],
+        root_definition,
+        root_span,
         context.registry,
         bindings,
         &mut evaluator.nodes,
         context.video,
     )?;
-    let root_program = &context.programs[context.root.index()];
-    let root_definition = context.registry.definition(root_program.definition);
     let outputs = match &root_definition.implementation {
         ProgramImplementation::ClipAsm(_) => {
             evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?
         }
         ProgramImplementation::External(external) => {
-            let origin = SourceOrigin::new("root program", root_program.span.clone());
+            let origin = SourceOrigin::new("root program", root_span.clone());
             let invocation = external.invocation(&root_call)?;
             let mut builder = GraphBuilder::for_program(
                 &mut evaluator.nodes,
@@ -103,7 +105,7 @@ pub(super) fn evaluate(
 struct EvaluationContext<'a> {
     video: &'a VideoSpec,
     registry: &'a crate::program::ProgramRegistry,
-    programs: &'a [CheckedProgram],
+    programs: &'a [CheckedSourceProgram],
     root: SourceUnitId,
 }
 
@@ -136,7 +138,13 @@ impl Evaluator {
         call: Option<&ResolvedCall>,
         public: bool,
     ) -> Result<Vec<ValueRef>> {
-        let checked_program = &context.programs[unit.index()];
+        let CheckedSourceProgram::ClipAsm {
+            program: checked_program,
+            ..
+        } = &context.programs[unit.index()]
+        else {
+            unreachable!("ClipAsm program implementation refers to a ClipAsm source unit");
+        };
         let mut scope = EvalScope {
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
             body_inputs: vec![None; checked_program.body_input_count],
@@ -212,10 +220,7 @@ impl Evaluator {
         );
         self.evaluate_body(
             context,
-            checked_program
-                .body
-                .as_ref()
-                .expect("ClipAsm implementation has a checked body"),
+            &checked_program.body,
             &mut scope,
             &mut stack,
             &mut body_frame,

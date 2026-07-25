@@ -27,7 +27,7 @@ fn write_workflow(directory: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[test]
-fn compilation_registers_external_programs_without_resolving_the_executable() {
+fn compilation_links_external_programs_without_resolving_the_executable() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_external_program(directory.path(), "./missing-script");
     fs::copy(
@@ -37,7 +37,7 @@ fn compilation_registers_external_programs_without_resolving_the_executable() {
     .expect("image");
     let workflow = write_workflow(directory.path());
 
-    let package = language::parse_file(&workflow).expect("parse external registration");
+    let package = language::parse_file(&workflow).expect("parse external program");
     let compiled = compiler::compile(&package).expect("pure external compilation");
     let document: serde_json::Value =
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))

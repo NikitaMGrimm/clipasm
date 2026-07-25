@@ -290,7 +290,7 @@ fn compile_checked(
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(&video, checked, bindings)?;
+    let evaluation = evaluate::evaluate(&video, entrypoint.program().span(), checked, bindings)?;
     let output = bindings.output.as_ref().or_else(|| entrypoint.output());
     validate_publication_output(entrypoint, output, &evaluation)?;
     finalize::finalize(

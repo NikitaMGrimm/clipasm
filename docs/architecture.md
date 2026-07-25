@@ -230,26 +230,18 @@ kinds are canonical source data; compilation never opens source files.
 A source unit owns either a ClipAsm body or one native `external { ... }`
 implementation. Both are linked through ordinary source imports. Canonical
 source retains the external command, semantic version, and preserved input;
-the compiler converts that implementation into an ordinary runtime program
-definition, so checking, defaults, binding, and stack behavior remain shared.
+the compiler converts it into an ordinary runtime program definition, sharing
+the normal checking, defaults, binding, and stack behavior.
 
 External implementation files have no executable body and cannot import other
-programs. Composition uses a separate ClipAsm wrapper, keeping the external
-runtime contract small while leaving ordinary ClipAsm responsible for graph
-composition.
+programs. Composition uses a ClipAsm wrapper.
 
 External evaluation adds a pure semantic node. Preflight is the first phase that
-resolves the executable, verifies executable permissions, hashes its bytes, and
-turns the node into an exact prepared primitive. The first protocol declares that
-one Video input supplies the output domain and meaningful-audio state. Rendering
-reverifies the executable hash, sends one JSON request over standard input, and
-verifies the resulting working artifact before cache commit.
-
-The renderer starts the executable directly with `Command`; it does not construct
-a shell command. Executable content belongs to prepared identity, while the
-authored command, parameters, and graph inputs belong to compiled semantic
-identity. JSON is only the process protocol; it is not an authored source
-format.
+resolves and hashes the executable and turns the node into an exact prepared
+primitive. Rendering reverifies the hash, starts the executable directly without
+a shell, sends the versioned JSON request, and verifies the artifact before cache
+commit. Executable bytes belong to prepared identity; authored command,
+parameters, and graph inputs belong to compiled semantic identity.
 
 ## Preflight
 

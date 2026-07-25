@@ -129,14 +129,6 @@ impl SourceProgram {
     }
 
     #[must_use]
-    pub(crate) fn body(&self) -> &ProgramBody {
-        let SourceProgramImplementation::Body(body) = &self.implementation else {
-            panic!("external source programs do not have ClipAsm bodies");
-        };
-        body
-    }
-
-    #[must_use]
     pub(crate) const fn span(&self) -> &SourceSpan {
         &self.span
     }

@@ -1,5 +1,5 @@
 use crate::model::ValueType;
-use crate::program::{ParameterType, ProgramId, ProgramRegistry, ResolvedSignature};
+use crate::program::{ProgramId, ProgramRegistry, ResolvedSignature};
 
 pub(super) use super::ids::{BodyInputId, ParameterId, ReferenceTarget, ValueLocalId};
 use super::stack::StackBindingPlan;
@@ -7,7 +7,6 @@ use super::stack::StackBindingPlan;
 #[derive(Clone, Debug)]
 pub(super) struct CheckedParameter {
     pub(super) name: String,
-    pub(super) parameter_type: ParameterType,
     pub(super) declared_at: crate::source::SourceSpan,
     pub(super) default: Option<crate::source::Spanned<crate::program::ParameterValue>>,
 }
@@ -35,26 +34,43 @@ pub(super) struct CheckedLocal {
 pub(super) struct CheckedPackage {
     pub(super) root: crate::source::SourceUnitId,
     pub(super) registry: ProgramRegistry,
-    pub(super) programs: Vec<CheckedProgram>,
+    pub(super) programs: Vec<CheckedSourceProgram>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CheckedSourceProgram {
+    ClipAsm {
+        definition: ProgramId,
+        program: CheckedProgram,
+    },
+    External {
+        definition: ProgramId,
+    },
+}
+
+impl CheckedSourceProgram {
+    pub(super) const fn definition(&self) -> ProgramId {
+        match self {
+            Self::ClipAsm { definition, .. } | Self::External { definition } => *definition,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgramInput {
     pub(super) name: String,
-    pub(super) value_type: ValueType,
     pub(super) local: ValueLocalId,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgram {
-    pub(super) definition: ProgramId,
     pub(super) span: crate::source::SourceSpan,
     pub(super) stack_access: crate::program::StackAccess,
     pub(super) inputs: Vec<CheckedProgramInput>,
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
     pub(super) body_input_count: usize,
-    pub(super) body: Option<CheckedBody>,
+    pub(super) body: CheckedBody,
 }
 
 #[derive(Clone, Debug)]

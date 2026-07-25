@@ -4,12 +4,11 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    ParameterValue, ProgramImplementation, ProgramRegistry, ResolvedCall, ResolvedInput,
+    ParameterValue, ProgramDefinition, ProgramImplementation, ProgramRegistry, ResolvedCall,
+    ResolvedInput,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
-
-use super::checked::CheckedProgram;
 
 #[derive(Clone, Debug)]
 pub(super) struct VideoInputBinding {
@@ -107,22 +106,31 @@ impl EntrypointBindings {
 }
 
 pub(super) fn bind_root_call<'a>(
-    program: &CheckedProgram,
+    definition: &'a ProgramDefinition,
+    span: &SourceSpan,
     registry: &'a ProgramRegistry,
     bindings: &EntrypointBindings,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
 ) -> Result<ResolvedCall<'a>> {
     for (name, binding) in &bindings.video_inputs {
-        let Some(input) = program.inputs.iter().find(|input| input.name == *name) else {
+        let Some(input) = definition
+            .descriptor
+            .inputs
+            .iter()
+            .find(|input| input.name == *name)
+        else {
             return Err(unknown_binding(name, &binding.span));
         };
-        if input.value_type != ValueType::Video {
+        let input_type = input
+            .value_type
+            .exact()
+            .expect("root source inputs are concrete");
+        if input_type != ValueType::Video {
             return Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
-                    "root input `{name}` is {}, but `bind_video_input` supplies Video",
-                    input.value_type
+                    "root input `{name}` is {input_type}, but `bind_video_input` supplies Video"
                 ),
                 binding.span.clone(),
             ));
@@ -137,7 +145,8 @@ pub(super) fn bind_root_call<'a>(
         }
     }
     for (name, binding) in &bindings.parameters {
-        if !program
+        if !definition
+            .descriptor
             .parameters
             .iter()
             .any(|parameter| parameter.name == *name)
@@ -154,20 +163,17 @@ pub(super) fn bind_root_call<'a>(
         }
     }
 
-    let definition = registry.definition(program.definition);
     let signature = definition.descriptor.resolve_signature(None);
-    debug_assert_eq!(program.inputs.len(), definition.descriptor.inputs.len());
-    let inputs = program
+    let inputs = definition
+        .descriptor
         .inputs
         .iter()
-        .zip(&definition.descriptor.inputs)
-        .map(|(input, descriptor)| {
-            debug_assert_eq!(input.name, descriptor.name);
+        .map(|input| {
             let binding = bindings.video_inputs.get(&input.name).ok_or_else(|| {
                 Diagnostic::new(
                     "E_MISSING_REQUIRED_INPUT",
                     format!("root program is missing input `{}`", input.name),
-                    program.span.clone(),
+                    span.clone(),
                 )
             })?;
             Ok(ResolvedInput::One(lower_video_binding(
@@ -176,16 +182,11 @@ pub(super) fn bind_root_call<'a>(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    debug_assert_eq!(
-        program.parameters.len(),
-        definition.descriptor.parameters.len()
-    );
-    let parameters = program
+    let parameters = definition
+        .descriptor
         .parameters
         .iter()
-        .zip(&definition.descriptor.parameters)
-        .map(|(parameter, descriptor)| {
-            debug_assert_eq!(parameter.name, descriptor.name);
+        .map(|parameter| {
             bindings
                 .parameters
                 .get(&parameter.name)
@@ -211,7 +212,7 @@ pub(super) fn bind_root_call<'a>(
         inputs,
         parameters,
         None,
-        SourceOrigin::new("root program", program.span.clone()),
+        SourceOrigin::new("root program", span.clone()),
     )
 }
 

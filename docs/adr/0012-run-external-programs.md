@@ -17,7 +17,7 @@ shell source would also introduce platform-specific quoting and command
 injection behavior. A long-lived plugin ABI or in-process dynamic library would
 be disproportionate for the first external operation.
 
-External registration cannot exist solely as transient parser state because the
+External implementation metadata cannot exist solely as transient parser state because the
 compiler, preflight, renderer, and cache all need the validated specification.
 
 ## Decision

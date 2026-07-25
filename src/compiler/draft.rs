@@ -89,6 +89,7 @@ pub(super) enum DraftParameter {
 impl DraftProgram {
     pub(super) fn build(
         source: &SourceProgram,
+        body: &ProgramBody,
         definitions: &[ProgramDefinition],
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
@@ -96,7 +97,7 @@ impl DraftProgram {
         let mut invocation_count = 0;
         let mut stack_block_count = 0;
         let body = DraftBody::build(
-            source.body(),
+            body,
             definitions,
             builtins,
             namespace,

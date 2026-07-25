@@ -709,6 +709,14 @@ mod tests {
     use crate::model::ValueType;
     use crate::source::SurfaceVisibility;
 
+    fn body(package: &SourcePackage) -> &ProgramBody {
+        let SourceProgramImplementation::Body(body) = package.root().program().implementation()
+        else {
+            panic!("expected ClipAsm body");
+        };
+        body
+    }
+
     #[test]
     fn lowers_and_compiles_native_positional_graph_expressions() {
         let package = parse_str(
@@ -728,7 +736,7 @@ mod tests {
             "clipasm 1\nparam duration: Duration = 1s\n{\n  set_audio(video=video(\"source.mp4\"), audio=audio(\"sound.wav\"))\n  image(\"card.png\", $duration, contain)\n} as (video, card)\ndrop<Video>\ndrop<Video>\n",
         )
         .expect("native source");
-        let ItemKind::StackBlock(block) = &package.root().program().body().items[0].kind else {
+        let ItemKind::StackBlock(block) = &body(&package).items[0].kind else {
             panic!("stack block");
         };
         assert_eq!(block.stack_access, StackAccess::Visible);
@@ -743,7 +751,7 @@ mod tests {
             "clipasm 1\n@owned { image(\"card.png\", 1s) }\n",
         )
         .expect("native source");
-        let ItemKind::StackBlock(block) = &package.root().program().body().items[0].kind else {
+        let ItemKind::StackBlock(block) = &body(&package).items[0].kind else {
             panic!("stack block");
         };
         assert_eq!(block.stack_access, StackAccess::Owned);
@@ -776,7 +784,7 @@ mod tests {
             "clipasm 1\n@visible clip<Audio> {\n  audio(\"sound.wav\")\n} as soundtrack\n$soundtrack\n",
         )
         .expect("native clip");
-        let items = &package.root().program().body().items;
+        let items = &body(&package).items;
         assert_eq!(items.len(), 3);
 
         let ItemKind::Invocation(glue) = &items[0].kind else {

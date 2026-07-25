@@ -8,8 +8,8 @@ use crate::program::{
     builtin_programs,
 };
 use crate::source::{
-    OutputBindings, SourcePackage, SourceProgram, SourceProgramImplementation, SourceUnitId,
-    Spanned,
+    OutputBindings, ProgramBody, SourcePackage, SourceProgram, SourceProgramImplementation,
+    SourceUnitId, Spanned,
 };
 
 use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
@@ -26,8 +26,8 @@ pub(super) enum LocalType {
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
     CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
-    CheckedProgram, CheckedProgramInput, CheckedStackBlock, ParameterId, ReferenceTarget,
-    ValueLocalId,
+    CheckedProgram, CheckedProgramInput, CheckedSourceProgram, CheckedStackBlock, ParameterId,
+    ReferenceTarget, ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -70,17 +70,25 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             u32::try_from(definitions.len()).expect("linked program catalog fits in u32"),
         );
         let (definition, checked_program) = match unit.program().implementation() {
-            SourceProgramImplementation::Body(_) => {
-                let (outputs, checked) =
-                    check_program(id, unit.program(), &definitions, &builtin_names, &namespace)?;
+            SourceProgramImplementation::Body(body) => {
+                let (outputs, checked) = check_program(
+                    unit.program(),
+                    body,
+                    &definitions,
+                    &builtin_names,
+                    &namespace,
+                )?;
                 (
                     clipasm_definition(unit_id, unit.program(), outputs)?,
-                    checked,
+                    CheckedSourceProgram::ClipAsm {
+                        definition: id,
+                        program: checked,
+                    },
                 )
             }
             SourceProgramImplementation::External(external) => (
                 external_definition(unit_id, unit.program(), external)?,
-                external_checked_program(id, unit.program())?,
+                CheckedSourceProgram::External { definition: id },
             ),
         };
         definitions.push(definition);
@@ -120,9 +128,12 @@ pub(super) fn check_with_registry(
         .collect::<BTreeMap<_, _>>();
     let definition =
         ProgramId::new(u32::try_from(definitions.len()).expect("test catalog fits in u32"));
+    let SourceProgramImplementation::Body(body) = package.root().program().implementation() else {
+        unreachable!("registry-backed compiler tests use ClipAsm source bodies");
+    };
     let (outputs, program) = check_program(
-        definition,
         package.root().program(),
+        body,
         &definitions,
         &names,
         &BTreeMap::new(),
@@ -135,7 +146,10 @@ pub(super) fn check_with_registry(
     Ok(CheckedPackage {
         root: package.root,
         registry: ProgramRegistry::from_definitions(definitions)?,
-        programs: vec![program],
+        programs: vec![CheckedSourceProgram::ClipAsm {
+            definition,
+            program,
+        }],
     })
 }
 
@@ -233,58 +247,6 @@ fn external_definition(
     })
 }
 
-fn external_checked_program(
-    definition: ProgramId,
-    program: &SourceProgram,
-) -> Result<CheckedProgram> {
-    let mut locals = Vec::new();
-    let inputs = program
-        .inputs()
-        .iter()
-        .enumerate()
-        .map(|(index, input)| {
-            let value_type = input
-                .value_type
-                .exact()
-                .expect("source program inputs are concrete");
-            locals.push(CheckedLocal {
-                name: input.name.clone(),
-                declared_at: program.span().clone(),
-                value_type,
-            });
-            CheckedProgramInput {
-                name: input.name.clone(),
-                value_type,
-                local: ValueLocalId(u32::try_from(index).expect("source input count fits in u32")),
-            }
-        })
-        .collect();
-    let defaults = parameter_defaults(program, "external program")?;
-    let parameters = program
-        .parameters()
-        .iter()
-        .zip(defaults)
-        .map(|(parameter, default)| {
-            Ok(CheckedParameter {
-                name: parameter.name.value.clone(),
-                parameter_type: parameter.parameter_type.clone(),
-                declared_at: parameter.name.span.clone(),
-                default,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(CheckedProgram {
-        definition,
-        span: program.span().clone(),
-        stack_access: program.stack_access(),
-        inputs,
-        locals,
-        parameters,
-        body_input_count: 0,
-        body: None,
-    })
-}
-
 fn parameter_defaults(
     program: &SourceProgram,
     owner: &str,
@@ -327,13 +289,13 @@ fn parameter_descriptors(program: &SourceProgram) -> Result<Vec<ParameterDescrip
 
 #[allow(clippy::too_many_lines)]
 fn check_program(
-    definition: ProgramId,
     program: &SourceProgram,
+    body: &ProgramBody,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<(Vec<ValueType>, CheckedProgram)> {
-    let draft = super::draft::DraftProgram::build(program, definitions, builtins, namespace)?;
+    let draft = super::draft::DraftProgram::build(program, body, definitions, builtins, namespace)?;
     let mut local_types = BTreeMap::new();
     for input in program.inputs() {
         insert_local(
@@ -380,7 +342,6 @@ fn check_program(
     Ok((
         inference.outputs,
         CheckedProgram {
-            definition,
             span: program.span().clone(),
             stack_access: program.stack_access(),
             inputs: program
@@ -388,17 +349,13 @@ fn check_program(
                 .iter()
                 .map(|input| CheckedProgramInput {
                     name: input.name.clone(),
-                    value_type: input
-                        .value_type
-                        .exact()
-                        .expect("authored program inputs are concrete"),
                     local: bindings.local_ids[&input.name],
                 })
                 .collect(),
             locals: bindings.locals,
             parameters: bindings.parameters,
             body_input_count,
-            body: Some(checked_body),
+            body: checked_body,
         },
     ))
 }
@@ -441,7 +398,6 @@ fn prepare_program_bindings(
             .transpose()?;
         parameters.push(CheckedParameter {
             name: parameter.name.value.clone(),
-            parameter_type: parameter.parameter_type.clone(),
             declared_at: parameter.name.span.clone(),
             default,
         });

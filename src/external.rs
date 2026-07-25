@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -12,8 +13,8 @@ pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 1;
 pub(crate) struct ExternalInvocation {
     pub(crate) command: Spanned<PathBuf>,
     pub(crate) preserve_input: String,
-    pub(crate) inputs: std::collections::BTreeMap<String, crate::model::ValueRef>,
-    pub(crate) parameters: std::collections::BTreeMap<String, ExternalParameterValue>,
+    pub(crate) inputs: BTreeMap<String, crate::model::ValueRef>,
+    pub(crate) parameters: BTreeMap<String, ExternalParameterValue>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,7 +51,7 @@ impl ExternalRuntime {
                     call.origin().span.clone(),
                 )),
             })
-            .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let parameters = call
             .parameters()
             .enumerate()
@@ -80,7 +81,7 @@ impl ExternalRuntime {
                 };
                 Ok((descriptor.name.clone(), parameter))
             })
-            .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+            .collect::<Result<BTreeMap<_, _>>>()?;
         let (preserved, _) = call.input_binding(self.preserve_input);
         Ok(ExternalInvocation {
             command: self.command.clone(),
@@ -93,10 +94,10 @@ impl ExternalRuntime {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
-/// One scalar value passed to an external program process.
+/// One scalar value passed to an external executable.
 pub enum ExternalParameterValue {
     /// Signed integer parameter.
     Integer(i64),
-    /// One value from a manifest-declared keyword set.
+    /// One declared keyword value.
     Keyword(String),
 }

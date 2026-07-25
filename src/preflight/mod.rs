@@ -28,6 +28,7 @@ mod lower;
 mod plan;
 pub(crate) mod tools;
 
+pub use crate::external::ExternalParameterValue;
 pub(crate) use assets::verify_prepared_asset;
 use assets::{
     entrypoint_directory, manifest_path, prepare_output_path, reject_asset_collisions,
