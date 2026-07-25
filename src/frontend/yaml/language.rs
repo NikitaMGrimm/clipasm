@@ -24,20 +24,8 @@ pub(crate) struct Language {
 impl Default for Language {
     fn default() -> Self {
         let programs = ProgramRegistry::default();
-        let syntax = [
-            ("image", Some("path"), false),
-            ("video", Some("path"), false),
-            ("audio", Some("path"), false),
-            ("concat", Some("type"), false),
-            ("repeat", Some("count"), false),
-            ("trim", Some("range"), false),
-            ("drop", Some("type"), false),
-            ("zoom", Some("percent"), false),
-            ("wobble", Some("pixels"), false),
-            ("flash", Some("frames"), false),
-            ("during", Some("range"), true),
-        ];
-        Self::with_syntax(programs, syntax).expect("built-in YAML language is valid")
+        Self::with_syntax(programs, super::builtins::PROGRAM_SYNTAX.iter().copied())
+            .expect("built-in YAML language is valid")
     }
 }
 

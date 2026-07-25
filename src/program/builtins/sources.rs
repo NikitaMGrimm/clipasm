@@ -1,0 +1,133 @@
+use crate::diagnostic::{Diagnostic, Result};
+use crate::model::{FrameCount, ImageFit, ValueType};
+use crate::program::{ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
+use crate::semantic::GraphBuilder;
+
+use super::support::{direct, exact_descriptor, one_output, parameter};
+
+pub(super) fn image() -> ProgramDefinition {
+    direct(
+        exact_descriptor(
+            "image",
+            2,
+            vec![],
+            vec![
+                parameter("path", ParameterType::File, true),
+                parameter("duration", ParameterType::Duration, false),
+                fit_parameter(),
+            ],
+            ValueType::Video,
+        ),
+        lower_image,
+    )
+}
+
+pub(super) fn video() -> ProgramDefinition {
+    direct(
+        exact_descriptor(
+            "video",
+            3,
+            vec![],
+            vec![
+                parameter("path", ParameterType::File, true),
+                fit_parameter(),
+            ],
+            ValueType::Video,
+        ),
+        lower_video,
+    )
+}
+
+pub(super) fn audio() -> ProgramDefinition {
+    direct(
+        exact_descriptor(
+            "audio",
+            1,
+            vec![],
+            vec![parameter("path", ParameterType::File, true)],
+            ValueType::Audio,
+        ),
+        lower_audio,
+    )
+}
+
+fn fit_parameter() -> crate::program::ParameterDescriptor {
+    parameter(
+        "fit",
+        ParameterType::Keyword(
+            ["cover", "contain", "stretch"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        ),
+        false,
+    )
+}
+
+fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let (path, path_span) = call.file_parameter("path")?;
+    let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
+        FrameCount(duration.to_frames(builder.video_spec().fps(), span)?)
+    } else {
+        call.requested_frames().ok_or_else(|| {
+            Diagnostic::new(
+                "E_MISSING_IMAGE_DURATION",
+                "`image.duration` is required outside a context with a requested duration",
+                call.origin().span.clone(),
+            )
+        })?
+    };
+    if frames.0 == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_DURATION",
+            "image duration must contain at least one frame",
+            call.origin().span.clone(),
+        ));
+    }
+    let fit = image_fit(call)?;
+    one_output(
+        builder
+            .at_span(path_span.clone())
+            .image_video(path.to_path_buf(), frames, fit),
+    )
+}
+
+fn lower_video(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let (path, path_span) = call.file_parameter("path")?;
+    let fit = image_fit(call)?;
+    one_output(
+        builder
+            .at_span(path_span.clone())
+            .video_source(path.to_path_buf(), fit),
+    )
+}
+
+fn lower_audio(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let (path, span) = call.file_parameter("path")?;
+    one_output(
+        builder
+            .at_span(span.clone())
+            .audio_source(path.to_path_buf()),
+    )
+}
+
+fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
+    Ok(match call.optional_keyword_parameter("fit")? {
+        None | Some(("cover", _)) => ImageFit::Cover,
+        Some(("contain", _)) => ImageFit::Contain,
+        Some(("stretch", _)) => ImageFit::Stretch,
+        Some((_, _)) => unreachable!("fit keyword was validated by the binder"),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_versions_cover_duration_and_normalization_semantics() {
+        assert_eq!(image().descriptor.semantic_version, 2);
+        assert_eq!(video().descriptor.semantic_version, 3);
+        assert_eq!(audio().descriptor.semantic_version, 1);
+    }
+}

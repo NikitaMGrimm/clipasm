@@ -1,22 +1,27 @@
+mod audio;
 mod body;
-mod direct;
+mod effects;
+mod sources;
+mod support;
+mod timeline;
+mod transitions;
 
 use super::ProgramDefinition;
 
 pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
     vec![
-        direct::image(),
-        direct::video_source(),
-        direct::audio_source(),
-        direct::extract_audio(),
-        direct::set_audio(),
-        direct::concat(),
-        direct::repeat(),
-        direct::trim(),
-        direct::drop_value(),
-        direct::zoom(),
-        direct::wobble(),
-        direct::flash(),
+        sources::image(),
+        sources::video(),
+        sources::audio(),
+        audio::extract_audio(),
+        audio::set_audio(),
+        timeline::concat(),
+        timeline::repeat(),
+        timeline::trim(),
+        timeline::drop_value(),
+        effects::zoom(),
+        effects::wobble(),
+        transitions::flash(),
         body::join(),
         body::glue(),
         body::during(),
