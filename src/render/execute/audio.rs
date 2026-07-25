@@ -5,7 +5,7 @@ use crate::model::{AudioDomain, NodeId};
 use crate::preflight::PreparedAsset;
 
 use super::context::RenderContext;
-use super::filters::{append_audio_output, normalize_audio};
+use super::filters::normalize_audio;
 
 pub(super) fn source(
     context: &RenderContext<'_>,
@@ -16,10 +16,14 @@ pub(super) fn source(
     command.arg("-i").arg(asset.execution_path());
     let filter = format!(
         "[0:a:0]{}[a]",
-        normalize_audio(domain.samples(), context.audio())
+        normalize_audio(
+            domain.samples(),
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    append_audio_output(&mut command, context.audio(), context.temporary());
+    context.append_audio_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -34,7 +38,7 @@ pub(super) fn slice(
     let filter =
         format!("[0:a]atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS[a]");
     command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    append_audio_output(&mut command, context.audio(), context.temporary());
+    context.append_audio_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -50,10 +54,14 @@ pub(super) fn repeat(
         .arg(context.artifact(input)?);
     let filter = format!(
         "[0:a]{}[a]",
-        normalize_audio(domain.samples(), context.audio())
+        normalize_audio(
+            domain.samples(),
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    append_audio_output(&mut command, context.audio(), context.temporary());
+    context.append_audio_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -73,10 +81,14 @@ pub(super) fn concat(
     let filter = format!(
         "{labels}concat=n={}:v=0:a=1[joined];[joined]{}[a]",
         inputs.len(),
-        normalize_audio(domain.samples(), context.audio())
+        normalize_audio(
+            domain.samples(),
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    append_audio_output(&mut command, context.audio(), context.temporary());
+    context.append_audio_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -89,9 +101,13 @@ pub(super) fn extract(
     command.arg("-i").arg(context.artifact(video)?);
     let filter = format!(
         "[0:a]{}[a]",
-        normalize_audio(domain.samples(), context.audio())
+        normalize_audio(
+            domain.samples(),
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    append_audio_output(&mut command, context.audio(), context.temporary());
+    context.append_audio_output(&mut command);
     context.finish_ffmpeg(command)
 }

@@ -4,7 +4,7 @@ use std::process::Command;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::media_tool;
 use crate::model::{AudioSpec, NodeId, VideoSpec};
-use crate::preflight::{PreparedNode, PreparedPlan};
+use crate::preflight::{PreparedNode, PreparedPlan, RenderPolicy};
 use crate::source::SourceSpan;
 
 use super::super::{cache, staging::StagingDirectory};
@@ -47,6 +47,10 @@ impl<'a> RenderContext<'a> {
         self.plan.audio()
     }
 
+    pub(super) const fn policy(&self) -> RenderPolicy {
+        self.plan.render_policy()
+    }
+
     pub(super) fn temporary(&self) -> &Path {
         self.temporary
     }
@@ -59,6 +63,51 @@ impl<'a> RenderContext<'a> {
         let mut command = Command::new(self.plan.ffmpeg().executable());
         command.args(["-y", "-v", "error"]);
         command
+    }
+
+    pub(super) fn append_video_output(&self, command: &mut Command) {
+        let policy = self.policy();
+        command
+            .args(["-c:v", policy.native_video_encoder()])
+            .args([
+                "-level",
+                &policy.native_video_level().to_string(),
+                "-pix_fmt",
+                policy.working_pixel_format(),
+                "-r",
+            ])
+            .arg(format!(
+                "{}/{}",
+                self.video().fps().numerator(),
+                self.video().fps().denominator()
+            ))
+            .args([
+                "-c:a",
+                policy.native_audio_encoder(),
+                "-ar",
+                &self.audio().sample_rate().to_string(),
+                "-ac",
+                &self.audio().channels().to_string(),
+                "-f",
+                policy.native_container(),
+            ])
+            .arg(self.temporary());
+    }
+
+    pub(super) fn append_audio_output(&self, command: &mut Command) {
+        let policy = self.policy();
+        command
+            .args([
+                "-c:a",
+                policy.native_audio_encoder(),
+                "-ar",
+                &self.audio().sample_rate().to_string(),
+                "-ac",
+                &self.audio().channels().to_string(),
+                "-f",
+                policy.native_container(),
+            ])
+            .arg(self.temporary());
     }
 
     pub(super) fn artifact(&self, id: NodeId) -> Result<&'a Path> {

@@ -21,7 +21,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::Result;
 use crate::source::SourceSpan;
 
 mod assets;
@@ -29,6 +29,7 @@ mod capabilities;
 mod identity;
 mod lower;
 mod plan;
+mod policy;
 mod snapshots;
 pub(crate) mod tools;
 
@@ -44,14 +45,12 @@ pub use plan::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
     PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
+pub(crate) use policy::RenderPolicy;
 use snapshots::AssetSnapshotStore;
 pub use tools::ExternalToolIdentity;
 use tools::{inspect_ffmpeg, inspect_ffprobe, validate_ffmpeg_capabilities};
 
 const PREPARED_FORMAT_VERSION: u32 = 10;
-const CACHE_FORMAT_VERSION: u32 = 9;
-pub(crate) const WORKING_PIXEL_FORMAT: &str = "yuv444p";
-pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";
 /// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
@@ -62,7 +61,8 @@ pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";
 pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let render_output = compiled.render_output()?;
     entrypoint_directory(compiled.entrypoint_source())?;
-    let output = prepare_output_path(compiled)?;
+    let render_policy = RenderPolicy::CURRENT;
+    let output = prepare_output_path(compiled, render_policy)?;
     let manifest = manifest_path(&output);
     validate_destination(&output, "output", "E_INVALID_OUTPUT_DESTINATION")?;
     validate_destination(&manifest, "manifest", "E_INVALID_MANIFEST_DESTINATION")?;
@@ -84,20 +84,17 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     }
     let video = *compiled.video();
     let audio = *compiled.audio();
-    if !video.width().is_multiple_of(2) || !video.height().is_multiple_of(2) {
-        return Err(Diagnostic::new(
-            "E_EXPORT_DIMENSIONS",
-            "the MP4/H.264/yuv420p export profile requires even width and height",
-            compiled.output().map_or_else(
-                || SourceSpan::source_start(compiled.entrypoint_source().clone()),
-                |output| output.span.clone(),
-            ),
-        ));
-    }
+    render_policy.validate_video_spec(
+        &video,
+        &compiled.output().map_or_else(
+            || SourceSpan::source_start(compiled.entrypoint_source().clone()),
+            |output| output.span.clone(),
+        ),
+    )?;
 
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
-    let execution_namespace = cache_execution_namespace(&ffmpeg, &ffprobe)?;
+    let execution_namespace = cache_execution_namespace(render_policy, &ffmpeg, &ffprobe)?;
     let snapshots = AssetSnapshotStore::new(&SourceSpan::source_start(
         compiled.entrypoint_source().clone(),
     ))?;
@@ -118,7 +115,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         lowerer.lower(value)?;
     }
     let result = lowerer.lowered[&render_output.id()];
-    let requirements = ffmpeg_requirements(&lowerer.nodes, result);
+    let requirements = ffmpeg_requirements(render_policy, &lowerer.nodes, result);
     validate_ffmpeg_capabilities(&ffmpeg, &requirements)?;
     let named_values = compiled
         .named_values()
@@ -140,6 +137,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         PREPARED_FORMAT_VERSION,
         env!("CARGO_PKG_VERSION").to_owned(),
         semantic_hash,
+        render_policy,
         video,
         audio,
         lowerer.nodes,

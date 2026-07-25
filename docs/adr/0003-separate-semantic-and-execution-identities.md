@@ -8,9 +8,13 @@ ClipAsm uses separate identities for meaning and execution. Compiled structure
 hashes identify the authored language and semantic graph. Prepared semantic
 hashes additionally include resolved source content and exact prepared domains.
 The cache execution namespace separately identifies renderer compatibility,
-including its format version, FFmpeg and FFprobe identities, and working-media
-policy. Cargo package versions remain metadata rather than inputs to semantic or
-cache identity.
+including its artifact-contract revision, artifact-cache policy, and FFmpeg and
+FFprobe identities. The policy covers the verified working media shape and the
+native renderer's codec and container choices; external-program artifacts may
+use any encoding that satisfies the verified prepared-artifact contract. The
+final export profile is execution policy but does not define intermediate-cache
+compatibility because publication always re-exports the result. Cargo package
+versions remain metadata rather than inputs to semantic or cache identity.
 
 This separation avoids two opposite errors: invalidating meaningful results for
 an unrelated release-number change, and reusing artifacts produced under an
@@ -33,5 +37,8 @@ fingerprint still isolates artifacts produced by different tool builds.
 
 When a program's lowering semantics change, increment that program's semantic
 version. Increment compiled or prepared format versions when their canonical
-identity changes incompatibly. Increment the cache format version when existing
-artifacts are no longer safe to reuse.
+identity changes incompatibly. Increment the artifact-contract revision when a
+renderer or filter change makes existing working artifacts unsafe to reuse.
+Native working codec or container changes and working pixel-format, extension,
+or channel-layout changes alter the namespace structurally. Export-only changes
+do not invalidate compatible working artifacts.

@@ -6,11 +6,9 @@ use crate::diagnostic::Result;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 
 use super::plan::PreparedMedia;
+use super::policy::{ArtifactCachePolicy, RenderPolicy};
 use super::tools::ToolIdentity;
-use super::{
-    CACHE_FORMAT_VERSION, EXPORT_PIXEL_FORMAT, PREPARED_FORMAT_VERSION, PreparedAudioKind,
-    PreparedNode, PreparedVideoKind, WORKING_PIXEL_FORMAT,
-};
+use super::{PREPARED_FORMAT_VERSION, PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
@@ -34,11 +32,9 @@ struct PreparedPlanIdentity<'a> {
 
 #[derive(Serialize)]
 struct CacheIdentity<'a> {
-    format_version: u32,
+    artifact_cache_policy: ArtifactCachePolicy,
     ffmpeg_build_fingerprint: &'a str,
     ffprobe_build_fingerprint: &'a str,
-    working_pixel_format: &'static str,
-    export_pixel_format: &'static str,
 }
 
 pub(super) fn node_fingerprint(
@@ -217,15 +213,14 @@ pub(super) fn prepared_semantic_hash(
 }
 
 pub(super) fn cache_execution_namespace(
+    render_policy: RenderPolicy,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<String> {
     crate::compiler::fingerprint::hash_serializable(&CacheIdentity {
-        format_version: CACHE_FORMAT_VERSION,
+        artifact_cache_policy: render_policy.cache_contract(),
         ffmpeg_build_fingerprint: ffmpeg.build_fingerprint(),
         ffprobe_build_fingerprint: ffprobe.build_fingerprint(),
-        working_pixel_format: WORKING_PIXEL_FORMAT,
-        export_pixel_format: EXPORT_PIXEL_FORMAT,
     })
 }
 
@@ -236,7 +231,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cache_identity_includes_the_fixed_render_contract() {
+    fn cache_identity_includes_working_policy_and_tool_builds() {
         let ffmpeg = ToolIdentity {
             executable: PathBuf::from("/tools/ffmpeg"),
             version_summary: "ffmpeg test".to_owned(),
@@ -247,7 +242,24 @@ mod tests {
             version_summary: "ffprobe test".to_owned(),
             build_fingerprint: "ffprobe-build".to_owned(),
         };
-        let identity = cache_execution_namespace(&ffmpeg, &ffprobe).expect("identity");
+        let identity =
+            cache_execution_namespace(RenderPolicy::CURRENT, &ffmpeg, &ffprobe).expect("identity");
         assert!(!identity.is_empty());
+
+        let mut changed_ffmpeg = ffmpeg.clone();
+        changed_ffmpeg.build_fingerprint = "different-ffmpeg-build".to_owned();
+        assert_ne!(
+            cache_execution_namespace(RenderPolicy::CURRENT, &changed_ffmpeg, &ffprobe)
+                .expect("changed FFmpeg identity"),
+            identity
+        );
+
+        let mut changed_ffprobe = ffprobe.clone();
+        changed_ffprobe.build_fingerprint = "different-ffprobe-build".to_owned();
+        assert_ne!(
+            cache_execution_namespace(RenderPolicy::CURRENT, &ffmpeg, &changed_ffprobe)
+                .expect("changed FFprobe identity"),
+            identity
+        );
     }
 }

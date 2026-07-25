@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::media_tool::{self, CapturedOutput};
+use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
 
 #[derive(Serialize)]
@@ -138,14 +139,27 @@ pub(super) struct FfmpegRequirements {
 }
 
 impl FfmpegRequirements {
-    pub(super) fn for_render(result_has_audio: bool) -> Self {
+    pub(super) fn for_export(render_policy: RenderPolicy, result_has_audio: bool) -> Self {
         let mut requirements = Self::default();
-        requirements.require_encoders(["libx264", "ffv1", "flac"]);
+        requirements.require_encoders([render_policy.export_video_encoder()]);
         if result_has_audio {
-            requirements.require_encoders(["aac"]);
+            requirements.require_encoders([render_policy.export_audio_encoder()]);
         }
-        requirements.require_muxers(["mp4", "matroska"]);
+        requirements.require_muxers([render_policy.export_container()]);
         requirements
+    }
+
+    pub(super) fn require_native_video_output(&mut self, render_policy: RenderPolicy) {
+        self.require_encoders([
+            render_policy.native_video_encoder(),
+            render_policy.native_audio_encoder(),
+        ]);
+        self.require_muxers([render_policy.native_container()]);
+    }
+
+    pub(super) fn require_native_audio_output(&mut self, render_policy: RenderPolicy) {
+        self.require_encoders([render_policy.native_audio_encoder()]);
+        self.require_muxers([render_policy.native_container()]);
     }
 
     pub(super) fn require_encoders(&mut self, encoders: impl IntoIterator<Item = &'static str>) {
@@ -540,7 +554,8 @@ mod tests {
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo mp4; else echo none; fi\n",
         );
         let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
-        let requirements = FfmpegRequirements::for_render(false);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
+        requirements.require_native_video_output(RenderPolicy::CURRENT);
         let error = validate_ffmpeg_capabilities(&identity, &requirements)
             .expect_err("missing Matroska muxer");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
@@ -556,7 +571,8 @@ mod tests {
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo scale; else echo none; fi\n",
         );
         let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
-        let mut requirements = FfmpegRequirements::for_render(false);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
+        requirements.require_native_video_output(RenderPolicy::CURRENT);
         requirements.require_filters(["scale"]);
         validate_ffmpeg_capabilities(&identity, &requirements)
             .expect("requested capabilities are available");

@@ -2,7 +2,7 @@ use crate::diagnostic::Result;
 use crate::model::{FrameCount, NodeId, VideoDomain};
 
 use super::context::RenderContext;
-use super::filters::{append_video_output, normalize_audio, samples_for_video};
+use super::filters::{normalize_audio, samples_for_video};
 use super::timeline::video_segment_sample_counts;
 
 pub(super) fn flash(
@@ -31,17 +31,24 @@ pub(super) fn flash(
     let filter = format!(
         "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:a]{}[before_a];[1:a]{}[after_a];[0:v][before_a][after][after_a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
         frames.0,
-        normalize_audio(segment_samples[0], context.audio()),
-        normalize_audio(segment_samples[1], context.audio()),
-        normalize_audio(samples, context.audio())
+        normalize_audio(
+            segment_samples[0],
+            context.audio(),
+            context.policy().working_channel_layout(),
+        ),
+        normalize_audio(
+            segment_samples[1],
+            context.audio(),
+            context.policy().working_channel_layout(),
+        ),
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 

@@ -2,7 +2,7 @@ use crate::diagnostic::Result;
 use crate::model::{FrameCount, NodeId, VideoDomain, VideoSpec};
 
 use super::context::RenderContext;
-use super::filters::{append_video_output, normalize_audio, samples_for_video};
+use super::filters::{normalize_audio, samples_for_video};
 
 const WOBBLE_FREQUENCY_NUMERATOR: u32 = 13;
 const WOBBLE_FREQUENCY_DENOMINATOR: u32 = 2;
@@ -24,15 +24,14 @@ pub(super) fn zoom(
     let filter = format!(
         "[0:v]{}[v];[0:a]{}[a]",
         zoom_filter(percent, domain.frames()),
-        normalize_audio(samples, context.audio())
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -53,15 +52,14 @@ pub(super) fn wobble(
     let filter = format!(
         "[0:v]{}[v];[0:a]{}[a]",
         wobble_filter(pixels, context.video()),
-        normalize_audio(samples, context.audio())
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 

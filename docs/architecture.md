@@ -257,6 +257,8 @@ identity.
 - resolves video-source durations
 - verifies FFmpeg identity and only the capabilities required by the reachable
   prepared operations and final export
+- selects one renderer policy whose artifact-cache profile defines cache
+  compatibility and whose export profile defines publication
 - lowers reachable semantic nodes, including `replace_range`, to compact
   renderer primitives
 - assigns content fingerprints and an execution namespace
@@ -280,7 +282,13 @@ fingerprinting remain centralized. FFmpeg discovery records the executable build
 identity before media inspection. After lowering, an exhaustive prepared-primitive
 pass derives the encoders, muxers, and filters required by that graph and its final
 export. Missing capabilities for unreachable operations do not reject the plan;
-external programs remain responsible for extra FFmpeg features they invoke.
+external programs remain responsible for extra FFmpeg features they invoke. The
+artifact-cache profile and its contract revision join the FFmpeg and FFprobe
+build identities in the execution namespace. Native encoders and the native
+working container are required only when the prepared graph contains native
+nodes; external artifacts may use other encodings when they satisfy the
+verified media contract. Export-only policy changes reuse compatible working
+artifacts because publication is always performed afresh.
 
 Audio is normalized to the configured stereo project sample rate, which
 defaults to 48 kHz. Working Video artifacts always contain one lossless
@@ -307,9 +315,10 @@ input to global output boundaries. See
 ## Rendering
 
 `render` verifies the prepared FFmpeg and FFprobe build identities and private
-asset snapshots, reuses only verified cached artifacts, renders missing
-FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
-exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
+asset snapshots, reuses only verified cached artifacts, renders missing native
+FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, verifies
+external-program artifacts against the same prepared media shape, and exports
+one H.264/yuv420p MP4 with AAC when the result Video has audio.
 FFmpeg/FFprobe metadata and capability output is captured with fixed limits,
 long-running commands retain only bounded diagnostic stderr, and exact Audio
 sample counts are consumed as a bounded line stream rather than one complete
@@ -322,8 +331,11 @@ Cache and publication orchestration remain in `render`. The native executor
 keeps one exhaustive prepared-primitive dispatcher and delegates media, Audio,
 timeline, effect, transition, external-process, and export work to focused
 modules. One shared render context owns FFmpeg command initialization, upstream
-artifact lookup, temporary output naming, failure cleanup, and atomic cache
-replacement, so operation modules cannot diverge on execution lifecycle.
+artifact lookup, policy-driven native output construction, temporary output
+naming, failure cleanup, and atomic cache replacement, so native operation
+modules cannot diverge on execution lifecycle or artifact encoding. External
+programs use the versioned process protocol and must satisfy artifact
+verification rather than the native encoding policy.
 
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated

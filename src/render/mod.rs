@@ -95,8 +95,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             ));
         }
         let extension = match node.media() {
-            PreparedNodeMedia::Video { .. } => "mkv",
-            PreparedNodeMedia::Audio { .. } => "mka",
+            PreparedNodeMedia::Video { .. } => plan.render_policy().working_video_extension(),
+            PreparedNodeMedia::Audio { .. } => plan.render_policy().working_audio_extension(),
         };
         let artifact = cache_directory.join(format!("{}.{}", node.fingerprint(), extension));
         match node.media() {
@@ -150,7 +150,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 &artifact,
                 node,
                 plan.audio(),
-                crate::preflight::WORKING_PIXEL_FORMAT,
+                plan.render_policy().working_pixel_format(),
             )
             .is_ok();
         if hit {
@@ -164,7 +164,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 staged.path(),
                 node,
                 plan.audio(),
-                crate::preflight::WORKING_PIXEL_FORMAT,
+                plan.render_policy().working_pixel_format(),
             )?;
             staged.commit(node.fingerprint())?;
         }
