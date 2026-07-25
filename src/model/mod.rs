@@ -64,6 +64,17 @@ pub enum ValueType {
     Audio,
 }
 
+impl ValueType {
+    #[must_use]
+    pub(crate) fn from_source_name(name: &str) -> Option<Self> {
+        match name {
+            "Video" => Some(Self::Video),
+            "Audio" => Some(Self::Audio),
+            _ => None,
+        }
+    }
+}
+
 impl std::fmt::Display for ValueType {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

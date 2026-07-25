@@ -171,17 +171,13 @@ impl Parser {
 
     fn parse_type_argument(&mut self) -> Result<Spanned<ValueType>> {
         let value = self.expect_identifier("`Video` or `Audio`")?;
-        let value_type = match value.value.as_str() {
-            "Video" => ValueType::Video,
-            "Audio" => ValueType::Audio,
-            _ => {
-                return Err(Diagnostic::new(
-                    "E_INVALID_TYPE_ARGUMENT",
-                    "type argument must be `Video` or `Audio`",
-                    value.span,
-                ));
-            }
-        };
+        let value_type = ValueType::from_source_name(&value.value).ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_TYPE_ARGUMENT",
+                "type argument must be `Video` or `Audio`",
+                value.span.clone(),
+            )
+        })?;
         Ok(Spanned::new(value_type, value.span))
     }
 

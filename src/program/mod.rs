@@ -124,6 +124,23 @@ pub(crate) enum ParameterType {
     Keyword(Vec<String>),
 }
 
+impl ParameterType {
+    #[must_use]
+    pub(crate) fn from_source_name(
+        name: &str,
+        keyword_values: Option<Vec<String>>,
+    ) -> Option<Self> {
+        match name {
+            "Integer" => Some(Self::Integer),
+            "File" => Some(Self::File),
+            "Duration" => Some(Self::Duration),
+            "TimeRange" => Some(Self::TimeRange),
+            "Keyword" => keyword_values.map(Self::Keyword),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterValue {
     Integer(i64),

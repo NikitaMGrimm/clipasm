@@ -288,17 +288,13 @@ fn parse_inputs(node: RawNode) -> Result<Vec<InputPort>> {
             validate_name(&name, &name_span)?;
             let type_span = value_type.span.clone();
             let (value_type, _) = scalar(&value_type, "an input type")?;
-            let value_type = match value_type {
-                "Video" => crate::model::ValueType::Video,
-                "Audio" => crate::model::ValueType::Audio,
-                _ => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_VALUE_TYPE",
-                        format!("unknown input type `{value_type}`; expected `Video` or `Audio`"),
-                        type_span,
-                    ));
-                }
-            };
+            let value_type = ValueType::from_source_name(value_type).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_UNKNOWN_VALUE_TYPE",
+                    format!("unknown input type `{value_type}`; expected `Video` or `Audio`"),
+                    type_span,
+                )
+            })?;
             Ok(InputPort {
                 name,
                 value_type: value_type.into(),
@@ -381,27 +377,20 @@ fn parse_parameter_type(
     values: Option<Vec<String>>,
     span: &SourceSpan,
 ) -> Result<ParameterType> {
-    match name {
-        "Integer" => Ok(ParameterType::Integer),
-        "File" => Ok(ParameterType::File),
-        "Duration" => Ok(ParameterType::Duration),
-        "TimeRange" => Ok(ParameterType::TimeRange),
-        "Keyword" => {
-            let values = values.filter(|values| !values.is_empty()).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_MISSING_KEYWORD_VALUES",
-                    "a `Keyword` parameter requires a nonempty `values` sequence",
-                    span.clone(),
-                )
-            })?;
-            Ok(ParameterType::Keyword(values))
-        }
-        _ => Err(Diagnostic::new(
+    if name == "Keyword" && values.as_ref().is_none_or(Vec::is_empty) {
+        return Err(Diagnostic::new(
+            "E_MISSING_KEYWORD_VALUES",
+            "a `Keyword` parameter requires a nonempty `values` sequence",
+            span.clone(),
+        ));
+    }
+    ParameterType::from_source_name(name, values).ok_or_else(|| {
+        Diagnostic::new(
             "E_UNKNOWN_PARAMETER_TYPE",
             format!("unknown parameter type `{name}`"),
             span.clone(),
-        )),
-    }
+        )
+    })
 }
 
 fn parse_literal(node: &RawNode) -> Result<Literal> {
@@ -864,17 +853,13 @@ fn normalize_invocation(
 fn parse_type_argument(node: &RawNode) -> Result<Spanned<ValueType>> {
     let span = node.span.clone();
     let (value, _) = scalar(node, "`type`")?;
-    let value = match value {
-        "Video" => ValueType::Video,
-        "Audio" => ValueType::Audio,
-        _ => {
-            return Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_VALUE",
-                "`type` must be `Video` or `Audio`",
-                span,
-            ));
-        }
-    };
+    let value = ValueType::from_source_name(value).ok_or_else(|| {
+        Diagnostic::new(
+            "E_INVALID_ARGUMENT_VALUE",
+            "`type` must be `Video` or `Audio`",
+            span.clone(),
+        )
+    })?;
     Ok(Spanned::new(value, span))
 }
 
