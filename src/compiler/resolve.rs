@@ -122,9 +122,7 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
                     node.origin().span.clone(),
                 ));
             }
-            let symbol_type = binding
-                .value_type
-                .expect("symbol types are resolved before evaluation");
+            let symbol_type = binding.value_type;
             if symbol_type != node.value_type() {
                 return Err(Diagnostic::new(
                     "E_TYPE_MISMATCH",
@@ -495,7 +493,7 @@ mod tests {
             name,
             declared_at: SourceSpan::file_start("test.yaml"),
             value: Some(value),
-            value_type: Some(ValueType::Video),
+            value_type: ValueType::Video,
         }
     }
 

@@ -9,7 +9,6 @@ mod name;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::external::{ExternalProgram, ExternalProgramId};
 use crate::program::{InputPort, ParameterType, StackAccess};
@@ -57,7 +56,7 @@ pub struct SourceUnit {
     pub(crate) imports: Vec<ResolvedImport>,
     pub(crate) externals: Vec<ResolvedExternalImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
-    pub(crate) program: Arc<SourceProgram>,
+    pub(crate) program: SourceProgram,
     pub(crate) output: Option<Spanned<PathBuf>>,
 }
 

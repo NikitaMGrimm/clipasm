@@ -271,6 +271,17 @@ fn check_program(
         &mut checked_clips,
         &mut checked_body,
     )?;
+    let mut clips = program
+        .clips()
+        .iter()
+        .zip(checked_clips)
+        .map(|(clip, body)| CheckedClip {
+            name: clip.name.clone(),
+            span: clip.span.clone(),
+            body,
+        })
+        .collect::<Vec<_>>();
+    clips.sort_by(|left, right| left.name.cmp(&right.name));
     Ok((
         outputs,
         CheckedProgram {
@@ -280,16 +291,7 @@ fn check_program(
             locals,
             parameters,
             body_input_count,
-            clips: program
-                .clips()
-                .iter()
-                .zip(checked_clips)
-                .map(|(clip, body)| CheckedClip {
-                    name: clip.name.clone(),
-                    span: clip.span.clone(),
-                    body,
-                })
-                .collect(),
+            clips,
             body: checked_body,
         },
     ))

@@ -362,7 +362,6 @@ fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
 mod tests {
     use std::collections::BTreeMap;
     use std::path::Path;
-    use std::sync::Arc;
 
     use super::*;
     use crate::program::StackAccess;
@@ -407,7 +406,7 @@ mod tests {
                     ProjectSettings::default(),
                     program_span.clone(),
                 )),
-                program: Arc::new(SourceProgram {
+                program: SourceProgram {
                     inputs: Vec::new(),
                     parameters: Vec::new(),
                     clips: Vec::new(),
@@ -426,7 +425,7 @@ mod tests {
                     },
                     span: program_span,
                     stack_access: StackAccess::Owned,
-                }),
+                },
                 output: None,
             }],
             external_programs: Vec::new(),

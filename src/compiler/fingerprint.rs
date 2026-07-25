@@ -248,7 +248,7 @@ mod tests {
                 name: "source".to_owned(),
                 declared_at: span.clone(),
                 value: Some(target),
-                value_type: Some(ValueType::Video),
+                value_type: ValueType::Video,
             },
         );
         let mut nodes = Vec::new();
@@ -320,7 +320,7 @@ mod tests {
                     name,
                     declared_at: span.clone(),
                     value: Some(root),
-                    value_type: Some(ValueType::Video),
+                    value_type: ValueType::Video,
                 },
             );
             symbol_order.push(symbol);

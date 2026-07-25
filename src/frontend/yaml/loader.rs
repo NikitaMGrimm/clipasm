@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::language::Language;
 use crate::diagnostic::{Diagnostic, Result};
@@ -205,7 +204,7 @@ impl Loader<'_> {
             imports,
             externals,
             project: unit.project,
-            program: Arc::new(unit.program),
+            program: unit.program,
             output: unit.output,
         });
         self.loaded.insert(canonical, id);

@@ -23,7 +23,7 @@ pub(super) struct Symbol {
     pub(super) name: String,
     pub(super) declared_at: SourceSpan,
     pub(super) value: Option<ValueRef>,
-    pub(super) value_type: Option<ValueType>,
+    pub(super) value_type: ValueType,
 }
 
 #[derive(Clone, Debug)]
@@ -182,9 +182,7 @@ impl Evaluator<'_> {
                 checked_program.span.clone(),
             ));
         }
-        let mut clips = checked_program.clips.iter().collect::<Vec<_>>();
-        clips.sort_by(|left, right| left.name.cmp(&right.name));
-        for clip in clips {
+        for clip in &checked_program.clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
             self.evaluate_body(&clip.body, &mut scope, &mut stack, &mut frame, None)?;
@@ -253,7 +251,7 @@ impl Evaluator<'_> {
                 name: name.to_owned(),
                 declared_at: span.clone(),
                 value: None,
-                value_type: Some(value_type),
+                value_type,
             },
         );
         Ok(symbol)
@@ -345,9 +343,7 @@ impl Evaluator<'_> {
         match target {
             CheckedReferenceTarget::Local(local) => {
                 let symbol = scope.local_symbols[local.index()];
-                let value_type = self.symbols[&symbol]
-                    .value_type
-                    .expect("checked local has a concrete type");
+                let value_type = self.symbols[&symbol].value_type;
                 let origin = SourceOrigin::new("reference", span.clone());
                 GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
                     .reference(symbol, value_type)
@@ -605,9 +601,7 @@ impl Evaluator<'_> {
             .symbols
             .get_mut(&id)
             .expect("all symbols are collected before evaluation");
-        let declared_type = symbol
-            .value_type
-            .expect("symbol types are resolved before evaluation");
+        let declared_type = symbol.value_type;
         if declared_type != value.value_type() {
             return Err(Diagnostic::new(
                 "E_TYPE_MISMATCH",

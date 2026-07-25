@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use yaml_rust2::scanner::TScalarStyle;
 
@@ -52,7 +51,7 @@ pub fn parse_str(path: &Path, source: &str) -> Result<SourcePackage> {
             imports: Vec::new(),
             externals: Vec::new(),
             project: unit.project,
-            program: Arc::new(unit.program),
+            program: unit.program,
             output: unit.output,
         }],
         external_programs: Vec::new(),
@@ -95,7 +94,7 @@ pub(crate) fn parse_str_with_language(
             imports: Vec::new(),
             externals: Vec::new(),
             project: unit.project,
-            program: Arc::new(unit.program),
+            program: unit.program,
             output: unit.output,
         }],
         external_programs: Vec::new(),
