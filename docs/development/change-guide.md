@@ -46,6 +46,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
+| Change media formats or frame/sample mapping | `src/model`, `src/preflight`, `src/render` | positive format invariants, [ADR 0013](../adr/0013-map-frame-and-sample-boundaries.md), cumulative boundary tests, serialized domain shape, execution/cache identity |
 | Change prepared primitive or rendering | `src/preflight/mod.rs`, `src/preflight/lower.rs`, `src/preflight/identity.rs`, `src/render` | Video/Audio variant invariants, serialized prepared shape, semantic/cache identity, FFmpeg requirements, render integration |
 | Change CLI behavior | `src/cli.rs`, library boundary | CLI tests, `README.md`, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |

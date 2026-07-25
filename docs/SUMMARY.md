@@ -22,6 +22,7 @@
 - [Add typed Audio and body input scopes](adr/0010-add-typed-audio-and-body-input-scopes.md)
 - [Add type-preserving timeline programs](adr/0011-add-type-preserving-timeline-programs.md)
 - [Run registered external programs](adr/0012-run-external-programs.md)
+- [Map frame and sample boundaries cumulatively](adr/0013-map-frame-and-sample-boundaries.md)
 
 # Development
 

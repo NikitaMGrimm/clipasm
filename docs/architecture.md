@@ -121,6 +121,15 @@ that identifies language and graph semantics rather than the package release.
 Entrypoint `output` metadata remains separate from the semantic result and its
 structure hash.
 
+Project media formats are invariant-protected model values: Video dimensions,
+frame-rate components, audio sample rate, and channel count are positive by
+construction. Canonical frontends may carry representable raw settings such as
+a zero dimension, but the compiler owns semantic project-format validation so
+future frontends cannot bypass it. Video domains compose an exact frame count
+with a `VideoSpec`; Audio domains compose an exact sample count with an
+`AudioSpec`. Explicit serialization adapters preserve the established flat JSON
+schemas.
+
 Compiled JSON is produced by an explicit downstream document adapter. It is a
 serialized view of compiled semantics, not an authored source representation,
 and its schema is not derived implicitly from the internal `CompiledProgram`
@@ -235,6 +244,17 @@ Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
 one lossless normalized audio stream, using silence for semantically silent
 Videos, while semantic audio presence controls final MP4 publication.
 
+Video and Audio retain their native duration grids rather than sharing a
+least-common-denominator tick type. One exact rational timeline mapper converts
+cumulative frame boundaries to covering sample boundaries and converts sample
+durations back to covering frame counts. A Video segment from frame `a` to
+frame `b` receives samples between the mapped absolute boundaries, not a fresh
+rounding of `b - a`. Video concatenation, joins, slices, extraction, audio-on-
+black adaptation, and repeat rendering all use this policy. Adjacent segments
+therefore telescope to the exact combined sample count, so arbitrary source
+segmentation cannot accumulate audio drift. See
+[ADR 0013](adr/0013-map-frame-and-sample-boundaries.md).
+
 ## Rendering
 
 `render` verifies the prepared FFmpeg and FFprobe build identities and source
@@ -243,10 +263,14 @@ FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
 exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
 Cache and publication orchestration remain in `render`, while one concrete
 executor owns the exhaustive prepared-primitive match, FFmpeg filters and
-commands, external-process requests, working-artifact replacement, and final
-MP4 staging. Artifact verification, locking, and rollback-capable publication
-remain separate deep modules; there is no generic process runner or renderer
-backend interface.
+commands, external-process requests, cumulative frame/sample boundary
+allocation, working-artifact replacement, and final MP4 staging. Video joins
+normalize each child audio stream to its cumulative allocation before concat.
+Fractional Video repeats remain compact and timestamp repeated audio segments at
+cumulative boundaries so FFmpeg distributes unavoidable sample corrections
+through the timeline. Artifact verification, locking, and rollback-capable
+publication remain separate deep modules; there is no generic process runner or
+renderer backend interface.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

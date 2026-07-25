@@ -1,7 +1,7 @@
-//! Invariant-protected identifiers, frame quantities, and video properties.
+//! Invariant-protected identifiers, time quantities, and media properties.
 //!
 //! These values appear in compiled and prepared-plan inspection APIs. IDs are
-//! engine-assigned and opaque; domains and ranges use exact project frames.
+//! engine-assigned and opaque; Video and Audio domains retain exact native frames and samples.
 
 mod audio;
 mod time;
