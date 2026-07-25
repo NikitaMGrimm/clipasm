@@ -5,8 +5,8 @@ authoring representation
   -> frontend parsing and desugaring
 Canonical source package + linked source programs
   -> program catalog linking and checked-source construction
-Checked source + canonical source
-  -> typed call binding and stack evaluation
+Self-contained checked source
+  -> checked stack evaluation
 Semantic graph + ordered source outputs
   -> compiled JSON adapter (optional)
 Compiled semantic document
@@ -43,28 +43,36 @@ Before evaluation, the compiler links each source unit's local program
 namespace and checks every authored program in import dependency order,
 including programs the root never invokes. This pass resolves program IDs,
 effective stack access, argument and body contracts, named-value types, and
-ordered output types into compiler-owned checked-source metadata paired with
-the immutable canonical source. Structural collection assigns compact type
-variables to graph-valued locals and generic invocations before source-order
+ordered output types into self-contained compiler-owned checked source.
+Structural collection assigns compact type variables to graph-valued locals
+and generic invocations before source-order
 inference. Monotonic inference connects selectors, explicit inputs, body
 contracts, normal stack binding, generic outputs, and any names attached to
 those outputs. Stack choices that depend on unresolved forward types are
 retried after later constraints make progress. Forward references therefore
 participate in the same inference path as ordinary stack values, while
 dependency cycles remain explicit errors.
-Imported definitions and built-ins then share one runtime catalog and one call
-binder.
+Imported definitions and built-ins then share one runtime catalog.
 
-`compiler` evaluates the source body and every nested body as a typed postfix
+Checked-source construction resolves graph and scalar references to compact
+local identities, parses scalar literals, orders explicit inputs by descriptor,
+resolves concrete signatures and body contracts, and records each invocation's
+concrete stack-binding plan. Inline input bodies and lexical body-port aliases
+are represented directly in checked source. Canonical bodies and invocations
+are not retained for ordinary evaluation.
+
+`compiler` evaluates the checked body and every nested body as a typed postfix
 stack program over one physical heterogeneous evaluation stack. Each stack
 occurrence records its owning body depth, and recursive frames record the nearest
-visibility boundary. The source body starts empty and returns its complete ordered final owned values. Evaluation traverses canonical source
-and checked metadata together, so it does not repeat program-name lookup,
-effective-access resolution, output-signature discovery, or structural body
-validation. One shared binder resolves explicit inputs in descriptor order,
-evaluates inline fixed-input bodies on isolated evaluation stacks, consumes
-missing inputs by exact concrete type from the invocation's accessible values,
-and converts authored parameters to their declared Rust types. The checker
+visibility boundary. The source body starts empty and returns its complete
+ordered final owned values. Evaluation traverses only checked source, so it does
+not repeat program-name lookup, reference lookup, argument classification,
+scalar conversion, effective-access resolution, output-signature discovery,
+structural body validation, or stack selection. It applies the stored stack
+plan, evaluates checked inline input bodies on isolated evaluation stacks, and
+materializes the ordinary resolved-call interface consumed by program
+implementations. Root values supplied by a CLI or another host after source
+checking use a dedicated entrypoint adapter. The checker
 resolves the single closed type parameter used by type-preserving built-ins and
 stores the resulting concrete signature in checked source. A body-inferred
 program such as bare `glue` contributes its homogeneous owned body outputs to
@@ -202,6 +210,12 @@ publication.
 hashes again, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
 exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
+Cache and publication orchestration remain in `render`, while one concrete
+executor owns the exhaustive prepared-primitive match, FFmpeg filters and
+commands, external-process requests, working-artifact replacement, and final
+MP4 staging. Artifact verification, locking, and rollback-capable publication
+remain separate deep modules; there is no generic process runner or renderer
+backend interface.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without
@@ -218,13 +232,15 @@ remain iterative so graph depth is not limited by the Rust call stack.
 - Canonical source owns representation-neutral authored structures and source
   locations.
 - Each frontend owns its surface grammar, reserved syntax, and desugaring.
-- Compiler binding owns signature enforcement and parameter conversion.
-- Checked-source construction owns linked program resolution, static body
-  validation, and authored output inference.
+- The entrypoint adapter owns validation and conversion of root values supplied
+  after source checking.
+- Checked-source construction owns linked program resolution, reference and
+  argument resolution, scalar conversion, static body validation, stack plans,
+  and authored output inference.
 - Programs own operation signatures, body lifecycles, and semantic versions.
 - Semantic graph construction owns graph-local validity.
-- Compilation owns typed stack evaluation, dependency resolution, and pure
-  domain inference.
+- Compilation owns checked stack evaluation, semantic dependency resolution,
+  and pure domain inference.
 - Preflight owns media and tool discovery.
 - Rendering owns artifact execution and publication.
 

@@ -12,9 +12,10 @@ authoring semantics. Public YAML forms and program arguments are defined in
   representation-specific sugar.
 - **Canonical source** is the representation-neutral, fully desugared authored
   ClipAsm model consumed by the compiler.
-- **Checked source** is compiler-owned metadata paired with canonical source
-  after program names, effective stack access, argument contracts, body
-  contracts, named-value types, and ordered output types have been resolved.
+- **Checked source** is the compiler-owned executable representation derived
+  from canonical source after program names, references, effective stack
+  access, arguments, body contracts, stack bindings, named-value types, and
+  ordered output types have been resolved.
 - A **source unit** identifies one authored input, its diagnostic name, and its
   optional filesystem base for relative paths.
 - A **source package** is one linked collection of source units with one root
