@@ -109,15 +109,8 @@ impl CompiledProgram {
     /// # Ok::<(), clipasm::diagnostic::Diagnostic>(())
     /// ```
     pub fn result_domain(&self) -> Option<&VideoDomain> {
-        let mut videos = self
-            .outputs
-            .iter()
-            .copied()
-            .filter(|value| value.value_type() == crate::model::ValueType::Video);
-        let result = videos.next()?;
-        if videos.next().is_some() {
-            return None;
-        }
+        let (result, count) = video_output(&self.outputs);
+        let result = (count == 1).then_some(result?)?;
         self.nodes[result.id().get() as usize].domain()
     }
 
@@ -146,18 +139,12 @@ impl CompiledProgram {
     }
 
     pub(crate) fn render_output(&self) -> Result<ValueRef> {
-        let videos = self
-            .outputs
-            .iter()
-            .copied()
-            .filter(|value| value.value_type() == crate::model::ValueType::Video)
-            .collect::<Vec<_>>();
-        let [output] = videos.as_slice() else {
+        let (output, count) = video_output(&self.outputs);
+        let Some(output) = output.filter(|_| count == 1) else {
             return Err(Diagnostic::new(
                 "E_ENTRYPOINT_OUTPUT_COUNT",
                 format!(
-                    "rendering requires exactly one Video output, but {} Video values were produced",
-                    videos.len()
+                    "rendering requires exactly one Video output, but {count} Video values were produced"
                 ),
                 self.output.as_ref().map_or_else(
                     || SourceSpan::source_start(self.entrypoint_source.clone()),
@@ -165,7 +152,7 @@ impl CompiledProgram {
                 ),
             ));
         };
-        Ok(*output)
+        Ok(output)
     }
 
     pub(crate) fn named_values(&self) -> &BTreeMap<String, ValueRef> {
@@ -321,24 +308,31 @@ fn validate_publication_output(
     if output.is_none() {
         return Ok(());
     }
-    let videos = evaluation
-        .outputs
-        .iter()
-        .copied()
-        .filter(|value| value.value_type() == crate::model::ValueType::Video)
-        .collect::<Vec<_>>();
-    let [output] = videos.as_slice() else {
+    let (output, count) = video_output(&evaluation.outputs);
+    let Some(output) = output.filter(|_| count == 1) else {
         return Err(Diagnostic::new(
             "E_ENTRYPOINT_OUTPUT_COUNT",
             format!(
-                "a source program with `output` must produce exactly one Video, but {} Video values remain",
-                videos.len()
+                "a source program with `output` must produce exactly one Video, but {count} Video values remain"
             ),
             entrypoint.program().span().clone(),
         ));
     };
     debug_assert_eq!(output.value_type(), crate::model::ValueType::Video);
     Ok(())
+}
+
+fn video_output(outputs: &[ValueRef]) -> (Option<ValueRef>, usize) {
+    outputs
+        .iter()
+        .copied()
+        .fold((None, 0), |(first, count), value| {
+            if value.value_type() == crate::model::ValueType::Video {
+                (first.or(Some(value)), count + 1)
+            } else {
+                (first, count)
+            }
+        })
 }
 
 fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
