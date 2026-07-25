@@ -215,7 +215,7 @@ fn is_identifier_start(character: char) -> bool {
 }
 
 fn is_identifier_continue(character: char) -> bool {
-    character == '_' || character.is_ascii_alphanumeric()
+    matches!(character, '_' | '-') || character.is_ascii_alphanumeric()
 }
 
 fn is_bare_start(character: char) -> bool {
@@ -266,6 +266,20 @@ mod tests {
                 TokenKind::Identifier("result".to_owned()),
                 TokenKind::Newline,
                 TokenKind::RightBrace,
+                TokenKind::Newline,
+                TokenKind::End,
+            ]
+        );
+
+        assert_eq!(
+            kinds("clipasm 1\nmy-program as output-name\n"),
+            vec![
+                TokenKind::Identifier("clipasm".to_owned()),
+                TokenKind::Bare("1".to_owned()),
+                TokenKind::Newline,
+                TokenKind::Identifier("my-program".to_owned()),
+                TokenKind::Identifier("as".to_owned()),
+                TokenKind::Identifier("output-name".to_owned()),
                 TokenKind::Newline,
                 TokenKind::End,
             ]
