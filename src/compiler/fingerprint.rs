@@ -224,7 +224,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use super::*;
-    use crate::compiler::evaluate::{DeclaredValueType, Evaluation, Symbol};
+    use crate::compiler::evaluate::{Evaluation, Symbol};
     use crate::model::{FrameCount, ImageFit, ValueId, ValueType, VideoDomain, VideoSpec};
     use crate::semantic::{GraphBuilder, SourceOrigin, SymbolId};
     use crate::source::SourceSpan;
@@ -248,7 +248,6 @@ mod tests {
                 name: "source".to_owned(),
                 declared_at: span.clone(),
                 value: Some(target),
-                declared_type: DeclaredValueType::Known(ValueType::Video),
                 value_type: Some(ValueType::Video),
             },
         );
@@ -321,7 +320,6 @@ mod tests {
                     name,
                     declared_at: span.clone(),
                     value: Some(root),
-                    declared_type: DeclaredValueType::Known(ValueType::Video),
                     value_type: Some(ValueType::Video),
                 },
             );

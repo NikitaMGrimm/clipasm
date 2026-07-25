@@ -32,6 +32,22 @@ pub(super) struct GenericLocalDeclaration {
     pub(super) span: crate::source::SourceSpan,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct ValueLocalId(u32);
+
+impl ValueLocalId {
+    pub(super) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedLocal {
+    pub(super) name: String,
+    pub(super) declared_at: crate::source::SourceSpan,
+    pub(super) value_type: ValueType,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct CheckedPackage {
     pub(super) registry: ProgramRegistry,
@@ -41,6 +57,7 @@ pub(super) struct CheckedPackage {
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgram {
     pub(super) source: Arc<SourceProgram>,
+    pub(super) locals: Vec<CheckedLocal>,
     pub(super) clips: Vec<CheckedBody>,
     pub(super) body: CheckedBody,
 }
@@ -53,6 +70,7 @@ pub(super) struct CheckedBody {
 #[derive(Clone, Debug)]
 pub(super) struct CheckedItem {
     pub(super) output_types: Vec<ValueType>,
+    pub(super) output_bindings: Vec<Option<ValueLocalId>>,
     pub(super) kind: CheckedItemKind,
 }
 
@@ -309,7 +327,7 @@ fn check_program(
         "authored program inference",
         program.span().clone(),
     );
-    let checked_body = infer_body(
+    let mut checked_body = infer_body(
         &program.body,
         &locals,
         unit,
@@ -320,14 +338,95 @@ fn check_program(
         &mut frame,
     )?;
     let outputs = stack.values().to_vec();
+    let locals = assign_local_ids(&program, &locals, &mut checked_clips, &mut checked_body)?;
     Ok((
         outputs,
         CheckedProgram {
             source: program,
+            locals,
             clips: checked_clips,
             body: checked_body,
         },
     ))
+}
+
+fn assign_local_ids(
+    program: &SourceProgram,
+    local_types: &BTreeMap<String, LocalType>,
+    clips: &mut [CheckedBody],
+    body: &mut CheckedBody,
+) -> Result<Vec<CheckedLocal>> {
+    let mut locals = Vec::new();
+    let mut ids = BTreeMap::new();
+
+    let mut declare = |name: &str, span: &crate::source::SourceSpan| -> Result<ValueLocalId> {
+        let value_type = value_local(local_types, name, span)?;
+        let id = ValueLocalId(u32::try_from(locals.len()).map_err(|_| {
+            Diagnostic::new(
+                "E_GRAPH_TOO_LARGE",
+                "too many named values were declared",
+                span.clone(),
+            )
+        })?);
+        ids.insert(name.to_owned(), id);
+        locals.push(CheckedLocal {
+            name: name.to_owned(),
+            declared_at: span.clone(),
+            value_type,
+        });
+        Ok(id)
+    };
+
+    for input in program.inputs() {
+        declare(&input.name, program.span())?;
+    }
+    for clip in program.clips() {
+        declare(&clip.name, &clip.span)?;
+    }
+    for (clip, checked) in program.clips().iter().zip(clips) {
+        assign_body_output_ids(&clip.body, checked, &mut declare)?;
+    }
+    assign_body_output_ids(program.body(), body, &mut declare)?;
+    Ok(locals)
+}
+
+fn assign_body_output_ids(
+    source: &ProgramBody,
+    checked: &mut CheckedBody,
+    declare: &mut impl FnMut(&str, &crate::source::SourceSpan) -> Result<ValueLocalId>,
+) -> Result<()> {
+    debug_assert_eq!(source.items.len(), checked.items.len());
+    for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
+        checked_item.output_bindings = match &item.output_bindings {
+            OutputBindings::None => vec![None; checked_item.output_types.len()],
+            OutputBindings::One(name) => vec![Some(declare(&name.value, &name.span)?)],
+            OutputBindings::Many(names, _) => names
+                .iter()
+                .map(|name| declare(&name.value, &name.span).map(Some))
+                .collect::<Result<Vec<_>>>()?,
+        };
+        if let (
+            ItemKind::Invocation(invocation),
+            CheckedItemKind::Invocation {
+                body, input_bodies, ..
+            },
+        ) = (&item.kind, &mut checked_item.kind)
+        {
+            if let (Some(source_body), Some(checked_body)) = (&invocation.body, body.as_deref_mut())
+            {
+                assign_body_output_ids(source_body, checked_body, declare)?;
+            }
+            for (name, argument) in &invocation.arguments {
+                if let ArgumentValue::Body(source_body) = argument {
+                    let checked_body = input_bodies
+                        .get_mut(name)
+                        .expect("checked input body matches canonical source");
+                    assign_body_output_ids(source_body, checked_body, declare)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn collect_body_names(
@@ -695,6 +794,7 @@ fn infer_body(
                 stack.extend(frame, [output]);
                 CheckedItem {
                     output_types: vec![output],
+                    output_bindings: Vec::new(),
                     kind: CheckedItemKind::Reference,
                 }
             }
@@ -871,6 +971,7 @@ fn infer_body(
                 stack.extend(frame, output_types.iter().copied());
                 CheckedItem {
                     output_types,
+                    output_bindings: Vec::new(),
                     kind: CheckedItemKind::Invocation {
                         program,
                         signature,

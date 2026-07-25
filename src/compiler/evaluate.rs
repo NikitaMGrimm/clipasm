@@ -20,18 +20,10 @@ use super::check::{CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage};
 use super::stack::{EvaluationStack, StackFrame};
 
 #[derive(Clone, Debug)]
-pub(super) enum DeclaredValueType {
-    Known(ValueType),
-    Alias(SymbolId),
-    AliasName(String),
-}
-
-#[derive(Clone, Debug)]
 pub(super) struct Symbol {
     pub(super) name: String,
     pub(super) declared_at: SourceSpan,
     pub(super) value: Option<ValueRef>,
-    pub(super) declared_type: DeclaredValueType,
     pub(super) value_type: Option<ValueType>,
 }
 
@@ -98,9 +90,9 @@ struct Evaluator<'a> {
 
 struct EvalScope {
     values: BTreeMap<String, SymbolId>,
+    local_symbols: Vec<SymbolId>,
     body_values: Vec<BTreeMap<String, ValueRef>>,
     parameters: BoundParameters,
-    public: bool,
 }
 
 impl Evaluator<'_> {
@@ -155,9 +147,9 @@ impl Evaluator<'_> {
             EvaluationStack::isolated("root program call", program.span().clone());
         let mut scope = EvalScope {
             values: BTreeMap::new(),
+            local_symbols: Vec::new(),
             body_values: Vec::new(),
             parameters: BoundParameters::new(),
-            public: false,
         };
         let video_program = self
             .checked
@@ -169,6 +161,7 @@ impl Evaluator<'_> {
         let checked_input = CheckedBody {
             items: vec![CheckedItem {
                 output_types: video_signature.outputs.clone(),
+                output_bindings: vec![None; video_signature.outputs.len()],
                 kind: CheckedItemKind::Invocation {
                     program: video_program,
                     signature: video_signature.clone(),
@@ -223,12 +216,20 @@ impl Evaluator<'_> {
         let program = Arc::clone(&checked_program.source);
         let mut scope = EvalScope {
             values: BTreeMap::new(),
+            local_symbols: Vec::with_capacity(checked_program.locals.len()),
             body_values: Vec::new(),
             parameters: call
                 .map(|call| call.parameters().clone())
                 .unwrap_or_default(),
-            public,
         };
+        for local in &checked_program.locals {
+            let symbol = self.add_symbol(&local.name, &local.declared_at, local.value_type)?;
+            scope.values.insert(local.name.clone(), symbol);
+            scope.local_symbols.push(symbol);
+            if public {
+                self.public_symbols.insert(local.name.clone(), symbol);
+            }
+        }
 
         if let Some(call) = call {
             for input in program.inputs() {
@@ -249,26 +250,7 @@ impl Evaluator<'_> {
                         program.span().clone(),
                     ));
                 };
-                let key = self.add_scope_symbol(
-                    &mut scope,
-                    &input.name,
-                    program.span(),
-                    DeclaredValueType::Known(
-                        input
-                            .value_type
-                            .exact()
-                            .expect("authored inputs are concrete"),
-                    ),
-                )?;
-                self.symbols
-                    .get_mut(&key)
-                    .expect("new input symbol")
-                    .value_type = Some(
-                    input
-                        .value_type
-                        .exact()
-                        .expect("authored inputs are concrete"),
-                );
+                let key = scope.values[&input.name];
                 self.bind_symbol(key, *value)?;
             }
         } else if let Some(input) = program.inputs().first() {
@@ -279,21 +261,6 @@ impl Evaluator<'_> {
             ));
         }
         Self::fill_parameter_defaults(&program, &mut scope, public)?;
-
-        for clip in program.clips() {
-            self.add_scope_symbol(
-                &mut scope,
-                &clip.name,
-                &clip.span,
-                DeclaredValueType::Known(ValueType::Video),
-            )?;
-        }
-        for (clip, checked) in program.clips().iter().zip(&checked_program.clips) {
-            self.collect_body_names(&clip.body, checked, &mut scope)?;
-        }
-        self.collect_body_names(program.body(), &checked_program.body, &mut scope)?;
-        self.link_scope_aliases(&scope)?;
-        resolve_symbol_types(&mut self.symbols, &self.symbol_order)?;
 
         let mut clips = program
             .clips()
@@ -397,130 +364,11 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn collect_body_names(
-        &mut self,
-        body: &ProgramBody,
-        checked: &CheckedBody,
-        scope: &mut EvalScope,
-    ) -> Result<()> {
-        debug_assert_eq!(body.items.len(), checked.items.len());
-        for (item, checked) in body.items.iter().zip(&checked.items) {
-            self.collect_item_names(item, checked, scope)?;
-        }
-        Ok(())
-    }
-
-    fn collect_item_names(
-        &mut self,
-        item: &Item,
-        checked: &CheckedItem,
-        scope: &mut EvalScope,
-    ) -> Result<()> {
-        let output_types = match &item.kind {
-            ItemKind::Reference(reference) => {
-                vec![DeclaredValueType::AliasName(reference.name.value.clone())]
-            }
-            ItemKind::Invocation(_) => checked
-                .output_types
-                .iter()
-                .copied()
-                .map(DeclaredValueType::Known)
-                .collect(),
-        };
-        match &item.output_bindings {
-            OutputBindings::None => {}
-            OutputBindings::One(id) => {
-                let [output_type] = output_types.as_slice() else {
-                    return Err(output_binding_count_error(
-                        &item.kind,
-                        output_types.len(),
-                        "`id` requires exactly one output",
-                        &id.span,
-                    ));
-                };
-                self.add_scope_symbol(scope, &id.value, &id.span, output_type.clone())?;
-            }
-            OutputBindings::Many(ids, span) => {
-                if output_types.len() <= 1 || ids.len() != output_types.len() {
-                    return Err(output_binding_count_error(
-                        &item.kind,
-                        output_types.len(),
-                        &format!("`ids` contains {} name(s)", ids.len()),
-                        span,
-                    ));
-                }
-                for (id, output_type) in ids.iter().zip(output_types) {
-                    self.add_scope_symbol(scope, &id.value, &id.span, output_type)?;
-                }
-            }
-        }
-        if let (
-            ItemKind::Invocation(invocation),
-            CheckedItemKind::Invocation {
-                body, input_bodies, ..
-            },
-        ) = (&item.kind, &checked.kind)
-        {
-            if let (Some(source), Some(checked)) = (&invocation.body, body.as_deref()) {
-                self.collect_body_names(source, checked, scope)?;
-            }
-            for (name, argument) in &invocation.arguments {
-                if let ArgumentValue::Body(source) = argument {
-                    let checked = input_bodies
-                        .get(name)
-                        .expect("checked input body matches canonical source");
-                    self.collect_body_names(source, checked, scope)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn add_scope_symbol(
-        &mut self,
-        scope: &mut EvalScope,
-        name: &str,
-        span: &SourceSpan,
-        declared_type: DeclaredValueType,
-    ) -> Result<SymbolId> {
-        if scope.parameters.contains_key(name) || scope.values.contains_key(name) {
-            return Err(Diagnostic::new(
-                "E_DUPLICATE_NAME",
-                format!("duplicate local name `{name}`"),
-                span.clone(),
-            ));
-        }
-        let symbol = self.add_symbol(name, span, declared_type)?;
-        scope.values.insert(name.to_owned(), symbol);
-        if scope.public {
-            self.public_symbols.insert(name.to_owned(), symbol);
-        }
-        Ok(symbol)
-    }
-
-    fn link_scope_aliases(&mut self, scope: &EvalScope) -> Result<()> {
-        for symbol in scope.values.values() {
-            let DeclaredValueType::AliasName(target_name) =
-                self.symbols[symbol].declared_type.clone()
-            else {
-                continue;
-            };
-            let target = scope.values.get(&target_name).copied().ok_or_else(|| {
-                Self::reference_lookup_error(scope, &target_name, &self.symbols[symbol].declared_at)
-            })?;
-            self.symbols
-                .get_mut(symbol)
-                .expect("scope symbol was collected")
-                .declared_type = DeclaredValueType::Alias(target);
-        }
-        Ok(())
-    }
-
     fn add_symbol(
         &mut self,
         name: &str,
         span: &SourceSpan,
-        declared_type: DeclaredValueType,
+        value_type: ValueType,
     ) -> Result<SymbolId> {
         let symbol = SymbolId::new(u32::try_from(self.symbols.len()).map_err(|_| {
             Diagnostic::new(
@@ -536,8 +384,7 @@ impl Evaluator<'_> {
                 name: name.to_owned(),
                 declared_at: span.clone(),
                 value: None,
-                declared_type,
-                value_type: None,
+                value_type: Some(value_type),
             },
         );
         Ok(symbol)
@@ -609,14 +456,10 @@ impl Evaluator<'_> {
                 .collect::<Vec<_>>(),
         };
         debug_assert_eq!(outputs.len(), output_names.len());
-        for (output, name) in outputs.iter().copied().zip(&output_names) {
-            if let Some(name) = name {
-                let key = scope
-                    .values
-                    .get(name)
-                    .copied()
-                    .expect("output names are collected before evaluation");
-                self.bind_symbol(key, output)?;
+        debug_assert_eq!(outputs.len(), checked.output_bindings.len());
+        for (output, binding) in outputs.iter().copied().zip(&checked.output_bindings) {
+            if let Some(local) = binding {
+                self.bind_symbol(scope.local_symbols[local.index()], output)?;
             }
         }
         stack.extend(frame, outputs.iter().copied());
@@ -1016,63 +859,6 @@ fn validate_program_outputs(
     Ok(outputs)
 }
 
-fn resolve_symbol_types(
-    symbols: &mut BTreeMap<SymbolId, Symbol>,
-    symbol_order: &[SymbolId],
-) -> Result<()> {
-    for symbol in symbol_order {
-        resolve_symbol_type(*symbol, symbols)?;
-    }
-    Ok(())
-}
-
-fn resolve_symbol_type(
-    symbol: SymbolId,
-    symbols: &mut BTreeMap<SymbolId, Symbol>,
-) -> Result<ValueType> {
-    if let Some(value_type) = symbols.get(&symbol).and_then(|symbol| symbol.value_type) {
-        return Ok(value_type);
-    }
-
-    let mut path = Vec::<SymbolId>::new();
-    let mut positions = BTreeMap::<SymbolId, usize>::new();
-    let mut current = symbol;
-    let value_type = loop {
-        if let Some(value_type) = symbols[&current].value_type {
-            break value_type;
-        }
-        if let Some(start) = positions.get(&current).copied() {
-            let mut cycle = path[start..]
-                .iter()
-                .map(|symbol| symbols[symbol].name.clone())
-                .collect::<Vec<_>>();
-            cycle.push(symbols[&current].name.clone());
-            return Err(Diagnostic::new(
-                "E_DEPENDENCY_CYCLE",
-                format!("named-value dependency cycle: {}", cycle.join(" -> ")),
-                symbols[&current].declared_at.clone(),
-            ));
-        }
-        positions.insert(current, path.len());
-        path.push(current);
-        match symbols[&current].declared_type.clone() {
-            DeclaredValueType::Known(value_type) => break value_type,
-            DeclaredValueType::Alias(target) => current = target,
-            DeclaredValueType::AliasName(_) => {
-                unreachable!("scope aliases are linked before type resolution")
-            }
-        }
-    };
-
-    for entry in path {
-        symbols
-            .get_mut(&entry)
-            .expect("alias path contains collected symbols")
-            .value_type = Some(value_type);
-    }
-    Ok(value_type)
-}
-
 fn output_count_error(
     code: &'static str,
     owner: &str,
@@ -1082,23 +868,6 @@ fn output_count_error(
     Diagnostic::new(
         code,
         format!("{owner} must leave exactly one value, but {count} values remain"),
-        span.clone(),
-    )
-}
-
-fn output_binding_count_error(
-    kind: &ItemKind,
-    output_count: usize,
-    binding: &str,
-    span: &SourceSpan,
-) -> Diagnostic {
-    let construct = match kind {
-        ItemKind::Reference(_) => "reference",
-        ItemKind::Invocation(invocation) => invocation.program.value.as_str(),
-    };
-    Diagnostic::new(
-        "E_OUTPUT_BINDING_COUNT",
-        format!("`{construct}` produces {output_count} value(s), but {binding}"),
         span.clone(),
     )
 }
@@ -1546,43 +1315,5 @@ mod tests {
             .expect_err("owned override blocks capture");
         assert_eq!(error.code, "E_STACK_UNDERFLOW");
         assert!(error.message.contains("only 0 owned"));
-    }
-
-    #[test]
-    fn resolves_a_deep_alias_chain_iteratively_with_path_compression() {
-        const ALIASES: usize = 20_001;
-        let span = SourceSpan::file_start("aliases.yaml");
-        let mut symbols = BTreeMap::new();
-        let mut order = Vec::with_capacity(ALIASES);
-        for index in 0..ALIASES {
-            let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
-            let name = format!("alias_{index:05}");
-            let declared_type = if index + 1 == ALIASES {
-                DeclaredValueType::Known(ValueType::Video)
-            } else {
-                DeclaredValueType::Alias(SymbolId::new(
-                    u32::try_from(index + 1).expect("test target symbol ID"),
-                ))
-            };
-            order.push(symbol);
-            symbols.insert(
-                symbol,
-                Symbol {
-                    name,
-                    declared_at: span.clone(),
-                    value: None,
-                    declared_type,
-                    value_type: None,
-                },
-            );
-        }
-
-        resolve_symbol_types(&mut symbols, &order).expect("deep aliases resolve");
-
-        assert!(
-            symbols
-                .values()
-                .all(|symbol| symbol.value_type == Some(ValueType::Video))
-        );
     }
 }

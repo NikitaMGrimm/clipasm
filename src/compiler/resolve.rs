@@ -481,7 +481,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use super::*;
-    use crate::compiler::evaluate::{DeclaredValueType, SurfaceRecord, Symbol};
+    use crate::compiler::evaluate::{SurfaceRecord, Symbol};
     use crate::model::ImageFit;
     use crate::semantic::{GraphBuilder, SourceOrigin};
     use crate::source::SourceSpan;
@@ -495,7 +495,6 @@ mod tests {
             name,
             declared_at: SourceSpan::file_start("test.yaml"),
             value: Some(value),
-            declared_type: DeclaredValueType::Known(ValueType::Video),
             value_type: Some(ValueType::Video),
         }
     }
