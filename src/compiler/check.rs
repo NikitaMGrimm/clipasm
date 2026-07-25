@@ -52,6 +52,34 @@ impl BodyInputId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct ParameterId(u32);
+
+impl ParameterId {
+    pub(super) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedParameter {
+    pub(super) name: String,
+    pub(super) declared_at: crate::source::SourceSpan,
+    pub(super) default: Option<crate::source::Spanned<crate::program::ParameterValue>>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CheckedInputValue {
+    References(Vec<CheckedReferenceTarget>, crate::source::SourceSpan),
+    Body(Box<CheckedBody>, crate::source::SourceSpan),
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CheckedParameterValue {
+    Literal(crate::source::Spanned<crate::program::ParameterValue>),
+    Reference(ParameterId),
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct CheckedLocal {
     pub(super) name: String,
@@ -69,6 +97,7 @@ pub(super) struct CheckedPackage {
 pub(super) struct CheckedProgram {
     pub(super) source: Arc<SourceProgram>,
     pub(super) locals: Vec<CheckedLocal>,
+    pub(super) parameters: Vec<CheckedParameter>,
     pub(super) body_input_count: usize,
     pub(super) clips: Vec<CheckedBody>,
     pub(super) body: CheckedBody,
@@ -101,11 +130,12 @@ pub(super) enum CheckedItemKind {
         target: Option<CheckedReferenceTarget>,
     },
     Invocation {
-        source: Box<crate::source::Invocation>,
         program: ProgramId,
         signature: ResolvedSignature,
         access: crate::program::StackAccess,
         stack_plan: StackBindingPlan,
+        inputs: Vec<Option<CheckedInputValue>>,
+        parameters: Vec<Option<CheckedParameterValue>>,
         body: Option<Box<CheckedBody>>,
         input_bodies: BTreeMap<String, CheckedBody>,
         body_input_ids: BTreeMap<String, BodyInputId>,
@@ -364,13 +394,19 @@ fn check_program(
         &mut frame,
     )?;
     let outputs = stack.values().to_vec();
-    let (locals, body_input_count) =
-        assign_local_ids(&program, &locals, &mut checked_clips, &mut checked_body)?;
+    let (locals, parameters, body_input_count) = assign_local_ids(
+        &program,
+        &locals,
+        definitions,
+        &mut checked_clips,
+        &mut checked_body,
+    )?;
     Ok((
         outputs,
         CheckedProgram {
             source: program,
             locals,
+            parameters,
             body_input_count,
             clips: checked_clips,
             body: checked_body,
@@ -381,11 +417,42 @@ fn check_program(
 fn assign_local_ids(
     program: &SourceProgram,
     local_types: &BTreeMap<String, LocalType>,
+    definitions: &[ProgramDefinition],
     clips: &mut [CheckedBody],
     body: &mut CheckedBody,
-) -> Result<(Vec<CheckedLocal>, usize)> {
+) -> Result<(Vec<CheckedLocal>, Vec<CheckedParameter>, usize)> {
     let mut locals = Vec::new();
     let mut ids = BTreeMap::new();
+    let mut parameter_ids = BTreeMap::new();
+    let mut parameters = Vec::with_capacity(program.parameters().len());
+    for parameter in program.parameters() {
+        let id = ParameterId(u32::try_from(parameters.len()).map_err(|_| {
+            Diagnostic::new(
+                "E_GRAPH_TOO_LARGE",
+                "too many scalar parameters were declared",
+                parameter.name.span.clone(),
+            )
+        })?);
+        parameter_ids.insert(parameter.name.value.clone(), id);
+        let default = parameter
+            .default
+            .as_ref()
+            .map(|literal| {
+                super::bind::bind_literal_value(
+                    "authored program",
+                    &parameter.name.value,
+                    &parameter.parameter_type,
+                    literal,
+                )
+                .map(|value| crate::source::Spanned::new(value, literal.span().clone()))
+            })
+            .transpose()?;
+        parameters.push(CheckedParameter {
+            name: parameter.name.value.clone(),
+            declared_at: parameter.name.span.clone(),
+            default,
+        });
+    }
 
     let mut declare = |name: &str, span: &crate::source::SourceSpan| -> Result<ValueLocalId> {
         let value_type = value_local(local_types, name, span)?;
@@ -419,10 +486,26 @@ fn assign_local_ids(
     let mut body_input_count = 0_usize;
     let lexical = BTreeMap::new();
     for (clip, checked) in program.clips().iter().zip(&mut *clips) {
-        resolve_body_references(&clip.body, checked, &ids, &lexical, &mut body_input_count)?;
+        resolve_body_references(
+            &clip.body,
+            checked,
+            &ids,
+            &parameter_ids,
+            definitions,
+            &lexical,
+            &mut body_input_count,
+        )?;
     }
-    resolve_body_references(program.body(), body, &ids, &lexical, &mut body_input_count)?;
-    Ok((locals, body_input_count))
+    resolve_body_references(
+        program.body(),
+        body,
+        &ids,
+        &parameter_ids,
+        definitions,
+        &lexical,
+        &mut body_input_count,
+    )?;
+    Ok((locals, parameters, body_input_count))
 }
 
 fn assign_body_output_ids(
@@ -464,10 +547,27 @@ fn assign_body_output_ids(
     Ok(())
 }
 
+fn resolve_value_target(
+    name: &str,
+    span: &crate::source::SourceSpan,
+    locals: &BTreeMap<String, ValueLocalId>,
+    lexical: &BTreeMap<String, BodyInputId>,
+) -> Result<CheckedReferenceTarget> {
+    lexical
+        .get(name)
+        .copied()
+        .map(CheckedReferenceTarget::BodyInput)
+        .or_else(|| locals.get(name).copied().map(CheckedReferenceTarget::Local))
+        .ok_or_else(|| missing_reference(name, span))
+}
+
+#[allow(clippy::too_many_lines)]
 fn resolve_body_references(
     source: &ProgramBody,
     checked: &mut CheckedBody,
     locals: &BTreeMap<String, ValueLocalId>,
+    parameter_ids: &BTreeMap<String, ParameterId>,
+    definitions: &[ProgramDefinition],
     lexical: &BTreeMap<String, BodyInputId>,
     body_input_count: &mut usize,
 ) -> Result<()> {
@@ -475,45 +575,120 @@ fn resolve_body_references(
     for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
         match (&item.kind, &mut checked_item.kind) {
             (ItemKind::Reference(reference), CheckedItemKind::Reference { target }) => {
-                let resolved = lexical
-                    .get(&reference.name.value)
-                    .copied()
-                    .map(CheckedReferenceTarget::BodyInput)
-                    .or_else(|| {
-                        locals
-                            .get(&reference.name.value)
-                            .copied()
-                            .map(CheckedReferenceTarget::Local)
-                    })
-                    .ok_or_else(|| {
-                        missing_reference(&reference.name.value, &reference.name.span)
-                    })?;
+                let resolved = resolve_value_target(
+                    &reference.name.value,
+                    &reference.name.span,
+                    locals,
+                    lexical,
+                )?;
                 *target = Some(resolved);
             }
             (
                 ItemKind::Invocation(invocation),
                 CheckedItemKind::Invocation {
+                    program,
                     signature,
+                    inputs,
+                    parameters,
                     body,
                     input_bodies,
                     body_input_ids,
                     ..
                 },
             ) => {
-                for (name, argument) in &invocation.arguments {
-                    if let ArgumentValue::Body(source_body) = argument {
-                        let checked_body = input_bodies
-                            .get_mut(name)
-                            .expect("checked input body matches canonical source");
-                        resolve_body_references(
-                            source_body,
-                            checked_body,
-                            locals,
-                            lexical,
-                            body_input_count,
-                        )?;
-                    }
-                }
+                let definition = &definitions[program.index()];
+                *inputs = signature
+                    .inputs
+                    .iter()
+                    .map(|port| {
+                        let Some(argument) = invocation.arguments.get(&port.name) else {
+                            return Ok(None);
+                        };
+                        let value = match argument {
+                            ArgumentValue::Reference(reference) => CheckedInputValue::References(
+                                vec![resolve_value_target(
+                                    &reference.value,
+                                    &reference.span,
+                                    locals,
+                                    lexical,
+                                )?],
+                                reference.span.clone(),
+                            ),
+                            ArgumentValue::References(references, span) => {
+                                CheckedInputValue::References(
+                                    references
+                                        .iter()
+                                        .map(|reference| {
+                                            resolve_value_target(
+                                                &reference.value,
+                                                &reference.span,
+                                                locals,
+                                                lexical,
+                                            )
+                                        })
+                                        .collect::<Result<Vec<_>>>()?,
+                                    span.clone(),
+                                )
+                            }
+                            ArgumentValue::Body(source_body) => {
+                                let mut checked_body = input_bodies
+                                    .remove(&port.name)
+                                    .expect("checked input body matches canonical source");
+                                resolve_body_references(
+                                    source_body,
+                                    &mut checked_body,
+                                    locals,
+                                    parameter_ids,
+                                    definitions,
+                                    lexical,
+                                    body_input_count,
+                                )?;
+                                CheckedInputValue::Body(
+                                    Box::new(checked_body),
+                                    source_body.span.clone(),
+                                )
+                            }
+                            ArgumentValue::Literal(_) => {
+                                unreachable!("validated graph input is not a literal")
+                            }
+                        };
+                        Ok(Some(value))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                *parameters = definition
+                    .descriptor
+                    .parameters
+                    .iter()
+                    .map(|descriptor| {
+                        let Some(argument) = invocation.arguments.get(&descriptor.name) else {
+                            return Ok(None);
+                        };
+                        let value = match argument {
+                            ArgumentValue::Literal(literal) => {
+                                CheckedParameterValue::Literal(crate::source::Spanned::new(
+                                    super::bind::bind_literal_value(
+                                        &definition.descriptor.name,
+                                        &descriptor.name,
+                                        &descriptor.parameter_type,
+                                        literal,
+                                    )?,
+                                    literal.span().clone(),
+                                ))
+                            }
+                            ArgumentValue::Reference(reference) => {
+                                CheckedParameterValue::Reference(
+                                    *parameter_ids.get(&reference.value).ok_or_else(|| {
+                                        missing_reference(&reference.value, &reference.span)
+                                    })?,
+                                )
+                            }
+                            ArgumentValue::References(_, _) | ArgumentValue::Body(_) => {
+                                unreachable!("validated scalar parameter representation")
+                            }
+                        };
+                        Ok(Some(value))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
                 if let (Some(source_body), Some(checked_body)) =
                     (&invocation.body, body.as_deref_mut())
                 {
@@ -539,6 +714,8 @@ fn resolve_body_references(
                         source_body,
                         checked_body,
                         locals,
+                        parameter_ids,
+                        definitions,
                         &child_lexical,
                         body_input_count,
                     )?;
@@ -1143,11 +1320,12 @@ fn infer_body(
                     output_types,
                     output_bindings: Vec::new(),
                     kind: CheckedItemKind::Invocation {
-                        source: Box::new(invocation.clone()),
                         program,
                         signature,
                         access,
                         stack_plan,
+                        inputs: Vec::new(),
+                        parameters: Vec::new(),
                         body: checked_body,
                         input_bodies: validated.input_bodies,
                         body_input_ids: BTreeMap::new(),

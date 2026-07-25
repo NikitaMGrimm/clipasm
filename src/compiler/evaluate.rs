@@ -11,12 +11,13 @@ use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_v
 use crate::source::SourceSpan;
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
-    SourceProgram, SourceUnitId, Spanned,
+    SourceUnitId, Spanned,
 };
 
 use super::EntrypointBindings;
 use super::check::{
-    CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage, CheckedReferenceTarget,
+    CheckedBody, CheckedInputValue, CheckedItem, CheckedItemKind, CheckedPackage,
+    CheckedParameterValue, CheckedReferenceTarget,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -94,8 +95,7 @@ struct EvalScope {
     values: BTreeMap<String, SymbolId>,
     local_symbols: Vec<SymbolId>,
     body_inputs: Vec<Option<ValueRef>>,
-    body_input_names: Vec<BTreeMap<String, super::check::BodyInputId>>,
-    parameters: BoundParameters,
+    parameters: Vec<Spanned<crate::program::ParameterValue>>,
 }
 
 impl Evaluator<'_> {
@@ -146,47 +146,9 @@ impl Evaluator<'_> {
             arguments,
             body: None,
         };
+        let signature = definition.descriptor.resolve_signature(None);
         let (mut stack, mut frame) =
             EvaluationStack::isolated("root program call", program.span().clone());
-        let mut scope = EvalScope {
-            values: BTreeMap::new(),
-            local_symbols: Vec::new(),
-            body_inputs: Vec::new(),
-            body_input_names: Vec::new(),
-            parameters: BoundParameters::new(),
-        };
-        let video_program = self
-            .checked
-            .registry
-            .id("video")
-            .expect("native video program is registered");
-        let video_definition = self.checked.registry.definition(video_program);
-        let video_signature = video_definition.descriptor.resolve_signature(None);
-        let checked_input = CheckedBody {
-            items: vec![CheckedItem {
-                span: program.span().clone(),
-                construct: "video".to_owned(),
-                output_names: vec![None; video_signature.outputs.len()],
-                output_types: video_signature.outputs.clone(),
-                output_bindings: vec![None; video_signature.outputs.len()],
-                kind: CheckedItemKind::Invocation {
-                    source: Box::new(Invocation {
-                        program: Spanned::new("video".to_owned(), program.span().clone()),
-                        stack_access: None,
-                        arguments: BTreeMap::new(),
-                        body: None,
-                    }),
-                    program: video_program,
-                    signature: video_signature.clone(),
-                    access: video_definition.descriptor.default_stack_access,
-                    stack_plan: super::stack::StackBindingPlan { inputs: Vec::new() },
-                    body: None,
-                    input_bodies: BTreeMap::new(),
-                    body_input_ids: BTreeMap::new(),
-                },
-            }],
-        };
-        let signature = definition.descriptor.resolve_signature(None);
         super::bind::bind_call(
             &definition,
             &signature,
@@ -199,25 +161,71 @@ impl Evaluator<'_> {
                 origin: SourceOrigin::new("root program", program.span().clone()),
                 stack_plan: None,
             },
-            |value, _port| match value {
-                ArgumentValue::Body(body) => {
-                    let (mut input_stack, mut input_frame) =
-                        EvaluationStack::isolated("entrypoint Video input", body.span.clone());
-                    self.evaluate_body(
-                        &checked_input,
-                        &mut scope,
-                        &mut input_stack,
-                        &mut input_frame,
-                        None,
-                    )?;
-                    Ok(input_stack.values().to_vec())
-                }
-                _ => unreachable!("entrypoint graph inputs are synthetic bodies"),
+            |_value, port| {
+                let binding = bindings.video_inputs.get(&port.name).ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_MISSING_REQUIRED_INPUT",
+                        format!("root program is missing input `{}`", port.name),
+                        program.span().clone(),
+                    )
+                })?;
+                self.evaluate_entrypoint_video(binding)
             },
             |_reference, _descriptor| {
                 unreachable!("entrypoint scalar bindings do not use references")
             },
         )
+    }
+
+    fn evaluate_entrypoint_video(
+        &mut self,
+        binding: &super::entrypoint::VideoInputBinding,
+    ) -> Result<Vec<ValueRef>> {
+        let program = self
+            .checked
+            .registry
+            .id("video")
+            .expect("native video program is registered");
+        let definition = self.checked.registry.definition(program).clone();
+        let signature = definition.descriptor.resolve_signature(None);
+        let span = binding.span.clone();
+        let invocation = Invocation {
+            program: Spanned::new("video".to_owned(), span.clone()),
+            stack_access: None,
+            arguments: BTreeMap::from([(
+                "path".to_owned(),
+                ArgumentValue::Literal(Literal::File(binding.path.clone(), span.clone())),
+            )]),
+            body: None,
+        };
+        let (mut stack, mut frame) =
+            EvaluationStack::isolated("entrypoint Video input", span.clone());
+        let call = super::bind::bind_call(
+            &definition,
+            &signature,
+            &invocation,
+            super::bind::BindContext {
+                stack: &mut stack,
+                frame: &mut frame,
+                access: definition.descriptor.default_stack_access,
+                requested_frames: None,
+                origin: SourceOrigin::new("video", span.clone()),
+                stack_plan: None,
+            },
+            |_value, _port| unreachable!("video has no graph inputs"),
+            |_reference, _descriptor| unreachable!("video parameters use literals"),
+        )?;
+        let ProgramImplementation::Direct(lower) = definition.implementation else {
+            unreachable!("video is a direct program")
+        };
+        let mut builder = GraphBuilder::for_program(
+            &mut self.nodes,
+            self.video,
+            definition.descriptor.semantic_version,
+            SourceOrigin::new("video", span.clone()),
+        );
+        let outputs = lower(&call, &mut builder)?;
+        validate_program_outputs(&definition, &signature.outputs, outputs, &span)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -233,10 +241,35 @@ impl Evaluator<'_> {
             values: BTreeMap::new(),
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
             body_inputs: vec![None; checked_program.body_input_count],
-            body_input_names: Vec::new(),
-            parameters: call
-                .map(|call| call.parameters().clone())
-                .unwrap_or_default(),
+            parameters: checked_program
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    call.and_then(|call| call.parameters().get(&parameter.name).cloned())
+                        .or_else(|| parameter.default.clone())
+                        .ok_or_else(|| {
+                            Diagnostic::new(
+                                if public {
+                                    "E_MISSING_ARGUMENT"
+                                } else {
+                                    "E_INTERNAL_BINDING"
+                                },
+                                if public {
+                                    format!(
+                                        "root program is missing parameter `{}`",
+                                        parameter.name
+                                    )
+                                } else {
+                                    format!(
+                                        "authored program parameter `{}` was not bound",
+                                        parameter.name
+                                    )
+                                },
+                                parameter.declared_at.clone(),
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?,
         };
         for local in &checked_program.locals {
             let symbol = self.add_symbol(&local.name, &local.declared_at, local.value_type)?;
@@ -276,8 +309,6 @@ impl Evaluator<'_> {
                 program.span().clone(),
             ));
         }
-        Self::fill_parameter_defaults(&program, &mut scope, public)?;
-
         let mut clips = program
             .clips()
             .iter()
@@ -333,50 +364,6 @@ impl Evaluator<'_> {
         Ok(stack.finish_body(&body_frame))
     }
 
-    fn fill_parameter_defaults(
-        program: &SourceProgram,
-        scope: &mut EvalScope,
-        root: bool,
-    ) -> Result<()> {
-        for parameter in program.parameters() {
-            if scope.parameters.contains_key(&parameter.name.value) {
-                continue;
-            }
-            let Some(default) = &parameter.default else {
-                return Err(Diagnostic::new(
-                    if root {
-                        "E_MISSING_ARGUMENT"
-                    } else {
-                        "E_INTERNAL_BINDING"
-                    },
-                    if root {
-                        format!(
-                            "root program is missing parameter `{}`",
-                            parameter.name.value
-                        )
-                    } else {
-                        format!(
-                            "authored program parameter `{}` was not bound",
-                            parameter.name.value
-                        )
-                    },
-                    parameter.name.span.clone(),
-                ));
-            };
-            let value = super::bind::bind_literal_value(
-                "root",
-                &parameter.name.value,
-                &parameter.parameter_type,
-                default,
-            )?;
-            scope.parameters.insert(
-                parameter.name.value.clone(),
-                crate::source::Spanned::new(value, default.span().clone()),
-            );
-        }
-        Ok(())
-    }
-
     fn add_symbol(
         &mut self,
         name: &str,
@@ -430,22 +417,24 @@ impl Evaluator<'_> {
                 target: Some(target),
             } => vec![self.evaluate_checked_reference(*target, &checked.span, scope)?],
             CheckedItemKind::Invocation {
-                source,
                 program,
                 signature,
                 access,
                 stack_plan,
+                inputs,
+                parameters,
                 body,
-                input_bodies,
                 body_input_ids,
+                ..
             } => self.evaluate_invocation(
-                source,
+                &checked.construct,
                 *program,
                 signature,
                 *access,
                 stack_plan,
+                inputs,
+                parameters,
                 body.as_deref(),
-                input_bodies,
                 body_input_ids,
                 scope,
                 stack,
@@ -505,68 +494,17 @@ impl Evaluator<'_> {
         }
     }
 
-    fn evaluate_reference_name(
-        &mut self,
-        name: &str,
-        span: &SourceSpan,
-        scope: &EvalScope,
-    ) -> Result<ValueRef> {
-        if let Some(id) = scope
-            .body_input_names
-            .iter()
-            .rev()
-            .find_map(|inputs| inputs.get(name))
-        {
-            return scope.body_inputs[id.index()].ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_BINDING",
-                    "lexical body input was not bound during evaluation",
-                    span.clone(),
-                )
-            });
-        }
-        let key = scope
-            .values
-            .get(name)
-            .ok_or_else(|| Self::reference_lookup_error(scope, name, span))?;
-        let symbol = self
-            .symbols
-            .get(key)
-            .expect("scope value points to a collected symbol");
-        let value_type = symbol
-            .value_type
-            .expect("symbol types are resolved before evaluation");
-        let origin = SourceOrigin::new("reference", span.clone());
-        GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
-            .reference(*key, value_type)
-    }
-
-    fn reference_lookup_error(scope: &EvalScope, name: &str, span: &SourceSpan) -> Diagnostic {
-        if scope.parameters.contains_key(name) {
-            Diagnostic::new(
-                "E_PARAMETER_NOT_VALUE",
-                format!("parameter `${name}` is not a graph value"),
-                span.clone(),
-            )
-        } else {
-            Diagnostic::new(
-                "E_MISSING_REFERENCE",
-                format!("reference `${name}` does not name a local input, clip, or id"),
-                span.clone(),
-            )
-        }
-    }
-
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
-        invocation: &Invocation,
+        construct: &str,
         program: crate::program::ProgramId,
         signature: &ResolvedSignature,
         access: crate::program::StackAccess,
         stack_plan: &super::stack::StackBindingPlan,
+        checked_inputs: &[Option<CheckedInputValue>],
+        checked_parameters: &[Option<CheckedParameterValue>],
         checked_body: Option<&CheckedBody>,
-        input_bodies: &BTreeMap<String, CheckedBody>,
         body_input_ids: &BTreeMap<String, super::check::BodyInputId>,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
@@ -576,63 +514,72 @@ impl Evaluator<'_> {
     ) -> Result<Vec<ValueRef>> {
         let registry = self.checked.registry.clone();
         let definition = registry.definition(program);
-        let origin = SourceOrigin::new(invocation.program.value.clone(), span.clone());
-        let parameter_bindings = scope.parameters.clone();
-        let value_names = scope.values.keys().cloned().collect::<Vec<_>>();
-        let call = super::bind::bind_call(
-            definition,
-            signature,
-            invocation,
-            super::bind::BindContext {
-                stack,
-                frame,
-                access,
-                requested_frames,
-                origin: origin.clone(),
-                stack_plan: Some(stack_plan),
-            },
-            |expression, port| {
-                self.evaluate_input_value(
-                    expression,
+        let origin = SourceOrigin::new(construct, span.clone());
+        debug_assert_eq!(signature.inputs.len(), checked_inputs.len());
+        let mut slots = vec![None; signature.inputs.len()];
+        for (index, (port, input)) in signature.inputs.iter().zip(checked_inputs).enumerate() {
+            if let Some(input) = input {
+                slots[index] = Some(self.evaluate_checked_input(
+                    input,
                     port,
-                    &invocation.program.value,
-                    input_bodies.get(&port.name),
+                    construct,
                     requested_frames,
                     scope,
-                )
-            },
-            |reference, descriptor| {
-                let value = parameter_bindings.get(&reference.value).ok_or_else(|| {
-                    if value_names.contains(&reference.value) {
+                )?);
+            }
+        }
+        for bound in stack.apply_binding_plan(stack_plan) {
+            debug_assert!(slots[bound.port].is_none());
+            slots[bound.port] = Some(bound.values);
+        }
+        let inputs = signature
+            .inputs
+            .iter()
+            .zip(slots)
+            .map(|(port, values)| {
+                values
+                    .map(|values| (port.name.clone(), values))
+                    .ok_or_else(|| {
                         Diagnostic::new(
-                            "E_INVALID_ARGUMENT_TYPE",
+                            "E_INTERNAL_BINDING",
                             format!(
-                                "graph value `${}` cannot be used as scalar parameter `{}.{}`",
-                                reference.value, invocation.program.value, descriptor.name
+                                "checked call to `{construct}` has no binding for input `{}`",
+                                port.name
                             ),
-                            reference.span.clone(),
+                            span.clone(),
                         )
-                    } else {
-                        Diagnostic::new(
-                            "E_MISSING_REFERENCE",
-                            format!("unknown parameter reference `${}`", reference.value),
-                            reference.span.clone(),
-                        )
-                    }
-                })?;
-                if !super::bind::parameter_value_matches(&descriptor.parameter_type, &value.value) {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_ARGUMENT_TYPE",
-                        format!(
-                            "parameter `${}` is not compatible with `{}.{}`",
-                            reference.value, invocation.program.value, descriptor.name
-                        ),
-                        reference.span.clone(),
-                    ));
-                }
-                Ok(value.clone())
-            },
-        )?;
+                    })
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        debug_assert_eq!(
+            definition.descriptor.parameters.len(),
+            checked_parameters.len()
+        );
+        let parameters = definition
+            .descriptor
+            .parameters
+            .iter()
+            .zip(checked_parameters)
+            .filter_map(|(descriptor, binding)| {
+                binding.as_ref().map(|binding| {
+                    let value = match binding {
+                        CheckedParameterValue::Literal(value) => value.clone(),
+                        CheckedParameterValue::Reference(parameter) => {
+                            scope.parameters[parameter.index()].clone()
+                        }
+                    };
+                    (descriptor.name.clone(), value)
+                })
+            })
+            .collect::<BoundParameters>();
+        let call = ResolvedCall::new(
+            definition.descriptor.name.clone(),
+            inputs,
+            parameters,
+            requested_frames,
+            origin.clone(),
+        );
 
         let outputs = match definition.implementation {
             ProgramImplementation::Direct(lower) => {
@@ -660,7 +607,7 @@ impl Evaluator<'_> {
                     frame,
                     access,
                     definition.descriptor.name.clone(),
-                    invocation.program.span.clone(),
+                    span.clone(),
                 );
                 stack.extend(&child, plan.initial_values);
                 let mut bound_body_inputs = Vec::with_capacity(body_input_ids.len());
@@ -675,7 +622,6 @@ impl Evaluator<'_> {
                     debug_assert!(previous.is_none());
                     bound_body_inputs.push(id);
                 }
-                scope.body_input_names.push(body_input_ids.clone());
                 self.evaluate_body(
                     checked_body,
                     scope,
@@ -683,10 +629,6 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
-                scope
-                    .body_input_names
-                    .pop()
-                    .expect("active body input name scope");
                 for id in bound_body_inputs {
                     scope.body_inputs[id.index()] = None;
                 }
@@ -700,11 +642,9 @@ impl Evaluator<'_> {
                 plan.finalizer.finish(owned, &mut builder)?
             }
             ProgramImplementation::Authored(unit) => {
-                debug_assert!(invocation.body.is_none());
                 self.evaluate_program(unit, Some(&call), false)?
             }
             ProgramImplementation::External(external) => {
-                debug_assert!(invocation.body.is_none());
                 let external = self.package.external_program(external);
                 let invocation = external.invocation(&call)?;
                 let mut builder = GraphBuilder::for_program(
@@ -720,56 +660,38 @@ impl Evaluator<'_> {
         validate_program_outputs(definition, &signature.outputs, outputs, span)
     }
 
-    fn evaluate_input_value(
+    fn evaluate_checked_input(
         &mut self,
-        value: &ArgumentValue,
+        input: &CheckedInputValue,
         port: &ResolvedInputPort,
         program: &str,
-        checked_body: Option<&CheckedBody>,
         requested_frames: Option<FrameCount>,
         scope: &mut EvalScope,
     ) -> Result<Vec<ValueRef>> {
-        let values = match value {
-            ArgumentValue::Reference(reference) => {
-                vec![self.evaluate_reference_name(&reference.value, &reference.span, scope)?]
-            }
-            ArgumentValue::References(references, _) => references
-                .iter()
-                .map(|reference| {
-                    self.evaluate_reference_name(&reference.value, &reference.span, scope)
-                })
-                .collect::<Result<Vec<_>>>()?,
-            ArgumentValue::Body(body) => {
-                let checked_body =
-                    checked_body.expect("checked input body matches canonical source");
+        let (values, span) = match input {
+            CheckedInputValue::References(targets, span) => (
+                targets
+                    .iter()
+                    .map(|target| self.evaluate_checked_reference(*target, span, scope))
+                    .collect::<Result<Vec<_>>>()?,
+                span,
+            ),
+            CheckedInputValue::Body(body, span) => {
                 let (mut local, mut frame) = EvaluationStack::isolated(
                     format!("inline input body for `{program}.{}`", port.name),
-                    body.span.clone(),
+                    span.clone(),
                 );
-                self.evaluate_body(
-                    checked_body,
-                    scope,
-                    &mut local,
-                    &mut frame,
-                    requested_frames,
-                )?;
+                self.evaluate_body(body, scope, &mut local, &mut frame, requested_frames)?;
                 let [result] = local.values() else {
                     return Err(output_count_error(
                         "E_INPUT_BODY_OUTPUT_COUNT",
                         &format!("inline input body for `{program}.{}`", port.name),
                         local.len(),
-                        &body.span,
+                        span,
                     )
                     .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
                 };
-                vec![*result]
-            }
-            ArgumentValue::Literal(_) => {
-                return Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    format!("input `{program}.{}` requires a graph input", port.name),
-                    value.span().clone(),
-                ));
+                (vec![*result], span)
             }
         };
         values
@@ -780,30 +702,30 @@ impl Evaluator<'_> {
                 }
                 if !port.allow_adaptation {
                     return Err(Diagnostic::new(
-                        "E_TYPE_MISMATCH",
+                        "E_INTERNAL_BINDING",
                         format!(
-                            "program `{program}` port `{}` expected {}, but the explicit value is {}",
+                            "checked `{program}.{}` input expected {}, but evaluated to {}",
                             port.name,
                             port.value_type,
                             value_ref.value_type()
                         ),
-                        value.span().clone(),
+                        span.clone(),
                     ));
                 }
-                let origin = SourceOrigin::new("input adaptation", value.span().clone());
+                let origin = SourceOrigin::new("input adaptation", span.clone());
                 let mut builder = GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin);
                 match (value_ref.value_type(), port.value_type) {
                     (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref),
                     (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref),
                     _ => Err(Diagnostic::new(
-                        "E_TYPE_MISMATCH",
+                        "E_INTERNAL_BINDING",
                         format!(
-                            "program `{program}` port `{}` expected {}, but the explicit value is {}",
+                            "checked `{program}.{}` adaptation cannot convert {} to {}",
                             port.name,
-                            port.value_type,
-                            value_ref.value_type()
+                            value_ref.value_type(),
+                            port.value_type
                         ),
-                        value.span().clone(),
+                        span.clone(),
                     )),
                 }
             })

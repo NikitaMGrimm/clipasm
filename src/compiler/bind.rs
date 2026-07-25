@@ -215,20 +215,6 @@ pub(super) fn bind_literal_value(
     Ok(value)
 }
 
-pub(super) fn parameter_value_matches(
-    parameter_type: &ParameterType,
-    value: &ParameterValue,
-) -> bool {
-    matches!(
-        (parameter_type, value),
-        (ParameterType::Integer, ParameterValue::Integer(_))
-            | (ParameterType::File, ParameterValue::File(_))
-            | (ParameterType::Duration, ParameterValue::Duration(_))
-            | (ParameterType::TimeRange, ParameterValue::TimeRange(_))
-            | (ParameterType::Keyword(_), ParameterValue::Keyword(_))
-    )
-}
-
 fn resolve_explicit_input(
     program: &str,
     argument: &ArgumentValue,
