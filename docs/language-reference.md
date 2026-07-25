@@ -95,20 +95,22 @@ input video: Video
 param amount: Integer = 15
 
 external {
-    command = "./brighten.py"
+    executable = "python3"
+    arguments = [file("brighten.py")]
     semantic_version = 1
     preserve = video
 }
 ```
 
-`command` is executed directly without a shell and resolves relative to this
-source file when it contains a path. The `brighten.py` form assumes a Unix
-executable shebang. On Windows, extensionless paths and bare names resolve native
-`.COM` and `.EXE` candidates in `PATHEXT` order; batch and script extensions are
-not selected because they require a shell or interpreter. `semantic_version`
-must be positive and is part of semantic identity. `preserve` names the declared
-Video input whose exact timeline domain and meaningful-audio state the single
-Video output preserves.
+`executable` resolves relative to this source file when it contains a path, or
+through the platform command lookup for a bare name. `arguments` is an ordered
+list of literal strings and `file("...")` values. File arguments resolve from
+this source file, are content-hashed during preflight, and are passed as resolved
+paths. ClipAsm passes the executable and arguments separately rather than
+constructing a shell command string; normal platform process semantics still
+apply. `semantic_version` must be positive and is part of semantic identity.
+`preserve` names the declared Video input whose exact timeline domain and
+meaningful-audio state the single Video output preserves.
 
 External programs currently accept fixed Video or Audio inputs and Integer,
 File, or Keyword parameters. File values resolve from the source that supplied

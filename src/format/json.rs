@@ -179,12 +179,29 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         }),
         SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
             "operation": "external_video",
-            "command": invocation.command.value,
+            "executable": invocation.executable.value,
+            "arguments": external_argument_documents(&invocation.arguments),
             "preserve_input": invocation.preserve_input,
             "inputs": invocation.inputs,
             "parameters": invocation.parameters,
         }),
     })
+}
+
+fn external_argument_documents(
+    arguments: &[crate::external::ExternalArgumentValue],
+) -> Vec<serde_json::Value> {
+    arguments
+        .iter()
+        .map(|argument| match argument {
+            crate::external::ExternalArgumentValue::Text { value } => {
+                serde_json::json!({"kind": "text", "value": value})
+            }
+            crate::external::ExternalArgumentValue::File { path } => {
+                serde_json::json!({"kind": "file", "path": path.value})
+            }
+        })
+        .collect()
 }
 
 fn transition_document(

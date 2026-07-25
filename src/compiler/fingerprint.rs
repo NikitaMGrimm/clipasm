@@ -168,7 +168,15 @@ fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
         }
         SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
             "operation": "external_video",
-            "command": invocation.command.value,
+            "executable": invocation.executable.value,
+            "arguments": invocation.arguments.iter().map(|argument| match argument {
+                crate::external::ExternalArgumentValue::Text { value } => {
+                    serde_json::json!({"kind": "text", "value": value})
+                }
+                crate::external::ExternalArgumentValue::File { path } => {
+                    serde_json::json!({"kind": "file", "path": path.value})
+                }
+            }).collect::<Vec<_>>(),
             "preserve_input": invocation.preserve_input,
             "input_names": invocation.inputs.keys().collect::<Vec<_>>(),
             "parameters": invocation.parameters,

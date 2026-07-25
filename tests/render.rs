@@ -815,7 +815,7 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     fs::set_permissions(&script, permissions).expect("executable script");
     fs::write(
         directory.path().join("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./effect.py\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  executable = \"./effect.py\"\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("external program");
     let workflow = directory.path().join("workflow.clipasm");

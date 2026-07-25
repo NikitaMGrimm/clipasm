@@ -57,12 +57,10 @@ cargo run -- render examples/imported-program.clipasm
 ## External program
 
 `examples/external-brighten.clipasm` imports a native `.clipasm` program whose
-implementation is a small Python/FFmpeg executable. It uses the ordinary typed
-binder and a native parameter default. External programs are trusted native code
-and execute during rendering. This example renders on Unix, where its shebang
-makes `brighten.py` directly executable. Protocol version 1 does not accept an
-interpreter plus arguments, so Windows external programs must name a native
-executable such as an `.exe`. Validation and inspection remain portable.
+implementation runs a small Python/FFmpeg script through an explicit interpreter
+and content-hashed file argument. It uses the ordinary typed binder and a native
+parameter default. External programs are trusted code and execute during
+rendering; this example requires `python3` on `PATH`.
 
 ```console
 cargo run -- validate examples/external-brighten.clipasm

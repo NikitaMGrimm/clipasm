@@ -284,7 +284,7 @@ mod tests {
         write(
             directory.path(),
             "external.clipasm",
-            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
+            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  executable = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
         );
         let root = write(
             directory.path(),
@@ -391,7 +391,7 @@ mod tests {
         write(
             directory.path(),
             "effect.clipasm",
-            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
+            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  executable = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
         );
         let root = write(
             directory.path(),

@@ -165,9 +165,16 @@ pub(crate) enum SourceProgramImplementation {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SourceExternalImplementation {
-    pub(crate) command: Spanned<PathBuf>,
+    pub(crate) executable: Spanned<PathBuf>,
+    pub(crate) arguments: Vec<SourceExternalArgument>,
     pub(crate) semantic_version: Spanned<u32>,
     pub(crate) preserve: Spanned<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum SourceExternalArgument {
+    Text(Spanned<String>),
+    File(Spanned<PathBuf>),
 }
 
 #[derive(Clone, Debug)]

@@ -34,8 +34,9 @@ argument binder, exact typed inputs, scalar parameters, stack access, output
 checks, and semantic version. External aliases remain local to the source unit
 and may not collide with built-ins or authored imports.
 
-The native declaration requires a directly executable `command`, a positive
-`semantic_version`, and a `preserve` field naming one declared Video input.
+The native declaration requires an `executable`, optional ordered `arguments`,
+a positive `semantic_version`, and a `preserve` field naming one declared Video
+input. Arguments are literal strings or explicit `file("...")` values.
 External implementation files cannot also contain executable statements or
 imports; composition belongs in a separate ClipAsm wrapper program.
 
@@ -46,46 +47,47 @@ The initial process protocol is deliberately closed:
 - Integer, File, and Keyword parameters;
 - exactly one Video output;
 - output domain and meaningful-audio state preserve one declared Video input;
-- one directly executable command path, with no implicit shell or argument
-  interpolation.
+- one executable with ordered literal or content-hashed file arguments.
 
 Compilation reads the already loaded specification but never resolves or runs
-its command. Evaluation emits a pure `ExternalVideo` semantic node containing
-the authored command, bound parameters, named graph inputs, and preserved input.
+its executable. Evaluation emits a pure `ExternalVideo` semantic node containing
+the authored executable and arguments, bound parameters, named graph inputs,
+and preserved input.
 
-Preflight resolves the command relative to its defining source unit or from
-`PATH`, requires an executable regular file, hashes its bytes, lowers every input
-dependency, and copies the exact domain and meaningful-audio state from the
-preserved Video input. On Windows, extensionless paths and bare names consider
-native `.COM` and `.EXE` entries from `PATHEXT`; batch and script entries are not
-selected because Rust would route some of them through a shell, contrary to this
-protocol. The executable content hash participates in the prepared node identity.
+Preflight resolves the executable relative to its defining source unit or through
+the platform command lookup, requires a regular file, hashes its bytes, resolves
+and hashes every `file(...)` argument, lowers every input dependency, and copies
+the exact domain and meaningful-audio state from the preserved Video input. The
+executable and file-argument content hashes participate in prepared identity.
 
-Rendering re-hashes the executable before accepting cache entries or executing
-the node. It launches the executable directly, writes one versioned JSON request
-to standard input, and never invokes a shell. The request contains named input
-artifact paths and domains, bound parameters, a temporary output path, project
-Video and Audio settings, and resolved FFmpeg and FFprobe paths. A zero exit
-status indicates that the process wrote the output. ClipAsm then applies its
-ordinary prepared-artifact verification before committing the cache entry.
+Rendering re-hashes the executable and file arguments before accepting cache
+entries or executing the node. It passes the executable and arguments separately
+and writes one versioned JSON request to standard input. ClipAsm does not build a
+shell command string; normal platform process semantics still apply. The request
+contains named input artifact paths and domains, bound parameters, a temporary
+output path, project Video and Audio settings, and resolved FFmpeg and FFprobe
+paths. A zero exit status indicates that the process wrote the output. ClipAsm
+then applies its ordinary prepared-artifact verification before committing the
+cache entry.
 File parameters resolve from the source location that supplied the value,
 become verified content-hashed prepared assets, and are re-hashed before cache
 reuse or execution. The process request receives their resolved paths.
 
 External code is trusted native code. Importing an external `.clipasm` program
 is explicit, but rendering an unfamiliar project can execute that program and
-should only be done for trusted sources. Validation and compilation do not execute it. ClipAsm does
-not sandbox external programs, impose an execution timeout, or attempt to prove
-that they terminate or behave deterministically. An external process may hang,
-crash, consume arbitrary machine resources, access the network or filesystem,
-or produce different results for identical requests.
+should only be done for trusted sources. Validation and compilation do not
+execute it. ClipAsm does not sandbox external programs, impose an execution
+timeout, or attempt to prove that they terminate or behave deterministically.
+An external process may hang, crash, consume arbitrary machine resources,
+access the network or filesystem, or produce different results for identical
+requests.
 
-Cache identity covers the declared semantic version, executable bytes, bound
-parameters, upstream artifacts, project settings, and provided FFmpeg/FFprobe
-identities. It cannot automatically discover interpreter versions, imported
-modules, environment variables, clocks, random input, network responses, or
-undeclared files. Authors must change the executable bytes or increment the
-declared semantic version whenever such dependencies change output semantics.
+Cache identity covers the declared semantic version, executable and file-argument
+bytes, bound parameters, upstream artifacts, project settings, and provided
+FFmpeg/FFprobe identities. It cannot automatically discover imported modules,
+environment variables, clocks, random input, network responses, or undeclared
+files. Authors must declare file dependencies or increment the semantic version
+whenever such dependencies change output semantics.
 
 ## Consequences
 
@@ -93,15 +95,13 @@ declared semantic version whenever such dependencies change output semantics.
   second call language.
 - External programs share the same canonical catalog as built-ins and imported
   authored programs.
-- Scripts can be authored in any language that produces a directly executable
-  file and can read JSON from standard input, while their callable interface
-  remains native ClipAsm source. Shebang-based scripts are Unix-specific under
-  protocol version 1; Windows implementations use native executables.
-- Script bytes, parameters, and upstream artifacts invalidate cache identity.
+- Scripts can be launched through an explicit interpreter and `file(...)`
+  argument while their callable interface remains native ClipAsm source.
+- Executable bytes, file-argument bytes, parameters, and upstream artifacts
+  invalidate cache identity.
 - Nondeterministic or environmentally dependent external programs may reuse a
   cached prior result; reproducibility remains the external author's contract.
 - Output-changing programs that do not preserve an input domain require a later
   protocol extension with explicit prepared-domain discovery.
-- Multiple outputs, Duration/TimeRange parameters, variadic inputs,
-  interpreter-plus-argument command declarations, and shell execution remain
-  outside the initial protocol.
+- Multiple outputs, Duration/TimeRange parameters, variadic inputs, and shell
+  command strings remain outside the initial protocol.

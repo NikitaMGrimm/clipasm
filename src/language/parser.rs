@@ -6,8 +6,9 @@ use crate::source::{SourceFile, SourceSpan, Spanned};
 use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
     Argument, AudioConfigDeclaration, Block, ConfigDeclaration, Declaration, Expression,
-    ExternalDeclaration, InputDeclaration, Invocation, OutputBindings, ParameterDeclaration,
-    PathDeclaration, Scalar, SourceFileSyntax, Statement, VideoConfigDeclaration,
+    ExternalArgumentDeclaration, ExternalDeclaration, InputDeclaration, Invocation, OutputBindings,
+    ParameterDeclaration, PathDeclaration, Scalar, SourceFileSyntax, Statement,
+    VideoConfigDeclaration,
 };
 
 pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
@@ -274,7 +275,8 @@ impl Parser {
         self.expect(&TokenKind::LeftBrace, "`{` after `external`")?;
         self.skip_newlines();
 
-        let mut command = None;
+        let mut executable = None;
+        let mut arguments = None;
         let mut semantic_version = None;
         let mut preserve = None;
         while !self.at(&TokenKind::RightBrace) {
@@ -288,13 +290,25 @@ impl Parser {
             let field = self.expect_identifier("an external field")?;
             self.expect(&TokenKind::Equal, "`=` after the external field")?;
             match field.value.as_str() {
-                "command" => {
-                    if command.is_some() {
+                "executable" => {
+                    if executable.is_some() {
                         return Err(duplicate_declaration_field(
-                            "external", "command", field.span,
+                            "external",
+                            "executable",
+                            field.span,
                         ));
                     }
-                    command = Some(self.expect_string("an executable path or name")?);
+                    executable = Some(self.expect_string("an executable path or name")?);
+                }
+                "arguments" => {
+                    if arguments.is_some() {
+                        return Err(duplicate_declaration_field(
+                            "external",
+                            "arguments",
+                            field.span,
+                        ));
+                    }
+                    arguments = Some(self.parse_external_arguments()?);
                 }
                 "semantic_version" => {
                     if semantic_version.is_some() {
@@ -326,11 +340,39 @@ impl Parser {
         }
         self.advance();
         Ok(ExternalDeclaration {
-            command,
+            executable,
+            arguments,
             semantic_version,
             preserve,
             span,
         })
+    }
+
+    fn parse_external_arguments(&mut self) -> Result<Vec<ExternalArgumentDeclaration>> {
+        self.expect(&TokenKind::LeftBracket, "`[` after `arguments =`")?;
+        self.skip_newlines();
+        let mut arguments = Vec::new();
+        while !self.at(&TokenKind::RightBracket) {
+            let argument = if self.current_identifier() == Some("file") {
+                self.advance();
+                self.expect(&TokenKind::LeftParen, "`(` after `file`")?;
+                let path = self.expect_string("a file argument path")?;
+                self.expect(&TokenKind::RightParen, "`)` after the file argument")?;
+                ExternalArgumentDeclaration::File(path)
+            } else {
+                ExternalArgumentDeclaration::Text(self.expect_string("an argument string")?)
+            };
+            arguments.push(argument);
+            if self.consume(&TokenKind::Comma) {
+                self.skip_newlines();
+                continue;
+            }
+            if !self.at(&TokenKind::RightBracket) {
+                return Err(self.expected("`,` or `]` in external arguments"));
+            }
+        }
+        self.advance();
+        Ok(arguments)
     }
 
     fn parse_input(&mut self) -> Result<InputDeclaration> {
@@ -978,7 +1020,7 @@ mod tests {
     #[test]
     fn parses_file_declarations_before_execution() {
         let syntax = parse_text(
-            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  audio {\n    sample_rate = 44100\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal {\n  command = \"./brighten.py\"\n  semantic_version = 1\n  preserve = source\n}\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n",
+            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  audio {\n    sample_rate = 44100\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal {\n  executable = \"python3\"\n  arguments = [file(\"brighten.py\")]\n  semantic_version = 1\n  preserve = source\n}\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n",
         );
         assert_eq!(syntax.declarations.len(), 7);
         let Declaration::Config(config) = &syntax.declarations[0] else {

@@ -21,10 +21,17 @@ pub(crate) enum Declaration {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ExternalDeclaration {
-    pub(crate) command: Option<Spanned<String>>,
+    pub(crate) executable: Option<Spanned<String>>,
+    pub(crate) arguments: Option<Vec<ExternalArgumentDeclaration>>,
     pub(crate) semantic_version: Option<Spanned<String>>,
     pub(crate) preserve: Option<Spanned<String>>,
     pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ExternalArgumentDeclaration {
+    Text(Spanned<String>),
+    File(Spanned<String>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

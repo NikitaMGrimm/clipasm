@@ -11,7 +11,8 @@ pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ExternalInvocation {
-    pub(crate) command: Spanned<PathBuf>,
+    pub(crate) executable: Spanned<PathBuf>,
+    pub(crate) arguments: Vec<ExternalArgumentValue>,
     pub(crate) preserve_input: String,
     pub(crate) inputs: BTreeMap<String, crate::model::ValueRef>,
     pub(crate) parameters: BTreeMap<String, ExternalParameterValue>,
@@ -19,19 +20,22 @@ pub(crate) struct ExternalInvocation {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ExternalRuntime {
-    command: Spanned<PathBuf>,
+    executable: Spanned<PathBuf>,
+    arguments: Vec<ExternalArgumentValue>,
     preserve_input: InputSlot,
     parameter_defaults: Vec<Option<Spanned<ParameterValue>>>,
 }
 
 impl ExternalRuntime {
     pub(crate) fn new(
-        command: Spanned<PathBuf>,
+        executable: Spanned<PathBuf>,
+        arguments: Vec<ExternalArgumentValue>,
         preserve_input: InputSlot,
         parameter_defaults: Vec<Option<Spanned<ParameterValue>>>,
     ) -> Self {
         Self {
-            command,
+            executable,
+            arguments,
             preserve_input,
             parameter_defaults,
         }
@@ -85,12 +89,20 @@ impl ExternalRuntime {
             .collect::<Result<BTreeMap<_, _>>>()?;
         let (preserved, _) = call.input_binding(self.preserve_input);
         Ok(ExternalInvocation {
-            command: self.command.clone(),
+            executable: self.executable.clone(),
+            arguments: self.arguments.clone(),
             preserve_input: preserved.name.clone(),
             inputs,
             parameters,
         })
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum ExternalArgumentValue {
+    Text { value: String },
+    File { path: Spanned<PathBuf> },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

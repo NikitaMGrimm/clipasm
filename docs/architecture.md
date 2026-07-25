@@ -229,7 +229,8 @@ kinds are canonical source data; compilation never opens source files.
 
 A source unit owns either a ClipAsm body or one native `external { ... }`
 implementation. Both are linked through ordinary source imports. Canonical
-source retains the external command, semantic version, and preserved input;
+source retains the external executable, ordered arguments, semantic version,
+and preserved input;
 the compiler converts it into an ordinary runtime program definition, sharing
 the normal checking, defaults, binding, and stack behavior.
 
@@ -238,11 +239,13 @@ programs. Composition uses a ClipAsm wrapper.
 
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves and hashes the executable and turns the node into an exact prepared
-primitive. File parameters follow the same source-relative resolution, hashing,
-collision, and re-verification rules as other assets. Rendering reverifies the hash, starts the executable directly without
-a shell, sends the versioned JSON request, and verifies the artifact before cache
-commit. Executable bytes belong to prepared identity; authored command,
-parameters, and graph inputs belong to compiled semantic identity.
+primitive. File arguments and File parameters follow the same source-relative
+resolution, hashing, collision, and re-verification rules as other assets.
+Rendering reverifies those hashes, passes executable and argv separately, sends
+the versioned JSON request, and verifies the artifact before cache commit.
+Executable and file-argument bytes belong to prepared identity; authored
+executable, arguments, parameters, and graph inputs belong to compiled semantic
+identity.
 
 ## Preflight
 

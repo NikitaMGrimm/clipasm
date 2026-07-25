@@ -165,12 +165,13 @@ impl<'a> Executor<'a> {
                 kind:
                     PreparedVideoKind::ExternalVideo {
                         executable,
+                        arguments,
                         inputs,
                         parameters,
                         ..
                     },
                 ..
-            } => external::video(context, executable, inputs, parameters),
+            } => external::video(context, executable, arguments, inputs, parameters),
         }
     }
 }

@@ -36,7 +36,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 8);
+    assert_eq!(document["format_version"], 9);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -230,7 +230,7 @@ fn relocated_external_file_parameters_have_equal_semantic_hashes() {
         fs::write(directory.join("lut.bin"), b"identical lookup table").expect("file parameter");
         fs::write(
             directory.join("effect.clipasm"),
-            "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  command = \"ffmpeg\"\n  semantic_version = 1\n  preserve = video\n}\n",
+            "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"ffmpeg\"\n  semantic_version = 1\n  preserve = video\n}\n",
         )
         .expect("external program");
         fs::write(

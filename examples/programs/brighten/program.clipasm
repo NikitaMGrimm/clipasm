@@ -4,7 +4,8 @@ input video: Video
 param amount: Integer = 15
 
 external {
-    command = "./brighten.py"
+    executable = "python3"
+    arguments = [file("brighten.py")]
     semantic_version = 1
     preserve = video
 }

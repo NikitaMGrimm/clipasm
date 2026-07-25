@@ -9,8 +9,8 @@ use serde::Serialize;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::EXTERNAL_PROTOCOL_VERSION;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
-use crate::preflight::PreparedExternalParameterValue;
 use crate::preflight::tools::ExternalToolIdentity;
+use crate::preflight::{PreparedExternalArgument, PreparedExternalParameterValue};
 use crate::source::SourceSpan;
 
 use super::context::RenderContext;
@@ -57,6 +57,7 @@ struct ExternalRunTools<'a> {
 pub(super) fn video(
     context: &RenderContext<'_>,
     executable: &ExternalToolIdentity,
+    arguments: &[PreparedExternalArgument],
     inputs: &BTreeMap<String, NodeId>,
     parameters: &BTreeMap<String, PreparedExternalParameterValue>,
 ) -> Result<()> {
@@ -105,11 +106,16 @@ pub(super) fn video(
             ffprobe: context.plan().ffprobe().executable(),
         },
     };
-    run_external(executable.executable(), &request, context.span())
+    let arguments = arguments.iter().map(|argument| match argument {
+        PreparedExternalArgument::Text(value) => std::ffi::OsString::from(value),
+        PreparedExternalArgument::File(asset) => asset.source_path().as_os_str().to_owned(),
+    });
+    run_external(executable.executable(), arguments, &request, context.span())
 }
 
 fn run_external(
     executable: &Path,
+    arguments: impl IntoIterator<Item = std::ffi::OsString>,
     request: &ExternalRunRequest<'_>,
     span: &SourceSpan,
 ) -> Result<()> {
@@ -122,7 +128,9 @@ fn run_external(
             span.clone(),
         )
     })?;
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    command.args(arguments);
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -224,6 +232,10 @@ mod tests {
 use std::io::Read as _;
 
 fn main() {
+    if std::env::args().nth(1).as_deref() != Some("--test-argument") {
+        eprintln!("missing process argument");
+        std::process::exit(21);
+    }
     let mut request = String::new();
     std::io::stdin().read_to_string(&mut request).expect("request");
     if !request.contains("\"protocol_version\":1") {
@@ -265,6 +277,7 @@ fn main() {
 
         let error = run_external(
             &executable,
+            [std::ffi::OsString::from("--test-argument")],
             &request,
             &SourceSpan::file_start("external-test.clipasm"),
         )

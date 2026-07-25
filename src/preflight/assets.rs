@@ -104,6 +104,7 @@ pub(super) fn reject_asset_collisions(
             kind:
                 PreparedVideoKind::ExternalVideo {
                     executable,
+                    arguments,
                     parameters,
                     ..
                 },
@@ -124,6 +125,25 @@ pub(super) fn reject_asset_collisions(
                 "external executable",
                 "E_MANIFEST_COLLISION",
             )?;
+            for asset in arguments.iter().filter_map(|argument| match argument {
+                super::PreparedExternalArgument::File(asset) => Some(asset),
+                super::PreparedExternalArgument::Text(_) => None,
+            }) {
+                reject_path_collision(
+                    output,
+                    "output",
+                    asset.source_path(),
+                    "external file argument",
+                    "E_OUTPUT_COLLISION",
+                )?;
+                reject_path_collision(
+                    manifest,
+                    "manifest",
+                    asset.source_path(),
+                    "external file argument",
+                    "E_MANIFEST_COLLISION",
+                )?;
+            }
             for asset in parameters.values().filter_map(|value| match value {
                 super::PreparedExternalParameterValue::File(asset) => Some(asset),
                 super::PreparedExternalParameterValue::Integer(_)

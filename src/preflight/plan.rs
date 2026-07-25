@@ -25,6 +25,16 @@ pub enum PreparedExternalParameterValue {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
+/// One external-process argument after preflight resolution.
+pub enum PreparedExternalArgument {
+    /// Literal argument text.
+    Text(String),
+    /// Verified file argument and its content hash.
+    File(PreparedAsset),
+}
+
+#[derive(Clone, Debug)]
 /// An exact, media-verified plan consumed by [`crate::render::render`].
 ///
 /// Every Video node has an exact [`VideoDomain`], every Audio node has an
@@ -424,6 +434,8 @@ pub enum PreparedVideoKind {
     ExternalVideo {
         /// Prepared external executable identity.
         executable: ExternalToolIdentity,
+        /// Ordered process arguments.
+        arguments: Vec<PreparedExternalArgument>,
         /// Named prepared inputs.
         inputs: BTreeMap<String, NodeId>,
         /// Bound scalar parameters.

@@ -12,7 +12,7 @@ fn write_external_program(directory: &std::path::Path, command: &str) {
     fs::write(
         directory.join("effect.clipasm"),
         format!(
-            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {{\n  command = {command:?}\n  semantic_version = 1\n  preserve = video\n}}\n"
+            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {{\n  executable = {command:?}\n  semantic_version = 1\n  preserve = video\n}}\n"
         ),
     )
     .expect("external program");
@@ -45,6 +45,14 @@ fn compilation_links_external_programs_without_resolving_the_executable() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))
             .expect("JSON document");
     assert_eq!(document["nodes"][1]["kind"]["operation"], "external_video");
+    assert_eq!(
+        document["nodes"][1]["kind"]["executable"],
+        "./missing-script"
+    );
+    assert_eq!(
+        document["nodes"][1]["kind"]["arguments"],
+        serde_json::json!([])
+    );
     assert_eq!(document["nodes"][1]["kind"]["parameters"]["amount"], 12);
 
     if common::media_tools_available() {
@@ -55,14 +63,14 @@ fn compilation_links_external_programs_without_resolving_the_executable() {
 
 #[test]
 fn string_parsing_accepts_external_program_definitions() {
-    let source = "clipasm 1\ninput video: Video\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n";
+    let source = "clipasm 1\ninput video: Video\nexternal {\n  executable = \"python3\"\n  arguments = [\n    \"-u\",\n    file(\"effect.py\"),\n  ]\n  semantic_version = 1\n  preserve = video\n}\n";
     language::parse_str(std::path::Path::new("effect.clipasm"), source)
         .expect("native external program");
 }
 
 #[test]
 fn external_program_defaults_are_passed_to_the_runtime_invocation() {
-    let source = "clipasm 1\ninput video: Video\nparam amount: Integer = 15\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n";
+    let source = "clipasm 1\ninput video: Video\nparam amount: Integer = 15\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n";
     let package = language::parse_str(std::path::Path::new("effect.clipasm"), source)
         .expect("native external program");
     let mut bindings = EntrypointBindings::new();
@@ -87,14 +95,14 @@ fn external_program_defaults_are_passed_to_the_runtime_invocation() {
 fn external_programs_reject_bodies_unknown_preserve_inputs_and_unsupported_parameters() {
     let body = language::parse_str(
         std::path::Path::new("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n$video\n",
+        "clipasm 1\ninput video: Video\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n$video\n",
     )
     .expect_err("external body");
     assert_eq!(body.code, "E_EXTERNAL_WITH_BODY");
 
     let unknown = language::parse_str(
         std::path::Path::new("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = missing\n}\n",
+        "clipasm 1\ninput video: Video\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = missing\n}\n",
     )
     .expect("syntax and lowering");
     let unknown = compiler::compile(&unknown).expect_err("unknown preserve input");
@@ -102,7 +110,7 @@ fn external_programs_reject_bodies_unknown_preserve_inputs_and_unsupported_param
 
     let unsupported = language::parse_str(
         std::path::Path::new("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam duration: Duration\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam duration: Duration\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("syntax and lowering");
     let unsupported = compiler::compile(&unsupported).expect_err("unsupported parameter");
@@ -116,7 +124,7 @@ fn external_programs_reject_imports_in_favor_of_wrapper_programs() {
     let effect = directory.path().join("effect.clipasm");
     fs::write(
         &effect,
-        "clipasm 1\nimport \"helper.clipasm\" as helper\ninput video: Video\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\nimport \"helper.clipasm\" as helper\ninput video: Video\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("external program");
 
@@ -156,7 +164,7 @@ fn publication_paths_cannot_collide_with_external_executables() {
         fs::write(
             directory.path().join("effect.clipasm"),
             format!(
-                "clipasm 1\ninput video: Video\nexternal {{\n  command = {command:?}\n  semantic_version = 1\n  preserve = video\n}}\n"
+                "clipasm 1\ninput video: Video\nexternal {{\n  executable = {command:?}\n  semantic_version = 1\n  preserve = video\n}}\n"
             ),
         )
         .expect("external source");
@@ -193,6 +201,11 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&executable, permissions).expect("executable permissions");
+    fs::write(
+        directory.path().join("script-data.bin"),
+        b"script dependency",
+    )
+    .expect("file argument");
     fs::write(directory.path().join("lut.bin"), b"lookup table").expect("file parameter");
     fs::copy(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/assets/morning.png"),
@@ -201,7 +214,7 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     .expect("image");
     fs::write(
         directory.path().join("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  command = \"./effect.sh\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"./effect.sh\"\n  arguments = [file(\"script-data.bin\")]\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("external source");
     let workflow = directory.path().join("workflow.clipasm");
@@ -214,8 +227,11 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     let package = language::parse_file(&workflow).expect("external package");
     let compiled = compiler::compile(&package).expect("pure compilation");
     let prepared = preflight::preflight(&compiled).expect("prepared external file");
-    let Some(preflight::PreparedVideoKind::ExternalVideo { parameters, .. }) =
-        prepared.nodes().last().and_then(|node| node.video_kind())
+    let Some(preflight::PreparedVideoKind::ExternalVideo {
+        arguments,
+        parameters,
+        ..
+    }) = prepared.nodes().last().and_then(|node| node.video_kind())
     else {
         panic!("external prepared node");
     };
@@ -224,6 +240,14 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     };
     assert_eq!(asset.source_path(), directory.path().join("lut.bin"));
     assert!(!asset.content_hash().is_empty());
+    let [preflight::PreparedExternalArgument::File(argument_asset)] = arguments.as_slice() else {
+        panic!("prepared file argument");
+    };
+    assert_eq!(
+        argument_asset.source_path(),
+        directory.path().join("script-data.bin")
+    );
+    assert!(!argument_asset.content_hash().is_empty());
     let document: serde_json::Value =
         serde_json::from_str(&prepared.prepared_json().expect("prepared JSON"))
             .expect("prepared document");
@@ -243,6 +267,20 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     );
     assert!(external["kind"]["executable"]["executable"].is_string());
     assert!(external["kind"]["executable"]["content_hash"].is_string());
+    assert_eq!(
+        external["kind"]["arguments"][0]["asset"]["content_hash"],
+        argument_asset.content_hash()
+    );
+
+    fs::write(
+        directory.path().join("script-data.bin"),
+        b"changed script dependency",
+    )
+    .expect("change file argument");
+    let error = render::render(&prepared).expect_err("changed file argument");
+    assert_eq!(error.code, "E_ASSET_CHANGED");
+
+    let prepared = preflight::preflight(&compiled).expect("prepare changed file argument");
 
     fs::write(directory.path().join("lut.bin"), b"changed lookup table")
         .expect("change file parameter");

@@ -181,10 +181,12 @@ declarations and use the ordinary program interface, binder, defaults, stack,
 and semantic-version rules.
 
 The initial protocol supports fixed Video or Audio inputs, Integer, File, and
-Keyword parameters, and one Video output preserving one declared Video input's exact
-domain and meaningful-audio state. Compilation remains pure. Preflight resolves
-and hashes the directly executable command and File parameters relative to the
-source that supplied them;
-rendering runs it without a shell through a versioned JSON request and verifies
-the artifact. External programs cannot also contain statements or imports;
-composition belongs in a ClipAsm wrapper. External executables are trusted code.
+Keyword parameters, and one Video output preserving one declared Video input's
+exact domain and meaningful-audio state. Compilation remains pure. An external
+declaration names one executable plus ordered literal or `file(...)` arguments.
+Preflight resolves and hashes the executable, file arguments, and File parameters
+relative to their source; rendering passes argv separately, sends a versioned
+JSON request, and verifies the artifact. ClipAsm does not construct a shell
+command string, while normal platform process semantics still apply. External
+programs cannot also contain statements or imports; composition belongs in a
+ClipAsm wrapper. External executables are trusted code.

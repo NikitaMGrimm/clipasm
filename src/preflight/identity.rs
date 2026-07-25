@@ -129,12 +129,22 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
         }
         PreparedVideoKind::ExternalVideo {
             executable,
+            arguments,
             inputs,
             parameters,
             preserve_input,
         } => serde_json::json!({
             "operation": "external_video",
             "executable_content_hash": executable.content_hash(),
+            "arguments": arguments.iter().map(|argument| match argument {
+                super::PreparedExternalArgument::Text(value) => {
+                    serde_json::json!({"kind": "text", "value": value})
+                }
+                super::PreparedExternalArgument::File(asset) => serde_json::json!({
+                    "kind": "file",
+                    "content_hash": asset.content_hash(),
+                }),
+            }).collect::<Vec<_>>(),
             "input_names": inputs.keys().collect::<Vec<_>>(),
             "parameters": external_parameter_identity(parameters),
             "preserve_input": preserve_input,

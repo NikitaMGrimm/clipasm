@@ -6,14 +6,15 @@ use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAcces
 use crate::source::{
     ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
     ProgramBody, ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
-    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImplementation, SourceFile, SourceImport,
-    SourceInput, SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation,
-    SourceUnit, SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
+    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalArgument, SourceExternalImplementation,
+    SourceFile, SourceImport, SourceInput, SourcePackage, SourceParameter, SourceProgram,
+    SourceProgramImplementation, SourceUnit, SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit,
+    VideoSettings,
 };
 
 use super::syntax::{
-    Argument, Block, Declaration, Expression, OutputBindings as SyntaxOutputBindings, Scalar,
-    SourceFileSyntax, Statement,
+    Argument, Block, Declaration, Expression, ExternalArgumentDeclaration,
+    OutputBindings as SyntaxOutputBindings, Scalar, SourceFileSyntax, Statement,
 };
 use super::{parser, sugar};
 
@@ -293,20 +294,31 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
 fn lower_external_declaration(
     declaration: super::syntax::ExternalDeclaration,
 ) -> Result<SourceExternalImplementation> {
-    let command = declaration.command.ok_or_else(|| {
+    let executable = declaration.executable.ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_EXTERNAL_FIELD",
-            "external program requires `command`",
+            "external program requires `executable`",
             declaration.span.clone(),
         )
     })?;
-    if command.value.is_empty() {
+    if executable.value.is_empty() {
         return Err(Diagnostic::new(
             "E_INVALID_EXTERNAL_PROGRAM",
-            "external `command` must not be empty",
-            command.span,
+            "external `executable` must not be empty",
+            executable.span,
         ));
     }
+    let arguments = declaration
+        .arguments
+        .unwrap_or_default()
+        .into_iter()
+        .map(|argument| match argument {
+            ExternalArgumentDeclaration::Text(value) => SourceExternalArgument::Text(value),
+            ExternalArgumentDeclaration::File(path) => {
+                SourceExternalArgument::File(Spanned::new(PathBuf::from(path.value), path.span))
+            }
+        })
+        .collect();
     let semantic_version = declaration.semantic_version.ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_EXTERNAL_FIELD",
@@ -336,7 +348,8 @@ fn lower_external_declaration(
         )
     })?;
     Ok(SourceExternalImplementation {
-        command: Spanned::new(PathBuf::from(command.value), command.span),
+        executable: Spanned::new(PathBuf::from(executable.value), executable.span),
+        arguments,
         semantic_version: Spanned::new(semantic_version_value, semantic_version.span),
         preserve,
     })

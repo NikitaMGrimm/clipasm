@@ -248,7 +248,21 @@ fn external_definition(
             outputs: vec![ValueType::Video.into()],
         },
         implementation: ProgramImplementation::External(crate::external::ExternalRuntime::new(
-            external.command.clone(),
+            external.executable.clone(),
+            external
+                .arguments
+                .iter()
+                .map(|argument| match argument {
+                    crate::source::SourceExternalArgument::Text(value) => {
+                        crate::external::ExternalArgumentValue::Text {
+                            value: value.value.clone(),
+                        }
+                    }
+                    crate::source::SourceExternalArgument::File(path) => {
+                        crate::external::ExternalArgumentValue::File { path: path.clone() }
+                    }
+                })
+                .collect(),
             InputSlot::new(preserve_index),
             parameter_defaults,
         )),

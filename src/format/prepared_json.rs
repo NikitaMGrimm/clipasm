@@ -11,8 +11,8 @@ use crate::model::{
 };
 use crate::preflight::tools::{ExternalToolIdentity, ToolIdentity};
 use crate::preflight::{
-    PreparedAsset, PreparedAudioKind, PreparedExternalParameterValue, PreparedNode,
-    PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
+    PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
+    PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
 use crate::semantic::SourceOrigin;
 use crate::source::SourceSpan;
@@ -74,6 +74,13 @@ enum ExternalParameterDocument<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ExternalArgumentDocument<'a> {
+    Text { value: &'a str },
+    File { asset: PreparedAssetDocument<'a> },
+}
+
+#[derive(Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum PreparedOperationDocument<'a> {
     ImageVideo {
@@ -125,6 +132,7 @@ enum PreparedOperationDocument<'a> {
     },
     ExternalVideo {
         executable: ExternalToolDocument<'a>,
+        arguments: Vec<ExternalArgumentDocument<'a>>,
         inputs: &'a BTreeMap<String, NodeId>,
         parameters: BTreeMap<&'a str, ExternalParameterDocument<'a>>,
         preserve_input: &'a str,
@@ -267,11 +275,23 @@ fn video_operation_document(kind: &PreparedVideoKind) -> PreparedOperationDocume
         }
         PreparedVideoKind::ExternalVideo {
             executable,
+            arguments,
             inputs,
             parameters,
             preserve_input,
         } => PreparedOperationDocument::ExternalVideo {
             executable: external_tool_document(executable),
+            arguments: arguments
+                .iter()
+                .map(|argument| match argument {
+                    PreparedExternalArgument::Text(value) => {
+                        ExternalArgumentDocument::Text { value }
+                    }
+                    PreparedExternalArgument::File(asset) => ExternalArgumentDocument::File {
+                        asset: asset_document(asset),
+                    },
+                })
+                .collect(),
             inputs,
             parameters: external_parameter_documents(parameters),
             preserve_input,

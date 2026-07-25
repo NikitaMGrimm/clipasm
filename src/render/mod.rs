@@ -114,12 +114,19 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 kind:
                     PreparedVideoKind::ExternalVideo {
                         executable,
+                        arguments,
                         parameters,
                         ..
                     },
                 ..
             } => {
                 verify_external_tool(executable, &node.origin().span)?;
+                for asset in arguments.iter().filter_map(|argument| match argument {
+                    crate::preflight::PreparedExternalArgument::File(asset) => Some(asset),
+                    crate::preflight::PreparedExternalArgument::Text(_) => None,
+                }) {
+                    verify_prepared_asset(asset, &node.origin().span)?;
+                }
                 for asset in parameters.values().filter_map(|value| match value {
                     crate::preflight::PreparedExternalParameterValue::File(asset) => Some(asset),
                     crate::preflight::PreparedExternalParameterValue::Integer(_)
