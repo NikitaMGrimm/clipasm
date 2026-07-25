@@ -102,8 +102,9 @@ source file when it contains a path. `semantic_version` must be positive and is
 part of semantic identity. `preserve` names the declared Video input whose exact
 timeline domain and meaningful-audio state the single Video output preserves.
 
-External programs currently accept fixed Video or Audio inputs and Integer or
-Keyword parameters. Native defaults are applied before execution. An external
+External programs currently accept fixed Video or Audio inputs and Integer,
+File, or Keyword parameters. File values resolve from the source that supplied
+them and are content-hashed during preflight. Native defaults are applied before execution. An external
 program cannot also contain executable statements or imports; use a separate
 ClipAsm wrapper program for composition. Compilation remains pure. Preflight
 resolves and hashes the executable, and rendering sends a versioned JSON request
@@ -264,6 +265,9 @@ Audio and may use `<Video>` or `<Audio>`.
 Defaults are: image/video fit `cover`, zoom `8`, wobble `3`, crossfade `500ms`,
 and flash the smallest frame count covering `160ms`.
 
+`image.duration` may be omitted only when the surrounding body supplies a
+requested duration; otherwise it is required.
+
 `glue` starts its body empty and concatenates the homogeneous body remainder.
 `join` starts with `$before` and `$after` and concatenates its homogeneous body
 remainder. `during` starts with the selected range as `$video`, requires exactly
@@ -273,12 +277,12 @@ one processed Video, and splices it back into the original Video.
 
 ```console
 clipasm validate template.clipasm \
-  --input source=footage.mp4 \
+  --video-input source=footage.mp4 \
   --arg range=1s..3s \
   --arg count=2
 
 clipasm render template.clipasm \
-  --input source=footage.mp4 \
+  --video-input source=footage.mp4 \
   --arg range=1s..3s \
   --arg count=2 \
   --output final.mp4

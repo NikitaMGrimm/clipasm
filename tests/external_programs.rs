@@ -1,10 +1,11 @@
 #![allow(missing_docs)]
 
 use std::fs;
+use std::process::Command;
 
 use clipasm::compiler::EntrypointBindings;
 use clipasm::source::SourceSpan;
-use clipasm::{compiler, language, preflight};
+use clipasm::{compiler, language, preflight, render};
 
 fn write_external_program(directory: &std::path::Path, command: &str) {
     fs::write(
@@ -98,7 +99,7 @@ fn external_programs_reject_bodies_unknown_preserve_inputs_and_unsupported_param
 
     let unsupported = language::parse_str(
         std::path::Path::new("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam lut: File\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam duration: Duration\nexternal {\n  command = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("syntax and lowering");
     let unsupported = compiler::compile(&unsupported).expect_err("unsupported parameter");
@@ -118,4 +119,70 @@ fn external_programs_reject_imports_in_favor_of_wrapper_programs() {
 
     let error = language::parse_file(&effect).expect_err("external imports");
     assert_eq!(error.code, "E_EXTERNAL_WITH_IMPORTS");
+}
+
+#[cfg(unix)]
+#[test]
+fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_err()
+        || Command::new("ffprobe")
+            .arg("-version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+    {
+        eprintln!("skipping external file preflight test because FFmpeg is unavailable");
+        return;
+    }
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let executable = directory.path().join("effect.sh");
+    fs::write(&executable, "#!/bin/sh\nexit 0\n").expect("external executable");
+    let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&executable, permissions).expect("executable permissions");
+    fs::write(directory.path().join("lut.bin"), b"lookup table").expect("file parameter");
+    fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/assets/morning.png"),
+        directory.path().join("card.png"),
+    )
+    .expect("image");
+    fs::write(
+        directory.path().join("effect.clipasm"),
+        "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  command = \"./effect.sh\"\n  semantic_version = 1\n  preserve = video\n}\n",
+    )
+    .expect("external source");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { output = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.png\", 1s)\neffect\n",
+    )
+    .expect("workflow");
+
+    let package = language::parse_file(&workflow).expect("external package");
+    let compiled = compiler::compile(&package).expect("pure compilation");
+    let prepared = preflight::preflight(&compiled).expect("prepared external file");
+    let Some(preflight::PreparedVideoKind::ExternalVideo { parameters, .. }) =
+        prepared.nodes().last().and_then(|node| node.video_kind())
+    else {
+        panic!("external prepared node");
+    };
+    let Some(preflight::PreparedExternalParameterValue::File(asset)) = parameters.get("lut") else {
+        panic!("prepared file parameter");
+    };
+    assert_eq!(asset.source_path(), directory.path().join("lut.bin"));
+    assert!(!asset.content_hash().is_empty());
+
+    fs::write(directory.path().join("lut.bin"), b"changed lookup table")
+        .expect("change file parameter");
+    let error = render::render(&prepared).expect_err("changed file parameter");
+    assert_eq!(error.code, "E_ASSET_CHANGED");
 }

@@ -11,9 +11,10 @@ use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
 
 #[derive(Clone, Debug)]
-pub(super) struct VideoInputBinding {
+pub(super) struct MediaInputBinding {
     pub(super) path: PathBuf,
     pub(super) span: SourceSpan,
+    pub(super) value_type: ValueType,
 }
 
 #[derive(Clone, Debug)]
@@ -24,13 +25,13 @@ pub(super) struct ParameterBinding {
 
 /// External values supplied when compiling a root source program.
 ///
-/// Video inputs and scalar parameters are matched by name against the root
+/// Video and Audio inputs and scalar parameters are matched by name against the root
 /// program's declared interface. Relative file paths resolve from the
 /// [`SourceSpan`] supplied with each binding, allowing callers such as the CLI
 /// to use their own working directory without rewriting authored source.
 #[derive(Clone, Debug, Default)]
 pub struct EntrypointBindings {
-    pub(super) video_inputs: BTreeMap<String, VideoInputBinding>,
+    pub(super) media_inputs: BTreeMap<String, MediaInputBinding>,
     pub(super) parameters: BTreeMap<String, ParameterBinding>,
     pub(super) output: Option<Spanned<PathBuf>>,
 }
@@ -40,7 +41,7 @@ impl EntrypointBindings {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            video_inputs: BTreeMap::new(),
+            media_inputs: BTreeMap::new(),
             parameters: BTreeMap::new(),
             output: None,
         }
@@ -57,15 +58,40 @@ impl EntrypointBindings {
         path: impl Into<PathBuf>,
         span: SourceSpan,
     ) -> Result<()> {
+        self.bind_media_input(name, path, span, ValueType::Video)
+    }
+
+    /// Bind one declared root `Audio` input to an audio-file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns a diagnostic when the same input name was already supplied.
+    pub fn bind_audio_input(
+        &mut self,
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        span: SourceSpan,
+    ) -> Result<()> {
+        self.bind_media_input(name, path, span, ValueType::Audio)
+    }
+
+    fn bind_media_input(
+        &mut self,
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        span: SourceSpan,
+        value_type: ValueType,
+    ) -> Result<()> {
         let name = name.into();
-        if let Some(previous) = self.video_inputs.get(&name) {
+        if let Some(previous) = self.media_inputs.get(&name) {
             return Err(duplicate_binding("input", &name, span, &previous.span));
         }
-        self.video_inputs.insert(
+        self.media_inputs.insert(
             name,
-            VideoInputBinding {
+            MediaInputBinding {
                 path: path.into(),
                 span,
+                value_type,
             },
         );
         Ok(())
@@ -113,7 +139,7 @@ pub(super) fn bind_root_call<'a>(
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
 ) -> Result<ResolvedCall<'a>> {
-    for (name, binding) in &bindings.video_inputs {
+    for (name, binding) in &bindings.media_inputs {
         let Some(input) = definition
             .descriptor
             .inputs
@@ -126,11 +152,12 @@ pub(super) fn bind_root_call<'a>(
             .value_type
             .exact()
             .expect("root source inputs are concrete");
-        if input_type != ValueType::Video {
+        if input_type != binding.value_type {
             return Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
-                    "root input `{name}` is {input_type}, but `bind_video_input` supplies Video"
+                    "root input `{name}` is {input_type}, but the supplied binding is {}",
+                    binding.value_type
                 ),
                 binding.span.clone(),
             ));
@@ -153,7 +180,7 @@ pub(super) fn bind_root_call<'a>(
         {
             return Err(unknown_binding(name, &binding.span));
         }
-        if let Some(input) = bindings.video_inputs.get(name) {
+        if let Some(input) = bindings.media_inputs.get(name) {
             return Err(duplicate_binding(
                 "argument",
                 name,
@@ -169,14 +196,14 @@ pub(super) fn bind_root_call<'a>(
         .inputs
         .iter()
         .map(|input| {
-            let binding = bindings.video_inputs.get(&input.name).ok_or_else(|| {
+            let binding = bindings.media_inputs.get(&input.name).ok_or_else(|| {
                 Diagnostic::new(
                     "E_MISSING_REQUIRED_INPUT",
                     format!("root program is missing input `{}`", input.name),
                     span.clone(),
                 )
             })?;
-            Ok(ResolvedInput::One(lower_video_binding(
+            Ok(ResolvedInput::One(lower_media_binding(
                 registry, binding, nodes, video,
             )?))
         })
@@ -216,15 +243,19 @@ pub(super) fn bind_root_call<'a>(
     )
 }
 
-fn lower_video_binding(
+fn lower_media_binding(
     registry: &ProgramRegistry,
-    binding: &VideoInputBinding,
+    binding: &MediaInputBinding,
     nodes: &mut Vec<DraftNode>,
     video: &VideoSpec,
 ) -> Result<ValueRef> {
+    let program_name = match binding.value_type {
+        ValueType::Video => "video",
+        ValueType::Audio => "audio",
+    };
     let program = registry
-        .id("video")
-        .expect("native video program is registered");
+        .id(program_name)
+        .expect("native media source program is registered");
     let definition = registry.definition(program);
     let signature = definition.descriptor.resolve_signature(None);
     let span = binding.span.clone();
@@ -243,29 +274,29 @@ fn lower_video_binding(
         Vec::new(),
         parameters,
         None,
-        SourceOrigin::new("video", span.clone()),
+        SourceOrigin::new(program_name, span.clone()),
     )?;
     let ProgramImplementation::Direct(lower) = &definition.implementation else {
-        unreachable!("video is a direct program")
+        unreachable!("native media sources are direct programs")
     };
     let mut builder = GraphBuilder::for_program(
         nodes,
         video,
         definition.descriptor.semantic_version,
-        SourceOrigin::new("video", span.clone()),
+        SourceOrigin::new(program_name, span.clone()),
     );
     let outputs = lower(&call, &mut builder)?;
     let [output] = outputs.as_slice() else {
         return Err(Diagnostic::new(
             "E_PROGRAM_OUTPUT_TYPE",
-            "native video input adapter returned outputs outside its declared signature",
+            "native media input adapter returned outputs outside its declared signature",
             span,
         ));
     };
     if signature.outputs != [output.value_type()] {
         return Err(Diagnostic::new(
             "E_PROGRAM_OUTPUT_TYPE",
-            "native video input adapter returned outputs outside its declared signature",
+            "native media input adapter returned outputs outside its declared signature",
             span,
         ));
     }

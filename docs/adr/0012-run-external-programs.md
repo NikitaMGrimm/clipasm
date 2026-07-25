@@ -43,7 +43,7 @@ The initial process protocol is deliberately closed:
 
 - process protocol version 1;
 - fixed Video or Audio inputs;
-- Integer and Keyword parameters;
+- Integer, File, and Keyword parameters;
 - exactly one Video output;
 - output domain and meaningful-audio state preserve one declared Video input;
 - one directly executable command path, with no implicit shell or argument
@@ -65,6 +65,9 @@ artifact paths and domains, bound parameters, a temporary output path, project
 Video and Audio settings, and resolved FFmpeg and FFprobe paths. A zero exit
 status indicates that the process wrote the output. ClipAsm then applies its
 ordinary prepared-artifact verification before committing the cache entry.
+File parameters resolve from the source location that supplied the value,
+become verified content-hashed prepared assets, and are re-hashed before cache
+reuse or execution. The process request receives their resolved paths.
 
 External code is trusted native code. Importing an external `.clipasm` program
 is explicit, but rendering an unfamiliar project can execute that program and
@@ -95,6 +98,6 @@ declared semantic version whenever such dependencies change output semantics.
   cached prior result; reproducibility remains the external author's contract.
 - Output-changing programs that do not preserve an input domain require a later
   protocol extension with explicit prepared-domain discovery.
-- Multiple outputs, File/Duration/TimeRange parameters, variadic inputs,
+- Multiple outputs, Duration/TimeRange parameters, variadic inputs,
   interpreter-plus-argument command declarations, and shell execution remain
   outside the initial protocol.

@@ -26,11 +26,11 @@ enum Command {
         #[command(flatten)]
         bindings: BindingArgs,
     },
-    /// Emit the canonical pure semantic compiled program.
-    Compile {
+    /// Inspect the canonical pure semantic program as JSON.
+    Inspect {
         /// Native `.clipasm` source program.
         source: PathBuf,
-        /// Write compiled JSON to a new path instead of stdout. Existing files are preserved.
+        /// Write inspection JSON to a new path instead of stdout. Existing files are preserved.
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[command(flatten)]
@@ -51,8 +51,11 @@ enum Command {
 #[derive(Clone, Debug, Args)]
 struct BindingArgs {
     /// Bind a declared root Video input as `NAME=VIDEO_PATH`. May be repeated.
-    #[arg(long = "input", value_name = "NAME=VIDEO_PATH")]
-    inputs: Vec<String>,
+    #[arg(long = "video-input", value_name = "NAME=VIDEO_PATH")]
+    video_inputs: Vec<String>,
+    /// Bind a declared root Audio input as `NAME=AUDIO_PATH`. May be repeated.
+    #[arg(long = "audio-input", value_name = "NAME=AUDIO_PATH")]
+    audio_inputs: Vec<String>,
     /// Bind a declared root scalar parameter as `NAME=VALUE`. May be repeated.
     #[arg(long = "arg", value_name = "NAME=VALUE")]
     arguments: Vec<String>,
@@ -102,7 +105,7 @@ fn execute(cli: Cli) -> Result<()> {
                 );
             }
         }
-        Command::Compile {
+        Command::Inspect {
             source,
             output,
             bindings,
@@ -112,7 +115,7 @@ fn execute(cli: Cli) -> Result<()> {
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let json = compiled.compiled_json()?;
             if let Some(output) = output {
-                write_new_plan(&output, json.as_bytes())?;
+                write_new_inspection(&output, json.as_bytes())?;
             } else {
                 println!("{json}");
             }
@@ -153,9 +156,17 @@ fn entrypoint_bindings(
     let source = SourceFile::with_base("<command-line>", Some(current_directory), "");
     let mut bindings = compiler::EntrypointBindings::new();
 
-    for argument in arguments.inputs {
-        let (name, value) = split_binding(&argument, "--input", &source)?;
+    for argument in arguments.video_inputs {
+        let (name, value) = split_binding(&argument, "--video-input", &source)?;
         bindings.bind_video_input(
+            name,
+            PathBuf::from(value),
+            SourceSpan::source_start(source.clone()),
+        )?;
+    }
+    for argument in arguments.audio_inputs {
+        let (name, value) = split_binding(&argument, "--audio-input", &source)?;
+        bindings.bind_audio_input(
             name,
             PathBuf::from(value),
             SourceSpan::source_start(source.clone()),
@@ -204,14 +215,14 @@ fn invalid_cli_binding(option: &str, message: &str, source: &SourceFile) -> Diag
     )
 }
 
-fn write_new_plan(path: &Path, contents: &[u8]) -> Result<()> {
+fn write_new_inspection(path: &Path, contents: &[u8]) -> Result<()> {
     let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             return Err(Diagnostic::new(
-                "E_PLAN_EXISTS",
+                "E_INSPECTION_EXISTS",
                 format!(
-                    "refusing to replace existing plan destination `{}`",
+                    "refusing to replace existing inspection destination `{}`",
                     path.display()
                 ),
                 SourceSpan::file_start(path),
@@ -219,22 +230,22 @@ fn write_new_plan(path: &Path, contents: &[u8]) -> Result<()> {
         }
         Err(error) => {
             return Err(Diagnostic::new(
-                "E_PLAN_IO",
-                format!("could not create plan `{}`: {error}", path.display()),
+                "E_INSPECTION_IO",
+                format!("could not create inspection `{}`: {error}", path.display()),
                 SourceSpan::file_start(path),
             ));
         }
     };
     if let Err(error) = file.write_all(contents) {
         let diagnostic = Diagnostic::new(
-            "E_PLAN_IO",
-            format!("could not write plan `{}`: {error}", path.display()),
+            "E_INSPECTION_IO",
+            format!("could not write inspection `{}`: {error}", path.display()),
             SourceSpan::file_start(path),
         );
         return match std::fs::remove_file(path) {
             Ok(()) => Err(diagnostic),
             Err(cleanup_error) => Err(diagnostic.note(format!(
-                "could not remove incomplete plan `{}`: {cleanup_error}",
+                "could not remove incomplete inspection `{}`: {cleanup_error}",
                 path.display()
             ))),
         };

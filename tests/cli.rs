@@ -20,10 +20,10 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 #[test]
-fn compile_prints_machine_readable_plan() {
+fn inspect_prints_machine_readable_semantics() {
     let (_directory, workflow) = fixture();
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
-        .args(["compile", workflow.to_str().expect("UTF-8 path")])
+        .args(["inspect", workflow.to_str().expect("UTF-8 path")])
         .output()
         .expect("run clipasm");
     assert!(output.status.success());
@@ -33,12 +33,12 @@ fn compile_prints_machine_readable_plan() {
 }
 
 #[test]
-fn compile_writes_an_explicit_plan_path() {
+fn inspect_writes_an_explicit_output_path() {
     let (directory, workflow) = fixture();
     let plan_path = directory.path().join("plan.json");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args([
-            "compile",
+            "inspect",
             workflow.to_str().expect("UTF-8 path"),
             "--output",
             plan_path.to_str().expect("UTF-8 path"),
@@ -50,12 +50,12 @@ fn compile_writes_an_explicit_plan_path() {
 }
 
 #[test]
-fn compile_refuses_to_replace_an_existing_file() {
+fn inspect_refuses_to_replace_an_existing_file() {
     let (_directory, workflow) = fixture();
     let original = fs::read(&workflow).expect("original workflow");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args([
-            "compile",
+            "inspect",
             workflow.to_str().expect("UTF-8 path"),
             "--output",
             workflow.to_str().expect("UTF-8 path"),
@@ -64,19 +64,19 @@ fn compile_refuses_to_replace_an_existing_file() {
         .expect("run clipasm");
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_PLAN_EXISTS]"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_INSPECTION_EXISTS]"));
     assert_eq!(fs::read(&workflow).expect("preserved workflow"), original);
 }
 
 #[test]
-fn compile_preserves_an_existing_plan_destination() {
+fn inspect_preserves_an_existing_destination() {
     let (directory, workflow) = fixture();
     let plan = directory.path().join("plan.json");
     fs::write(&plan, b"existing plan").expect("existing plan");
 
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args([
-            "compile",
+            "inspect",
             workflow.to_str().expect("UTF-8 path"),
             "--output",
             plan.to_str().expect("UTF-8 path"),
@@ -85,7 +85,7 @@ fn compile_preserves_an_existing_plan_destination() {
         .expect("run clipasm");
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_PLAN_EXISTS]"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_INSPECTION_EXISTS]"));
     assert_eq!(fs::read(&plan).expect("preserved plan"), b"existing plan");
 }
 
@@ -139,7 +139,7 @@ fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
 }
 
 #[test]
-fn compile_binds_root_video_inputs_and_typed_parameters() {
+fn inspect_binds_root_video_inputs_and_typed_parameters() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("template.clipasm");
     fs::write(
@@ -151,9 +151,9 @@ fn compile_binds_root_video_inputs_and_typed_parameters() {
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .current_dir(directory.path())
         .args([
-            "compile",
+            "inspect",
             "template.clipasm",
-            "--input",
+            "--video-input",
             "source=footage.mp4",
             "--arg",
             "range=1s..2s",
@@ -182,6 +182,35 @@ fn compile_binds_root_video_inputs_and_typed_parameters() {
 }
 
 #[test]
+fn inspect_binds_root_audio_inputs() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("audio.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\ninput soundtrack: Audio\n$soundtrack\n",
+    )
+    .expect("workflow");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args([
+            "inspect",
+            workflow.to_str().expect("UTF-8 path"),
+            "--audio-input",
+            "soundtrack=sound.wav",
+        ])
+        .output()
+        .expect("clipasm");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("inspection JSON");
+    assert_eq!(document["nodes"][0]["kind"]["operation"], "audio_source");
+}
+
+#[test]
 fn root_cli_bindings_reject_unknown_and_duplicate_names() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("template.clipasm");
@@ -192,7 +221,7 @@ fn root_cli_bindings_reject_unknown_and_duplicate_names() {
         .args([
             "validate",
             "template.clipasm",
-            "--input",
+            "--video-input",
             "other=footage.mp4",
         ])
         .output()
@@ -205,9 +234,9 @@ fn root_cli_bindings_reject_unknown_and_duplicate_names() {
         .args([
             "validate",
             "template.clipasm",
-            "--input",
+            "--video-input",
             "source=first.mp4",
-            "--input",
+            "--video-input",
             "source=second.mp4",
         ])
         .output()
@@ -241,7 +270,7 @@ fn render_accepts_caller_relative_input_and_output_bindings() {
         .args([
             "render",
             "template.clipasm",
-            "--input",
+            "--video-input",
             "source=input.mkv",
             "--arg",
             "count=1",

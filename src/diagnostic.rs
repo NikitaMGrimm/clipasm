@@ -76,6 +76,19 @@ impl fmt::Display for Diagnostic {
             self.code,
             self.message
         )?;
+        if let Some(line) = self
+            .span
+            .source()
+            .text()
+            .lines()
+            .nth(self.span.line.saturating_sub(1))
+        {
+            write!(
+                f,
+                "\n\n{line}\n{}^",
+                " ".repeat(self.span.column.saturating_sub(1))
+            )?;
+        }
         for note in &self.notes {
             write!(f, "\n\nnote: {note}")?;
         }

@@ -178,8 +178,8 @@ names remain a separate compiled interface.
 
 External root bindings enter compilation through `EntrypointBindings` after
 checked-source construction. The adapter validates names and concrete checked
-input/parameter types directly, lowers bound Video paths through the registered
-native `video` implementation, and constructs the root resolved call without
+input/parameter types directly, lowers bound Video and Audio paths through the
+registered native media-source implementations, and constructs the root resolved call without
 reconstructing canonical source. Scalar text uses the same parameter conversion
 module as authored literals. Binding spans carry the caller's path base, so the CLI can resolve
 supplied media, `File` parameters, and output destinations from its working
@@ -211,7 +211,7 @@ supported operation. Operation-specific work may live in family modules, but a
 native operation is not a dynamically registered cross-phase plugin. Branching
 on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
-implementations. See [ADR 0014](adr/0014-keep-native-operations-phase-owned.md).
+implementations. See [ADR 0015](adr/0015-keep-native-operations-phase-owned.md).
 
 Native file declarations are language syntax, not registered invocations. The
 evaluator treats the executable body uniformly without granting any registered
@@ -238,7 +238,8 @@ programs. Composition uses a ClipAsm wrapper.
 
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves and hashes the executable and turns the node into an exact prepared
-primitive. Rendering reverifies the hash, starts the executable directly without
+primitive. File parameters follow the same source-relative resolution, hashing,
+collision, and re-verification rules as other assets. Rendering reverifies the hash, starts the executable directly without
 a shell, sends the versioned JSON request, and verifies the artifact before cache
 commit. Executable bytes belong to prepared identity; authored command,
 parameters, and graph inputs belong to compiled semantic identity.
@@ -286,8 +287,8 @@ therefore telescope to the exact combined sample count, so arbitrary source
 segmentation cannot accumulate audio drift. Crossfade uses the same mapper for
 its shortened prefix, overlap, and suffix, including phase-adjusting the latter
 input to global output boundaries. See
-[ADR 0013](adr/0013-map-frame-and-sample-boundaries.md) and
-[ADR 0015](adr/0015-overlap-audiovisual-transitions-exactly.md).
+[ADR 0014](adr/0014-map-frame-and-sample-boundaries.md) and
+[ADR 0016](adr/0016-overlap-audiovisual-transitions-exactly.md).
 
 ## Rendering
 

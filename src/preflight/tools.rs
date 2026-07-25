@@ -20,17 +20,22 @@ struct ToolBuildIdentity<'a> {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// One resolved external executable and the content hash verified by preflight.
 pub struct ExternalToolIdentity {
     executable: PathBuf,
     content_hash: String,
 }
 
 impl ExternalToolIdentity {
-    pub(crate) fn executable(&self) -> &Path {
+    /// Return the resolved executable path used during preflight.
+    #[must_use]
+    pub fn executable(&self) -> &Path {
         &self.executable
     }
 
-    pub(crate) fn content_hash(&self) -> &str {
+    /// Return the executable content hash recorded during preflight.
+    #[must_use]
+    pub fn content_hash(&self) -> &str {
         &self.content_hash
     }
 }

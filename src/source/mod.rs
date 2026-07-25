@@ -18,6 +18,7 @@ pub(crate) use name::{PUBLIC_NAME_GRAMMAR, is_valid_public_name};
 
 pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Owned;
 pub(crate) const STACK_BLOCK_DEFAULT_STACK_ACCESS: StackAccess = StackAccess::Visible;
+pub(crate) const MAX_BODY_NESTING: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SourceUnitId(pub(crate) usize);
@@ -50,9 +51,8 @@ impl SourcePackage {
     }
 }
 
-/// One opaque linked authored source unit.
 #[derive(Clone, Debug)]
-pub struct SourceUnit {
+pub(crate) struct SourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<ResolvedImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
@@ -102,9 +102,8 @@ pub(crate) struct ResolvedImport {
     pub(crate) target: SourceUnitId,
 }
 
-/// One opaque callable authored `ClipAsm` stack program.
 #[derive(Clone, Debug)]
-pub struct SourceProgram {
+pub(crate) struct SourceProgram {
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<SourceParameter>,
     pub(crate) implementation: SourceProgramImplementation,

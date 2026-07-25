@@ -100,6 +100,32 @@ pub(super) fn reject_asset_collisions(
     nodes: &[PreparedNode],
 ) -> Result<()> {
     for node in nodes {
+        if let PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::ExternalVideo { parameters, .. },
+            ..
+        } = node.media()
+        {
+            for asset in parameters.values().filter_map(|value| match value {
+                super::PreparedExternalParameterValue::File(asset) => Some(asset),
+                super::PreparedExternalParameterValue::Integer(_)
+                | super::PreparedExternalParameterValue::Keyword(_) => None,
+            }) {
+                reject_path_collision(
+                    output,
+                    "output",
+                    asset.source_path(),
+                    "external file parameter",
+                    "E_OUTPUT_COLLISION",
+                )?;
+                reject_path_collision(
+                    manifest,
+                    "manifest",
+                    asset.source_path(),
+                    "external file parameter",
+                    "E_MANIFEST_COLLISION",
+                )?;
+            }
+        }
         let (asset, role) = match node.media() {
             PreparedNodeMedia::Video {
                 kind: PreparedVideoKind::ImageVideo { asset, .. },
@@ -254,6 +280,18 @@ fn prepare_file_asset(
     let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
     let content_hash = hash_file(&source_path, &origin.span)?;
     Ok(PreparedAsset::new(source_path, content_hash))
+}
+
+pub(super) fn prepare_external_file_asset(
+    authored: &Path,
+    span: &SourceSpan,
+) -> Result<PreparedAsset> {
+    prepare_file_asset(
+        authored,
+        &SourceOrigin::new("external file parameter", span.clone()),
+        "external parameter",
+        "E_MISSING_EXTERNAL_FILE",
+    )
 }
 
 pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) -> Result<()> {

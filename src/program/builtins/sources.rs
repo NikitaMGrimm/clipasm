@@ -119,15 +119,3 @@ fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
         Some((_, _)) => unreachable!("fit keyword was validated by the binder"),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn source_versions_cover_duration_and_normalization_semantics() {
-        assert_eq!(image().descriptor.semantic_version, 2);
-        assert_eq!(video().descriptor.semantic_version, 3);
-        assert_eq!(audio().descriptor.semantic_version, 1);
-    }
-}

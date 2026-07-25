@@ -65,7 +65,7 @@ pub(crate) fn compiled_program(program: &CompiledProgram) -> Result<String> {
     };
     serde_json::to_string_pretty(&document).map_err(|error| {
         Diagnostic::new(
-            "E_PLAN_SERIALIZATION",
+            "E_COMPILED_JSON",
             format!("could not serialize compiled program: {error}"),
             SourceSpan::file_start("<compiled-program>"),
         )
@@ -106,7 +106,7 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         SemanticNodeKind::Reference { symbol, .. } => {
             let target = program.symbol_value(*symbol).ok_or_else(|| {
                 Diagnostic::new(
-                    "E_PLAN_SERIALIZATION",
+                    "E_COMPILED_JSON",
                     format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 )

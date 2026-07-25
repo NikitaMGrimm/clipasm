@@ -10,8 +10,6 @@ use crate::source::{
     SourceSpan, Spanned, StackBlock,
 };
 
-const MAX_BODY_NESTING: usize = 256;
-
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct InvocationId(pub(super) usize);
 
@@ -124,10 +122,13 @@ impl DraftBody {
         invocation_count: &mut usize,
         stack_block_count: &mut usize,
     ) -> Result<Self> {
-        if depth > MAX_BODY_NESTING {
+        if depth > crate::source::MAX_BODY_NESTING {
             return Err(Diagnostic::new(
                 "E_BODY_NESTING_DEPTH",
-                format!("program body nesting exceeds the supported depth of {MAX_BODY_NESTING}"),
+                format!(
+                    "program body nesting exceeds the supported depth of {}",
+                    crate::source::MAX_BODY_NESTING
+                ),
                 source.span.clone(),
             ));
         }

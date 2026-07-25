@@ -35,7 +35,7 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, serialized formats, identities |
 | Change semantic identity | affected program or operation | semantic version, compiled/prepared/cache versions, ADR 0003 |
 | Change preflight behavior | `src/preflight` | pure-compile boundary, capability tests, prepared identity |
-| Change media formats or frame/sample mapping | `src/model`, preflight, render | ADR 0013, exact-domain tests, serialized shape, cache identity |
+| Change media formats or frame/sample mapping | `src/model`, preflight, render | ADR 0014, exact-domain tests, serialized shape, cache identity |
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change terminology | `CONTEXT.md` first | language reference, architecture, diagnostics, code names |

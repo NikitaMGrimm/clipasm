@@ -30,7 +30,7 @@ pub(super) struct CheckedLocal {
     pub(super) value_type: ValueType,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct CheckedPackage {
     pub(super) root: crate::source::SourceUnitId,
     pub(super) registry: ProgramRegistry,

@@ -30,7 +30,7 @@ fn run(arguments: &[&str]) -> Output {
 }
 
 fn compile_json(workflow: &Path) -> serde_json::Value {
-    let output = run(&["compile", workflow.to_str().expect("UTF-8 fixture path")]);
+    let output = run(&["inspect", workflow.to_str().expect("UTF-8 fixture path")]);
     assert!(
         output.status.success(),
         "compile failed: {}",
@@ -243,7 +243,7 @@ fn pure_compile_does_not_require_assets_to_exist() {
     )
     .expect("workflow");
 
-    let output = run(&["compile", workflow.to_str().expect("UTF-8 fixture path")]);
+    let output = run(&["inspect", workflow.to_str().expect("UTF-8 fixture path")]);
     assert!(
         output.status.success(),
         "pure compile unexpectedly accessed the asset: {}",
@@ -390,4 +390,27 @@ fn compiler_owns_positive_project_dimension_validation() {
             format!("`{field}` must be greater than zero")
         );
     }
+}
+
+#[test]
+fn root_audio_inputs_use_the_native_audio_source_adapter() {
+    let package = clipasm::language::parse_str(
+        Path::new("audio-root.clipasm"),
+        "clipasm 1\ninput soundtrack: Audio\n$soundtrack\n",
+    )
+    .expect("audio root source");
+    let mut bindings = clipasm::compiler::EntrypointBindings::new();
+    bindings
+        .bind_audio_input(
+            "soundtrack",
+            "sound.wav",
+            clipasm::source::SourceSpan::file_start("caller"),
+        )
+        .expect("audio binding");
+
+    let compiled = clipasm::compiler::compile_with_bindings(&package, &bindings)
+        .expect("audio root compilation");
+    let document: serde_json::Value =
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
+    assert_eq!(document["nodes"][0]["kind"]["operation"], "audio_source");
 }

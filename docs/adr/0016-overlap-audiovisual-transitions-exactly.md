@@ -35,7 +35,7 @@ exact suffix. The overlap uses a frame-indexed linear blend: its first frame is
 the complete `before` picture and its final frame is the complete `after`
 picture. A one-frame overlap is a defined equal blend.
 
-Audio uses the cumulative frame-to-sample mapper from ADR 0013. Prefix,
+Audio uses the cumulative frame-to-sample mapper from ADR 0014. Prefix,
 overlap, and suffix sample ranges are derived from their absolute output frame
 boundaries. The two overlap regions are normalized to the exact output overlap
 sample count, faded linearly, delayed to the overlap start, and mixed on one

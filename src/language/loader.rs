@@ -200,6 +200,13 @@ impl Loader {
                 span.clone(),
             ));
         }
+        if !super::parser::accepts_invocation_name(alias) {
+            return Err(Diagnostic::new(
+                "E_PROGRAM_IMPORT_COLLISION",
+                format!("program import alias `{alias}` is reserved by the language"),
+                span.clone(),
+            ));
+        }
         Ok(())
     }
 }
@@ -337,6 +344,15 @@ mod tests {
         );
         let error = parse_file(&sugar).expect_err("sugar collision");
         assert_eq!(error.code, "E_PROGRAM_IMPORT_COLLISION");
+
+        let declaration = write(
+            directory.path(),
+            "declaration.clipasm",
+            "clipasm 1\nimport \"empty.clipasm\" as input\n",
+        );
+        let error = parse_file(&declaration).expect_err("language reservation");
+        assert_eq!(error.code, "E_PROGRAM_IMPORT_COLLISION");
+        assert!(error.message.contains("reserved by the language"));
     }
 
     #[test]

@@ -218,7 +218,7 @@ fn external_definition(
     for parameter in program.parameters() {
         if !matches!(
             parameter.parameter_type,
-            ParameterType::Integer | ParameterType::Keyword(_)
+            ParameterType::Integer | ParameterType::File | ParameterType::Keyword(_)
         ) {
             return Err(Diagnostic::new(
                 "E_INVALID_EXTERNAL_PROGRAM",
@@ -324,21 +324,19 @@ fn check_program(
     ensure_local_types_resolved(&local_types)?;
 
     let bindings = prepare_program_bindings(program, &draft, &local_types)?;
-    let mut body_input_count = 0_usize;
     let lexical_types = BTreeMap::new();
     let lexical_ids = BTreeMap::new();
-    let checked_body = materialize_body(
-        &draft.body,
-        &local_types,
-        &bindings.local_ids,
-        &bindings.parameter_ids,
-        &lexical_types,
-        &lexical_ids,
-        &mut body_input_count,
+    let mut materializer = CheckedMaterializer {
+        local_types: &local_types,
+        local_ids: &bindings.local_ids,
+        parameter_ids: &bindings.parameter_ids,
         definitions,
-        &inference.invocations,
-        &inference.stack_blocks,
-    )?;
+        invocations: &inference.invocations,
+        stack_blocks: &inference.stack_blocks,
+        body_input_count: 0,
+    };
+    let checked_body = materializer.body(&draft.body, &lexical_types, &lexical_ids)?;
+    let body_input_count = materializer.body_input_count;
     Ok((
         inference.outputs,
         CheckedProgram {
@@ -629,160 +627,14 @@ fn checked_outputs(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn materialize_body(
-    body: &DraftBody,
-    local_types: &BTreeMap<String, LocalType>,
-    local_ids: &BTreeMap<String, ValueLocalId>,
-    parameter_ids: &BTreeMap<String, ParameterId>,
-    lexical_types: &BTreeMap<String, ValueType>,
-    lexical_ids: &BTreeMap<String, BodyInputId>,
-    body_input_count: &mut usize,
-    definitions: &[ProgramDefinition],
-    invocations: &[super::typecheck::ResolvedInvocation],
-    stack_blocks: &[Vec<ValueType>],
-) -> Result<CheckedBody> {
-    let mut checked_items = Vec::with_capacity(body.items.len());
-    for item in &body.items {
-        let checked = match &item.kind {
-            DraftItemKind::Reference(reference) => {
-                let output = resolved_value_type(
-                    local_types,
-                    lexical_types,
-                    &reference.value,
-                    &reference.span,
-                )?;
-                let target = resolve_value_target(
-                    &reference.value,
-                    &reference.span,
-                    local_ids,
-                    lexical_ids,
-                )?;
-                CheckedItem {
-                    origin: item.origin.clone(),
-                    outputs: checked_outputs(&item.output_bindings, &[output], local_ids)?,
-                    kind: CheckedItemKind::Reference { target },
-                }
-            }
-            DraftItemKind::Invocation(invocation) => {
-                let definition = &definitions[invocation.program.index()];
-                let resolved = &invocations[invocation.id.0];
-                let validated = materialize_explicit_arguments(
-                    invocation,
-                    definition,
-                    local_types,
-                    local_ids,
-                    parameter_ids,
-                    lexical_types,
-                    lexical_ids,
-                    body_input_count,
-                    definitions,
-                    invocations,
-                    stack_blocks,
-                )?;
-                let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
-                let checked_body = match definition.implementation {
-                    ProgramImplementation::Direct(_)
-                    | ProgramImplementation::ClipAsm(_)
-                    | ProgramImplementation::External(_) => None,
-                    ProgramImplementation::Body { .. } => {
-                        let body = invocation.body.as_deref().expect("draft body program");
-                        let mut body_local_types = lexical_types.clone();
-                        let mut body_lexical_ids = lexical_ids.clone();
-                        for (index, (port, value_type)) in definition
-                            .descriptor
-                            .inputs
-                            .iter()
-                            .zip(&resolved.signature.inputs)
-                            .enumerate()
-                        {
-                            if !matches!(port.cardinality, Cardinality::One) {
-                                continue;
-                            }
-                            let id = allocate_body_input(body_input_count, &item.origin.span)?;
-                            body_input_ids[index] = Some(id);
-                            body_local_types.insert(port.name.clone(), *value_type);
-                            body_lexical_ids.insert(port.name.clone(), id);
-                        }
-                        Some(Box::new(materialize_body(
-                            body,
-                            local_types,
-                            local_ids,
-                            parameter_ids,
-                            &body_local_types,
-                            &body_lexical_ids,
-                            body_input_count,
-                            definitions,
-                            invocations,
-                            stack_blocks,
-                        )?))
-                    }
-                };
-                CheckedItem {
-                    origin: item.origin.clone(),
-                    outputs: checked_outputs(
-                        &item.output_bindings,
-                        &resolved.signature.outputs,
-                        local_ids,
-                    )?,
-                    kind: CheckedItemKind::Invocation(CheckedInvocation {
-                        program: invocation.program,
-                        signature: resolved.signature.clone(),
-                        access: invocation.access,
-                        stack_plan: resolved.stack_plan.clone(),
-                        inputs: validated.inputs,
-                        parameters: validated.parameters,
-                        body: checked_body,
-                        body_input_ids,
-                    }),
-                }
-            }
-            DraftItemKind::StackBlock(block) => CheckedItem {
-                origin: item.origin.clone(),
-                outputs: checked_outputs(
-                    &item.output_bindings,
-                    &stack_blocks[block.id.0],
-                    local_ids,
-                )?,
-                kind: CheckedItemKind::StackBlock(CheckedStackBlock {
-                    access: block.access,
-                    body: Box::new(materialize_body(
-                        &block.body,
-                        local_types,
-                        local_ids,
-                        parameter_ids,
-                        lexical_types,
-                        lexical_ids,
-                        body_input_count,
-                        definitions,
-                        invocations,
-                        stack_blocks,
-                    )?),
-                }),
-            },
-        };
-        checked_items.push(checked);
-    }
-    Ok(CheckedBody {
-        items: checked_items,
-    })
-}
-
-fn allocate_body_input(
-    body_input_count: &mut usize,
-    span: &crate::source::SourceSpan,
-) -> Result<BodyInputId> {
-    let id = BodyInputId(u32::try_from(*body_input_count).map_err(|_| {
-        Diagnostic::new(
-            "E_GRAPH_TOO_LARGE",
-            "too many lexical body inputs were declared",
-            span.clone(),
-        )
-    })?);
-    *body_input_count = body_input_count
-        .checked_add(1)
-        .expect("body input count fits in usize");
-    Ok(id)
+struct CheckedMaterializer<'a> {
+    local_types: &'a BTreeMap<String, LocalType>,
+    local_ids: &'a BTreeMap<String, ValueLocalId>,
+    parameter_ids: &'a BTreeMap<String, ParameterId>,
+    definitions: &'a [ProgramDefinition],
+    invocations: &'a [super::typecheck::ResolvedInvocation],
+    stack_blocks: &'a [Vec<ValueType>],
+    body_input_count: usize,
 }
 
 struct MaterializedArguments {
@@ -790,104 +642,191 @@ struct MaterializedArguments {
     parameters: Vec<Option<CheckedParameterValue>>,
 }
 
-#[allow(clippy::too_many_arguments)]
-fn materialize_explicit_arguments(
-    invocation: &DraftInvocation,
-    definition: &ProgramDefinition,
-    local_types: &BTreeMap<String, LocalType>,
-    local_ids: &BTreeMap<String, ValueLocalId>,
-    parameter_ids: &BTreeMap<String, ParameterId>,
-    lexical_types: &BTreeMap<String, ValueType>,
-    lexical_ids: &BTreeMap<String, BodyInputId>,
-    body_input_count: &mut usize,
-    definitions: &[ProgramDefinition],
-    invocations: &[super::typecheck::ResolvedInvocation],
-    stack_blocks: &[Vec<ValueType>],
-) -> Result<MaterializedArguments> {
-    let inputs = invocation
-        .inputs
-        .iter()
-        .map(|argument| {
-            argument
-                .as_ref()
-                .map(|argument| {
-                    materialize_input_argument(
-                        argument,
-                        local_types,
-                        local_ids,
-                        parameter_ids,
+impl CheckedMaterializer<'_> {
+    #[allow(clippy::too_many_lines)]
+    fn body(
+        &mut self,
+        body: &DraftBody,
+        lexical_types: &BTreeMap<String, ValueType>,
+        lexical_ids: &BTreeMap<String, BodyInputId>,
+    ) -> Result<CheckedBody> {
+        let mut checked_items = Vec::with_capacity(body.items.len());
+        for item in &body.items {
+            let checked = match &item.kind {
+                DraftItemKind::Reference(reference) => {
+                    let output = resolved_value_type(
+                        self.local_types,
+                        lexical_types,
+                        &reference.value,
+                        &reference.span,
+                    )?;
+                    let target = resolve_value_target(
+                        &reference.value,
+                        &reference.span,
+                        self.local_ids,
+                        lexical_ids,
+                    )?;
+                    CheckedItem {
+                        origin: item.origin.clone(),
+                        outputs: checked_outputs(&item.output_bindings, &[output], self.local_ids)?,
+                        kind: CheckedItemKind::Reference { target },
+                    }
+                }
+                DraftItemKind::Invocation(invocation) => {
+                    let definition = &self.definitions[invocation.program.index()];
+                    let resolved = &self.invocations[invocation.id.0];
+                    let validated = self.explicit_arguments(
+                        invocation,
+                        definition,
                         lexical_types,
                         lexical_ids,
-                        body_input_count,
-                        definitions,
-                        invocations,
-                        stack_blocks,
-                    )
-                })
-                .transpose()
+                    )?;
+                    let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
+                    let checked_body = match definition.implementation {
+                        ProgramImplementation::Direct(_)
+                        | ProgramImplementation::ClipAsm(_)
+                        | ProgramImplementation::External(_) => None,
+                        ProgramImplementation::Body { .. } => {
+                            let body = invocation.body.as_deref().expect("draft body program");
+                            let mut body_local_types = lexical_types.clone();
+                            let mut body_lexical_ids = lexical_ids.clone();
+                            for (index, (port, value_type)) in definition
+                                .descriptor
+                                .inputs
+                                .iter()
+                                .zip(&resolved.signature.inputs)
+                                .enumerate()
+                            {
+                                if !matches!(port.cardinality, Cardinality::One) {
+                                    continue;
+                                }
+                                let id = self.allocate_body_input(&item.origin.span)?;
+                                body_input_ids[index] = Some(id);
+                                body_local_types.insert(port.name.clone(), *value_type);
+                                body_lexical_ids.insert(port.name.clone(), id);
+                            }
+                            Some(Box::new(self.body(
+                                body,
+                                &body_local_types,
+                                &body_lexical_ids,
+                            )?))
+                        }
+                    };
+                    CheckedItem {
+                        origin: item.origin.clone(),
+                        outputs: checked_outputs(
+                            &item.output_bindings,
+                            &resolved.signature.outputs,
+                            self.local_ids,
+                        )?,
+                        kind: CheckedItemKind::Invocation(CheckedInvocation {
+                            program: invocation.program,
+                            signature: resolved.signature.clone(),
+                            access: invocation.access,
+                            stack_plan: resolved.stack_plan.clone(),
+                            inputs: validated.inputs,
+                            parameters: validated.parameters,
+                            body: checked_body,
+                            body_input_ids,
+                        }),
+                    }
+                }
+                DraftItemKind::StackBlock(block) => CheckedItem {
+                    origin: item.origin.clone(),
+                    outputs: checked_outputs(
+                        &item.output_bindings,
+                        &self.stack_blocks[block.id.0],
+                        self.local_ids,
+                    )?,
+                    kind: CheckedItemKind::StackBlock(CheckedStackBlock {
+                        access: block.access,
+                        body: Box::new(self.body(&block.body, lexical_types, lexical_ids)?),
+                    }),
+                },
+            };
+            checked_items.push(checked);
+        }
+        Ok(CheckedBody {
+            items: checked_items,
         })
-        .collect::<Result<Vec<_>>>()?;
-    let parameters = definition
-        .descriptor
-        .parameters
-        .iter()
-        .zip(&invocation.parameters)
-        .map(|(parameter, argument)| {
-            argument
-                .as_ref()
-                .map(|argument| {
-                    check_parameter_argument(
-                        &invocation.name.value,
-                        parameter,
-                        argument,
-                        local_types,
-                        parameter_ids,
-                    )
-                })
-                .transpose()
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(MaterializedArguments { inputs, parameters })
-}
+    }
 
-#[allow(clippy::too_many_arguments)]
-fn materialize_input_argument(
-    argument: &DraftInput,
-    local_types: &BTreeMap<String, LocalType>,
-    local_ids: &BTreeMap<String, ValueLocalId>,
-    parameter_ids: &BTreeMap<String, ParameterId>,
-    lexical_types: &BTreeMap<String, ValueType>,
-    lexical_ids: &BTreeMap<String, BodyInputId>,
-    body_input_count: &mut usize,
-    definitions: &[ProgramDefinition],
-    invocations: &[super::typecheck::ResolvedInvocation],
-    stack_blocks: &[Vec<ValueType>],
-) -> Result<CheckedInputValue> {
-    match argument {
-        DraftInput::Reference(reference) => Ok(CheckedInputValue::References(
-            vec![resolve_value_target(
-                &reference.value,
-                &reference.span,
-                local_ids,
-                lexical_ids,
-            )?],
-            reference.span.clone(),
-        )),
-        DraftInput::Body(body) => Ok(CheckedInputValue::Body(
-            Box::new(materialize_body(
-                body,
-                local_types,
-                local_ids,
-                parameter_ids,
-                lexical_types,
-                lexical_ids,
-                body_input_count,
-                definitions,
-                invocations,
-                stack_blocks,
-            )?),
-            body.span.clone(),
-        )),
+    fn allocate_body_input(&mut self, span: &crate::source::SourceSpan) -> Result<BodyInputId> {
+        let id = BodyInputId(u32::try_from(self.body_input_count).map_err(|_| {
+            Diagnostic::new(
+                "E_GRAPH_TOO_LARGE",
+                "too many lexical body inputs were declared",
+                span.clone(),
+            )
+        })?);
+        self.body_input_count = self
+            .body_input_count
+            .checked_add(1)
+            .expect("body input count fits in usize");
+        Ok(id)
+    }
+
+    fn explicit_arguments(
+        &mut self,
+        invocation: &DraftInvocation,
+        definition: &ProgramDefinition,
+        lexical_types: &BTreeMap<String, ValueType>,
+        lexical_ids: &BTreeMap<String, BodyInputId>,
+    ) -> Result<MaterializedArguments> {
+        let inputs = invocation
+            .inputs
+            .iter()
+            .map(|argument| {
+                argument
+                    .as_ref()
+                    .map(|argument| self.input_argument(argument, lexical_types, lexical_ids))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let parameters = definition
+            .descriptor
+            .parameters
+            .iter()
+            .zip(&invocation.parameters)
+            .map(|(parameter, argument)| {
+                argument
+                    .as_ref()
+                    .map(|argument| {
+                        check_parameter_argument(
+                            &invocation.name.value,
+                            parameter,
+                            argument,
+                            self.local_types,
+                            self.parameter_ids,
+                        )
+                    })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(MaterializedArguments { inputs, parameters })
+    }
+
+    fn input_argument(
+        &mut self,
+        argument: &DraftInput,
+        lexical_types: &BTreeMap<String, ValueType>,
+        lexical_ids: &BTreeMap<String, BodyInputId>,
+    ) -> Result<CheckedInputValue> {
+        match argument {
+            DraftInput::Reference(reference) => Ok(CheckedInputValue::References(
+                vec![resolve_value_target(
+                    &reference.value,
+                    &reference.span,
+                    self.local_ids,
+                    lexical_ids,
+                )?],
+                reference.span.clone(),
+            )),
+            DraftInput::Body(body) => Ok(CheckedInputValue::Body(
+                Box::new(self.body(body, lexical_types, lexical_ids)?),
+                body.span.clone(),
+            )),
+        }
     }
 }
 

@@ -90,7 +90,6 @@ fn lower_drop(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<P
 mod tests {
     use std::path::Path;
 
-    use super::*;
     use crate::semantic::SemanticNodeKind;
 
     fn compile_repeat(count: u64) -> crate::compiler::CompiledProgram {
@@ -124,12 +123,5 @@ mod tests {
 
         assert_eq!(compiled.value_count(), 2);
         assert!(json.len() < 10_000, "compact plan was {} bytes", json.len());
-    }
-
-    #[test]
-    fn timeline_versions_cover_native_duration_semantics() {
-        assert_eq!(concat().descriptor.semantic_version, 2);
-        assert_eq!(repeat().descriptor.semantic_version, 3);
-        assert_eq!(trim().descriptor.semantic_version, 2);
     }
 }

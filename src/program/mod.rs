@@ -3,7 +3,6 @@ mod call;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
@@ -288,9 +287,9 @@ struct ProgramCatalogData {
     names: BTreeMap<String, ProgramId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct ProgramRegistry {
-    data: Arc<ProgramCatalogData>,
+    data: ProgramCatalogData,
 }
 
 impl Default for ProgramRegistry {
@@ -313,7 +312,7 @@ impl ProgramRegistry {
             })
             .collect();
         Ok(Self {
-            data: Arc::new(ProgramCatalogData { definitions, names }),
+            data: ProgramCatalogData { definitions, names },
         })
     }
 
@@ -333,7 +332,7 @@ impl ProgramRegistry {
             })
             .collect();
         Ok(Self {
-            data: Arc::new(ProgramCatalogData { definitions, names }),
+            data: ProgramCatalogData { definitions, names },
         })
     }
 

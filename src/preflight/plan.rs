@@ -16,6 +16,19 @@ use crate::source::SourceFile;
 use super::tools::{self, ExternalToolIdentity, ToolIdentity};
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+#[non_exhaustive]
+/// One external-program parameter after preflight resolution.
+pub enum PreparedExternalParameterValue {
+    /// Signed integer parameter.
+    Integer(i64),
+    /// One declared keyword value.
+    Keyword(String),
+    /// Verified file parameter and its content hash.
+    File(PreparedAsset),
+}
+
+#[derive(Clone, Debug, Serialize)]
 /// An exact, media-verified plan consumed by [`crate::render::render`].
 ///
 /// Every Video node has an exact [`VideoDomain`], every Audio node has an
@@ -171,6 +184,7 @@ pub(super) enum PreparedMedia {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 /// A borrowed, structurally typed view of one prepared node.
 pub enum PreparedNodeMedia<'a> {
     /// A Video renderer primitive with its exact video domain.
@@ -338,6 +352,7 @@ impl Serialize for PreparedNode {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
+#[non_exhaustive]
 /// The closed set of exact Video primitives understood by the renderer.
 pub enum PreparedVideoKind {
     /// A still image expanded to an exact frame count.
@@ -430,7 +445,7 @@ pub enum PreparedVideoKind {
         /// Named prepared inputs.
         inputs: BTreeMap<String, NodeId>,
         /// Bound scalar parameters.
-        parameters: BTreeMap<String, crate::external::ExternalParameterValue>,
+        parameters: BTreeMap<String, PreparedExternalParameterValue>,
         /// Input whose exact domain and audio presence are preserved.
         preserve_input: String,
     },
@@ -463,6 +478,7 @@ impl PreparedVideoKind {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
+#[non_exhaustive]
 /// The closed set of exact Audio primitives understood by the renderer.
 pub enum PreparedAudioKind {
     /// A normalized audio-file source.

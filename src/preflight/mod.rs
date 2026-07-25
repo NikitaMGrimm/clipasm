@@ -28,7 +28,6 @@ mod lower;
 mod plan;
 pub(crate) mod tools;
 
-pub use crate::external::ExternalParameterValue;
 pub(crate) use assets::verify_prepared_asset;
 use assets::{
     entrypoint_directory, manifest_path, prepare_output_path, reject_asset_collisions,
@@ -37,9 +36,10 @@ use assets::{
 use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
 pub use plan::{
-    PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedPlan,
-    PreparedVideoKind,
+    PreparedAsset, PreparedAudioKind, PreparedExternalParameterValue, PreparedNode,
+    PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
+pub use tools::ExternalToolIdentity;
 use tools::{inspect_ffmpeg, inspect_ffprobe};
 
 const PREPARED_FORMAT_VERSION: u32 = 7;

@@ -63,7 +63,7 @@ and execute during rendering.
 
 ```console
 cargo run -- validate examples/external-brighten.clipasm
-cargo run -- compile examples/external-brighten.clipasm
+cargo run -- inspect examples/external-brighten.clipasm
 cargo run -- render examples/external-brighten.clipasm
 ```
 
@@ -74,12 +74,12 @@ scalar parameters.
 
 ```console
 cargo run -- validate examples/root-bindings.clipasm \
-  --input video=examples/assets/gentle-motion.mkv \
+  --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2
 
 cargo run -- render examples/root-bindings.clipasm \
-  --input video=examples/assets/gentle-motion.mkv \
+  --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2 \
   --output root-bindings.mp4

@@ -117,9 +117,23 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 ..
             } => verify_prepared_asset(asset, &node.origin().span)?,
             PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::ExternalVideo { executable, .. },
+                kind:
+                    PreparedVideoKind::ExternalVideo {
+                        executable,
+                        parameters,
+                        ..
+                    },
                 ..
-            } => verify_external_tool(executable, &node.origin().span)?,
+            } => {
+                verify_external_tool(executable, &node.origin().span)?;
+                for asset in parameters.values().filter_map(|value| match value {
+                    crate::preflight::PreparedExternalParameterValue::File(asset) => Some(asset),
+                    crate::preflight::PreparedExternalParameterValue::Integer(_)
+                    | crate::preflight::PreparedExternalParameterValue::Keyword(_) => None,
+                }) {
+                    verify_prepared_asset(asset, &node.origin().span)?;
+                }
+            }
             PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => {}
         }
         let lock_path = sibling_lock_path(&artifact, "cache");

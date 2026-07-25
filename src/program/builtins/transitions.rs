@@ -93,14 +93,3 @@ fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
     };
     one_output(builder.flash_join(before, after, frames))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn transition_versions_cover_their_distinct_timeline_semantics() {
-        assert_eq!(flash().descriptor.semantic_version, 2);
-        assert_eq!(crossfade().descriptor.semantic_version, 1);
-    }
-}

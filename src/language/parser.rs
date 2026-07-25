@@ -15,14 +15,24 @@ pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
     Parser::new(lex(source)?).parse_file(span)
 }
 
+pub(crate) fn accepts_invocation_name(name: &str) -> bool {
+    let source = SourceFile::new("<program-name>", format!("clipasm 1\n{name}()\n"));
+    parse(source).is_ok()
+}
+
 struct Parser {
     tokens: Vec<Token>,
     index: usize,
+    body_depth: usize,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, index: 0 }
+        Self {
+            tokens,
+            index: 0,
+            body_depth: 0,
+        }
     }
 
     fn parse_file(mut self, span: SourceSpan) -> Result<SourceFileSyntax> {
@@ -531,6 +541,17 @@ impl Parser {
         let span = access
             .as_ref()
             .map_or_else(|| self.current().span.clone(), |access| access.span.clone());
+        if self.body_depth >= crate::source::MAX_BODY_NESTING {
+            return Err(Diagnostic::new(
+                "E_BODY_NESTING_DEPTH",
+                format!(
+                    "program body nesting exceeds the supported depth of {}",
+                    crate::source::MAX_BODY_NESTING
+                ),
+                span,
+            ));
+        }
+        self.body_depth += 1;
         self.expect(&TokenKind::LeftBrace, "`{`")?;
         self.skip_newlines();
         let mut statements = Vec::new();
@@ -546,6 +567,7 @@ impl Parser {
             self.skip_newlines();
         }
         self.advance();
+        self.body_depth -= 1;
         Ok(Block {
             access,
             statements,
@@ -847,6 +869,22 @@ mod tests {
         ))
         .expect_err("two statements require a newline");
         assert_eq!(error.code, "E_EXPECTED_STATEMENT_END");
+    }
+
+    #[test]
+    fn rejects_body_nesting_before_recursive_descent_overflows() {
+        let mut source = String::from("clipasm 1\n");
+        for _ in 0..=crate::source::MAX_BODY_NESTING {
+            source.push_str("{\n");
+        }
+        source.push_str("image(\"card.png\", 1s)\n");
+        for _ in 0..=crate::source::MAX_BODY_NESTING {
+            source.push_str("}\n");
+        }
+
+        let error =
+            parse(SourceFile::new("deep.clipasm", source)).expect_err("excessive body nesting");
+        assert_eq!(error.code, "E_BODY_NESTING_DEPTH");
     }
 
     #[test]

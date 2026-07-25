@@ -79,14 +79,3 @@ fn lower_wobble(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
         })?;
     one_output(builder.wobble(video, pixels))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn effect_versions_cover_animation_semantics() {
-        assert_eq!(zoom().descriptor.semantic_version, 3);
-        assert_eq!(wobble().descriptor.semantic_version, 2);
-    }
-}

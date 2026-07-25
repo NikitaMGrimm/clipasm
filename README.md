@@ -19,7 +19,7 @@ render caching.
 
 ## Requirements
 
-- Rust 1.89 or newer
+- Rust 1.95 or newer
 - FFmpeg and FFprobe on `PATH` for rendering
 - Python 3 only for the external-program example
 
@@ -48,7 +48,7 @@ concat
 
 ```console
 cargo run -- validate program.clipasm
-cargo run -- compile program.clipasm
+cargo run -- inspect program.clipasm
 cargo run -- render program.clipasm
 ```
 
@@ -67,7 +67,7 @@ repeat($count)
 
 ```console
 cargo run -- render template.clipasm \
-  --input video=footage.mp4 \
+  --video-input video=footage.mp4 \
   --arg range=3s..8s \
   --arg count=2 \
   --output final.mp4

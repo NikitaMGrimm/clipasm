@@ -66,9 +66,10 @@ impl ExternalRuntime {
                     ParameterValue::Keyword(value) => {
                         ExternalParameterValue::Keyword(value.clone())
                     }
-                    ParameterValue::File(_)
-                    | ParameterValue::Duration(_)
-                    | ParameterValue::TimeRange(_) => {
+                    ParameterValue::File(path) => {
+                        ExternalParameterValue::File(Spanned::new(path.clone(), value.span.clone()))
+                    }
+                    ParameterValue::Duration(_) | ParameterValue::TimeRange(_) => {
                         return Err(Diagnostic::new(
                             "E_INVALID_EXTERNAL_PROGRAM",
                             format!(
@@ -94,10 +95,8 @@ impl ExternalRuntime {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
-/// One scalar value passed to an external executable.
-pub enum ExternalParameterValue {
-    /// Signed integer parameter.
+pub(crate) enum ExternalParameterValue {
     Integer(i64),
-    /// One declared keyword value.
     Keyword(String),
+    File(Spanned<PathBuf>),
 }
