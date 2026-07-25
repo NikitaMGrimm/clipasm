@@ -29,8 +29,8 @@ pub(super) enum LocalType {
 
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedClip, CheckedInputValue, CheckedItem, CheckedItemKind,
-    CheckedLocal, CheckedPackage, CheckedParameter, CheckedParameterValue, CheckedProgram,
-    CheckedProgramInput, CheckedReferenceTarget, ParameterId, ValueLocalId,
+    CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
+    CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget, ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -425,14 +425,18 @@ fn assign_body_output_ids(
 ) -> Result<()> {
     debug_assert_eq!(source.items.len(), checked.items.len());
     for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
-        checked_item.output_bindings = match &item.output_bindings {
-            OutputBindings::None => vec![None; checked_item.output_types.len()],
+        let bindings = match &item.output_bindings {
+            OutputBindings::None => vec![None; checked_item.outputs.len()],
             OutputBindings::One(name) => vec![Some(declare(&name.value, &name.span)?)],
             OutputBindings::Many(names, _) => names
                 .iter()
                 .map(|name| declare(&name.value, &name.span).map(Some))
                 .collect::<Result<Vec<_>>>()?,
         };
+        debug_assert_eq!(bindings.len(), checked_item.outputs.len());
+        for (output, binding) in checked_item.outputs.iter_mut().zip(bindings) {
+            output.binding = binding;
+        }
         if let (
             ItemKind::Invocation(invocation),
             CheckedItemKind::Invocation {
@@ -470,12 +474,12 @@ fn resolve_value_target(
     span: &crate::source::SourceSpan,
     locals: &BTreeMap<String, ValueLocalId>,
     lexical: &BTreeMap<String, BodyInputId>,
-) -> Result<CheckedReferenceTarget> {
+) -> Result<ReferenceTarget> {
     lexical
         .get(name)
         .copied()
-        .map(CheckedReferenceTarget::BodyInput)
-        .or_else(|| locals.get(name).copied().map(CheckedReferenceTarget::Local))
+        .map(ReferenceTarget::BodyInput)
+        .or_else(|| locals.get(name).copied().map(ReferenceTarget::Local))
         .ok_or_else(|| missing_reference(name, span))
 }
 
@@ -951,14 +955,24 @@ fn validate_explicit_input_types(
     Ok(())
 }
 
-fn output_names(bindings: &OutputBindings, count: usize) -> Vec<Option<String>> {
-    match bindings {
-        OutputBindings::None => vec![None; count],
+fn checked_outputs(bindings: &OutputBindings, types: &[ValueType]) -> Vec<CheckedOutput> {
+    let names = match bindings {
+        OutputBindings::None => vec![None; types.len()],
         OutputBindings::One(name) => vec![Some(name.value.clone())],
         OutputBindings::Many(names, _) => {
             names.iter().map(|name| Some(name.value.clone())).collect()
         }
-    }
+    };
+    debug_assert_eq!(names.len(), types.len());
+    names
+        .into_iter()
+        .zip(types.iter().copied())
+        .map(|(name, value_type)| CheckedOutput {
+            name,
+            value_type,
+            binding: None,
+        })
+        .collect()
 }
 
 fn checked_stack_plan(
@@ -1042,9 +1056,7 @@ fn infer_body(
                 CheckedItem {
                     span: item.span.clone(),
                     construct: "reference".to_owned(),
-                    output_names: output_names(&item.output_bindings, 1),
-                    output_types: vec![output],
-                    output_bindings: Vec::new(),
+                    outputs: checked_outputs(&item.output_bindings, &[output]),
                     kind: CheckedItemKind::Reference { target: None },
                 }
             }
@@ -1152,9 +1164,7 @@ fn infer_body(
                 CheckedItem {
                     span: item.span.clone(),
                     construct: invocation.name.value.clone(),
-                    output_names: output_names(&item.output_bindings, output_types.len()),
-                    output_types,
-                    output_bindings: Vec::new(),
+                    outputs: checked_outputs(&item.output_bindings, &output_types),
                     kind: CheckedItemKind::Invocation {
                         program,
                         signature,

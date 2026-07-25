@@ -3,34 +3,8 @@ use std::collections::BTreeMap;
 use crate::model::ValueType;
 use crate::program::{ParameterType, ProgramId, ProgramRegistry, ResolvedSignature};
 
+pub(super) use super::ids::{BodyInputId, ParameterId, ReferenceTarget, ValueLocalId};
 use super::stack::StackBindingPlan;
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct ValueLocalId(pub(super) u32);
-
-impl ValueLocalId {
-    pub(super) const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct BodyInputId(pub(super) u32);
-
-impl BodyInputId {
-    pub(super) const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct ParameterId(pub(super) u32);
-
-impl ParameterId {
-    pub(super) const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedParameter {
@@ -42,7 +16,7 @@ pub(super) struct CheckedParameter {
 
 #[derive(Clone, Debug)]
 pub(super) enum CheckedInputValue {
-    References(Vec<CheckedReferenceTarget>, crate::source::SourceSpan),
+    References(Vec<ReferenceTarget>, crate::source::SourceSpan),
     Body(Box<CheckedBody>, crate::source::SourceSpan),
 }
 
@@ -97,25 +71,24 @@ pub(super) struct CheckedBody {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct CheckedOutput {
+    pub(super) name: Option<String>,
+    pub(super) value_type: ValueType,
+    pub(super) binding: Option<ValueLocalId>,
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct CheckedItem {
     pub(super) span: crate::source::SourceSpan,
     pub(super) construct: String,
-    pub(super) output_names: Vec<Option<String>>,
-    pub(super) output_types: Vec<ValueType>,
-    pub(super) output_bindings: Vec<Option<ValueLocalId>>,
+    pub(super) outputs: Vec<CheckedOutput>,
     pub(super) kind: CheckedItemKind,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) enum CheckedReferenceTarget {
-    Local(ValueLocalId),
-    BodyInput(BodyInputId),
 }
 
 #[derive(Clone, Debug)]
 pub(super) enum CheckedItemKind {
     Reference {
-        target: Option<CheckedReferenceTarget>,
+        target: Option<ReferenceTarget>,
     },
     Invocation {
         program: ProgramId,

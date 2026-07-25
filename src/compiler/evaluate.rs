@@ -12,7 +12,7 @@ use crate::source::{SourceSpan, SourceUnitId, Spanned};
 use super::EntrypointBindings;
 use super::checked::{
     CheckedBody, CheckedInputValue, CheckedItem, CheckedItemKind, CheckedPackage,
-    CheckedParameterValue, CheckedProgram, CheckedReferenceTarget,
+    CheckedParameterValue, CheckedProgram, ReferenceTarget,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -324,11 +324,10 @@ impl Evaluator {
                 unreachable!("checked reference target is resolved")
             }
         };
-        let output_names = checked.output_names.clone();
-        debug_assert_eq!(outputs.len(), output_names.len());
-        debug_assert_eq!(outputs.len(), checked.output_bindings.len());
-        for (output, binding) in outputs.iter().copied().zip(&checked.output_bindings) {
-            if let Some(local) = binding {
+        debug_assert_eq!(outputs.len(), checked.outputs.len());
+        for (output, metadata) in outputs.iter().copied().zip(&checked.outputs) {
+            debug_assert_eq!(output.value_type(), metadata.value_type);
+            if let Some(local) = metadata.binding {
                 self.bind_symbol(scope.local_symbols[local.index()], output)?;
             }
         }
@@ -337,8 +336,11 @@ impl Evaluator {
             construct: checked.construct.clone(),
             outputs: outputs
                 .into_iter()
-                .zip(output_names)
-                .map(|(value, id)| SurfaceOutput { value, id })
+                .zip(&checked.outputs)
+                .map(|(value, metadata)| SurfaceOutput {
+                    value,
+                    id: metadata.name.clone(),
+                })
                 .collect(),
             span: checked.span.clone(),
         });
@@ -348,26 +350,27 @@ impl Evaluator {
     fn evaluate_checked_reference(
         &mut self,
         context: &EvaluationContext<'_>,
-        target: CheckedReferenceTarget,
+        target: ReferenceTarget,
         span: &SourceSpan,
         scope: &EvalScope,
     ) -> Result<ValueRef> {
         match target {
-            CheckedReferenceTarget::Local(local) => {
+            ReferenceTarget::Local(local) => {
                 let symbol = scope.local_symbols[local.index()];
                 let value_type = self.symbols[symbol.index()].value_type;
                 let origin = SourceOrigin::new("reference", span.clone());
                 GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin)
                     .reference(symbol, value_type)
             }
-            CheckedReferenceTarget::BodyInput(input) => scope.body_inputs[input.index()]
-                .ok_or_else(|| {
+            ReferenceTarget::BodyInput(input) => {
+                scope.body_inputs[input.index()].ok_or_else(|| {
                     Diagnostic::new(
                         "E_INTERNAL_BINDING",
                         "lexical body input was not bound during evaluation",
                         span.clone(),
                     )
-                }),
+                })
+            }
         }
     }
 
