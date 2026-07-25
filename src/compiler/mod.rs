@@ -382,7 +382,7 @@ mod tests {
     use crate::program::StackAccess;
     use crate::source::{
         ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
-        ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId,
+        ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId, StackBlock,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -448,6 +448,97 @@ mod tests {
         assert_eq!(
             compile(&yaml).expect("YAML compile").structure_hash(),
             compile(&direct).expect("direct compile").structure_hash()
+        );
+    }
+
+    #[test]
+    fn stack_blocks_return_all_owned_outputs_in_order() {
+        let source = SourceFile::new("program.clipasm", "{ image audio }");
+        let span = SourceSpan::source_start(source.clone());
+        let invocation = |name: &str, arguments: &[(&str, &str)]| Item {
+            kind: ItemKind::Invocation(Invocation {
+                program: Spanned::new(name.to_owned(), span.clone()),
+                stack_access: None,
+                arguments: arguments
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            (*name).to_owned(),
+                            ArgumentValue::Literal(Literal::String(
+                                (*value).to_owned(),
+                                span.clone(),
+                            )),
+                        )
+                    })
+                    .collect(),
+                body: None,
+            }),
+            output_bindings: OutputBindings::None,
+            span: span.clone(),
+        };
+        let package = SourcePackage {
+            root: SourceUnitId(0),
+            units: vec![SourceUnit {
+                source,
+                imports: Vec::new(),
+                externals: Vec::new(),
+                project: Some(Spanned::new(ProjectSettings::default(), span.clone())),
+                program: SourceProgram {
+                    inputs: Vec::new(),
+                    parameters: Vec::new(),
+                    body: ProgramBody {
+                        items: vec![Item {
+                            kind: ItemKind::StackBlock(StackBlock {
+                                stack_access: StackAccess::Owned,
+                                body: ProgramBody {
+                                    items: vec![
+                                        invocation(
+                                            "image",
+                                            &[("path", "card.png"), ("duration", "1s")],
+                                        ),
+                                        invocation("audio", &[("path", "sound.wav")]),
+                                    ],
+                                    span: span.clone(),
+                                },
+                            }),
+                            output_bindings: OutputBindings::Many(
+                                vec![
+                                    Spanned::new("picture".to_owned(), span.clone()),
+                                    Spanned::new("sound".to_owned(), span.clone()),
+                                ],
+                                span.clone(),
+                            ),
+                            span: span.clone(),
+                        }],
+                        span: span.clone(),
+                    },
+                    span,
+                    stack_access: StackAccess::Owned,
+                },
+                output: None,
+            }],
+            external_programs: Vec::new(),
+        };
+
+        let compiled = compile(&package).expect("stack block compile");
+        assert_eq!(
+            compiled
+                .outputs()
+                .iter()
+                .map(|output| output.value_type())
+                .collect::<Vec<_>>(),
+            vec![
+                crate::model::ValueType::Video,
+                crate::model::ValueType::Audio
+            ]
+        );
+        assert_eq!(
+            compiled.named_values()["picture"].value_type(),
+            crate::model::ValueType::Video
+        );
+        assert_eq!(
+            compiled.named_values()["sound"].value_type(),
+            crate::model::ValueType::Audio
         );
     }
 }

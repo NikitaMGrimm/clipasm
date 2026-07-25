@@ -203,6 +203,14 @@ pub(crate) enum OutputBindings {
 pub(crate) enum ItemKind {
     Reference(Reference),
     Invocation(Invocation),
+    #[allow(dead_code)] // Constructed by the native parser in the next migration stage.
+    StackBlock(StackBlock),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StackBlock {
+    pub(crate) stack_access: StackAccess,
+    pub(crate) body: ProgramBody,
 }
 
 #[derive(Clone, Debug)]

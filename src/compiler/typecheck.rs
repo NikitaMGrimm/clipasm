@@ -271,6 +271,7 @@ pub(super) struct ResolvedInvocation {
 #[derive(Clone, Debug)]
 pub(super) struct InferenceResult {
     pub(super) invocations: Vec<ResolvedInvocation>,
+    pub(super) stack_blocks: Vec<Vec<ValueType>>,
     pub(super) outputs: Vec<ValueType>,
 }
 
@@ -284,22 +285,25 @@ struct PassState {
     purpose: PassPurpose,
     deferred: usize,
     invocations: Vec<Option<ResolvedInvocation>>,
+    stack_blocks: Vec<Option<Vec<ValueType>>>,
 }
 
 impl PassState {
-    fn infer(invocation_count: usize) -> Self {
+    fn infer(invocation_count: usize, stack_block_count: usize) -> Self {
         Self {
             purpose: PassPurpose::Infer,
             deferred: 0,
             invocations: vec![None; invocation_count],
+            stack_blocks: vec![None; stack_block_count],
         }
     }
 
-    fn resolve(invocation_count: usize) -> Self {
+    fn resolve(invocation_count: usize, stack_block_count: usize) -> Self {
         Self {
             purpose: PassPurpose::Resolve,
             deferred: 0,
             invocations: vec![None; invocation_count],
+            stack_blocks: vec![None; stack_block_count],
         }
     }
 
@@ -319,6 +323,16 @@ impl PassState {
             self.invocations[invocation.id.0] = Some(resolved);
         }
     }
+
+    fn record_stack_block(
+        &mut self,
+        block: &super::draft::DraftStackBlock,
+        outputs: Vec<ValueType>,
+    ) {
+        if self.is_resolving() {
+            self.stack_blocks[block.id.0] = Some(outputs);
+        }
+    }
 }
 
 fn allocate_body_generics(
@@ -328,20 +342,25 @@ fn allocate_body_generics(
     generics: &mut [Option<TypeVarId>],
 ) {
     for item in &body.items {
-        let DraftItemKind::Invocation(invocation) = &item.kind else {
-            continue;
-        };
-        let definition = &definitions[invocation.program.index()];
-        if definition.descriptor.type_selector.is_some() {
-            generics[invocation.id.0] = Some(arena.allocate());
-        }
-        for input in invocation.inputs.iter().flatten() {
-            if let DraftInput::Body(body) = input {
-                allocate_body_generics(body, definitions, arena, generics);
+        match &item.kind {
+            DraftItemKind::Reference(_) => {}
+            DraftItemKind::Invocation(invocation) => {
+                let definition = &definitions[invocation.program.index()];
+                if definition.descriptor.type_selector.is_some() {
+                    generics[invocation.id.0] = Some(arena.allocate());
+                }
+                for input in invocation.inputs.iter().flatten() {
+                    if let DraftInput::Body(body) = input {
+                        allocate_body_generics(body, definitions, arena, generics);
+                    }
+                }
+                if let Some(body) = invocation.body.as_deref() {
+                    allocate_body_generics(body, definitions, arena, generics);
+                }
             }
-        }
-        if let Some(body) = invocation.body.as_deref() {
-            allocate_body_generics(body, definitions, arena, generics);
+            DraftItemKind::StackBlock(block) => {
+                allocate_body_generics(&block.body, definitions, arena, generics);
+            }
         }
     }
 }
@@ -402,7 +421,7 @@ fn infer_fixpoint(
     loop {
         let before = types.arena.revision();
         let mut attempt = types.arena.clone();
-        let mut state = PassState::infer(program.invocation_count);
+        let mut state = PassState::infer(program.invocation_count, program.stack_block_count);
         infer_program_body(
             program,
             definitions,
@@ -452,7 +471,7 @@ fn resolve_final_program(
     types: &TypeState,
 ) -> Result<InferenceResult> {
     let mut arena = types.arena.clone();
-    let mut state = PassState::resolve(program.invocation_count);
+    let mut state = PassState::resolve(program.invocation_count, program.stack_block_count);
     let outputs = infer_program_body(
         program,
         definitions,
@@ -479,8 +498,23 @@ fn resolve_final_program(
             })
         })
         .collect::<Result<Vec<_>>>()?;
+    let stack_blocks = state
+        .stack_blocks
+        .into_iter()
+        .enumerate()
+        .map(|(index, resolved)| {
+            resolved.ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INTERNAL_TYPE_RESOLUTION",
+                    format!("stack block {index} was not resolved"),
+                    program.span.clone(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(InferenceResult {
         invocations,
+        stack_blocks,
         outputs,
     })
 }
@@ -572,6 +606,30 @@ fn infer_body(
                 frame,
                 state,
             )?,
+            DraftItemKind::StackBlock(block) => {
+                let mut child = EvaluationStack::<TypeVarId>::enter_body(
+                    frame,
+                    block.access,
+                    "stack block",
+                    item.span.clone(),
+                );
+                infer_body(
+                    &block.body,
+                    globals,
+                    lexical,
+                    definitions,
+                    invocation_generics,
+                    arena,
+                    stack,
+                    &mut child,
+                    state,
+                )?;
+                let outputs = stack.finish_body(&child);
+                if state.is_resolving() {
+                    state.record_stack_block(block, concrete_values(arena, &outputs, &item.span)?);
+                }
+                outputs
+            }
         };
         constrain_bindings(globals, &item.output_bindings, &outputs, arena, &item.span)?;
         stack.extend(frame, outputs);

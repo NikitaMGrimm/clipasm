@@ -90,7 +90,14 @@ pub(super) struct CheckedInvocation {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct CheckedStackBlock {
+    pub(super) access: crate::program::StackAccess,
+    pub(super) body: Box<CheckedBody>,
+}
+
+#[derive(Clone, Debug)]
 pub(super) enum CheckedItemKind {
     Reference { target: ReferenceTarget },
     Invocation(CheckedInvocation),
+    StackBlock(CheckedStackBlock),
 }

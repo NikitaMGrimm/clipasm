@@ -37,6 +37,13 @@ The current YAML parser remains temporary migration scaffolding while native
 language support and tests are implemented. It will be removed rather than
 maintained as a second frontend.
 
+`StackBlock` is a structural canonical-source item rather than a registered
+program. It evaluates a nested body in a child stack frame and returns every
+remaining value owned by that frame, preserving order and types. Blocks default
+to owned access in the native language; explicit visible access uses the normal
+stack visibility boundary rules. Output bindings apply to the block's complete
+ordered result sequence, while IDs declared inside remain program-wide.
+
 ## Compilation
 
 Before evaluation, the compiler validates the complete linked source-unit

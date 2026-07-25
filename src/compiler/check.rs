@@ -22,7 +22,8 @@ pub(super) enum LocalType {
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
     CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
-    CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget, ValueLocalId,
+    CheckedProgram, CheckedProgramInput, CheckedStackBlock, ParameterId, ReferenceTarget,
+    ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -238,6 +239,7 @@ fn check_program(
         &mut body_input_count,
         definitions,
         &inference.invocations,
+        &inference.stack_blocks,
     )?;
     Ok((
         inference.outputs,
@@ -355,15 +357,19 @@ fn declare_body_outputs(
                 }
             }
         }
-        if let DraftItemKind::Invocation(invocation) = &item.kind {
-            if let Some(body) = invocation.body.as_deref() {
-                declare_body_outputs(body, declare)?;
-            }
-            for input in invocation.inputs.iter().flatten() {
-                if let DraftInput::Body(body) = input {
+        match &item.kind {
+            DraftItemKind::Reference(_) => {}
+            DraftItemKind::Invocation(invocation) => {
+                if let Some(body) = invocation.body.as_deref() {
                     declare_body_outputs(body, declare)?;
                 }
+                for input in invocation.inputs.iter().flatten() {
+                    if let DraftInput::Body(body) = input {
+                        declare_body_outputs(body, declare)?;
+                    }
+                }
             }
+            DraftItemKind::StackBlock(block) => declare_body_outputs(&block.body, declare)?,
         }
     }
     Ok(())
@@ -418,14 +424,20 @@ fn collect_body_names(
                 }
             }
         }
-        if let DraftItemKind::Invocation(invocation) = &item.kind {
-            if let Some(body) = invocation.body.as_deref() {
-                collect_body_names(body, locals, definitions)?;
-            }
-            for input in invocation.inputs.iter().flatten() {
-                if let DraftInput::Body(body) = input {
+        match &item.kind {
+            DraftItemKind::Reference(_) => {}
+            DraftItemKind::Invocation(invocation) => {
+                if let Some(body) = invocation.body.as_deref() {
                     collect_body_names(body, locals, definitions)?;
                 }
+                for input in invocation.inputs.iter().flatten() {
+                    if let DraftInput::Body(body) = input {
+                        collect_body_names(body, locals, definitions)?;
+                    }
+                }
+            }
+            DraftItemKind::StackBlock(block) => {
+                collect_body_names(&block.body, locals, definitions)?;
             }
         }
     }
@@ -461,6 +473,26 @@ fn item_output_types(
                         dependencies: dependencies.clone(),
                         span: item.span.clone(),
                     },
+                })
+                .collect()
+        }
+        DraftItemKind::StackBlock(block) => {
+            let mut dependencies = BTreeSet::new();
+            collect_body_dependencies(
+                &block.body,
+                definitions,
+                &BTreeSet::new(),
+                &mut dependencies,
+            );
+            let count = match &item.output_bindings {
+                OutputBindings::None => 0,
+                OutputBindings::One(_) => 1,
+                OutputBindings::Many(names, _) => names.len(),
+            };
+            (0..count)
+                .map(|_| LocalType::Inferred {
+                    dependencies: dependencies.clone(),
+                    span: item.span.clone(),
                 })
                 .collect()
         }
@@ -516,6 +548,7 @@ fn materialize_body(
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
     invocations: &[super::typecheck::ResolvedInvocation],
+    stack_blocks: &[Vec<ValueType>],
 ) -> Result<CheckedBody> {
     let mut checked_items = Vec::with_capacity(body.items.len());
     for item in &body.items {
@@ -554,6 +587,7 @@ fn materialize_body(
                     body_input_count,
                     definitions,
                     invocations,
+                    stack_blocks,
                 )?;
                 let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
                 let checked_body = match definition.implementation {
@@ -589,6 +623,7 @@ fn materialize_body(
                             body_input_count,
                             definitions,
                             invocations,
+                            stack_blocks,
                         )?))
                     }
                 };
@@ -612,6 +647,30 @@ fn materialize_body(
                     }),
                 }
             }
+            DraftItemKind::StackBlock(block) => CheckedItem {
+                span: item.span.clone(),
+                construct: "stack block".to_owned(),
+                outputs: checked_outputs(
+                    &item.output_bindings,
+                    &stack_blocks[block.id.0],
+                    local_ids,
+                )?,
+                kind: CheckedItemKind::StackBlock(CheckedStackBlock {
+                    access: block.access,
+                    body: Box::new(materialize_body(
+                        &block.body,
+                        local_types,
+                        local_ids,
+                        parameter_ids,
+                        lexical_types,
+                        lexical_ids,
+                        body_input_count,
+                        definitions,
+                        invocations,
+                        stack_blocks,
+                    )?),
+                }),
+            },
         };
         checked_items.push(checked);
     }
@@ -654,6 +713,7 @@ fn materialize_explicit_arguments(
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
     invocations: &[super::typecheck::ResolvedInvocation],
+    stack_blocks: &[Vec<ValueType>],
 ) -> Result<MaterializedArguments> {
     let inputs = invocation
         .inputs
@@ -672,6 +732,7 @@ fn materialize_explicit_arguments(
                         body_input_count,
                         definitions,
                         invocations,
+                        stack_blocks,
                     )
                 })
                 .transpose()
@@ -711,6 +772,7 @@ fn materialize_input_argument(
     body_input_count: &mut usize,
     definitions: &[ProgramDefinition],
     invocations: &[super::typecheck::ResolvedInvocation],
+    stack_blocks: &[Vec<ValueType>],
 ) -> Result<CheckedInputValue> {
     match argument {
         DraftInput::Reference(reference) => Ok(CheckedInputValue::References(
@@ -742,6 +804,7 @@ fn materialize_input_argument(
                 body_input_count,
                 definitions,
                 invocations,
+                stack_blocks,
             )?),
             body.span.clone(),
         )),
@@ -935,6 +998,9 @@ fn collect_body_dependencies(
             DraftItemKind::Invocation(invocation) => {
                 collect_invocation_dependencies(invocation, definitions, shadows, dependencies);
             }
+            DraftItemKind::StackBlock(block) => {
+                collect_body_dependencies(&block.body, definitions, shadows, dependencies);
+            }
         }
     }
 }
@@ -1028,6 +1094,7 @@ fn binding_count_error(
     let construct = match &item.kind {
         DraftItemKind::Reference(_) => "reference",
         DraftItemKind::Invocation(invocation) => &invocation.name.value,
+        DraftItemKind::StackBlock(_) => "stack block",
     };
     Diagnostic::new(
         "E_OUTPUT_BINDING_COUNT",

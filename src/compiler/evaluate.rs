@@ -263,6 +263,23 @@ impl Evaluator {
                 stack,
                 frame,
             )?,
+            CheckedItemKind::StackBlock(block) => {
+                let mut child = EvaluationStack::<ValueRef>::enter_body(
+                    frame,
+                    block.access,
+                    "stack block",
+                    checked.span.clone(),
+                );
+                self.evaluate_body(
+                    context,
+                    &block.body,
+                    scope,
+                    stack,
+                    &mut child,
+                    requested_frames,
+                )?;
+                stack.finish_body(&child)
+            }
         };
         debug_assert_eq!(outputs.len(), checked.outputs.len());
         for (output, metadata) in outputs.iter().copied().zip(&checked.outputs) {
