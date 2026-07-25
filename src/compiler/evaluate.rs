@@ -170,6 +170,7 @@ impl Evaluator<'_> {
                     program: video_program,
                     signature: video_signature.clone(),
                     access: video_definition.descriptor.default_stack_access,
+                    stack_plan: super::stack::StackBindingPlan { inputs: Vec::new() },
                     body: None,
                     input_bodies: BTreeMap::new(),
                     body_input_ids: BTreeMap::new(),
@@ -187,6 +188,7 @@ impl Evaluator<'_> {
                 access: definition.descriptor.default_stack_access,
                 requested_frames: None,
                 origin: SourceOrigin::new("root program", program.span().clone()),
+                stack_plan: None,
             },
             |value, _port| match value {
                 ArgumentValue::Body(body) => {
@@ -437,6 +439,7 @@ impl Evaluator<'_> {
                     program,
                     signature,
                     access,
+                    stack_plan,
                     body,
                     input_bodies,
                     body_input_ids,
@@ -447,6 +450,7 @@ impl Evaluator<'_> {
                     *program,
                     signature,
                     *access,
+                    stack_plan,
                     body.as_deref(),
                     input_bodies,
                     body_input_ids,
@@ -574,6 +578,7 @@ impl Evaluator<'_> {
         program: crate::program::ProgramId,
         signature: &ResolvedSignature,
         access: crate::program::StackAccess,
+        stack_plan: &super::stack::StackBindingPlan,
         checked_body: Option<&CheckedBody>,
         input_bodies: &BTreeMap<String, CheckedBody>,
         body_input_ids: &BTreeMap<String, super::check::BodyInputId>,
@@ -598,6 +603,7 @@ impl Evaluator<'_> {
                 access,
                 requested_frames,
                 origin: origin.clone(),
+                stack_plan: Some(stack_plan),
             },
             |expression, port| {
                 self.evaluate_input_value(

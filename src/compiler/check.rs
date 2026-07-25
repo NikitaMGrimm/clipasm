@@ -13,7 +13,9 @@ use crate::source::{
     SourceProgram, SourceUnitId,
 };
 
-use super::stack::EvaluationStack;
+use super::stack::{
+    EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
+};
 
 const MAX_BODY_NESTING: usize = 256;
 
@@ -99,6 +101,7 @@ pub(super) enum CheckedItemKind {
         program: ProgramId,
         signature: ResolvedSignature,
         access: crate::program::StackAccess,
+        stack_plan: StackBindingPlan,
         body: Option<Box<CheckedBody>>,
         input_bodies: BTreeMap<String, CheckedBody>,
         body_input_ids: BTreeMap<String, BodyInputId>,
@@ -889,6 +892,69 @@ fn validate_explicit_input_types(
     Ok(())
 }
 
+fn checked_stack_plan(
+    program: &str,
+    signature: &ResolvedSignature,
+    invocation: &crate::source::Invocation,
+    stack: &EvaluationStack<ValueType>,
+    frame: &super::stack::StackFrame,
+    access: crate::program::StackAccess,
+    span: &crate::source::SourceSpan,
+) -> Result<StackBindingPlan> {
+    let missing = signature
+        .inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, port)| !invocation.arguments.contains_key(&port.name))
+        .map(|(index, port)| StackBindingInput {
+            port: index,
+            requirement: port.value_type,
+            cardinality: port.cardinality,
+        })
+        .collect::<Vec<_>>();
+    match stack.plan_bindings(frame, access, &missing, |value, required| {
+        if value == required {
+            StackCompatibility::Definite
+        } else {
+            StackCompatibility::Incompatible
+        }
+    }) {
+        StackBindingOutcome::Resolved(plan) => Ok(plan),
+        StackBindingOutcome::Deferred => {
+            unreachable!("concrete stack compatibility is never deferred")
+        }
+        StackBindingOutcome::Impossible(failure) => {
+            let port = &signature.inputs[failure.port];
+            let (code, requirement) = match port.cardinality {
+                Cardinality::One => (
+                    "E_STACK_UNDERFLOW",
+                    format!(
+                        "`{program}.{}` needs one preceding {} value",
+                        port.name, port.value_type
+                    ),
+                ),
+                Cardinality::Variadic { min } => (
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!(
+                        "`{program}.{}` needs at least {min} {} value(s)",
+                        port.name, port.value_type
+                    ),
+                ),
+            };
+            Err(stack.underflow(
+                frame,
+                access,
+                code,
+                &requirement,
+                port.value_type,
+                failure.available,
+                &failure.selected,
+                span,
+            ))
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_body(
     body: &ProgramBody,
@@ -938,51 +1004,21 @@ fn infer_body(
                 let mut signature = resolve_invocation_signature(
                     definition, invocation, &validated, stack, frame, access, &item.span,
                 )?;
-                if let Some(resolved) = &signature {
-                    let explicit_inputs = resolved
-                        .inputs
-                        .iter()
-                        .filter(|port| invocation.arguments.contains_key(&port.name))
-                        .count();
-                    let missing = resolved.inputs.len() - explicit_inputs;
-                    if missing > 0 {
-                        if resolved
-                            .inputs
-                            .iter()
-                            .any(|port| matches!(port.cardinality, Cardinality::Variadic { .. }))
-                        {
-                            let port = &resolved.inputs[0];
-                            let Cardinality::Variadic { min } = port.cardinality else {
-                                unreachable!("validated variadic descriptor")
-                            };
-                            stack.take_all_matching(
-                                frame,
-                                access,
-                                port.value_type,
-                                min,
-                                &invocation.program.value,
-                                &port.name,
-                                &item.span,
-                            )?;
-                        } else {
-                            for port in resolved
-                                .inputs
-                                .iter()
-                                .filter(|port| !invocation.arguments.contains_key(&port.name))
-                                .rev()
-                            {
-                                stack.take_one_matching(
-                                    frame,
-                                    access,
-                                    port.value_type,
-                                    &invocation.program.value,
-                                    &port.name,
-                                    &item.span,
-                                )?;
-                            }
-                        }
-                    }
-                }
+                let stack_plan = if let Some(resolved) = &signature {
+                    let plan = checked_stack_plan(
+                        &invocation.program.value,
+                        resolved,
+                        invocation,
+                        stack,
+                        frame,
+                        access,
+                        &item.span,
+                    )?;
+                    stack.apply_binding_plan(&plan);
+                    plan
+                } else {
+                    StackBindingPlan { inputs: Vec::new() }
+                };
 
                 let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_)
@@ -1090,6 +1126,7 @@ fn infer_body(
                         program,
                         signature,
                         access,
+                        stack_plan,
                         body: checked_body,
                         input_bodies: validated.input_bodies,
                         body_input_ids: BTreeMap::new(),

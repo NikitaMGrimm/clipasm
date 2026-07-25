@@ -371,6 +371,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
             .count()
     }
 
+    #[cfg(test)]
     pub(super) fn take_one_matching(
         &mut self,
         frame: &StackFrame,
@@ -413,6 +414,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         Ok(*value)
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn take_all_matching(
         &mut self,
@@ -506,6 +508,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
     }
 }
 
+#[cfg(test)]
 fn exact_compatibility<T: Copy + StackValue>(value: T, required: ValueType) -> StackCompatibility {
     if value.value_type() == required {
         StackCompatibility::Definite

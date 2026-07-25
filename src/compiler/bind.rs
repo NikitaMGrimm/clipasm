@@ -11,7 +11,8 @@ use crate::source::{ArgumentValue, Invocation, Literal};
 use crate::source::{SourceSpan, Spanned};
 
 use super::stack::{
-    EvaluationStack, StackBindingInput, StackBindingOutcome, StackCompatibility, StackFrame,
+    EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
+    StackFrame,
 };
 
 pub(super) struct BindContext<'a> {
@@ -20,6 +21,7 @@ pub(super) struct BindContext<'a> {
     pub(super) access: StackAccess,
     pub(super) requested_frames: Option<FrameCount>,
     pub(super) origin: SourceOrigin,
+    pub(super) stack_plan: Option<&'a StackBindingPlan>,
 }
 
 pub(super) fn bind_call(
@@ -39,6 +41,7 @@ pub(super) fn bind_call(
         access,
         requested_frames,
         origin,
+        stack_plan,
     } = context;
     let descriptor = &definition.descriptor;
     for (name, argument) in &invocation.arguments {
@@ -79,6 +82,7 @@ pub(super) fn bind_call(
         frame,
         access,
         &origin.span,
+        stack_plan,
     )?;
 
     let inputs = signature
@@ -293,6 +297,7 @@ fn resolve_explicit_input(
     Ok(values)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bind_missing_inputs(
     program: &str,
     ports: &[ResolvedInputPort],
@@ -301,6 +306,7 @@ fn bind_missing_inputs(
     frame: &mut StackFrame,
     access: StackAccess,
     span: &SourceSpan,
+    checked_plan: Option<&StackBindingPlan>,
 ) -> Result<()> {
     let missing = ports
         .iter()
@@ -312,45 +318,49 @@ fn bind_missing_inputs(
             cardinality: port.cardinality,
         })
         .collect::<Vec<_>>();
-    let plan = match stack.plan_bindings(frame, access, &missing, |value, required| {
-        if value.value_type() == required {
-            StackCompatibility::Definite
-        } else {
-            StackCompatibility::Incompatible
-        }
-    }) {
-        StackBindingOutcome::Resolved(plan) => plan,
-        StackBindingOutcome::Deferred => {
-            unreachable!("concrete stack compatibility is never deferred")
-        }
-        StackBindingOutcome::Impossible(failure) => {
-            let port = &ports[failure.port];
-            let (code, requirement) = match port.cardinality {
-                Cardinality::One => (
-                    "E_STACK_UNDERFLOW",
-                    format!(
-                        "`{program}.{}` needs one preceding {} value",
-                        port.name, port.value_type
+    let plan = if let Some(plan) = checked_plan {
+        plan.clone()
+    } else {
+        match stack.plan_bindings(frame, access, &missing, |value, required| {
+            if value.value_type() == required {
+                StackCompatibility::Definite
+            } else {
+                StackCompatibility::Incompatible
+            }
+        }) {
+            StackBindingOutcome::Resolved(plan) => plan,
+            StackBindingOutcome::Deferred => {
+                unreachable!("concrete stack compatibility is never deferred")
+            }
+            StackBindingOutcome::Impossible(failure) => {
+                let port = &ports[failure.port];
+                let (code, requirement) = match port.cardinality {
+                    Cardinality::One => (
+                        "E_STACK_UNDERFLOW",
+                        format!(
+                            "`{program}.{}` needs one preceding {} value",
+                            port.name, port.value_type
+                        ),
                     ),
-                ),
-                Cardinality::Variadic { min } => (
-                    "E_MISSING_REQUIRED_INPUT",
-                    format!(
-                        "`{program}.{}` needs at least {min} {} value(s)",
-                        port.name, port.value_type
+                    Cardinality::Variadic { min } => (
+                        "E_MISSING_REQUIRED_INPUT",
+                        format!(
+                            "`{program}.{}` needs at least {min} {} value(s)",
+                            port.name, port.value_type
+                        ),
                     ),
-                ),
-            };
-            return Err(stack.underflow(
-                frame,
-                access,
-                code,
-                &requirement,
-                port.value_type,
-                failure.available,
-                &failure.selected,
-                span,
-            ));
+                };
+                return Err(stack.underflow(
+                    frame,
+                    access,
+                    code,
+                    &requirement,
+                    port.value_type,
+                    failure.available,
+                    &failure.selected,
+                    span,
+                ));
+            }
         }
     };
     for bound in stack.apply_binding_plan(&plan) {
@@ -475,6 +485,7 @@ mod tests {
                 access: StackAccess::Owned,
                 requested_frames: None,
                 origin: SourceOrigin::new("typed", span()),
+                stack_plan: None,
             },
             |_, _| unreachable!("typed program has no inputs"),
             |_, _| unreachable!("typed test parameters use literals"),
@@ -496,6 +507,7 @@ mod tests {
             &mut frame,
             StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
+            None,
         )
         .expect("bind");
         assert_eq!(slots[0].as_ref().expect("first")[0].id().get(), 1);
@@ -518,6 +530,7 @@ mod tests {
             &mut frame,
             StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
+            None,
         )
         .expect("matching value below top");
         assert_eq!(slots[0], Some(vec![video(1)]));
@@ -540,6 +553,7 @@ mod tests {
             &mut frame,
             StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
+            None,
         )
         .expect_err("one value cannot satisfy two ports");
 
@@ -569,6 +583,7 @@ mod tests {
             &mut frame,
             StackAccess::Owned,
             &SourceSpan::file_start("test.yaml"),
+            None,
         )
         .expect("variadic binding");
 
