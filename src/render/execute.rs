@@ -16,7 +16,8 @@ use crate::model::{
     AudioDomain, AudioSpec, FrameCount, ImageFit, NodeId, ValueType, VideoDomain, VideoSpec,
 };
 use crate::preflight::{
-    EXPORT_PIXEL_FORMAT, PreparedNode, PreparedNodeKind, PreparedPlan, WORKING_PIXEL_FORMAT,
+    EXPORT_PIXEL_FORMAT, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedPlan,
+    PreparedVideoKind, WORKING_PIXEL_FORMAT,
 };
 use crate::source::SourceSpan;
 
@@ -72,13 +73,23 @@ impl<'a> Executor<'a> {
         staged: &Path,
         result: &PreparedNode,
     ) -> Result<()> {
+        let PreparedNodeMedia::Video {
+            domain, has_audio, ..
+        } = result.media()
+        else {
+            return Err(Diagnostic::new(
+                "E_INVALID_PLAN",
+                "prepared result is Audio, but rendering requires Video",
+                result.origin().span.clone(),
+            ));
+        };
         stage_export(
             artifact,
             staged,
             self.plan.video(),
             self.plan.audio(),
-            result.domain(),
-            result.has_audio(),
+            domain,
+            has_audio,
             self.plan.ffmpeg().executable(),
             self.plan.ffprobe().executable(),
         )
@@ -104,8 +115,11 @@ impl<'a> Executor<'a> {
         let temporary = temporary_sibling(destination, "cache", extension);
         let mut command = Command::new(ffmpeg);
         command.args(["-y", "-v", "error"]);
-        match node.kind() {
-            PreparedNodeKind::ImageVideo { asset, fit, frames } => {
+        match node.media() {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::ImageVideo { asset, fit, frames },
+                ..
+            } => {
                 let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
                 command.args(["-loop", "1", "-i"]).arg(asset.source_path());
                 command
@@ -120,10 +134,14 @@ impl<'a> Executor<'a> {
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
                 append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::VideoSource { asset, fit, frames } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::VideoSource { asset, fit, frames },
+                has_audio,
+                ..
+            } => {
                 let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
                 command.arg("-i").arg(asset.source_path());
-                let audio_input = if node.has_audio() {
+                let audio_input = if has_audio {
                     "[0:a:0]".to_owned()
                 } else {
                     command
@@ -139,16 +157,19 @@ impl<'a> Executor<'a> {
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
                 append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::AudioSource { asset } => {
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioSource { asset },
+                domain,
+            } => {
                 command.arg("-i").arg(asset.source_path());
-                let filter = format!(
-                    "[0:a:0]{}[a]",
-                    normalize_audio(node.audio_domain().samples, audio)
-                );
+                let filter = format!("[0:a:0]{}[a]", normalize_audio(domain.samples, audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
-            PreparedNodeKind::AudioSlice { input, range } => {
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioSlice { input, range },
+                ..
+            } => {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
@@ -160,18 +181,21 @@ impl<'a> Executor<'a> {
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
-            PreparedNodeKind::AudioRepeat { input, count } => {
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioRepeat { input, count },
+                domain,
+            } => {
                 command
                     .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let filter = format!(
-                    "[0:a]{}[a]",
-                    normalize_audio(node.audio_domain().samples, audio)
-                );
+                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples, audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
-            PreparedNodeKind::AudioConcat { inputs } => {
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioConcat { inputs },
+                domain,
+            } => {
                 for input in inputs {
                     command
                         .arg("-i")
@@ -184,12 +208,15 @@ impl<'a> Executor<'a> {
                 let filter = format!(
                     "{labels}concat=n={}:v=0:a=1[joined];[joined]{}[a]",
                     inputs.len(),
-                    normalize_audio(node.audio_domain().samples, audio)
+                    normalize_audio(domain.samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
-            PreparedNodeKind::Slice { input, range } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::Slice { input, range },
+                ..
+            } => {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
@@ -205,10 +232,14 @@ impl<'a> Executor<'a> {
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
                 append_video_output(&mut command, range.frames(), spec, audio, &temporary);
             }
-            PreparedNodeKind::Repeat {
-                input,
-                count,
-                frames,
+            PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::Repeat {
+                        input,
+                        count,
+                        frames,
+                    },
+                ..
             } => {
                 command
                     .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
@@ -222,38 +253,49 @@ impl<'a> Executor<'a> {
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
                 append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::Zoom { input, percent } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::Zoom { input, percent },
+                domain,
+                ..
+            } => {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]{}[v];[0:a]{}[a]",
-                    zoom_filter(*percent, node.domain().frames),
+                    zoom_filter(*percent, domain.frames),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::Wobble { input, pixels } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::Wobble { input, pixels },
+                domain,
+                ..
+            } => {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *input, &node.origin().span)?);
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]{}[v];[0:a]{}[a]",
                     wobble_filter(*pixels, spec),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::FlashJoin {
-                before,
-                after,
-                frames,
+            PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::FlashJoin {
+                        before,
+                        after,
+                        frames,
+                    },
+                domain,
+                ..
             } => {
                 command
                     .arg("-i")
@@ -261,17 +303,20 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *after, &node.origin().span)?);
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:v][0:a][after][1:a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
                     frames.0,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::Concat { inputs } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::Concat { inputs },
+                domain,
+                ..
+            } => {
                 for input in inputs {
                     command
                         .arg("-i")
@@ -281,30 +326,34 @@ impl<'a> Executor<'a> {
                     let _ = write!(output, "[{index}:v][{index}:a]");
                     output
                 });
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "{labels}concat=n={}:v=1:a=1[v][joined];[joined]{}[a]",
                     inputs.len(),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::ExtractAudio { video } => {
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::ExtractAudio { video },
+                domain,
+            } => {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *video, &node.origin().span)?);
-                let filter = format!(
-                    "[0:a]{}[a]",
-                    normalize_audio(node.audio_domain().samples, audio)
-                );
+                let filter = format!("[0:a]{}[a]", normalize_audio(domain.samples, audio));
                 command.args(["-filter_complex", &filter, "-map", "[a]"]);
                 append_audio_output(&mut command, audio, &temporary);
             }
-            PreparedNodeKind::SetAudio {
-                audio: audio_node,
-                video,
+            PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::SetAudio {
+                        audio: audio_node,
+                        video,
+                    },
+                domain,
+                ..
             } => {
                 command
                     .arg("-i")
@@ -312,17 +361,20 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *video, &node.origin().span)?);
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[1:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{}[a]",
-                    node.domain().frames.0,
+                    domain.frames.0,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::AudioOnBlack { audio: audio_node } => {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::AudioOnBlack { audio: audio_node },
+                domain,
+                ..
+            } => {
                 command.args(["-f", "lavfi", "-i"]).arg(format!(
                     "color=c=black:s={}x{}:r={}/{}",
                     spec.width,
@@ -333,21 +385,24 @@ impl<'a> Executor<'a> {
                 command
                     .arg("-i")
                     .arg(artifact(artifacts, *audio_node, &node.origin().span)?);
-                let samples =
-                    samples_for_video(node.domain().frames, spec, audio, &node.origin().span)?;
+                let samples = samples_for_video(domain.frames, spec, audio, &node.origin().span)?;
                 let filter = format!(
                     "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
-                    node.domain().frames.0,
+                    domain.frames.0,
                     WORKING_PIXEL_FORMAT,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
+                append_video_output(&mut command, domain.frames, spec, audio, &temporary);
             }
-            PreparedNodeKind::ExternalVideo {
-                executable,
-                inputs,
-                parameters,
+            PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::ExternalVideo {
+                        executable,
+                        inputs,
+                        parameters,
+                        ..
+                    },
                 ..
             } => {
                 let inputs = inputs
@@ -359,10 +414,8 @@ impl<'a> Executor<'a> {
                             ExternalRunInput {
                                 path: artifact(artifacts, *id, &node.origin().span)?,
                                 value_type: input_node.value_type(),
-                                domain: (input_node.value_type() == ValueType::Video)
-                                    .then(|| input_node.domain()),
-                                audio_domain: (input_node.value_type() == ValueType::Audio)
-                                    .then(|| input_node.audio_domain()),
+                                domain: input_node.video_domain(),
+                                audio_domain: input_node.audio_domain(),
                                 has_audio: input_node.has_audio(),
                             },
                         ))

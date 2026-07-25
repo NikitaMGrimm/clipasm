@@ -12,7 +12,7 @@
 //! let compiled = clipasm::compiler::compile(&source)?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
 //! let result = &plan.nodes()[plan.result().get() as usize];
-//! println!("prepared {} frames", result.domain().frames.0);
+//! println!("prepared {} frames", result.video_domain().expect("Video result").frames.0);
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 
@@ -20,7 +20,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
@@ -168,17 +169,47 @@ impl PreparedPlan {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// One exact renderer primitive in a [`PreparedPlan`].
 pub struct PreparedNode {
     id: NodeId,
-    kind: PreparedNodeKind,
-    value_type: ValueType,
-    domain: Option<VideoDomain>,
-    audio_domain: Option<AudioDomain>,
-    has_audio: bool,
+    media: PreparedMedia,
     origin: SourceOrigin,
     fingerprint: String,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum PreparedMedia {
+    Video {
+        kind: PreparedVideoKind,
+        domain: VideoDomain,
+        has_audio: bool,
+    },
+    Audio {
+        kind: PreparedAudioKind,
+        domain: AudioDomain,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+/// A borrowed, structurally typed view of one prepared node.
+pub enum PreparedNodeMedia<'a> {
+    /// A Video renderer primitive with its exact video domain.
+    Video {
+        /// The renderer operation.
+        kind: &'a PreparedVideoKind,
+        /// Exact duration, dimensions, and frame rate.
+        domain: &'a VideoDomain,
+        /// Whether the Video carries meaningful attached audio.
+        has_audio: bool,
+    },
+    /// An Audio renderer primitive with its exact audio domain.
+    Audio {
+        /// The renderer operation.
+        kind: &'a PreparedAudioKind,
+        /// Exact duration and normalized audio format.
+        domain: &'a AudioDomain,
+    },
 }
 
 impl PreparedNode {
@@ -189,43 +220,77 @@ impl PreparedNode {
     }
 
     #[must_use]
-    /// Return the renderer primitive and its upstream references.
-    pub const fn kind(&self) -> &PreparedNodeKind {
-        &self.kind
+    /// Return a structurally typed view of this prepared node.
+    pub const fn media(&self) -> PreparedNodeMedia<'_> {
+        match &self.media {
+            PreparedMedia::Video {
+                kind,
+                domain,
+                has_audio,
+            } => PreparedNodeMedia::Video {
+                kind,
+                domain,
+                has_audio: *has_audio,
+            },
+            PreparedMedia::Audio { kind, domain } => PreparedNodeMedia::Audio { kind, domain },
+        }
     }
 
     #[must_use]
-    /// Return exact duration, dimensions, and frame rate.
-    ///
-    /// # Panics
-    ///
-    /// Panics when called for an Audio node.
-    pub const fn domain(&self) -> &VideoDomain {
-        self.domain.as_ref().expect("Video prepared node domain")
+    /// Return the Video operation, or `None` for Audio.
+    pub const fn video_kind(&self) -> Option<&PreparedVideoKind> {
+        match &self.media {
+            PreparedMedia::Video { kind, .. } => Some(kind),
+            PreparedMedia::Audio { .. } => None,
+        }
     }
 
     #[must_use]
-    /// Return the exact domain of an Audio prepared node.
-    ///
-    /// # Panics
-    ///
-    /// Panics when called for a Video node.
-    pub const fn audio_domain(&self) -> &AudioDomain {
-        self.audio_domain
-            .as_ref()
-            .expect("Audio prepared node domain")
+    /// Return the Audio operation, or `None` for Video.
+    pub const fn audio_kind(&self) -> Option<&PreparedAudioKind> {
+        match &self.media {
+            PreparedMedia::Video { .. } => None,
+            PreparedMedia::Audio { kind, .. } => Some(kind),
+        }
     }
 
     #[must_use]
     /// Return whether this node produces Video or Audio.
     pub const fn value_type(&self) -> ValueType {
-        self.value_type
+        match self.media {
+            PreparedMedia::Video { .. } => ValueType::Video,
+            PreparedMedia::Audio { .. } => ValueType::Audio,
+        }
+    }
+
+    #[must_use]
+    /// Return this node's exact Video domain, or `None` for Audio.
+    pub const fn video_domain(&self) -> Option<&VideoDomain> {
+        match &self.media {
+            PreparedMedia::Video { domain, .. } => Some(domain),
+            PreparedMedia::Audio { .. } => None,
+        }
+    }
+
+    #[must_use]
+    /// Return this node's exact Audio domain, or `None` for Video.
+    pub const fn audio_domain(&self) -> Option<&AudioDomain> {
+        match &self.media {
+            PreparedMedia::Video { .. } => None,
+            PreparedMedia::Audio { domain, .. } => Some(domain),
+        }
     }
 
     #[must_use]
     /// Return whether a Video node contains meaningful attached audio.
+    ///
+    /// Audio nodes return `false` because their audio is the value itself, not
+    /// an attachment to a picture timeline.
     pub const fn has_audio(&self) -> bool {
-        self.has_audio
+        match self.media {
+            PreparedMedia::Video { has_audio, .. } => has_audio,
+            PreparedMedia::Audio { .. } => false,
+        }
     }
 
     #[must_use]
@@ -241,10 +306,43 @@ impl PreparedNode {
     }
 }
 
+impl Serialize for PreparedNode {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("PreparedNode", 8)?;
+        state.serialize_field("id", &self.id)?;
+        match &self.media {
+            PreparedMedia::Video {
+                kind,
+                domain,
+                has_audio,
+            } => {
+                state.serialize_field("kind", kind)?;
+                state.serialize_field("value_type", &ValueType::Video)?;
+                state.serialize_field("domain", &Some(domain))?;
+                state.serialize_field("audio_domain", &Option::<&AudioDomain>::None)?;
+                state.serialize_field("has_audio", has_audio)?;
+            }
+            PreparedMedia::Audio { kind, domain } => {
+                state.serialize_field("kind", kind)?;
+                state.serialize_field("value_type", &ValueType::Audio)?;
+                state.serialize_field("domain", &Option::<&VideoDomain>::None)?;
+                state.serialize_field("audio_domain", &Some(domain))?;
+                state.serialize_field("has_audio", &false)?;
+            }
+        }
+        state.serialize_field("origin", &self.origin)?;
+        state.serialize_field("fingerprint", &self.fingerprint)?;
+        state.end()
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
-/// The closed set of exact primitives understood by the renderer.
-pub enum PreparedNodeKind {
+/// The closed set of exact Video primitives understood by the renderer.
+pub enum PreparedVideoKind {
     /// A still image expanded to an exact frame count.
     ImageVideo {
         /// Verified source image and its preflight content hash.
@@ -263,6 +361,79 @@ pub enum PreparedNodeKind {
         /// Source-to-project fitting policy.
         fit: ImageFit,
     },
+    /// A closed-open frame range selected from one upstream Video node.
+    Slice {
+        /// Prepared Video node being sliced.
+        input: NodeId,
+        /// Exact selected frame range.
+        range: FrameRange,
+    },
+    /// Compact repetition of one upstream Video artifact.
+    Repeat {
+        /// Prepared Video node repeated in sequence.
+        input: NodeId,
+        /// Total number of copies.
+        count: NonZeroU64,
+        /// Exact total output frames.
+        frames: FrameCount,
+    },
+    /// A centered linear zoom over the complete upstream clip.
+    Zoom {
+        /// Prepared Video node being zoomed.
+        input: NodeId,
+        /// Final percentage increase over the source size.
+        percent: u32,
+    },
+    /// Deterministic two-axis full-clip motion.
+    Wobble {
+        /// Prepared Video node being moved.
+        input: NodeId,
+        /// Maximum movement from center in pixels.
+        pixels: u32,
+    },
+    /// Ordered join whose latter Video fades from white at its start.
+    FlashJoin {
+        /// Video rendered unchanged before the cut.
+        before: NodeId,
+        /// Video rendered after the cut with the flash fade.
+        after: NodeId,
+        /// Positive number of frames over which the flash clears.
+        frames: FrameCount,
+    },
+    /// Ordered concatenation of prepared Video nodes.
+    Concat {
+        /// Upstream Video nodes in output order.
+        inputs: Vec<NodeId>,
+    },
+    /// A Video whose attached audio is replaced from time zero.
+    SetAudio {
+        /// Replacement Audio node.
+        audio: NodeId,
+        /// Video supplying the picture timeline and output duration.
+        video: NodeId,
+    },
+    /// A project-sized black Video carrying one Audio timeline.
+    AudioOnBlack {
+        /// Audio used as the output timeline.
+        audio: NodeId,
+    },
+    /// A Video produced by one registered external executable.
+    ExternalVideo {
+        /// Prepared external executable identity.
+        executable: ExternalToolIdentity,
+        /// Named prepared inputs.
+        inputs: BTreeMap<String, NodeId>,
+        /// Bound scalar parameters.
+        parameters: BTreeMap<String, crate::external::ExternalParameterValue>,
+        /// Input whose exact domain and audio presence are preserved.
+        preserve_input: String,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "operation", rename_all = "snake_case")]
+/// The closed set of exact Audio primitives understood by the renderer.
+pub enum PreparedAudioKind {
     /// A normalized audio-file source.
     AudioSource {
         /// Verified source media and content hash.
@@ -287,77 +458,10 @@ pub enum PreparedNodeKind {
         /// Upstream Audio nodes in output order.
         inputs: Vec<NodeId>,
     },
-    /// A closed-open frame range selected from one upstream node.
-    Slice {
-        /// Prepared node being sliced.
-        input: NodeId,
-        /// Exact selected frame range.
-        range: FrameRange,
-    },
-    /// Compact repetition of one upstream artifact.
-    Repeat {
-        /// Prepared node repeated in sequence.
-        input: NodeId,
-        /// Total number of copies.
-        count: NonZeroU64,
-        /// Exact total output frames.
-        frames: FrameCount,
-    },
-    /// A centered linear zoom over the complete upstream clip.
-    Zoom {
-        /// Prepared node being zoomed.
-        input: NodeId,
-        /// Final percentage increase over the source size.
-        percent: u32,
-    },
-    /// Deterministic two-axis full-clip motion.
-    Wobble {
-        /// Prepared node being moved.
-        input: NodeId,
-        /// Maximum movement from center in pixels.
-        pixels: u32,
-    },
-    /// Ordered join whose latter Video fades from white at its start.
-    FlashJoin {
-        /// Video rendered unchanged before the cut.
-        before: NodeId,
-        /// Video rendered after the cut with the flash fade.
-        after: NodeId,
-        /// Positive number of frames over which the flash clears.
-        frames: FrameCount,
-    },
-    /// Ordered concatenation of prepared video nodes.
-    Concat {
-        /// Upstream nodes in output order.
-        inputs: Vec<NodeId>,
-    },
     /// The synchronized audio timeline extracted from one Video.
     ExtractAudio {
         /// Upstream audiovisual Video node.
         video: NodeId,
-    },
-    /// A Video whose attached audio is replaced from time zero.
-    SetAudio {
-        /// Replacement Audio node.
-        audio: NodeId,
-        /// Video supplying the picture timeline and output duration.
-        video: NodeId,
-    },
-    /// A project-sized black Video carrying one Audio timeline.
-    AudioOnBlack {
-        /// Audio used as the output timeline.
-        audio: NodeId,
-    },
-    /// A Video produced by one registered external executable.
-    ExternalVideo {
-        /// Prepared external executable identity.
-        executable: ExternalToolIdentity,
-        /// Named prepared inputs.
-        inputs: BTreeMap<String, NodeId>,
-        /// Bound scalar parameters.
-        parameters: BTreeMap<String, crate::external::ExternalParameterValue>,
-        /// Input whose exact domain and audio presence are preserved.
-        preserve_input: String,
     },
 }
 

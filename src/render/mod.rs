@@ -16,9 +16,10 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::ValueType;
 use crate::preflight::tools::verify_external_tool;
-use crate::preflight::{PreparedNodeKind, PreparedPlan, verify_prepared_asset};
+use crate::preflight::{
+    PreparedAudioKind, PreparedNodeMedia, PreparedPlan, PreparedVideoKind, verify_prepared_asset,
+};
 use crate::source::SourceSpan;
 use artifact::verify_prepared_artifact;
 use lock::{FileLock, sibling_lock_path};
@@ -99,32 +100,27 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 node.origin().span.clone(),
             ));
         }
-        let extension = match node.value_type() {
-            ValueType::Video => "mkv",
-            ValueType::Audio => "mka",
+        let extension = match node.media() {
+            PreparedNodeMedia::Video { .. } => "mkv",
+            PreparedNodeMedia::Audio { .. } => "mka",
         };
         let artifact = cache_directory.join(format!("{}.{}", node.fingerprint(), extension));
-        match node.kind() {
-            PreparedNodeKind::ImageVideo { asset, .. }
-            | PreparedNodeKind::VideoSource { asset, .. }
-            | PreparedNodeKind::AudioSource { asset } => {
-                verify_prepared_asset(asset, &node.origin().span)?;
+        match node.media() {
+            PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::ImageVideo { asset, .. }
+                    | PreparedVideoKind::VideoSource { asset, .. },
+                ..
             }
-            PreparedNodeKind::Slice { .. }
-            | PreparedNodeKind::AudioSlice { .. }
-            | PreparedNodeKind::Repeat { .. }
-            | PreparedNodeKind::AudioRepeat { .. }
-            | PreparedNodeKind::Zoom { .. }
-            | PreparedNodeKind::Wobble { .. }
-            | PreparedNodeKind::FlashJoin { .. }
-            | PreparedNodeKind::Concat { .. }
-            | PreparedNodeKind::AudioConcat { .. }
-            | PreparedNodeKind::ExtractAudio { .. }
-            | PreparedNodeKind::SetAudio { .. }
-            | PreparedNodeKind::AudioOnBlack { .. } => {}
-            PreparedNodeKind::ExternalVideo { executable, .. } => {
-                verify_external_tool(executable, &node.origin().span)?;
-            }
+            | PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioSource { asset },
+                ..
+            } => verify_prepared_asset(asset, &node.origin().span)?,
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::ExternalVideo { executable, .. },
+                ..
+            } => verify_external_tool(executable, &node.origin().span)?,
+            PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => {}
         }
         let lock_path = sibling_lock_path(&artifact, "cache");
         let _lock = FileLock::acquire(

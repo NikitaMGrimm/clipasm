@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use clipasm::preflight::PreparedNodeKind;
+use clipasm::preflight::{PreparedAudioKind, PreparedVideoKind};
 
 fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
     let source = clipasm::frontend::yaml::parse_file(path)?;
@@ -34,9 +34,75 @@ fn prepared_plan_serializes_one_distinguished_result() {
     assert!(document.get("result").is_some());
     assert_eq!(document["format_version"], 7);
     assert_eq!(
-        plan.nodes()[plan.result().get() as usize].domain().frames.0,
+        plan.nodes()[plan.result().get() as usize]
+            .video_domain()
+            .expect("Video node")
+            .frames
+            .0,
         30
     );
+}
+
+#[test]
+fn prepared_media_is_structurally_typed_without_changing_json_shape() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let source = directory.path().join("program.yaml");
+    fs::write(
+        &source,
+        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n  id: picture\n- drop: {type: Video}\n- extract_audio: {video: $picture}\n  id: sound\n- drop: {type: Audio}\n- set_audio: {audio: $sound, video: $picture}\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_yaml(&source).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    let video = plan
+        .nodes()
+        .iter()
+        .find(|node| {
+            matches!(
+                node.video_kind(),
+                Some(PreparedVideoKind::ImageVideo { .. })
+            )
+        })
+        .expect("prepared Video node");
+    let audio = plan
+        .nodes()
+        .iter()
+        .find(|node| {
+            matches!(
+                node.audio_kind(),
+                Some(PreparedAudioKind::ExtractAudio { .. })
+            )
+        })
+        .expect("prepared Audio node");
+
+    assert!(video.video_domain().is_some());
+    assert!(video.audio_domain().is_none());
+    assert!(video.video_kind().is_some());
+    assert!(video.audio_kind().is_none());
+    assert!(audio.video_domain().is_none());
+    assert!(audio.audio_domain().is_some());
+    assert!(audio.video_kind().is_none());
+    assert!(audio.audio_kind().is_some());
+
+    let document = serde_json::to_value(&plan).expect("prepared JSON");
+    let nodes = document["nodes"].as_array().expect("prepared nodes");
+    let video_json = nodes
+        .iter()
+        .find(|node| node["kind"]["operation"] == "image_video")
+        .expect("serialized Video node");
+    assert_eq!(video_json["value_type"], "video");
+    assert!(video_json["domain"].is_object());
+    assert!(video_json["audio_domain"].is_null());
+    let audio_json = nodes
+        .iter()
+        .find(|node| node["kind"]["operation"] == "extract_audio")
+        .expect("serialized Audio node");
+    assert_eq!(audio_json["value_type"], "audio");
+    assert!(audio_json["domain"].is_null());
+    assert!(audio_json["audio_domain"].is_object());
+    assert_eq!(audio_json["has_audio"], false);
 }
 
 #[test]
@@ -54,8 +120,8 @@ fn unreachable_auxiliary_audio_is_not_preflighted() {
     let plan = clipasm::preflight::preflight(&compiled).expect("unique Video reachability");
     assert_eq!(plan.nodes().len(), 1);
     assert!(matches!(
-        plan.nodes()[0].kind(),
-        PreparedNodeKind::ImageVideo { .. }
+        plan.nodes()[0].video_kind(),
+        Some(PreparedVideoKind::ImageVideo { .. })
     ));
 }
 
@@ -101,9 +167,14 @@ fn audio_preflight_counts_exact_decoded_samples() {
     let audio = plan
         .nodes()
         .iter()
-        .find(|node| matches!(node.kind(), PreparedNodeKind::AudioSource { .. }))
+        .find(|node| {
+            matches!(
+                node.audio_kind(),
+                Some(PreparedAudioKind::AudioSource { .. })
+            )
+        })
         .expect("prepared audio source");
-    assert_eq!(audio.audio_domain().samples, 12_345);
+    assert_eq!(audio.audio_domain().expect("Audio node").samples, 12_345);
 }
 
 #[test]
@@ -146,7 +217,12 @@ fn unused_named_values_are_absent_from_executable_nodes() {
     let image_nodes = plan
         .nodes()
         .iter()
-        .filter(|node| matches!(node.kind(), PreparedNodeKind::ImageVideo { .. }))
+        .filter(|node| {
+            matches!(
+                node.video_kind(),
+                Some(PreparedVideoKind::ImageVideo { .. })
+            )
+        })
         .count();
     assert_eq!(image_nodes, 1);
 }
@@ -163,7 +239,7 @@ fn preflight_hashes_assets_and_render_rejects_later_changes() {
     .expect("workflow");
     let compiled = compile_yaml(&workflow).expect("compile");
     let prepared = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let PreparedNodeKind::ImageVideo { asset, .. } = prepared.nodes()[0].kind() else {
+    let Some(PreparedVideoKind::ImageVideo { asset, .. }) = prepared.nodes()[0].video_kind() else {
         panic!("prepared image");
     };
     assert_eq!(asset.content_hash().len(), 64);
@@ -462,7 +538,10 @@ fn video_preflight_derives_the_full_source_duration() {
 
     let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    assert_eq!(plan.nodes()[0].domain().frames.0, 10);
+    assert_eq!(
+        plan.nodes()[0].video_domain().expect("Video node").frames.0,
+        10
+    );
 }
 
 #[test]
@@ -478,11 +557,11 @@ fn prepared_repeat_keeps_one_upstream_edge() {
 
     let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let PreparedNodeKind::Repeat {
+    let Some(PreparedVideoKind::Repeat {
         input,
         count,
         frames,
-    } = plan.nodes()[plan.result().get() as usize].kind()
+    }) = plan.nodes()[plan.result().get() as usize].video_kind()
     else {
         panic!("prepared repeat");
     };
@@ -506,12 +585,12 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
     let input_domain = compiled.result_domain().expect("known zoom domain").clone();
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let PreparedNodeKind::Zoom { input, percent } = result.kind() else {
+    let Some(PreparedVideoKind::Zoom { input, percent }) = result.video_kind() else {
         panic!("prepared zoom");
     };
     assert_eq!(input.get(), 0);
     assert_eq!(*percent, 12);
-    assert_eq!(result.domain(), &input_domain);
+    assert_eq!(result.video_domain(), Some(&input_domain));
 }
 
 #[test]
@@ -532,12 +611,12 @@ fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
         .clone();
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let PreparedNodeKind::Wobble { input, pixels } = result.kind() else {
+    let Some(PreparedVideoKind::Wobble { input, pixels }) = result.video_kind() else {
         panic!("prepared wobble");
     };
     assert_eq!(input.get(), 0);
     assert_eq!(*pixels, 4);
-    assert_eq!(result.domain(), &input_domain);
+    assert_eq!(result.video_domain(), Some(&input_domain));
     assert_ne!(result.fingerprint(), plan.nodes()[0].fingerprint());
 }
 
@@ -556,18 +635,18 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
     let compiled = compile_yaml(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let PreparedNodeKind::FlashJoin {
+    let Some(PreparedVideoKind::FlashJoin {
         before,
         after,
         frames,
-    } = result.kind()
+    }) = result.video_kind()
     else {
         panic!("prepared flash");
     };
     assert_eq!(before.get(), 0);
     assert_eq!(after.get(), 1);
     assert_eq!(frames.0, 4);
-    assert_eq!(result.domain().frames.0, 20);
+    assert_eq!(result.video_domain().expect("Video node").frames.0, 20);
 }
 
 #[test]

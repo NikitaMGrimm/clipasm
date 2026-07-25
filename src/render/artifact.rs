@@ -6,9 +6,9 @@ use std::process::{Command, Output};
 use serde::Deserialize;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{AudioDomain, AudioSpec, ValueType, VideoDomain};
-use crate::preflight::PreparedNode;
+use crate::model::{AudioDomain, AudioSpec, VideoDomain};
 use crate::preflight::tools::decoded_audio_samples;
+use crate::preflight::{PreparedNode, PreparedNodeMedia};
 use crate::source::SourceSpan;
 
 #[derive(Deserialize)]
@@ -37,17 +37,13 @@ pub(super) fn verify_prepared_artifact(
     audio: &AudioSpec,
     pixel_format: &str,
 ) -> Result<()> {
-    match node.value_type() {
-        ValueType::Video => verify_video_artifact(
-            ffprobe,
-            path,
-            node.domain(),
-            audio,
-            true,
-            true,
-            pixel_format,
-        ),
-        ValueType::Audio => verify_audio_artifact(ffprobe, path, node.audio_domain(), audio),
+    match node.media() {
+        PreparedNodeMedia::Video { domain, .. } => {
+            verify_video_artifact(ffprobe, path, domain, audio, true, true, pixel_format)
+        }
+        PreparedNodeMedia::Audio { domain, .. } => {
+            verify_audio_artifact(ffprobe, path, domain, audio)
+        }
     }
 }
 

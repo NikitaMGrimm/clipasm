@@ -13,7 +13,7 @@ use crate::source::{SourceFile, SourceSpan};
 use super::tools::{
     ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
 };
-use super::{PreparedAsset, PreparedNode, PreparedNodeKind};
+use super::{PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind};
 
 pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf> {
     let output = compiled.output().ok_or_else(|| {
@@ -100,23 +100,20 @@ pub(super) fn reject_asset_collisions(
     nodes: &[PreparedNode],
 ) -> Result<()> {
     for node in nodes {
-        let (asset, role) = match node.kind() {
-            PreparedNodeKind::ImageVideo { asset, .. } => (asset, "image asset"),
-            PreparedNodeKind::VideoSource { asset, .. } => (asset, "video asset"),
-            PreparedNodeKind::AudioSource { asset } => (asset, "audio asset"),
-            PreparedNodeKind::Slice { .. }
-            | PreparedNodeKind::AudioSlice { .. }
-            | PreparedNodeKind::Repeat { .. }
-            | PreparedNodeKind::AudioRepeat { .. }
-            | PreparedNodeKind::Zoom { .. }
-            | PreparedNodeKind::Wobble { .. }
-            | PreparedNodeKind::FlashJoin { .. }
-            | PreparedNodeKind::Concat { .. }
-            | PreparedNodeKind::AudioConcat { .. }
-            | PreparedNodeKind::ExtractAudio { .. }
-            | PreparedNodeKind::SetAudio { .. }
-            | PreparedNodeKind::AudioOnBlack { .. }
-            | PreparedNodeKind::ExternalVideo { .. } => continue,
+        let (asset, role) = match node.media() {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::ImageVideo { asset, .. },
+                ..
+            } => (asset, "image asset"),
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::VideoSource { asset, .. },
+                ..
+            } => (asset, "video asset"),
+            PreparedNodeMedia::Audio {
+                kind: PreparedAudioKind::AudioSource { asset },
+                ..
+            } => (asset, "audio asset"),
+            PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => continue,
         };
         reject_path_collision(
             output,
