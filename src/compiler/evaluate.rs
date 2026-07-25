@@ -101,7 +101,7 @@ impl Evaluator {
         bindings: &EntrypointBindings,
     ) -> Result<ResolvedCall> {
         super::entrypoint::bind_root_call(
-            &context.programs[context.root.0],
+            &context.programs[context.root.index()],
             context.registry,
             bindings,
             &mut self.nodes,
@@ -117,7 +117,7 @@ impl Evaluator {
         call: Option<&ResolvedCall>,
         public: bool,
     ) -> Result<Vec<ValueRef>> {
-        let checked_program = &context.programs[unit.0];
+        let checked_program = &context.programs[unit.index()];
         let mut scope = EvalScope {
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
             body_inputs: vec![None; checked_program.body_input_count],

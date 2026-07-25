@@ -11,6 +11,7 @@ mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod ids;
+mod link;
 mod parameter;
 mod resolve;
 mod stack;

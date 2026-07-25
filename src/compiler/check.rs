@@ -26,6 +26,7 @@ pub(super) use super::checked::{
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
+    let unit_order = super::link::source_unit_order(package)?;
     let mut definitions = builtin_programs();
     let builtin_count = definitions.len();
     let builtin_names = definitions[..builtin_count]
@@ -39,16 +40,16 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         })
         .collect::<BTreeMap<_, _>>();
     let external_programs = register_external_programs(package, &mut definitions);
-    let mut unit_programs = BTreeMap::new();
-    let mut programs = Vec::with_capacity(package.units().len());
+    let mut unit_programs = vec![None; package.units().len()];
+    let mut programs = vec![None; package.units().len()];
 
-    for (index, unit) in package.units().iter().enumerate() {
-        let unit_id = SourceUnitId(index);
+    for unit_id in unit_order {
+        let unit = &package.units()[unit_id.index()];
         let mut namespace = unit
             .imports
             .iter()
             .map(|import| {
-                let program = unit_programs.get(&import.target).copied().ok_or_else(|| {
+                let program = unit_programs[import.target.index()].ok_or_else(|| {
                     Diagnostic::new(
                         "E_INTERNAL_PROGRAM_LINK",
                         format!(
@@ -96,7 +97,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             .collect::<Result<Vec<_>>>()?;
         let definition = ProgramDefinition {
             descriptor: ProgramDescriptor {
-                name: format!("source_program_{index}"),
+                name: format!("source_program_{}", unit_id.index()),
                 semantic_version: 1,
                 default_stack_access: unit.program().stack_access(),
                 inputs: unit.program().inputs().to_vec(),
@@ -110,10 +111,14 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             u32::try_from(definitions.len()).expect("linked program catalog fits in u32"),
         );
         definitions.push(definition);
-        unit_programs.insert(unit_id, id);
-        programs.push(checked_program);
+        unit_programs[unit_id.index()] = Some(id);
+        programs[unit_id.index()] = Some(checked_program);
     }
 
+    let programs = programs
+        .into_iter()
+        .map(|program| program.expect("source-unit ordering visits every linked program"))
+        .collect();
     let registry = ProgramRegistry::from_linked(definitions, builtin_count)?;
     Ok(CheckedPackage {
         root: package.root,

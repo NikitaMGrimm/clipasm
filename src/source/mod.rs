@@ -22,6 +22,13 @@ pub(crate) const SOURCE_PROGRAM_DEFAULT_STACK_ACCESS: StackAccess = StackAccess:
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct SourceUnitId(pub(crate) usize);
 
+impl SourceUnitId {
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0
+    }
+}
+
 /// One opaque linked collection of authored source programs.
 ///
 /// Obtain a package from a frontend such as [`crate::frontend::yaml`].
@@ -35,7 +42,7 @@ pub struct SourcePackage {
 impl SourcePackage {
     #[must_use]
     pub(crate) fn root(&self) -> &SourceUnit {
-        &self.units[self.root.0]
+        &self.units[self.root.index()]
     }
 
     #[must_use]
