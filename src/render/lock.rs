@@ -48,3 +48,34 @@ pub(super) fn sibling_lock_path(path: &Path, role: &str) -> PathBuf {
     name.push(format!(".{role}.lock"));
     path.parent().unwrap_or_else(|| Path::new(".")).join(name)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs::OpenOptions;
+
+    use super::*;
+
+    #[test]
+    fn a_second_handle_cannot_acquire_an_held_lock() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("artifact.lock");
+        let span = SourceSpan::file_start(&path);
+        let _first = FileLock::acquire(&path, "E_TEST_LOCK", "test", &span).expect("first lock");
+        let second = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .expect("second handle");
+        assert!(second.try_lock().is_err());
+    }
+
+    #[test]
+    fn sibling_lock_paths_remain_beside_the_destination() {
+        assert_eq!(
+            sibling_lock_path(Path::new("project/final.mp4"), "publication"),
+            Path::new("project/.final.mp4.publication.lock")
+        );
+    }
+}
