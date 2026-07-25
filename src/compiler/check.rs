@@ -142,7 +142,6 @@ pub(super) enum CheckedItemKind {
         inputs: Vec<Option<CheckedInputValue>>,
         parameters: Vec<Option<CheckedParameterValue>>,
         body: Option<Box<CheckedBody>>,
-        input_bodies: BTreeMap<String, CheckedBody>,
         body_input_ids: BTreeMap<String, BodyInputId>,
     },
 }
@@ -542,7 +541,10 @@ fn assign_body_output_ids(
         if let (
             ItemKind::Invocation(invocation),
             CheckedItemKind::Invocation {
-                body, input_bodies, ..
+                signature,
+                inputs,
+                body,
+                ..
             },
         ) = (&item.kind, &mut checked_item.kind)
         {
@@ -550,13 +552,18 @@ fn assign_body_output_ids(
             {
                 assign_body_output_ids(source_body, checked_body, declare)?;
             }
-            for (name, argument) in &invocation.arguments {
-                if let ArgumentValue::Body(source_body) = argument {
-                    let checked_body = input_bodies
-                        .get_mut(name)
-                        .expect("checked input body matches canonical source");
-                    assign_body_output_ids(source_body, checked_body, declare)?;
-                }
+            for (port, input) in signature.inputs.iter().zip(inputs) {
+                let Some(CheckedInputValue::Body(checked_body, _)) = input else {
+                    continue;
+                };
+                let ArgumentValue::Body(source_body) = invocation
+                    .arguments
+                    .get(&port.name)
+                    .expect("checked input body has a source argument")
+                else {
+                    unreachable!("checked input body matches canonical source")
+                };
+                assign_body_output_ids(source_body, checked_body, declare)?;
             }
         }
     }
@@ -607,70 +614,64 @@ fn resolve_body_references(
                     inputs,
                     parameters,
                     body,
-                    input_bodies,
                     body_input_ids,
                     ..
                 },
             ) => {
                 let definition = &definitions[program.index()];
-                *inputs = signature
-                    .inputs
-                    .iter()
-                    .map(|port| {
-                        let Some(argument) = invocation.arguments.get(&port.name) else {
-                            return Ok(None);
-                        };
-                        let value = match argument {
-                            ArgumentValue::Reference(reference) => CheckedInputValue::References(
-                                vec![resolve_value_target(
-                                    &reference.value,
-                                    &reference.span,
-                                    locals,
-                                    lexical,
-                                )?],
-                                reference.span.clone(),
-                            ),
-                            ArgumentValue::References(references, span) => {
-                                CheckedInputValue::References(
-                                    references
-                                        .iter()
-                                        .map(|reference| {
-                                            resolve_value_target(
-                                                &reference.value,
-                                                &reference.span,
-                                                locals,
-                                                lexical,
-                                            )
-                                        })
-                                        .collect::<Result<Vec<_>>>()?,
-                                    span.clone(),
-                                )
-                            }
-                            ArgumentValue::Body(source_body) => {
-                                let mut checked_body = input_bodies
-                                    .remove(&port.name)
-                                    .expect("checked input body matches canonical source");
-                                resolve_body_references(
-                                    source_body,
-                                    &mut checked_body,
-                                    locals,
-                                    parameter_ids,
-                                    definitions,
-                                    lexical,
-                                    body_input_count,
-                                )?;
-                                CheckedInputValue::Body(
-                                    Box::new(checked_body),
-                                    source_body.span.clone(),
-                                )
-                            }
-                            ArgumentValue::Literal(_) => {
-                                unreachable!("validated graph input is not a literal")
-                            }
-                        };
-                        Ok(Some(value))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
+                for (index, port) in signature.inputs.iter().enumerate() {
+                    let Some(argument) = invocation.arguments.get(&port.name) else {
+                        debug_assert!(inputs[index].is_none());
+                        continue;
+                    };
+                    inputs[index] = Some(match argument {
+                        ArgumentValue::Reference(reference) => CheckedInputValue::References(
+                            vec![resolve_value_target(
+                                &reference.value,
+                                &reference.span,
+                                locals,
+                                lexical,
+                            )?],
+                            reference.span.clone(),
+                        ),
+                        ArgumentValue::References(references, span) => {
+                            CheckedInputValue::References(
+                                references
+                                    .iter()
+                                    .map(|reference| {
+                                        resolve_value_target(
+                                            &reference.value,
+                                            &reference.span,
+                                            locals,
+                                            lexical,
+                                        )
+                                    })
+                                    .collect::<Result<Vec<_>>>()?,
+                                span.clone(),
+                            )
+                        }
+                        ArgumentValue::Body(source_body) => {
+                            let Some(CheckedInputValue::Body(mut checked_body, span)) =
+                                inputs[index].take()
+                            else {
+                                unreachable!("checked input body was constructed")
+                            };
+                            resolve_body_references(
+                                source_body,
+                                &mut checked_body,
+                                locals,
+                                parameter_ids,
+                                definitions,
+                                lexical,
+                                body_input_count,
+                            )?;
+                            CheckedInputValue::Body(checked_body, span)
+                        }
+                        ArgumentValue::Literal(_) => {
+                            unreachable!("validated graph input is not a literal")
+                        }
+                    });
+                }
                 *parameters = definition
                     .descriptor
                     .parameters
@@ -1212,7 +1213,7 @@ fn infer_body(
                     &invocation.program.span,
                 )?;
                 let definition = &definitions[program.index()];
-                let validated = validate_explicit_arguments(
+                let mut validated = validate_explicit_arguments(
                     invocation,
                     definition,
                     locals,
@@ -1345,6 +1346,22 @@ fn infer_body(
                 let signature = signature.expect("invocation signature resolved");
                 let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
+                let inputs = signature
+                    .inputs
+                    .iter()
+                    .map(|port| {
+                        validated.input_bodies.remove(&port.name).map(|body| {
+                            let span = invocation
+                                .arguments
+                                .get(&port.name)
+                                .expect("checked input body has a source argument")
+                                .span()
+                                .clone();
+                            CheckedInputValue::Body(Box::new(body), span)
+                        })
+                    })
+                    .collect();
+                debug_assert!(validated.input_bodies.is_empty());
                 CheckedItem {
                     span: item.span.clone(),
                     construct: invocation.program.value.clone(),
@@ -1356,10 +1373,9 @@ fn infer_body(
                         signature,
                         access,
                         stack_plan,
-                        inputs: Vec::new(),
+                        inputs,
                         parameters: Vec::new(),
                         body: checked_body,
-                        input_bodies: validated.input_bodies,
                         body_input_ids: BTreeMap::new(),
                     },
                 }
