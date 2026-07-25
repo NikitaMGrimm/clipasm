@@ -3,6 +3,7 @@ mod probe;
 pub(crate) use probe::decoded_audio_samples;
 pub(super) use probe::{verify_audio_decodable, verify_image_decodable, verify_video_decodable};
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -14,8 +15,6 @@ use sha2::{Digest, Sha256};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::media_tool::{self, CapturedOutput};
 use crate::source::SourceSpan;
-
-use super::REQUIRED_FFMPEG_FILTERS;
 
 #[derive(Serialize)]
 struct ToolBuildIdentity<'a> {
@@ -133,6 +132,47 @@ impl ToolIdentity {
     }
 }
 
+#[derive(Default)]
+pub(super) struct FfmpegRequirements {
+    encoders: BTreeSet<&'static str>,
+    muxers: BTreeSet<&'static str>,
+    filters: BTreeSet<&'static str>,
+}
+
+impl FfmpegRequirements {
+    pub(super) fn for_render(result_has_audio: bool) -> Self {
+        let mut requirements = Self::default();
+        requirements.require_encoders(["libx264", "ffv1", "flac"]);
+        if result_has_audio {
+            requirements.require_encoders(["aac"]);
+        }
+        requirements.require_muxers(["mp4", "matroska"]);
+        requirements
+    }
+
+    pub(super) fn require_encoders(&mut self, encoders: impl IntoIterator<Item = &'static str>) {
+        self.encoders.extend(encoders);
+    }
+
+    pub(super) fn require_muxers(&mut self, muxers: impl IntoIterator<Item = &'static str>) {
+        self.muxers.extend(muxers);
+    }
+
+    pub(super) fn require_filters(&mut self, filters: impl IntoIterator<Item = &'static str>) {
+        self.filters.extend(filters);
+    }
+
+    #[cfg(test)]
+    pub(super) fn requires_encoder(&self, encoder: &str) -> bool {
+        self.encoders.contains(encoder)
+    }
+
+    #[cfg(test)]
+    pub(super) fn requires_filter(&self, filter: &str) -> bool {
+        self.filters.contains(filter)
+    }
+}
+
 pub(crate) fn verify_tool_identity(tool: &ToolIdentity, role: &str) -> Result<()> {
     let current = inspect_tool_identity(tool.executable(), "E_TOOL_CHANGED")?;
     if current.build_fingerprint() == tool.build_fingerprint() {
@@ -163,38 +203,56 @@ fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
             SourceSpan::file_start(tool),
         )
     })?;
-    let identity = inspect_tool_identity(&tool, "E_FFMPEG")?;
-    let encoders = tool_output(&tool, &["-hide_banner", "-encoders"], "E_FFMPEG")?;
-    for encoder in ["libx264", "ffv1", "flac", "aac"] {
-        if capability_missing(&encoders, encoder) {
-            return Err(Diagnostic::new(
-                "E_FFMPEG_CAPABILITY",
-                format!("installed FFmpeg does not provide the required `{encoder}` encoder"),
-                SourceSpan::file_start(&tool),
-            ));
-        }
+    inspect_tool_identity(&tool, "E_FFMPEG")
+}
+
+pub(super) fn validate_ffmpeg_capabilities(
+    tool: &ToolIdentity,
+    requirements: &FfmpegRequirements,
+) -> Result<()> {
+    validate_capability_group(
+        tool,
+        &["-hide_banner", "-encoders"],
+        "encoder",
+        &requirements.encoders,
+    )?;
+    validate_capability_group(
+        tool,
+        &["-hide_banner", "-muxers"],
+        "muxer",
+        &requirements.muxers,
+    )?;
+    validate_capability_group(
+        tool,
+        &["-hide_banner", "-filters"],
+        "filter",
+        &requirements.filters,
+    )
+}
+
+fn validate_capability_group(
+    tool: &ToolIdentity,
+    arguments: &[&str],
+    role: &str,
+    requirements: &BTreeSet<&'static str>,
+) -> Result<()> {
+    if requirements.is_empty() {
+        return Ok(());
     }
-    let muxers = tool_output(&tool, &["-hide_banner", "-muxers"], "E_FFMPEG")?;
-    for (muxer, display) in [("mp4", "MP4"), ("matroska", "Matroska")] {
-        if capability_missing(&muxers, muxer) {
-            return Err(Diagnostic::new(
-                "E_FFMPEG_CAPABILITY",
-                format!("installed FFmpeg does not provide the required {display} muxer"),
-                SourceSpan::file_start(&tool),
-            ));
-        }
+    let output = tool_output(tool.executable(), arguments, "E_FFMPEG")?;
+    if let Some(missing) = requirements
+        .iter()
+        .find(|capability| capability_missing(&output, capability))
+    {
+        return Err(Diagnostic::new(
+            "E_FFMPEG_CAPABILITY",
+            format!(
+                "installed FFmpeg does not provide the required `{missing}` {role} for this prepared plan"
+            ),
+            SourceSpan::file_start(tool.executable()),
+        ));
     }
-    let filters = tool_output(&tool, &["-hide_banner", "-filters"], "E_FFMPEG")?;
-    for filter in REQUIRED_FFMPEG_FILTERS {
-        if capability_missing(&filters, filter) {
-            return Err(Diagnostic::new(
-                "E_FFMPEG_CAPABILITY",
-                format!("installed FFmpeg does not provide the required `{filter}` filter"),
-                SourceSpan::file_start(&tool),
-            ));
-        }
-    }
-    Ok(identity)
+    Ok(())
 }
 
 fn capability_missing(output: &str, capability: &str) -> bool {
@@ -441,83 +499,49 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn ffmpeg_preflight_requires_all_render_encoders_and_muxers() {
+    fn ffmpeg_discovery_does_not_require_unused_capabilities() {
         let _guard = fake_tool_test_lock();
-        let (_directory, no_encoder) = executable_script(
+        let (_directory, tool) = executable_script(
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; else echo none; fi\n",
         );
-        let encoder_error = inspect_ffmpeg_at(&no_encoder).expect_err("missing encoder");
-        assert_eq!(
-            encoder_error.code, "E_FFMPEG_CAPABILITY",
-            "{encoder_error:?}"
-        );
-        assert!(encoder_error.message.contains("libx264"));
-
-        let (_directory, no_ffv1) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo libx264; else echo none; fi\n",
-        );
-        let encoder_error = inspect_ffmpeg_at(&no_ffv1).expect_err("missing FFV1");
-        assert_eq!(encoder_error.code, "E_FFMPEG_CAPABILITY");
-        assert!(encoder_error.message.contains("ffv1"));
-
-        let (_directory, no_matroska) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; else echo mp4; fi\n",
-        );
-        let container_error = inspect_ffmpeg_at(&no_matroska).expect_err("missing Matroska");
-        assert_eq!(container_error.code, "E_FFMPEG_CAPABILITY");
-        assert!(container_error.message.contains("Matroska"));
+        let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
+        assert_eq!(identity.version(), "fake");
     }
 
     #[cfg(unix)]
     #[test]
-    fn ffmpeg_preflight_requires_every_render_filter() {
+    fn ffmpeg_validation_requires_requested_encoders_and_muxers() {
         let _guard = fake_tool_test_lock();
-        let (_directory, no_filters) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; else echo none; fi\n",
+        let (_directory, tool) = executable_script(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo mp4; else echo none; fi\n",
         );
-        let error = inspect_ffmpeg_at(&no_filters).expect_err("missing filters");
+        let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
+        let requirements = FfmpegRequirements::for_render(false);
+        let error = validate_ffmpeg_capabilities(&identity, &requirements)
+            .expect_err("missing Matroska muxer");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
-        assert!(error.message.contains("scale"));
+        assert!(error.message.contains("matroska"));
+        assert!(error.message.contains("this prepared plan"));
     }
 
     #[cfg(unix)]
     #[test]
-    fn ffmpeg_preflight_requires_the_flash_fade_filter() {
+    fn ffmpeg_validation_ignores_unrequested_filters() {
         let _guard = fake_tool_test_lock();
-        let filters = super::REQUIRED_FFMPEG_FILTERS
-            .iter()
-            .copied()
-            .filter(|filter| *filter != "fade")
-            .collect::<Vec<_>>()
-            .join(" ");
-        let script = format!(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo '{filters}'; else echo none; fi\n"
+        let (_directory, tool) = executable_script(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo scale; else echo none; fi\n",
         );
-        let (_directory, no_fade) = executable_script(&script);
-        let error = inspect_ffmpeg_at(&no_fade).expect_err("missing fade");
-        assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
-        assert!(error.message.contains("fade"));
-    }
+        let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
+        let mut requirements = FfmpegRequirements::for_render(false);
+        requirements.require_filters(["scale"]);
+        validate_ffmpeg_capabilities(&identity, &requirements)
+            .expect("requested capabilities are available");
 
-    #[cfg(unix)]
-    #[test]
-    fn ffmpeg_preflight_requires_every_crossfade_filter() {
-        let _guard = fake_tool_test_lock();
-        for missing in ["blend", "afade", "adelay", "amix", "split", "asplit"] {
-            let filters = super::REQUIRED_FFMPEG_FILTERS
-                .iter()
-                .copied()
-                .filter(|filter| *filter != missing)
-                .collect::<Vec<_>>()
-                .join(" ");
-            let script = format!(
-                "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo '{filters}'; else echo none; fi\n"
-            );
-            let (_directory, tool) = executable_script(&script);
-            let error = inspect_ffmpeg_at(&tool).expect_err("missing crossfade filter");
-            assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
-            assert!(error.message.contains(missing), "{error:?}");
-        }
+        requirements.require_filters(["blend"]);
+        let error = validate_ffmpeg_capabilities(&identity, &requirements)
+            .expect_err("missing requested filter");
+        assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
+        assert!(error.message.contains("blend"));
     }
 
     #[cfg(unix)]

@@ -32,7 +32,7 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | Add or change a direct program | matching `src/program/builtins` module | descriptor order, semantic version, domains, prepared lowering, rendering, identities, language reference |
 | Add or change a body program | `src/program/builtins/body.rs` | body contract, access default, finalizer, lexical aliases, tests, language reference |
 | Change call or stack binding | `src/program/call.rs`, compiler stack/typecheck/evaluate | descriptor slots, cardinality, root and authored calls, diagnostics |
-| Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, serialized formats, identities |
+| Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, FFmpeg capability requirements, serialized formats, identities |
 | Change semantic identity | affected program or operation | semantic version, compiled/prepared/cache versions, ADR 0003 |
 | Change preflight behavior | `src/preflight` | pure-compile boundary, capability tests, prepared identity |
 | Change media formats or frame/sample mapping | `src/model`, preflight, render | ADR 0014, exact-domain tests, serialized shape, cache identity |

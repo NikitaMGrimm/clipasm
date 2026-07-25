@@ -25,7 +25,11 @@ the compiled semantic hash.
 Execution identity uses complete FFmpeg and FFprobe build fingerprints derived
 from canonical executable bytes and normalized full `-version` output,
 including configuration and linked-library versions. Executable location is
-reported for diagnostics but does not define cache compatibility.
+reported for diagnostics but does not define cache compatibility. Capability
+validation is plan-scoped: the reachable prepared primitives declare their
+required FFmpeg encoders, muxers, and filters after lowering. Features used only
+by unreachable operations do not reject a plan, while the complete build
+fingerprint still isolates artifacts produced by different tool builds.
 
 When a program's lowering semantics change, increment that program's semantic
 version. Increment compiled or prepared format versions when their canonical

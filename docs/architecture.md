@@ -252,7 +252,8 @@ parameters, and graph inputs belong to compiled semantic identity.
 - hashes reachable source files
 - validates image and video contracts
 - resolves video-source durations
-- verifies FFmpeg and FFprobe capabilities
+- verifies FFmpeg identity and only the capabilities required by the reachable
+  prepared operations and final export
 - lowers reachable semantic nodes, including `replace_range`, to compact
   renderer primitives
 - assigns content fingerprints and an execution namespace
@@ -272,7 +273,11 @@ execution state therefore cannot silently change the inspection format.
 Preflight keeps one exhaustive semantic-operation dispatcher. Media, timeline,
 effect, transition, and external modules implement the individual preparation
 rules while shared graph lookup, exact-domain access, node construction, and
-fingerprinting remain centralized.
+fingerprinting remain centralized. FFmpeg discovery records the executable build
+identity before media inspection. After lowering, an exhaustive prepared-primitive
+pass derives the encoders, muxers, and filters required by that graph and its final
+export. Missing capabilities for unreachable operations do not reject the plan;
+external programs remain responsible for extra FFmpeg features they invoke.
 
 Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
 one lossless normalized audio stream, using silence for semantically silent

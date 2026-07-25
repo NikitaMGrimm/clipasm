@@ -1,7 +1,7 @@
 //! Media-aware preparation of compiled programs for rendering.
 //!
 //! Preflight is the first pipeline phase that performs I/O. It resolves
-//! result-reachable assets, verifies source contracts and tool capabilities,
+//! result-reachable assets, verifies source contracts and required tool capabilities,
 //! derives exact media domains, and lowers semantic operations into a
 //! [`PreparedPlan`] containing renderer primitives. The plan remains directly
 //! inspectable through Rust getters and [`PreparedPlan::prepared_json`], whose
@@ -25,6 +25,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::source::SourceSpan;
 
 mod assets;
+mod capabilities;
 mod identity;
 mod lower;
 mod plan;
@@ -35,6 +36,7 @@ use assets::{
     entrypoint_directory, manifest_path, prepare_output_path, reject_asset_collisions,
     reject_path_collision, validate_destination,
 };
+use capabilities::ffmpeg_requirements;
 use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::PreflightLowerer;
 pub use plan::{
@@ -42,41 +44,12 @@ pub use plan::{
     PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
 pub use tools::ExternalToolIdentity;
-use tools::{inspect_ffmpeg, inspect_ffprobe};
+use tools::{inspect_ffmpeg, inspect_ffprobe, validate_ffmpeg_capabilities};
 
 const PREPARED_FORMAT_VERSION: u32 = 8;
 const CACHE_FORMAT_VERSION: u32 = 9;
 pub(crate) const WORKING_PIXEL_FORMAT: &str = "yuv444p";
 pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";
-const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
-    "scale",
-    "crop",
-    "pad",
-    "fps",
-    "setsar",
-    "format",
-    "trim",
-    "setpts",
-    "asetpts",
-    "asetnsamples",
-    "tpad",
-    "concat",
-    "fade",
-    "blend",
-    "afade",
-    "adelay",
-    "amix",
-    "split",
-    "asplit",
-    "perspective",
-    "aresample",
-    "aformat",
-    "atrim",
-    "apad",
-    "anullsrc",
-    "color",
-];
-
 /// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
@@ -139,6 +112,8 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         lowerer.lower(value)?;
     }
     let result = lowerer.lowered[&render_output.id()];
+    let requirements = ffmpeg_requirements(&lowerer.nodes, result);
+    validate_ffmpeg_capabilities(&ffmpeg, &requirements)?;
     let named_values = compiled
         .named_values()
         .iter()
