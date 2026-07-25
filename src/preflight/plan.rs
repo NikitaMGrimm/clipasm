@@ -397,6 +397,15 @@ pub enum PreparedVideoKind {
         /// Positive number of frames over which the flash clears.
         frames: FrameCount,
     },
+    /// Two Videos overlapped with a linear picture and Audio fade.
+    Crossfade {
+        /// Video supplying the prefix and first overlap side.
+        before: NodeId,
+        /// Video supplying the second overlap side and suffix.
+        after: NodeId,
+        /// Positive exact number of overlapping project frames.
+        frames: FrameCount,
+    },
     /// Ordered concatenation of prepared Video nodes.
     Concat {
         /// Upstream Video nodes in output order.
@@ -436,7 +445,7 @@ impl PreparedVideoKind {
             | Self::Zoom { input, .. }
             | Self::Wobble { input, .. }
             | Self::AudioOnBlack { audio: input } => visitor(*input),
-            Self::FlashJoin { before, after, .. } => {
+            Self::FlashJoin { before, after, .. } | Self::Crossfade { before, after, .. } => {
                 visitor(*before);
                 visitor(*after);
             }

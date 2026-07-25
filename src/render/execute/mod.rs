@@ -123,6 +123,16 @@ impl<'a> Executor<'a> {
                 ..
             } => transitions::flash(&context, *before, *after, *frames, domain),
             PreparedNodeMedia::Video {
+                kind:
+                    PreparedVideoKind::Crossfade {
+                        before,
+                        after,
+                        frames,
+                    },
+                domain,
+                ..
+            } => transitions::crossfade(&context, *before, *after, *frames, domain),
+            PreparedNodeMedia::Video {
                 kind: PreparedVideoKind::Concat { inputs },
                 domain,
                 ..

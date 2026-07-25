@@ -218,6 +218,19 @@ impl SourceTime {
         Ok(Self { nanoseconds })
     }
 
+    /// Return the smallest project frame count covering this duration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a diagnostic if the conversion exceeds the supported frame count.
+    pub(crate) fn to_covering_frames(
+        self,
+        fps: FrameRate,
+        span: &SourceSpan,
+    ) -> Result<FrameCount> {
+        FrameCount::covering_duration(u128::from(self.nanoseconds), 1_000_000_000, fps, span)
+    }
+
     /// Convert this duration to an exact project frame boundary.
     ///
     /// # Errors
@@ -387,6 +400,24 @@ mod tests {
             .to_frames(fps, &span())
             .expect_err("not frame aligned");
         assert_eq!(error.code, "E_TIME_NOT_FRAME_ALIGNED");
+    }
+
+    #[test]
+    fn source_duration_can_be_quantized_by_frame_coverage() {
+        let duration = SourceTime::parse("500ms", &span()).expect("duration");
+        assert_eq!(
+            duration
+                .to_covering_frames(FrameRate::new(29, 1).expect("valid fps"), &span())
+                .expect("covering frames"),
+            FrameCount(15)
+        );
+        assert_eq!(
+            SourceTime::parse("0ms", &span())
+                .expect("zero duration")
+                .to_covering_frames(FrameRate::new(29, 1).expect("valid fps"), &span())
+                .expect("zero frames"),
+            FrameCount(0)
+        );
     }
 
     #[test]

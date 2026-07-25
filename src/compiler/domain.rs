@@ -73,6 +73,17 @@ pub(super) fn infer_domains(
                 video,
                 &node.origin().span,
             )?,
+            SemanticNodeKind::Crossfade {
+                before,
+                after,
+                frames,
+            } => infer_crossfade_domain(
+                &knowledge[before.id().get() as usize],
+                &knowledge[after.id().get() as usize],
+                *frames,
+                video,
+                &node.origin().span,
+            )?,
             SemanticNodeKind::Concat { inputs } => {
                 infer_concat_domain(inputs, &knowledge, video, &node.origin().span)?
             }
@@ -178,6 +189,63 @@ fn infer_flash_domain(
         ),
         (DomainKnowledge::NotVideo, _) | (_, DomainKnowledge::NotVideo) => {
             unreachable!("flash inputs are typed Video")
+        }
+        _ => DomainKnowledge::Deferred,
+    })
+}
+
+fn validate_crossfade_frames(
+    frames: FrameCount,
+    before: Option<FrameCount>,
+    after: Option<FrameCount>,
+    span: &crate::source::SourceSpan,
+) -> Result<()> {
+    if frames.0 == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_CROSSFADE_DURATION",
+            "`crossfade.duration` must cover at least one project frame",
+            span.clone(),
+        ));
+    }
+    for (name, available) in [("before", before), ("after", after)] {
+        if let Some(available) = available
+            && frames > available
+        {
+            return Err(Diagnostic::new(
+                "E_INVALID_CROSSFADE_DURATION",
+                format!(
+                    "`crossfade.duration` covers {} frames, but `{name}` contains only {} frames",
+                    frames.0, available.0
+                ),
+                span.clone(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn infer_crossfade_domain(
+    before: &DomainKnowledge,
+    after: &DomainKnowledge,
+    frames: FrameCount,
+    video: &VideoSpec,
+    span: &crate::source::SourceSpan,
+) -> Result<DomainKnowledge> {
+    let known_before = match before {
+        DomainKnowledge::Known(domain) => Some(domain.frames()),
+        DomainKnowledge::Deferred => None,
+        DomainKnowledge::NotVideo => unreachable!("crossfade inputs are typed Video"),
+    };
+    let known_after = match after {
+        DomainKnowledge::Known(domain) => Some(domain.frames()),
+        DomainKnowledge::Deferred => None,
+        DomainKnowledge::NotVideo => unreachable!("crossfade inputs are typed Video"),
+    };
+    validate_crossfade_frames(frames, known_before, known_after, span)?;
+    Ok(match (known_before, known_after) {
+        (Some(before), Some(after)) => {
+            let combined = before.checked_add(after, span)?;
+            DomainKnowledge::Known(project_domain(video, FrameCount(combined.0 - frames.0)))
         }
         _ => DomainKnowledge::Deferred,
     })

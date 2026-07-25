@@ -73,6 +73,11 @@ impl PreflightLowerer<'_> {
                 after,
                 frames,
             } => transitions::flash(self, compiled_node, *before, *after, *frames)?,
+            SemanticNodeKind::Crossfade {
+                before,
+                after,
+                frames,
+            } => transitions::crossfade(self, compiled_node, *before, *after, *frames)?,
             SemanticNodeKind::Concat { inputs } => {
                 timeline::video_concat(self, compiled_node, inputs)?
             }

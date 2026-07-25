@@ -136,12 +136,12 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             before,
             after,
             frames,
-        } => serde_json::json!({
-            "operation": "flash_join",
-            "before": before,
-            "after": after,
-            "frames": frames,
-        }),
+        } => transition_document("flash_join", *before, *after, *frames),
+        SemanticNodeKind::Crossfade {
+            before,
+            after,
+            frames,
+        } => transition_document("crossfade", *before, *after, *frames),
         SemanticNodeKind::Concat { inputs } => serde_json::json!({
             "operation": "concat", "inputs": inputs,
         }),
@@ -184,6 +184,20 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "inputs": invocation.inputs,
             "parameters": invocation.parameters,
         }),
+    })
+}
+
+fn transition_document(
+    operation: &str,
+    before: ValueRef,
+    after: ValueRef,
+    frames: crate::model::FrameCount,
+) -> serde_json::Value {
+    serde_json::json!({
+        "operation": operation,
+        "before": before,
+        "after": after,
+        "frames": frames,
     })
 }
 

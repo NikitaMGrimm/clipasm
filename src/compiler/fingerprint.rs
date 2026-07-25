@@ -145,6 +145,9 @@ fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
         SemanticNodeKind::FlashJoin { frames, .. } => {
             serde_json::json!({"operation": "flash_join", "frames": frames})
         }
+        SemanticNodeKind::Crossfade { frames, .. } => {
+            serde_json::json!({"operation": "crossfade", "frames": frames})
+        }
         SemanticNodeKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
         SemanticNodeKind::AudioConcat { .. } => serde_json::json!({"operation": "audio_concat"}),
         SemanticNodeKind::Slice { range, .. } => {

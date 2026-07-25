@@ -22,6 +22,7 @@ pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
         effects::zoom(),
         effects::wobble(),
         transitions::flash(),
+        transitions::crossfade(),
         body::join(),
         body::glue(),
         body::during(),

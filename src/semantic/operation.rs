@@ -62,6 +62,11 @@ pub(crate) enum SemanticNodeKind {
         after: ValueRef,
         frames: FrameCount,
     },
+    Crossfade {
+        before: ValueRef,
+        after: ValueRef,
+        frames: FrameCount,
+    },
     Concat {
         inputs: Vec<ValueRef>,
     },
@@ -118,6 +123,7 @@ impl SemanticNodeKind {
             | Self::Zoom { .. }
             | Self::Wobble { .. }
             | Self::FlashJoin { .. }
+            | Self::Crossfade { .. }
             | Self::Concat { .. }
             | Self::Slice { .. }
             | Self::ReplaceRange { .. }
@@ -149,10 +155,12 @@ impl SemanticNodeKind {
             Self::Concat { inputs } | Self::AudioConcat { inputs } => {
                 inputs.get(index).copied().map(SemanticDependency::Value)
             }
-            Self::FlashJoin { before, after, .. } => [*before, *after]
-                .get(index)
-                .copied()
-                .map(SemanticDependency::Value),
+            Self::FlashJoin { before, after, .. } | Self::Crossfade { before, after, .. } => {
+                [*before, *after]
+                    .get(index)
+                    .copied()
+                    .map(SemanticDependency::Value)
+            }
             Self::ReplaceRange {
                 base, replacement, ..
             } => [*base, *replacement]

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::diagnostic::Result;
-use crate::model::{AudioSpec, FrameCount, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, VideoDomain, VideoSpec};
 use crate::preflight::EXPORT_PIXEL_FORMAT;
 use crate::source::SourceSpan;
 
@@ -21,16 +21,7 @@ pub(super) fn stage_export(
     ffmpeg: &Path,
     ffprobe: &Path,
 ) -> Result<()> {
-    let result = export_mp4(
-        artifact,
-        staged,
-        spec,
-        audio,
-        domain.frames(),
-        has_audio,
-        ffmpeg,
-    )
-    .and_then(|()| {
+    let result = export_mp4(artifact, staged, spec, audio, has_audio, ffmpeg).and_then(|()| {
         verify_video_artifact(
             ffprobe,
             staged,
@@ -54,7 +45,6 @@ fn export_mp4(
     output: &Path,
     spec: &VideoSpec,
     audio: &AudioSpec,
-    frames: FrameCount,
     has_audio: bool,
     ffmpeg: &Path,
 ) -> Result<()> {
@@ -85,14 +75,7 @@ fn export_mp4(
         command.arg("-an");
     }
     command
-        .args([
-            "-frames:v",
-            &frames.0.to_string(),
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-        ])
+        .args(["-movflags", "+faststart", "-f", "mp4"])
         .arg(output);
     run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
 }
@@ -101,7 +84,7 @@ fn export_mp4(
 mod tests {
     use super::super::super::publication::PublicationTransaction;
     use super::*;
-    use crate::model::{FrameRate, VideoDomain, VideoSpec};
+    use crate::model::{FrameCount, FrameRate, VideoDomain, VideoSpec};
 
     #[test]
     fn failed_final_export_preserves_existing_pair() {

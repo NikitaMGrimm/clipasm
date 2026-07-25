@@ -8,13 +8,12 @@ use crate::source::SourceSpan;
 
 pub(super) fn append_video_output(
     command: &mut Command,
-    frames: FrameCount,
     spec: &VideoSpec,
     audio: &AudioSpec,
     destination: &Path,
 ) {
     command
-        .args(["-frames:v", &frames.0.to_string(), "-c:v", "ffv1"])
+        .args(["-c:v", "ffv1"])
         .args(["-level", "3", "-pix_fmt", WORKING_PIXEL_FORMAT, "-r"])
         .arg(format!(
             "{}/{}",

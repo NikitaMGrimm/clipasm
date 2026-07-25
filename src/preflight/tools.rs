@@ -921,12 +921,40 @@ mod tests {
     #[test]
     fn ffmpeg_preflight_requires_the_flash_fade_filter() {
         let _guard = fake_tool_test_lock();
-        let (_directory, no_fade) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts asetpts asetnsamples tpad concat perspective aresample aformat atrim apad anullsrc color'; else echo none; fi\n",
+        let filters = super::REQUIRED_FFMPEG_FILTERS
+            .iter()
+            .copied()
+            .filter(|filter| *filter != "fade")
+            .collect::<Vec<_>>()
+            .join(" ");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo '{filters}'; else echo none; fi\n"
         );
+        let (_directory, no_fade) = executable_script(&script);
         let error = inspect_ffmpeg_at(&no_fade).expect_err("missing fade");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
         assert!(error.message.contains("fade"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ffmpeg_preflight_requires_every_crossfade_filter() {
+        let _guard = fake_tool_test_lock();
+        for missing in ["blend", "afade", "adelay", "amix", "split", "asplit"] {
+            let filters = super::REQUIRED_FFMPEG_FILTERS
+                .iter()
+                .copied()
+                .filter(|filter| *filter != missing)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let script = format!(
+                "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo '{filters}'; else echo none; fi\n"
+            );
+            let (_directory, tool) = executable_script(&script);
+            let error = inspect_ffmpeg_at(&tool).expect_err("missing crossfade filter");
+            assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
+            assert!(error.message.contains(missing), "{error:?}");
+        }
     }
 
     #[cfg(unix)]

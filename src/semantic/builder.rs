@@ -171,6 +171,26 @@ impl<'a> GraphBuilder<'a> {
         })
     }
 
+    /// Overlap the end of one Video with the start of another.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type or graph-size diagnostic.
+    pub(crate) fn crossfade(
+        &mut self,
+        before: ValueRef,
+        after: ValueRef,
+        frames: FrameCount,
+    ) -> Result<ValueRef> {
+        self.require_type(before, ValueType::Video, "before")?;
+        self.require_type(after, ValueType::Video, "after")?;
+        self.push(SemanticNodeKind::Crossfade {
+            before,
+            after,
+            frames,
+        })
+    }
+
     /// Add a checked semantic concatenation, aliasing one input.
     ///
     /// # Errors

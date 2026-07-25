@@ -29,7 +29,6 @@ pub(super) fn slice(
         context.audio(),
         context.span(),
     )?;
-    let frames = FrameCount(end - start);
     let mut command = context.command();
     command.arg("-i").arg(context.artifact(input)?);
     let filter = format!(
@@ -38,7 +37,6 @@ pub(super) fn slice(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        frames,
         context.video(),
         context.audio(),
         context.temporary(),
@@ -82,7 +80,6 @@ pub(super) fn repeat(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        frames,
         context.video(),
         context.audio(),
         context.temporary(),
@@ -130,7 +127,6 @@ pub(super) fn concat(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),

@@ -9,5 +9,6 @@ pub(super) const PROGRAM_SYNTAX: &[(&str, Option<&str>, bool)] = &[
     ("zoom", Some("percent"), false),
     ("wobble", Some("pixels"), false),
     ("flash", Some("frames"), false),
+    ("crossfade", Some("duration"), false),
     ("during", Some("range"), true),
 ];

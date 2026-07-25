@@ -119,6 +119,9 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
         PreparedVideoKind::FlashJoin { frames, .. } => {
             serde_json::json!({"operation": "flash_join", "frames": frames})
         }
+        PreparedVideoKind::Crossfade { frames, .. } => {
+            serde_json::json!({"operation": "crossfade", "frames": frames})
+        }
         PreparedVideoKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
         PreparedVideoKind::SetAudio { .. } => serde_json::json!({"operation": "set_audio"}),
         PreparedVideoKind::AudioOnBlack { .. } => {

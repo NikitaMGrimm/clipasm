@@ -29,7 +29,6 @@ pub(super) fn zoom(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),
@@ -59,7 +58,6 @@ pub(super) fn wobble(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),

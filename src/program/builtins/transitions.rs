@@ -6,6 +6,23 @@ use crate::semantic::GraphBuilder;
 use super::support::{direct, exact_descriptor, input, one_output, parameter};
 
 const DEFAULT_FLASH_MILLISECONDS: u64 = 160;
+const DEFAULT_CROSSFADE_MILLISECONDS: u64 = 500;
+
+pub(super) fn crossfade() -> ProgramDefinition {
+    direct(
+        exact_descriptor(
+            "crossfade",
+            1,
+            vec![
+                input("before", ValueType::Video, Cardinality::One),
+                input("after", ValueType::Video, Cardinality::One),
+            ],
+            vec![parameter("duration", ParameterType::Duration, false)],
+            ValueType::Video,
+        ),
+        lower_crossfade,
+    )
+}
 
 pub(super) fn flash() -> ProgramDefinition {
     direct(
@@ -21,6 +38,34 @@ pub(super) fn flash() -> ProgramDefinition {
         ),
         lower_flash,
     )
+}
+
+fn lower_crossfade(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let before = call.one_input("before")?;
+    let after = call.one_input("after")?;
+    let (frames, duration_span) = match call.optional_duration_parameter("duration")? {
+        Some((duration, span)) => (
+            duration.to_covering_frames(builder.video_spec().fps(), span)?,
+            span,
+        ),
+        None => (
+            FrameCount::covering_duration(
+                u128::from(DEFAULT_CROSSFADE_MILLISECONDS),
+                1_000,
+                builder.video_spec().fps(),
+                &call.origin().span,
+            )?,
+            &call.origin().span,
+        ),
+    };
+    if frames.0 == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_CROSSFADE_DURATION",
+            "`crossfade.duration` must cover at least one project frame",
+            duration_span.clone(),
+        ));
+    }
+    one_output(builder.crossfade(before, after, frames))
 }
 
 fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
@@ -54,7 +99,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flash_version_covers_cut_effect_semantics() {
+    fn transition_versions_cover_their_distinct_timeline_semantics() {
         assert_eq!(flash().descriptor.semantic_version, 2);
+        assert_eq!(crossfade().descriptor.semantic_version, 1);
     }
 }

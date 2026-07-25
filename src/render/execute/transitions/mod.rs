@@ -38,10 +38,21 @@ pub(super) fn flash(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),
     );
     context.finish_ffmpeg(command)
+}
+
+mod crossfade;
+
+pub(super) fn crossfade(
+    context: &RenderContext<'_>,
+    before: NodeId,
+    after: NodeId,
+    frames: FrameCount,
+    domain: &VideoDomain,
+) -> Result<()> {
+    crossfade::render(context, before, after, frames, domain)
 }

@@ -29,7 +29,6 @@ pub(super) fn image(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        frames,
         context.video(),
         context.audio(),
         context.temporary(),
@@ -63,7 +62,6 @@ pub(super) fn video_source(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        frames,
         context.video(),
         context.audio(),
         context.temporary(),
@@ -94,7 +92,6 @@ pub(super) fn set_audio(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),
@@ -130,7 +127,6 @@ pub(super) fn audio_on_black(
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     append_video_output(
         &mut command,
-        domain.frames(),
         context.video(),
         context.audio(),
         context.temporary(),
