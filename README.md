@@ -1,3 +1,7 @@
+# Note about the documentation
+
+Most of the README and documentation were written with AI assistance. I plan to rewrite and improve them later.
+
 # ClipAsm
 
 ClipAsm is pre-release software. Its language, file formats, Rust API, and
