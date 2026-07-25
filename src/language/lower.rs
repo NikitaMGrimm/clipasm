@@ -20,7 +20,7 @@ pub(crate) fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
     let source = SourceFile::new(path.to_path_buf(), text.to_owned());
     let syntax = parser::parse(source.clone())?;
     reject_file_backed_declarations(&syntax)?;
-    let programs = builtin_descriptors();
+    let programs = builtin_shapes();
     let unit = lower_source(source, syntax, &programs)?;
     Ok(SourcePackage {
         root: SourceUnitId(0),
@@ -39,7 +39,7 @@ pub(crate) fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
 pub(crate) fn lower_source(
     source: SourceFile,
     syntax: SourceFileSyntax,
-    programs: &BTreeMap<String, ProgramDescriptor>,
+    programs: &BTreeMap<String, CallableShape>,
 ) -> Result<UnlinkedSourceUnit> {
     let declarations = lower_declarations(syntax.declarations)?;
     let lexical = declarations
@@ -76,17 +76,65 @@ pub(crate) fn lower_source(
     })
 }
 
-fn builtin_descriptors() -> BTreeMap<String, ProgramDescriptor> {
+pub(super) fn builtin_shapes() -> BTreeMap<String, CallableShape> {
     ProgramRegistry::default()
         .definitions()
         .iter()
         .map(|definition| {
             (
                 definition.descriptor.name.clone(),
-                definition.descriptor.clone(),
+                CallableShape::from_descriptor(&definition.descriptor),
             )
         })
         .collect()
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CallableShape {
+    inputs: Vec<String>,
+    parameters: Vec<String>,
+}
+
+impl CallableShape {
+    pub(super) fn from_descriptor(descriptor: &ProgramDescriptor) -> Self {
+        Self {
+            inputs: descriptor
+                .inputs
+                .iter()
+                .map(|input| input.name.clone())
+                .collect(),
+            parameters: descriptor
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect(),
+        }
+    }
+
+    pub(super) fn from_source(program: &SourceProgram) -> Self {
+        Self {
+            inputs: program
+                .inputs()
+                .iter()
+                .map(|input| input.name.clone())
+                .collect(),
+            parameters: program
+                .parameters()
+                .iter()
+                .map(|parameter| parameter.name.value.clone())
+                .collect(),
+        }
+    }
+
+    fn has_input(&self, name: &str) -> bool {
+        self.inputs.iter().any(|input| input == name)
+    }
+
+    fn parameter_index(&self, name: &str) -> Option<usize> {
+        self.parameters
+            .iter()
+            .position(|parameter| parameter == name)
+    }
 }
 
 fn reject_file_backed_declarations(syntax: &SourceFileSyntax) -> Result<()> {
@@ -214,7 +262,7 @@ fn lower_scalar_literal(value: Scalar) -> Literal {
 }
 
 struct Lowerer<'a> {
-    programs: &'a BTreeMap<String, ProgramDescriptor>,
+    programs: &'a BTreeMap<String, CallableShape>,
     parameters: BTreeSet<String>,
 }
 
@@ -271,7 +319,7 @@ impl Lowerer<'_> {
         if let Some(sugar) = sugar::resolve(&invocation.name.value) {
             return self.lower_sugar(sugar, invocation, output_bindings, lexical);
         }
-        let descriptor = self.programs.get(&invocation.name.value).ok_or_else(|| {
+        let shape = self.programs.get(&invocation.name.value).ok_or_else(|| {
             Diagnostic::new(
                 "E_UNKNOWN_PROGRAM",
                 format!("unknown program `{}`", invocation.name.value),
@@ -295,11 +343,11 @@ impl Lowerer<'_> {
                     name.span.clone(),
                 ));
             }
-            let lowered = if descriptor.input_slot(&name.value).is_some() {
+            let lowered = if shape.has_input(&name.value) {
                 has_named_graph_input = true;
                 self.lower_explicit_input(value, lexical)?
-            } else if let Some(slot) = descriptor.parameter_slot(&name.value) {
-                assigned_parameters.insert(slot.index());
+            } else if let Some(slot) = shape.parameter_index(&name.value) {
+                assigned_parameters.insert(slot);
                 Self::lower_scalar_argument(value, &invocation.name.value, &name.value)?
             } else {
                 return Err(Diagnostic::new(
@@ -323,7 +371,7 @@ impl Lowerer<'_> {
                 while assigned_parameters.contains(&next_parameter) {
                     next_parameter += 1;
                 }
-                let Some(parameter) = descriptor.parameters.get(next_parameter) else {
+                let Some(parameter) = shape.parameters.get(next_parameter) else {
                     return Err(Diagnostic::new(
                         "E_TOO_MANY_POSITIONAL_ARGUMENTS",
                         format!(
@@ -334,8 +382,8 @@ impl Lowerer<'_> {
                     ));
                 };
                 arguments.insert(
-                    parameter.name.clone(),
-                    Self::lower_scalar_argument(value, &invocation.name.value, &parameter.name)?,
+                    parameter.clone(),
+                    Self::lower_scalar_argument(value, &invocation.name.value, parameter)?,
                 );
                 assigned_parameters.insert(next_parameter);
                 next_parameter += 1;
@@ -352,7 +400,7 @@ impl Lowerer<'_> {
         }
 
         let mut body_lexical = lexical.clone();
-        body_lexical.extend(descriptor.inputs.iter().map(|input| input.name.clone()));
+        body_lexical.extend(shape.inputs.iter().cloned());
         let body = invocation
             .body
             .as_ref()
