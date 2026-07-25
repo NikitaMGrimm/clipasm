@@ -152,7 +152,7 @@ impl PreflightLowerer<'_> {
                     compiled_node.origin().clone(),
                 )?
             }
-            SemanticNodeKind::Reference { symbol } => {
+            SemanticNodeKind::Reference { symbol, .. } => {
                 let target = self.compiled.symbol_value(*symbol).ok_or_else(|| {
                     Diagnostic::new(
                         "E_MISSING_REFERENCE",

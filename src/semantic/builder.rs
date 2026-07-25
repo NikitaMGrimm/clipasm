@@ -1,204 +1,15 @@
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 
-use serde::Serialize;
-
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::ExternalInvocation;
 use crate::model::{
-    AudioSpec, FrameCount, FrameRange, ImageFit, SampleRange, SourceTimeRange, ValueId, ValueRef,
-    ValueType, VideoDomain, VideoSpec,
+    AudioSpec, FrameCount, FrameRange, ImageFit, SourceTimeRange, ValueId, ValueRef, ValueType,
+    VideoSpec,
 };
 use crate::source::SourceSpan;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
-pub(crate) struct SymbolId(u32);
-
-impl SymbolId {
-    #[must_use]
-    pub(crate) const fn new(value: u32) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub(crate) const fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct CompiledNode {
-    id: ValueId,
-    kind: SemanticNodeKind,
-    value_type: ValueType,
-    domain: Option<VideoDomain>,
-    semantic_version: u32,
-    origin: SourceOrigin,
-}
-
-impl CompiledNode {
-    pub(crate) fn from_draft(id: ValueId, draft: &DraftNode, domain: Option<VideoDomain>) -> Self {
-        Self {
-            id,
-            kind: draft.kind.clone(),
-            value_type: draft.value_type,
-            domain,
-            semantic_version: draft.semantic_version,
-            origin: draft.origin.clone(),
-        }
-    }
-
-    pub(crate) const fn kind(&self) -> &SemanticNodeKind {
-        &self.kind
-    }
-
-    pub(crate) const fn id(&self) -> ValueId {
-        self.id
-    }
-
-    pub(crate) const fn value_type(&self) -> ValueType {
-        self.value_type
-    }
-
-    pub(crate) const fn domain(&self) -> Option<&VideoDomain> {
-        self.domain.as_ref()
-    }
-
-    pub(crate) const fn semantic_version(&self) -> u32 {
-        self.semantic_version
-    }
-
-    pub(crate) const fn origin(&self) -> &SourceOrigin {
-        &self.origin
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-pub(crate) enum SemanticNodeKind {
-    ImageVideo {
-        path: PathBuf,
-        frames: FrameCount,
-        fit: ImageFit,
-    },
-    VideoSource {
-        path: PathBuf,
-        fit: ImageFit,
-    },
-    AudioSource {
-        path: PathBuf,
-    },
-    Reference {
-        symbol: SymbolId,
-    },
-    Repeat {
-        input: ValueRef,
-        count: NonZeroU64,
-    },
-    AudioRepeat {
-        input: ValueRef,
-        count: NonZeroU64,
-    },
-    Zoom {
-        input: ValueRef,
-        percent: u32,
-    },
-    Wobble {
-        input: ValueRef,
-        pixels: u32,
-    },
-    FlashJoin {
-        before: ValueRef,
-        after: ValueRef,
-        frames: FrameCount,
-    },
-    Concat {
-        inputs: Vec<ValueRef>,
-    },
-    AudioConcat {
-        inputs: Vec<ValueRef>,
-    },
-    Slice {
-        input: ValueRef,
-        range: FrameRange,
-    },
-    AudioSlice {
-        input: ValueRef,
-        range: SampleRange,
-    },
-    ReplaceRange {
-        base: ValueRef,
-        replacement: ValueRef,
-        range: FrameRange,
-    },
-    ExtractAudio {
-        video: ValueRef,
-    },
-    SetAudio {
-        audio: ValueRef,
-        video: ValueRef,
-    },
-    AudioOnBlack {
-        audio: ValueRef,
-    },
-    ExternalVideo {
-        invocation: ExternalInvocation,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// Authored construct and source location responsible for a semantic value.
-///
-/// Program constructs are static registry names; compiler-generated labels
-/// such as `reference` are also stable identifiers.
-pub struct SourceOrigin {
-    /// Registered program name or stable compiler-generated construct label.
-    pub construct: String,
-    /// Most relevant authored source location.
-    pub span: SourceSpan,
-}
-
-impl SourceOrigin {
-    #[must_use]
-    pub(crate) fn new(construct: impl Into<String>, span: SourceSpan) -> Self {
-        Self {
-            construct: construct.into(),
-            span,
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn clone_with_construct(&self, construct: impl Into<String>) -> Self {
-        Self::new(construct, self.span.clone())
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct DraftNode {
-    kind: SemanticNodeKind,
-    value_type: ValueType,
-    semantic_version: u32,
-    origin: SourceOrigin,
-}
-
-impl DraftNode {
-    pub(crate) const fn kind(&self) -> &SemanticNodeKind {
-        &self.kind
-    }
-
-    pub(crate) const fn value_type(&self) -> ValueType {
-        self.value_type
-    }
-
-    pub(crate) const fn semantic_version(&self) -> u32 {
-        self.semantic_version
-    }
-
-    pub(crate) const fn origin(&self) -> &SourceOrigin {
-        &self.origin
-    }
-}
+use super::{DraftNode, SemanticNodeKind, SourceOrigin, SymbolId};
 
 pub(crate) struct GraphBuilder<'a> {
     nodes: &'a mut Vec<DraftNode>,
@@ -247,10 +58,7 @@ impl<'a> GraphBuilder<'a> {
         frames: FrameCount,
         fit: ImageFit,
     ) -> Result<ValueRef> {
-        self.push(
-            SemanticNodeKind::ImageVideo { path, frames, fit },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::ImageVideo { path, frames, fit })
     }
 
     /// Add a pure semantic video-file source with a deferred frame domain.
@@ -259,33 +67,27 @@ impl<'a> GraphBuilder<'a> {
     ///
     /// Returns a graph-size diagnostic.
     pub(crate) fn video_source(&mut self, path: PathBuf, fit: ImageFit) -> Result<ValueRef> {
-        self.push(
-            SemanticNodeKind::VideoSource { path, fit },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::VideoSource { path, fit })
     }
 
     pub(crate) fn audio_source(&mut self, path: PathBuf) -> Result<ValueRef> {
-        self.push(SemanticNodeKind::AudioSource { path }, ValueType::Audio)
+        self.push(SemanticNodeKind::AudioSource { path })
     }
 
     pub(crate) fn extract_audio(&mut self, video: ValueRef) -> Result<ValueRef> {
         self.require_type(video, ValueType::Video, "video")?;
-        self.push(SemanticNodeKind::ExtractAudio { video }, ValueType::Audio)
+        self.push(SemanticNodeKind::ExtractAudio { video })
     }
 
     pub(crate) fn set_audio(&mut self, audio: ValueRef, video: ValueRef) -> Result<ValueRef> {
         self.require_type(audio, ValueType::Audio, "audio")?;
         self.require_type(video, ValueType::Video, "video")?;
-        self.push(
-            SemanticNodeKind::SetAudio { audio, video },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::SetAudio { audio, video })
     }
 
     pub(crate) fn audio_on_black(&mut self, audio: ValueRef) -> Result<ValueRef> {
         self.require_type(audio, ValueType::Audio, "audio")?;
-        self.push(SemanticNodeKind::AudioOnBlack { audio }, ValueType::Video)
+        self.push(SemanticNodeKind::AudioOnBlack { audio })
     }
 
     pub(crate) fn external_video(&mut self, invocation: ExternalInvocation) -> Result<ValueRef> {
@@ -301,10 +103,7 @@ impl<'a> GraphBuilder<'a> {
                 )
             })?;
         self.require_type(preserved, ValueType::Video, &invocation.preserve_input)?;
-        self.push(
-            SemanticNodeKind::ExternalVideo { invocation },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::ExternalVideo { invocation })
     }
 
     /// Add a checked semantic Video slice.
@@ -314,7 +113,7 @@ impl<'a> GraphBuilder<'a> {
     /// Returns a type or graph-size diagnostic.
     pub(crate) fn slice(&mut self, input: ValueRef, range: FrameRange) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "input")?;
-        self.push(SemanticNodeKind::Slice { input, range }, ValueType::Video)
+        self.push(SemanticNodeKind::Slice { input, range })
     }
 
     /// Add a checked compact semantic repetition, aliasing a count of one.
@@ -327,13 +126,8 @@ impl<'a> GraphBuilder<'a> {
             return Ok(input);
         }
         match input.value_type() {
-            ValueType::Video => {
-                self.push(SemanticNodeKind::Repeat { input, count }, ValueType::Video)
-            }
-            ValueType::Audio => self.push(
-                SemanticNodeKind::AudioRepeat { input, count },
-                ValueType::Audio,
-            ),
+            ValueType::Video => self.push(SemanticNodeKind::Repeat { input, count }),
+            ValueType::Audio => self.push(SemanticNodeKind::AudioRepeat { input, count }),
         }
     }
 
@@ -344,7 +138,7 @@ impl<'a> GraphBuilder<'a> {
     /// Returns a type or graph-size diagnostic.
     pub(crate) fn zoom(&mut self, input: ValueRef, percent: u32) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "video")?;
-        self.push(SemanticNodeKind::Zoom { input, percent }, ValueType::Video)
+        self.push(SemanticNodeKind::Zoom { input, percent })
     }
 
     /// Add deterministic full-clip two-axis motion that preserves the input domain.
@@ -354,7 +148,7 @@ impl<'a> GraphBuilder<'a> {
     /// Returns a type or graph-size diagnostic.
     pub(crate) fn wobble(&mut self, input: ValueRef, pixels: u32) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "video")?;
-        self.push(SemanticNodeKind::Wobble { input, pixels }, ValueType::Video)
+        self.push(SemanticNodeKind::Wobble { input, pixels })
     }
 
     /// Join two Videos without overlap while fading the start of the latter from white.
@@ -370,14 +164,11 @@ impl<'a> GraphBuilder<'a> {
     ) -> Result<ValueRef> {
         self.require_type(before, ValueType::Video, "before")?;
         self.require_type(after, ValueType::Video, "after")?;
-        self.push(
-            SemanticNodeKind::FlashJoin {
-                before,
-                after,
-                frames,
-            },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::FlashJoin {
+            before,
+            after,
+            frames,
+        })
     }
 
     /// Add a checked semantic concatenation, aliasing one input.
@@ -423,10 +214,8 @@ impl<'a> GraphBuilder<'a> {
             return Ok(first);
         }
         match value_type {
-            ValueType::Video => self.push(SemanticNodeKind::Concat { inputs }, ValueType::Video),
-            ValueType::Audio => {
-                self.push(SemanticNodeKind::AudioConcat { inputs }, ValueType::Audio)
-            }
+            ValueType::Video => self.push(SemanticNodeKind::Concat { inputs }),
+            ValueType::Audio => self.push(SemanticNodeKind::AudioConcat { inputs }),
         }
     }
 
@@ -439,10 +228,7 @@ impl<'a> GraphBuilder<'a> {
             ValueType::Audio => {
                 let range =
                     range.to_samples(AudioSpec::default().sample_rate(), &self.origin.span)?;
-                self.push(
-                    SemanticNodeKind::AudioSlice { input, range },
-                    ValueType::Audio,
-                )
+                self.push(SemanticNodeKind::AudioSlice { input, range })
             }
         }
     }
@@ -452,7 +238,7 @@ impl<'a> GraphBuilder<'a> {
         symbol: SymbolId,
         value_type: ValueType,
     ) -> Result<ValueRef> {
-        self.push(SemanticNodeKind::Reference { symbol }, value_type)
+        self.push(SemanticNodeKind::Reference { symbol, value_type })
     }
 
     pub(crate) fn replace_range(
@@ -463,17 +249,15 @@ impl<'a> GraphBuilder<'a> {
     ) -> Result<ValueRef> {
         self.require_type(base, ValueType::Video, "base")?;
         self.require_type(replacement, ValueType::Video, "replacement")?;
-        self.push(
-            SemanticNodeKind::ReplaceRange {
-                base,
-                replacement,
-                range,
-            },
-            ValueType::Video,
-        )
+        self.push(SemanticNodeKind::ReplaceRange {
+            base,
+            replacement,
+            range,
+        })
     }
 
-    fn push(&mut self, kind: SemanticNodeKind, value_type: ValueType) -> Result<ValueRef> {
+    fn push(&mut self, kind: SemanticNodeKind) -> Result<ValueRef> {
+        let value_type = kind.value_type();
         let id = ValueId::new(u32::try_from(self.nodes.len()).map_err(|_| {
             Diagnostic::new(
                 "E_GRAPH_TOO_LARGE",
@@ -483,7 +267,6 @@ impl<'a> GraphBuilder<'a> {
         })?);
         self.nodes.push(DraftNode {
             kind,
-            value_type,
             semantic_version: self.semantic_version,
             origin: self.origin.clone(),
         });

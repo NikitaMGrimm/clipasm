@@ -1,6 +1,8 @@
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueRef;
-use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SourceOrigin};
+use crate::semantic::{
+    CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SourceOrigin,
+};
 
 pub(crate) trait SemanticNodeView {
     fn kind(&self) -> &SemanticNodeKind;
@@ -90,52 +92,19 @@ fn dependency_at<N: SemanticNodeView>(
     symbols: &[ValueRef],
     index: usize,
 ) -> Result<Option<ValueRef>> {
-    Ok(match node.kind() {
-        SemanticNodeKind::Reference { symbol } if index == 0 => {
-            Some(*symbols.get(symbol.index()).ok_or_else(|| {
+    match node.kind().dependency_at(index) {
+        Some(SemanticDependency::Value(value)) => Ok(Some(value)),
+        Some(SemanticDependency::Symbol(symbol)) => {
+            Ok(Some(*symbols.get(symbol.index()).ok_or_else(|| {
                 Diagnostic::new(
                     "E_MISSING_REFERENCE",
                     format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 )
-            })?)
+            })?))
         }
-        SemanticNodeKind::Repeat { input, .. }
-        | SemanticNodeKind::AudioRepeat { input, .. }
-        | SemanticNodeKind::AudioSlice { input, .. }
-        | SemanticNodeKind::Zoom { input, .. }
-        | SemanticNodeKind::Wobble { input, .. }
-        | SemanticNodeKind::Slice { input, .. }
-        | SemanticNodeKind::ExtractAudio { video: input }
-        | SemanticNodeKind::AudioOnBlack { audio: input }
-            if index == 0 =>
-        {
-            Some(*input)
-        }
-        SemanticNodeKind::Concat { inputs } | SemanticNodeKind::AudioConcat { inputs } => {
-            inputs.get(index).copied()
-        }
-        SemanticNodeKind::FlashJoin { before, after, .. } => [*before, *after].get(index).copied(),
-        SemanticNodeKind::ReplaceRange {
-            base, replacement, ..
-        } => [*base, *replacement].get(index).copied(),
-        SemanticNodeKind::SetAudio { audio, video } => [*audio, *video].get(index).copied(),
-        SemanticNodeKind::ExternalVideo { invocation } => {
-            invocation.inputs.values().nth(index).copied()
-        }
-        SemanticNodeKind::ImageVideo { .. }
-        | SemanticNodeKind::VideoSource { .. }
-        | SemanticNodeKind::AudioSource { .. }
-        | SemanticNodeKind::Reference { .. }
-        | SemanticNodeKind::Repeat { .. }
-        | SemanticNodeKind::AudioRepeat { .. }
-        | SemanticNodeKind::AudioSlice { .. }
-        | SemanticNodeKind::Zoom { .. }
-        | SemanticNodeKind::Wobble { .. }
-        | SemanticNodeKind::Slice { .. }
-        | SemanticNodeKind::ExtractAudio { .. }
-        | SemanticNodeKind::AudioOnBlack { .. } => None,
-    })
+        None => Ok(None),
+    }
 }
 
 fn node_index<N>(value: ValueRef, nodes: &[N]) -> Result<usize> {

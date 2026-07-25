@@ -103,7 +103,7 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "audio_source",
             "path": path,
         }),
-        SemanticNodeKind::Reference { symbol } => {
+        SemanticNodeKind::Reference { symbol, .. } => {
             let target = program.symbol_value(*symbol).ok_or_else(|| {
                 Diagnostic::new(
                     "E_PLAN_SERIALIZATION",

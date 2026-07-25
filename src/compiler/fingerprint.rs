@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
-use crate::semantic::SemanticNodeKind;
+use crate::semantic::{SemanticDependency, SemanticNodeKind};
 use crate::source::SourceSpan;
 
 #[derive(Serialize)]
@@ -80,7 +80,7 @@ fn value_hashes(
     for value in order {
         let index = value.id().get() as usize;
         let node = &evaluation.nodes[index];
-        if let SemanticNodeKind::Reference { symbol } = node.kind() {
+        if let SemanticNodeKind::Reference { symbol, .. } = node.kind() {
             let target = evaluation.symbols[symbol.index()]
                 .value
                 .expect("references are resolved before fingerprinting");
@@ -106,45 +106,16 @@ fn value_hashes(
 }
 
 fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<String> {
-    match kind {
-        SemanticNodeKind::ImageVideo { .. }
-        | SemanticNodeKind::VideoSource { .. }
-        | SemanticNodeKind::AudioSource { .. } => Vec::new(),
-        SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
-        SemanticNodeKind::Repeat { input, .. }
-        | SemanticNodeKind::AudioRepeat { input, .. }
-        | SemanticNodeKind::AudioSlice { input, .. }
-        | SemanticNodeKind::Zoom { input, .. }
-        | SemanticNodeKind::Wobble { input, .. }
-        | SemanticNodeKind::Slice { input, .. }
-        | SemanticNodeKind::ExtractAudio { video: input }
-        | SemanticNodeKind::AudioOnBlack { audio: input } => {
-            vec![node_hash(*input, hashes).to_owned()]
+    let mut upstream = Vec::new();
+    kind.visit_dependencies(|dependency| match dependency {
+        SemanticDependency::Value(value) => {
+            upstream.push(node_hash(value, hashes).to_owned());
         }
-        SemanticNodeKind::Concat { inputs } | SemanticNodeKind::AudioConcat { inputs } => inputs
-            .iter()
-            .map(|input| node_hash(*input, hashes).to_owned())
-            .collect(),
-        SemanticNodeKind::FlashJoin { before, after, .. } => vec![
-            node_hash(*before, hashes).to_owned(),
-            node_hash(*after, hashes).to_owned(),
-        ],
-        SemanticNodeKind::ReplaceRange {
-            base, replacement, ..
-        } => vec![
-            node_hash(*base, hashes).to_owned(),
-            node_hash(*replacement, hashes).to_owned(),
-        ],
-        SemanticNodeKind::SetAudio { audio, video } => vec![
-            node_hash(*audio, hashes).to_owned(),
-            node_hash(*video, hashes).to_owned(),
-        ],
-        SemanticNodeKind::ExternalVideo { invocation } => invocation
-            .inputs
-            .values()
-            .map(|input| node_hash(*input, hashes).to_owned())
-            .collect(),
-    }
+        SemanticDependency::Symbol(_) => {
+            unreachable!("references are handled before upstream hashing")
+        }
+    });
+    upstream
 }
 
 fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {

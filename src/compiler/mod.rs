@@ -6,14 +6,15 @@
 
 mod check;
 mod checked;
+mod domain;
 mod draft;
 mod entrypoint;
 mod evaluate;
+mod finalize;
 pub(crate) mod fingerprint;
 mod ids;
 mod link;
 mod parameter;
-mod resolve;
 mod stack;
 pub(crate) mod traversal;
 mod typecheck;
@@ -292,7 +293,7 @@ fn compile_checked(
     let evaluation = evaluate::evaluate(&video, checked, bindings)?;
     let output = bindings.output.as_ref().or_else(|| entrypoint.output());
     validate_publication_output(entrypoint, output, &evaluation)?;
-    resolve::finalize(
+    finalize::finalize(
         entrypoint,
         output.cloned(),
         video,
