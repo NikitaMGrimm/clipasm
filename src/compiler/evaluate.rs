@@ -10,12 +10,14 @@ use crate::program::{
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::SourceSpan;
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody, Reference,
-    SourcePackage, SourceProgram, SourceUnitId, Spanned,
+    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
+    SourceProgram, SourceUnitId, Spanned,
 };
 
 use super::EntrypointBindings;
-use super::check::{CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage};
+use super::check::{
+    CheckedBody, CheckedItem, CheckedItemKind, CheckedPackage, CheckedReferenceTarget,
+};
 
 use super::stack::{EvaluationStack, StackFrame};
 
@@ -91,7 +93,8 @@ struct Evaluator<'a> {
 struct EvalScope {
     values: BTreeMap<String, SymbolId>,
     local_symbols: Vec<SymbolId>,
-    body_values: Vec<BTreeMap<String, ValueRef>>,
+    body_inputs: Vec<Option<ValueRef>>,
+    body_input_names: Vec<BTreeMap<String, super::check::BodyInputId>>,
     parameters: BoundParameters,
 }
 
@@ -148,7 +151,8 @@ impl Evaluator<'_> {
         let mut scope = EvalScope {
             values: BTreeMap::new(),
             local_symbols: Vec::new(),
-            body_values: Vec::new(),
+            body_inputs: Vec::new(),
+            body_input_names: Vec::new(),
             parameters: BoundParameters::new(),
         };
         let video_program = self
@@ -168,6 +172,7 @@ impl Evaluator<'_> {
                     access: video_definition.descriptor.default_stack_access,
                     body: None,
                     input_bodies: BTreeMap::new(),
+                    body_input_ids: BTreeMap::new(),
                 },
             }],
         };
@@ -217,7 +222,8 @@ impl Evaluator<'_> {
         let mut scope = EvalScope {
             values: BTreeMap::new(),
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
-            body_values: Vec::new(),
+            body_inputs: vec![None; checked_program.body_input_count],
+            body_input_names: Vec::new(),
             parameters: call
                 .map(|call| call.parameters().clone())
                 .unwrap_or_default(),
@@ -416,8 +422,13 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         let (outputs, construct) = match (&item.kind, &checked.kind) {
-            (ItemKind::Reference(reference), CheckedItemKind::Reference) => (
-                vec![self.evaluate_reference(reference, scope)?],
+            (
+                ItemKind::Reference(_),
+                CheckedItemKind::Reference {
+                    target: Some(target),
+                },
+            ) => (
+                vec![self.evaluate_checked_reference(*target, &item.span, scope)?],
                 "reference".to_owned(),
             ),
             (
@@ -428,6 +439,7 @@ impl Evaluator<'_> {
                     access,
                     body,
                     input_bodies,
+                    body_input_ids,
                 },
             ) => (
                 self.evaluate_invocation(
@@ -437,6 +449,7 @@ impl Evaluator<'_> {
                     *access,
                     body.as_deref(),
                     input_bodies,
+                    body_input_ids,
                     scope,
                     stack,
                     frame,
@@ -475,8 +488,31 @@ impl Evaluator<'_> {
         Ok(())
     }
 
-    fn evaluate_reference(&mut self, reference: &Reference, scope: &EvalScope) -> Result<ValueRef> {
-        self.evaluate_reference_name(&reference.name.value, &reference.name.span, scope)
+    fn evaluate_checked_reference(
+        &mut self,
+        target: CheckedReferenceTarget,
+        span: &SourceSpan,
+        scope: &EvalScope,
+    ) -> Result<ValueRef> {
+        match target {
+            CheckedReferenceTarget::Local(local) => {
+                let symbol = scope.local_symbols[local.index()];
+                let value_type = self.symbols[&symbol]
+                    .value_type
+                    .expect("checked local has a concrete type");
+                let origin = SourceOrigin::new("reference", span.clone());
+                GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
+                    .reference(symbol, value_type)
+            }
+            CheckedReferenceTarget::BodyInput(input) => scope.body_inputs[input.index()]
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        "E_INTERNAL_BINDING",
+                        "lexical body input was not bound during evaluation",
+                        span.clone(),
+                    )
+                }),
+        }
     }
 
     fn evaluate_reference_name(
@@ -485,13 +521,19 @@ impl Evaluator<'_> {
         span: &SourceSpan,
         scope: &EvalScope,
     ) -> Result<ValueRef> {
-        if let Some(value) = scope
-            .body_values
+        if let Some(id) = scope
+            .body_input_names
             .iter()
             .rev()
-            .find_map(|values| values.get(name))
+            .find_map(|inputs| inputs.get(name))
         {
-            return Ok(*value);
+            return scope.body_inputs[id.index()].ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INTERNAL_BINDING",
+                    "lexical body input was not bound during evaluation",
+                    span.clone(),
+                )
+            });
         }
         let key = scope
             .values
@@ -534,6 +576,7 @@ impl Evaluator<'_> {
         access: crate::program::StackAccess,
         checked_body: Option<&CheckedBody>,
         input_bodies: &BTreeMap<String, CheckedBody>,
+        body_input_ids: &BTreeMap<String, super::check::BodyInputId>,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
@@ -632,16 +675,19 @@ impl Evaluator<'_> {
                     invocation.program.span.clone(),
                 );
                 stack.extend(&child, plan.initial_values);
-                let body_values = signature
+                let mut bound_body_inputs = Vec::with_capacity(body_input_ids.len());
+                for port in signature
                     .inputs
                     .iter()
                     .filter(|port| matches!(port.cardinality, crate::program::Cardinality::One))
-                    .map(|port| {
-                        call.one_input(&port.name)
-                            .map(|value| (port.name.clone(), value))
-                    })
-                    .collect::<Result<BTreeMap<_, _>>>()?;
-                scope.body_values.push(body_values);
+                {
+                    let id = body_input_ids[&port.name];
+                    let previous =
+                        scope.body_inputs[id.index()].replace(call.one_input(&port.name)?);
+                    debug_assert!(previous.is_none());
+                    bound_body_inputs.push(id);
+                }
+                scope.body_input_names.push(body_input_ids.clone());
                 self.evaluate_body(
                     body,
                     checked_body,
@@ -650,7 +696,13 @@ impl Evaluator<'_> {
                     &mut child,
                     plan.requested_frames.or(requested_frames),
                 )?;
-                scope.body_values.pop().expect("body input scope");
+                scope
+                    .body_input_names
+                    .pop()
+                    .expect("active body input name scope");
+                for id in bound_body_inputs {
+                    scope.body_inputs[id.index()] = None;
+                }
                 let owned = stack.finish_body(&child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,

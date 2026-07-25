@@ -41,6 +41,15 @@ impl ValueLocalId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct BodyInputId(u32);
+
+impl BodyInputId {
+    pub(super) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct CheckedLocal {
     pub(super) name: String,
@@ -58,6 +67,7 @@ pub(super) struct CheckedPackage {
 pub(super) struct CheckedProgram {
     pub(super) source: Arc<SourceProgram>,
     pub(super) locals: Vec<CheckedLocal>,
+    pub(super) body_input_count: usize,
     pub(super) clips: Vec<CheckedBody>,
     pub(super) body: CheckedBody,
 }
@@ -74,15 +84,24 @@ pub(super) struct CheckedItem {
     pub(super) kind: CheckedItemKind,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(super) enum CheckedReferenceTarget {
+    Local(ValueLocalId),
+    BodyInput(BodyInputId),
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum CheckedItemKind {
-    Reference,
+    Reference {
+        target: Option<CheckedReferenceTarget>,
+    },
     Invocation {
         program: ProgramId,
         signature: ResolvedSignature,
         access: crate::program::StackAccess,
         body: Option<Box<CheckedBody>>,
         input_bodies: BTreeMap<String, CheckedBody>,
+        body_input_ids: BTreeMap<String, BodyInputId>,
     },
 }
 
@@ -338,12 +357,14 @@ fn check_program(
         &mut frame,
     )?;
     let outputs = stack.values().to_vec();
-    let locals = assign_local_ids(&program, &locals, &mut checked_clips, &mut checked_body)?;
+    let (locals, body_input_count) =
+        assign_local_ids(&program, &locals, &mut checked_clips, &mut checked_body)?;
     Ok((
         outputs,
         CheckedProgram {
             source: program,
             locals,
+            body_input_count,
             clips: checked_clips,
             body: checked_body,
         },
@@ -355,7 +376,7 @@ fn assign_local_ids(
     local_types: &BTreeMap<String, LocalType>,
     clips: &mut [CheckedBody],
     body: &mut CheckedBody,
-) -> Result<Vec<CheckedLocal>> {
+) -> Result<(Vec<CheckedLocal>, usize)> {
     let mut locals = Vec::new();
     let mut ids = BTreeMap::new();
 
@@ -383,11 +404,18 @@ fn assign_local_ids(
     for clip in program.clips() {
         declare(&clip.name, &clip.span)?;
     }
-    for (clip, checked) in program.clips().iter().zip(clips) {
+    for (clip, checked) in program.clips().iter().zip(&mut *clips) {
         assign_body_output_ids(&clip.body, checked, &mut declare)?;
     }
     assign_body_output_ids(program.body(), body, &mut declare)?;
-    Ok(locals)
+
+    let mut body_input_count = 0_usize;
+    let lexical = BTreeMap::new();
+    for (clip, checked) in program.clips().iter().zip(&mut *clips) {
+        resolve_body_references(&clip.body, checked, &ids, &lexical, &mut body_input_count)?;
+    }
+    resolve_body_references(program.body(), body, &ids, &lexical, &mut body_input_count)?;
+    Ok((locals, body_input_count))
 }
 
 fn assign_body_output_ids(
@@ -424,6 +452,92 @@ fn assign_body_output_ids(
                     assign_body_output_ids(source_body, checked_body, declare)?;
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+fn resolve_body_references(
+    source: &ProgramBody,
+    checked: &mut CheckedBody,
+    locals: &BTreeMap<String, ValueLocalId>,
+    lexical: &BTreeMap<String, BodyInputId>,
+    body_input_count: &mut usize,
+) -> Result<()> {
+    debug_assert_eq!(source.items.len(), checked.items.len());
+    for (item, checked_item) in source.items.iter().zip(&mut checked.items) {
+        match (&item.kind, &mut checked_item.kind) {
+            (ItemKind::Reference(reference), CheckedItemKind::Reference { target }) => {
+                let resolved = lexical
+                    .get(&reference.name.value)
+                    .copied()
+                    .map(CheckedReferenceTarget::BodyInput)
+                    .or_else(|| {
+                        locals
+                            .get(&reference.name.value)
+                            .copied()
+                            .map(CheckedReferenceTarget::Local)
+                    })
+                    .ok_or_else(|| {
+                        missing_reference(&reference.name.value, &reference.name.span)
+                    })?;
+                *target = Some(resolved);
+            }
+            (
+                ItemKind::Invocation(invocation),
+                CheckedItemKind::Invocation {
+                    signature,
+                    body,
+                    input_bodies,
+                    body_input_ids,
+                    ..
+                },
+            ) => {
+                for (name, argument) in &invocation.arguments {
+                    if let ArgumentValue::Body(source_body) = argument {
+                        let checked_body = input_bodies
+                            .get_mut(name)
+                            .expect("checked input body matches canonical source");
+                        resolve_body_references(
+                            source_body,
+                            checked_body,
+                            locals,
+                            lexical,
+                            body_input_count,
+                        )?;
+                    }
+                }
+                if let (Some(source_body), Some(checked_body)) =
+                    (&invocation.body, body.as_deref_mut())
+                {
+                    let mut child_lexical = lexical.clone();
+                    for port in &signature.inputs {
+                        if !matches!(port.cardinality, Cardinality::One) {
+                            continue;
+                        }
+                        let id = BodyInputId(u32::try_from(*body_input_count).map_err(|_| {
+                            Diagnostic::new(
+                                "E_GRAPH_TOO_LARGE",
+                                "too many lexical body inputs were declared",
+                                item.span.clone(),
+                            )
+                        })?);
+                        *body_input_count = body_input_count
+                            .checked_add(1)
+                            .expect("body input count fits in usize");
+                        body_input_ids.insert(port.name.clone(), id);
+                        child_lexical.insert(port.name.clone(), id);
+                    }
+                    resolve_body_references(
+                        source_body,
+                        checked_body,
+                        locals,
+                        &child_lexical,
+                        body_input_count,
+                    )?;
+                }
+            }
+            _ => unreachable!("checked item kind matches canonical source"),
         }
     }
     Ok(())
@@ -795,7 +909,7 @@ fn infer_body(
                 CheckedItem {
                     output_types: vec![output],
                     output_bindings: Vec::new(),
-                    kind: CheckedItemKind::Reference,
+                    kind: CheckedItemKind::Reference { target: None },
                 }
             }
             ItemKind::Invocation(invocation) => {
@@ -978,6 +1092,7 @@ fn infer_body(
                         access,
                         body: checked_body,
                         input_bodies: validated.input_bodies,
+                        body_input_ids: BTreeMap::new(),
                     },
                 }
             }
