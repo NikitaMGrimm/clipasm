@@ -54,14 +54,20 @@ retried after later constraints make progress. Forward references therefore
 participate in the same inference path as ordinary stack values, while
 dependency cycles remain explicit errors.
 The result becomes self-contained checked source. Imported definitions and
-built-ins share one runtime catalog.
+built-ins share one runtime catalog. Generic inference and final concrete
+checking currently share the resolved draft and stack planner but remain
+separate passes; checked source is emitted only by the concrete pass.
 
-Checked-source construction resolves graph and scalar references to compact
-local identities, parses scalar literals, orders explicit inputs by descriptor,
-resolves concrete signatures and body contracts, and records each invocation's
-concrete stack-binding plan. Inline input bodies and lexical body-port aliases
-are represented directly in checked source. Canonical bodies and invocations
-are not retained for ordinary evaluation.
+Checked-source construction allocates compact local and parameter identities
+before recursive body checking, so forward references can resolve without
+retaining authored names at evaluation time. The recursive checker resolves
+graph and scalar references, parses scalar literals, orders explicit inputs by
+descriptor, assigns lexical body-port identities, resolves concrete signatures
+and body contracts, and records each invocation's concrete stack-binding plan.
+Checked items are complete when constructed; no later source/checked lockstep
+pass repairs references or output bindings. Inline input bodies and lexical
+body-port aliases are represented directly in checked source. Canonical bodies
+and invocations are not retained for ordinary evaluation.
 
 `compiler` evaluates the checked body and every nested body as a typed postfix
 stack program over one physical heterogeneous evaluation stack. Each stack
