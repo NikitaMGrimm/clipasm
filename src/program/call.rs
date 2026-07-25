@@ -139,6 +139,11 @@ impl<'a> ResolvedCall<'a> {
     }
 
     #[must_use]
+    pub(crate) fn input_binding(&self, slot: InputSlot) -> (&InputPort, &ResolvedInput) {
+        (self.descriptor.input(slot), &self.inputs[slot.index()])
+    }
+
+    #[must_use]
     pub(crate) fn parameter_at(&self, slot: ParameterSlot) -> Option<&Spanned<ParameterValue>> {
         self.parameters[slot.index()].as_ref()
     }

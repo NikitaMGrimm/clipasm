@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, InputPort, ParameterDescriptor, ParameterType, ParameterValue, ProgramDefinition,
-    ProgramDescriptor, ProgramImplementation, ResolvedCall, StackAccess,
+    Cardinality, InputPort, InputSlot, ParameterDescriptor, ParameterType, ParameterValue,
+    ProgramDefinition, ProgramDescriptor, ProgramImplementation, ResolvedCall, ResolvedInput,
+    StackAccess,
 };
 use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -36,15 +37,15 @@ pub(crate) struct ExternalInvocation {
 #[derive(Clone, Debug)]
 pub(crate) struct ExternalProgram {
     semantic_version: u32,
+    inputs: Vec<InputPort>,
+    parameters: Vec<ParameterDescriptor>,
     runtime: ExternalRuntime,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ExternalRuntime {
     command: Spanned<PathBuf>,
-    inputs: Vec<InputPort>,
-    parameters: Vec<ParameterDescriptor>,
-    preserve_input: String,
+    preserve_input: InputSlot,
 }
 
 impl ExternalProgram {
@@ -54,8 +55,8 @@ impl ExternalProgram {
                 name,
                 semantic_version: self.semantic_version,
                 default_stack_access: StackAccess::Owned,
-                inputs: self.runtime.inputs.clone(),
-                parameters: self.runtime.parameters.clone(),
+                inputs: self.inputs.clone(),
+                parameters: self.parameters.clone(),
                 type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
@@ -66,12 +67,18 @@ impl ExternalProgram {
 
 impl ExternalRuntime {
     pub(crate) fn invocation(&self, call: &ResolvedCall) -> Result<ExternalInvocation> {
-        let inputs = self
-            .inputs
-            .iter()
-            .map(|input| {
-                call.one_input(&input.name)
-                    .map(|value| (input.name.clone(), value))
+        let inputs = call
+            .inputs()
+            .map(|(input, binding)| match binding {
+                ResolvedInput::One(value) => Ok((input.name.clone(), *value)),
+                ResolvedInput::Variadic(_) => Err(Diagnostic::new(
+                    "E_INVALID_EXTERNAL_PROGRAM",
+                    format!(
+                        "external input `{}` unexpectedly became variadic",
+                        input.name
+                    ),
+                    call.origin().span.clone(),
+                )),
             })
             .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
         let parameters = call
@@ -99,9 +106,10 @@ impl ExternalRuntime {
                 Ok((descriptor.name.clone(), parameter))
             })
             .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+        let (preserved, _) = call.input_binding(self.preserve_input);
         Ok(ExternalInvocation {
             command: self.command.clone(),
-            preserve_input: self.preserve_input.clone(),
+            preserve_input: preserved.name.clone(),
             inputs,
             parameters,
         })
@@ -314,13 +322,18 @@ pub(crate) fn load_manifest(path: &Path) -> Result<ExternalProgram> {
         ));
     }
 
+    let preserve_input = inputs
+        .iter()
+        .position(|input| input.name == manifest.output.preserve)
+        .map(InputSlot::new)
+        .expect("preserved input was validated above");
     let program = ExternalProgram {
         semantic_version: manifest.semantic_version,
+        inputs,
+        parameters,
         runtime: ExternalRuntime {
             command: Spanned::new(manifest.command, span.clone()),
-            inputs,
-            parameters,
-            preserve_input: manifest.output.preserve,
+            preserve_input,
         },
     };
     let validation = program.definition("external".to_owned());
