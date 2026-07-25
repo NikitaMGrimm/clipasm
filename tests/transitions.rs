@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,11 +16,6 @@ fn compile_source(source: &str) -> clipasm::diagnostic::Result<compiler::Compile
 fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
     let source = clipasm::language::parse_file(path)?;
     compiler::compile(&source)
-}
-
-fn tools_available() -> bool {
-    Command::new("ffmpeg").arg("-version").output().is_ok()
-        && Command::new("ffprobe").arg("-version").output().is_ok()
 }
 
 fn write_image(directory: &Path, name: &str, color: &str) {
@@ -127,7 +124,7 @@ fn crossfade_rejects_empty_or_excessive_overlap() {
 
 #[test]
 fn preflight_checks_crossfade_against_deferred_video_duration() {
-    if !tools_available() {
+    if !common::media_tools_available() {
         eprintln!("skipping deferred crossfade test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -169,7 +166,7 @@ fn crossfade_renders_a_one_frame_full_overlap() {
     const WIDTH: usize = 64;
     const HEIGHT: usize = 48;
 
-    if !tools_available() {
+    if !common::media_tools_available() {
         eprintln!("skipping one-frame crossfade test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -214,7 +211,7 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     const OUTPUT_FRAMES: u64 = 43;
     const SAMPLE_RATE: u64 = 48_000;
 
-    if !tools_available() {
+    if !common::media_tools_available() {
         eprintln!("skipping crossfade render test because FFmpeg/FFprobe are unavailable");
         return;
     }

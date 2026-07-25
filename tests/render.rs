@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -13,9 +15,7 @@ fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledPr
 
 #[test]
 fn renders_and_reuses_verified_cache() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -57,9 +57,7 @@ fn renders_and_reuses_verified_cache() {
 
 #[test]
 fn renders_during_with_an_exact_duration_change() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -88,9 +86,7 @@ fn renders_during_with_an_exact_duration_change() {
 
 #[test]
 fn renders_and_normalizes_a_video_source() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -191,9 +187,7 @@ fn renders_and_normalizes_a_video_source() {
 
 #[test]
 fn video_source_duration_is_quantized_by_coverage() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -238,9 +232,7 @@ fn video_source_duration_is_quantized_by_coverage() {
 
 #[test]
 fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping short-source render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -301,9 +293,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
 
 #[test]
 fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping zoom render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -362,9 +352,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     const HEIGHT: usize = 48;
     const FRAME_BYTES: usize = WIDTH * HEIGHT * 3;
 
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping zoom centering test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -416,9 +404,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
 
 #[test]
 fn wobble_renders_exact_domain_without_exposing_borders() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping wobble render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -489,9 +475,7 @@ fn wobble_renders_exact_domain_without_exposing_borders() {
 fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     const FRAME_BYTES: usize = 64 * 48 * 3;
 
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping flash render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -564,9 +548,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
 
 #[test]
 fn set_audio_trims_or_pads_to_the_video_duration() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping audio render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -644,9 +626,7 @@ fn set_audio_trims_or_pads_to_the_video_duration() {
 
 #[test]
 fn renders_native_audio_trim_repeat_and_concat() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping audio render test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -704,10 +684,7 @@ fn renders_native_audio_trim_repeat_and_concat() {
 fn renders_an_external_video_program() {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-        || Command::new("python3").arg("--version").output().is_err()
-    {
+    if !common::media_tools_available() || !common::executable_available("python3") {
         eprintln!("skipping external render test because a required tool is unavailable");
         return;
     }

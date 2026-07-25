@@ -1,7 +1,8 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
-use std::process::Command;
 
 use clipasm::compiler::EntrypointBindings;
 use clipasm::source::SourceSpan;
@@ -126,19 +127,7 @@ fn external_programs_reject_imports_in_favor_of_wrapper_programs() {
 fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if Command::new("ffmpeg")
-        .arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_err()
-        || Command::new("ffprobe")
-            .arg("-version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping external file preflight test because FFmpeg is unavailable");
         return;
     }

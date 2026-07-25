@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -127,9 +129,7 @@ fn unreachable_auxiliary_audio_is_not_preflighted() {
 
 #[test]
 fn audio_preflight_counts_exact_decoded_samples() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping exact audio test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -303,9 +303,7 @@ fn output_cannot_replace_a_reachable_image_asset() {
 
 #[test]
 fn output_cannot_replace_a_reachable_video_asset() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping video collision test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -469,9 +467,7 @@ fn video_preflight_reports_missing_files_by_source_kind() {
 
 #[test]
 fn video_preflight_derives_the_full_source_duration() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping video preflight test because FFmpeg/FFprobe are unavailable");
         return;
     }
@@ -616,9 +612,7 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
 
 #[test]
 fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
-    if Command::new("ffmpeg").arg("-version").output().is_err()
-        || Command::new("ffprobe").arg("-version").output().is_err()
-    {
+    if !common::media_tools_available() {
         eprintln!("skipping deferred flash test because FFmpeg/FFprobe are unavailable");
         return;
     }
