@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use clipasm::{compiler, frontend, preflight};
+use clipasm::{compiler, language, preflight};
 
 fn write_manifest(directory: &std::path::Path, command: &str) {
     fs::write(
@@ -23,10 +23,10 @@ fn write_manifest(directory: &std::path::Path, command: &str) {
 }
 
 fn write_workflow(directory: &std::path::Path) -> std::path::PathBuf {
-    let workflow = directory.join("workflow.yaml");
+    let workflow = directory.join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    externals:\n      effect: effect.json\n    output: result.mp4\n\n- image: {path: card.png, duration: 1s}\n- effect:\n    amount: 12\n",
+        "clipasm 1\nconfig {\n  output = \"result.mp4\"\n}\nexternal \"effect.json\" as effect\nimage(\"card.png\", 1s)\neffect(12)\n",
     )
     .expect("workflow");
     workflow
@@ -43,7 +43,7 @@ fn compilation_registers_external_programs_without_resolving_the_executable() {
     .expect("image");
     let workflow = write_workflow(directory.path());
 
-    let package = frontend::yaml::parse_file(&workflow).expect("parse external registration");
+    let package = language::parse_file(&workflow).expect("parse external registration");
     let compiled = compiler::compile(&package).expect("pure external compilation");
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON"))
@@ -57,8 +57,8 @@ fn compilation_registers_external_programs_without_resolving_the_executable() {
 
 #[test]
 fn string_parsing_rejects_external_manifest_loading() {
-    let source = "- program:\n    version: 1\n    externals:\n      effect: effect.json\n";
-    let error = frontend::yaml::parse_str(std::path::Path::new("workflow.yaml"), source)
+    let source = "clipasm 1\nexternal \"effect.json\" as effect\n";
+    let error = language::parse_str(std::path::Path::new("workflow.clipasm"), source)
         .expect_err("external registration needs a file base");
     assert_eq!(error.code, "E_EXTERNAL_REQUIRES_FILE");
 }
