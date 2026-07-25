@@ -23,7 +23,7 @@ pub(crate) fn accepts_invocation_name(name: &str) -> bool {
 struct Parser {
     tokens: Vec<Token>,
     index: usize,
-    body_depth: usize,
+    syntax_depth: usize,
 }
 
 impl Parser {
@@ -31,7 +31,7 @@ impl Parser {
         Self {
             tokens,
             index: 0,
-            body_depth: 0,
+            syntax_depth: 0,
         }
     }
 
@@ -455,6 +455,16 @@ impl Parser {
         let span = access
             .as_ref()
             .map_or_else(|| self.current().span.clone(), |access| access.span.clone());
+        self.with_syntax_nesting(span.clone(), |parser| {
+            parser.parse_invocation_inner(access, span)
+        })
+    }
+
+    fn parse_invocation_inner(
+        &mut self,
+        access: Option<Spanned<StackAccess>>,
+        span: SourceSpan,
+    ) -> Result<Invocation> {
         let name = self.expect_identifier("a program name")?;
         let type_argument = if self.consume(&TokenKind::LeftAngle) {
             let argument = self.parse_type_argument()?;
@@ -541,17 +551,16 @@ impl Parser {
         let span = access
             .as_ref()
             .map_or_else(|| self.current().span.clone(), |access| access.span.clone());
-        if self.body_depth >= crate::source::MAX_BODY_NESTING {
-            return Err(Diagnostic::new(
-                "E_BODY_NESTING_DEPTH",
-                format!(
-                    "program body nesting exceeds the supported depth of {}",
-                    crate::source::MAX_BODY_NESTING
-                ),
-                span,
-            ));
-        }
-        self.body_depth += 1;
+        self.with_syntax_nesting(span.clone(), |parser| {
+            parser.parse_block_inner(access, span)
+        })
+    }
+
+    fn parse_block_inner(
+        &mut self,
+        access: Option<Spanned<StackAccess>>,
+        span: SourceSpan,
+    ) -> Result<Block> {
         self.expect(&TokenKind::LeftBrace, "`{`")?;
         self.skip_newlines();
         let mut statements = Vec::new();
@@ -567,12 +576,32 @@ impl Parser {
             self.skip_newlines();
         }
         self.advance();
-        self.body_depth -= 1;
         Ok(Block {
             access,
             statements,
             span,
         })
+    }
+
+    fn with_syntax_nesting<T>(
+        &mut self,
+        span: SourceSpan,
+        parse: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if self.syntax_depth >= crate::source::MAX_SYNTAX_NESTING {
+            return Err(Diagnostic::new(
+                "E_SYNTAX_NESTING_DEPTH",
+                format!(
+                    "source syntax nesting exceeds the supported depth of {}",
+                    crate::source::MAX_SYNTAX_NESTING
+                ),
+                span,
+            ));
+        }
+        self.syntax_depth += 1;
+        let result = parse(self);
+        self.syntax_depth -= 1;
+        result
     }
 
     fn parse_output_bindings(&mut self) -> Result<OutputBindings> {
@@ -872,19 +901,32 @@ mod tests {
     }
 
     #[test]
-    fn rejects_body_nesting_before_recursive_descent_overflows() {
+    fn rejects_syntax_nesting_before_recursive_descent_overflows() {
         let mut source = String::from("clipasm 1\n");
-        for _ in 0..=crate::source::MAX_BODY_NESTING {
+        for _ in 0..=crate::source::MAX_SYNTAX_NESTING {
             source.push_str("{\n");
         }
         source.push_str("image(\"card.png\", 1s)\n");
-        for _ in 0..=crate::source::MAX_BODY_NESTING {
+        for _ in 0..=crate::source::MAX_SYNTAX_NESTING {
             source.push_str("}\n");
         }
 
         let error =
             parse(SourceFile::new("deep.clipasm", source)).expect_err("excessive body nesting");
-        assert_eq!(error.code, "E_BODY_NESTING_DEPTH");
+        assert_eq!(error.code, "E_SYNTAX_NESTING_DEPTH");
+    }
+
+    #[test]
+    fn rejects_deeply_nested_invocation_arguments() {
+        let mut expression = String::from("image(\"card.png\", 1s)");
+        for _ in 0..=crate::source::MAX_SYNTAX_NESTING {
+            expression = format!("repeat({expression}, 1)");
+        }
+        let source = format!("clipasm 1\n{expression}\n");
+
+        let error = parse(SourceFile::new("deep-expression.clipasm", source))
+            .expect_err("excessive expression nesting");
+        assert_eq!(error.code, "E_SYNTAX_NESTING_DEPTH");
     }
 
     #[test]
