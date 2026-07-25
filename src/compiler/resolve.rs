@@ -26,17 +26,12 @@ pub(super) fn finalize(
     let symbol_values = evaluation
         .symbols
         .iter()
-        .map(|(id, symbol)| {
-            (
-                *id,
-                symbol.value.expect("every collected symbol is evaluated"),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+        .map(|symbol| symbol.value.expect("every collected symbol is evaluated"))
+        .collect::<Vec<_>>();
     let roots = evaluation
         .public_symbols
         .values()
-        .map(|symbol| symbol_values[symbol])
+        .map(|symbol| symbol_values[symbol.index()])
         .chain(evaluation.outputs.iter().copied());
     let order = super::traversal::topological_order(&evaluation.nodes, &symbol_values, roots)?;
     let domains = infer_domains(&evaluation, &video, &order)?;
@@ -67,7 +62,7 @@ pub(super) fn finalize(
         .map(|(name, key)| {
             (
                 name.clone(),
-                evaluation.symbols[key]
+                evaluation.symbols[key.index()]
                     .value
                     .expect("every collected symbol is evaluated"),
             )
@@ -108,7 +103,7 @@ pub(super) fn finalize(
 fn validate_references(evaluation: &Evaluation) -> Result<()> {
     for node in &evaluation.nodes {
         if let SemanticNodeKind::Reference { symbol } = node.kind() {
-            let Some(binding) = evaluation.symbols.get(symbol) else {
+            let Some(binding) = evaluation.symbols.get(symbol.index()) else {
                 return Err(Diagnostic::new(
                     "E_MISSING_REFERENCE",
                     format!("reference names unknown symbol {}", symbol.index()),
@@ -142,28 +137,30 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
 
 fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
     let mut edges = BTreeMap::<SymbolId, Vec<SymbolId>>::new();
-    for symbol in &evaluation.symbol_order {
-        let value = evaluation.symbols[symbol]
+    for index in 0..evaluation.symbols.len() {
+        let symbol = SymbolId::new(u32::try_from(index).expect("symbol ID"));
+        let value = evaluation.symbols[symbol.index()]
             .value
             .expect("every collected symbol is evaluated");
         let mut references = BTreeSet::new();
         collect_direct_references(value, &evaluation.nodes, &mut references);
-        edges.insert(*symbol, references.into_iter().collect());
+        edges.insert(symbol, references.into_iter().collect());
     }
     let mut states = BTreeMap::<SymbolId, u8>::new();
     let mut path = Vec::<SymbolId>::new();
     let mut positions = BTreeMap::<SymbolId, usize>::new();
     let mut stack = Vec::<SymbolFrame>::new();
 
-    for root in &evaluation.symbol_order {
-        if states.get(root).copied().unwrap_or(0) != 0 {
+    for index in 0..evaluation.symbols.len() {
+        let root = SymbolId::new(u32::try_from(index).expect("symbol ID"));
+        if states.get(&root).copied().unwrap_or(0) != 0 {
             continue;
         }
-        states.insert(*root, 1);
-        positions.insert(*root, 0);
-        path.push(*root);
+        states.insert(root, 1);
+        positions.insert(root, 0);
+        path.push(root);
         stack.push(SymbolFrame {
-            symbol: *root,
+            symbol: root,
             next_target: 0,
         });
 
@@ -184,13 +181,13 @@ fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
                         let start = positions[&target];
                         let mut cycle = path[start..]
                             .iter()
-                            .map(|symbol| evaluation.symbols[symbol].name.clone())
+                            .map(|symbol| evaluation.symbols[symbol.index()].name.clone())
                             .collect::<Vec<_>>();
-                        cycle.push(evaluation.symbols[&target].name.clone());
+                        cycle.push(evaluation.symbols[target.index()].name.clone());
                         return Err(Diagnostic::new(
                             "E_DEPENDENCY_CYCLE",
                             format!("named-value dependency cycle: {}", cycle.join(" -> ")),
-                            evaluation.symbols[&target].declared_at.clone(),
+                            evaluation.symbols[target.index()].declared_at.clone(),
                         ));
                     }
                     2 => {}
@@ -299,7 +296,7 @@ fn infer_domains(
             | SemanticNodeKind::AudioSlice { .. }
             | SemanticNodeKind::ExtractAudio { .. } => DomainKnowledge::NotVideo,
             SemanticNodeKind::Reference { symbol } => {
-                let target = evaluation.symbols[symbol]
+                let target = evaluation.symbols[symbol.index()]
                     .value
                     .expect("references were resolved before domain inference");
                 knowledge[target.id().get() as usize].clone()
@@ -497,16 +494,10 @@ mod tests {
         }
     }
 
-    fn make_evaluation(
-        nodes: Vec<DraftNode>,
-        symbols: BTreeMap<SymbolId, Symbol>,
-        symbol_order: Vec<SymbolId>,
-        root: ValueRef,
-    ) -> Evaluation {
+    fn make_evaluation(nodes: Vec<DraftNode>, symbols: Vec<Symbol>, root: ValueRef) -> Evaluation {
         Evaluation {
             nodes,
             symbols,
-            symbol_order,
             public_symbols: BTreeMap::new(),
             surface: Vec::<SurfaceRecord>::new(),
             outputs: vec![root],
@@ -518,8 +509,7 @@ mod tests {
         const NAMES: usize = 20_001;
         let video = VideoSpec::default();
         let mut nodes = Vec::with_capacity(NAMES);
-        let mut symbols = BTreeMap::new();
-        let mut symbol_order = Vec::with_capacity(NAMES);
+        let mut symbols = Vec::with_capacity(NAMES);
         let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
         let mut root = None;
         for index in 0..NAMES {
@@ -531,10 +521,10 @@ mod tests {
                 .reference(target, ValueType::Video)
                 .expect("reference");
             root.get_or_insert(value);
-            symbol_order.push(symbol_id);
-            symbols.insert(symbol_id, symbol(name, value));
+            debug_assert_eq!(symbol_id.index(), symbols.len());
+            symbols.push(symbol(name, value));
         }
-        let evaluation = make_evaluation(nodes, symbols, symbol_order, root.expect("root"));
+        let evaluation = make_evaluation(nodes, symbols, root.expect("root"));
 
         let error = detect_cycles(&evaluation).expect_err("named cycle");
 
@@ -556,10 +546,9 @@ mod tests {
                 .repeat(root, NonZeroU64::new(2).expect("nonzero"))
                 .expect("repeat");
         }
-        let evaluation = make_evaluation(nodes, BTreeMap::new(), Vec::new(), root);
-        let order =
-            super::super::traversal::topological_order(&evaluation.nodes, &BTreeMap::new(), [root])
-                .expect("order");
+        let evaluation = make_evaluation(nodes, Vec::new(), root);
+        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
+            .expect("order");
 
         let domains = infer_domains(&evaluation, &video, &order).expect("domains");
 
@@ -578,10 +567,9 @@ mod tests {
         let root = builder
             .repeat(source, NonZeroU64::new(3).expect("nonzero"))
             .expect("repeat");
-        let evaluation = make_evaluation(nodes, BTreeMap::new(), Vec::new(), root);
-        let order =
-            super::super::traversal::topological_order(&evaluation.nodes, &BTreeMap::new(), [root])
-                .expect("order");
+        let evaluation = make_evaluation(nodes, Vec::new(), root);
+        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
+            .expect("order");
         let domains = infer_domains(&evaluation, &video, &order).expect("domains");
         assert_eq!(
             domains[root.id().get() as usize]
@@ -599,10 +587,9 @@ mod tests {
         let root = builder
             .repeat(source, NonZeroU64::new(2).expect("nonzero"))
             .expect("repeat");
-        let evaluation = make_evaluation(nodes, BTreeMap::new(), Vec::new(), root);
-        let order =
-            super::super::traversal::topological_order(&evaluation.nodes, &BTreeMap::new(), [root])
-                .expect("order");
+        let evaluation = make_evaluation(nodes, Vec::new(), root);
+        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
+            .expect("order");
         let error = infer_domains(&evaluation, &video, &order).expect_err("overflow");
         assert_eq!(error.code, "E_FRAME_OVERFLOW");
     }

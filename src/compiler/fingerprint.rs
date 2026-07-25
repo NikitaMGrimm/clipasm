@@ -49,7 +49,7 @@ pub(super) fn compiled_structure_hash(
         .public_symbols
         .iter()
         .map(|(name, key)| {
-            let value = evaluation.symbols[key]
+            let value = evaluation.symbols[key.index()]
                 .value
                 .expect("every collected symbol is evaluated");
             (
@@ -81,7 +81,7 @@ fn value_hashes(
         let index = value.id().get() as usize;
         let node = &evaluation.nodes[index];
         if let SemanticNodeKind::Reference { symbol } = node.kind() {
-            let target = evaluation.symbols[symbol]
+            let target = evaluation.symbols[symbol.index()]
                 .value
                 .expect("references are resolved before fingerprinting");
             hashes[index] = Some(
@@ -240,17 +240,13 @@ mod tests {
             height: 720,
             frame_rate: VideoSpec::default().fps,
         };
-        let mut symbols = BTreeMap::new();
         let source_symbol = SymbolId::new(0);
-        symbols.insert(
-            source_symbol,
-            Symbol {
-                name: "source".to_owned(),
-                declared_at: span.clone(),
-                value: Some(target),
-                value_type: ValueType::Video,
-            },
-        );
+        let symbols = vec![Symbol {
+            name: "source".to_owned(),
+            declared_at: span.clone(),
+            value: Some(target),
+            value_type: ValueType::Video,
+        }];
         let mut nodes = Vec::new();
         GraphBuilder::for_program(
             &mut nodes,
@@ -271,7 +267,6 @@ mod tests {
         let evaluation = Evaluation {
             nodes,
             symbols,
-            symbol_order: vec![source_symbol],
             public_symbols: BTreeMap::new(),
             surface: Vec::new(),
             outputs: vec![reference],
@@ -298,8 +293,7 @@ mod tests {
             frame_rate: video.fps,
         };
         let mut nodes = Vec::with_capacity(ALIASES + 1);
-        let mut symbols = BTreeMap::new();
-        let mut symbol_order = Vec::with_capacity(ALIASES);
+        let mut symbols = Vec::with_capacity(ALIASES);
         let mut builder = GraphBuilder::for_program(
             &mut nodes,
             &video,
@@ -314,16 +308,13 @@ mod tests {
         for index in 0..ALIASES {
             let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
             let name = format!("alias_{index:05}");
-            symbols.insert(
-                symbol,
-                Symbol {
-                    name,
-                    declared_at: span.clone(),
-                    value: Some(root),
-                    value_type: ValueType::Video,
-                },
-            );
-            symbol_order.push(symbol);
+            debug_assert_eq!(symbol.index(), symbols.len());
+            symbols.push(Symbol {
+                name,
+                declared_at: span.clone(),
+                value: Some(root),
+                value_type: ValueType::Video,
+            });
             root = builder
                 .reference(symbol, ValueType::Video)
                 .expect("reference");
@@ -332,7 +323,6 @@ mod tests {
         let evaluation = Evaluation {
             nodes,
             symbols,
-            symbol_order,
             public_symbols: BTreeMap::new(),
             surface: Vec::new(),
             outputs: vec![root],
@@ -363,8 +353,7 @@ mod tests {
                 .expect("repeat");
             let evaluation = Evaluation {
                 nodes,
-                symbols: BTreeMap::new(),
-                symbol_order: Vec::new(),
+                symbols: Vec::new(),
                 public_symbols: BTreeMap::new(),
                 surface: Vec::new(),
                 outputs: vec![root],

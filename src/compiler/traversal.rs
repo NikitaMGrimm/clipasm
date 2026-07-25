@@ -1,8 +1,6 @@
-use std::collections::BTreeMap;
-
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueRef;
-use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SourceOrigin, SymbolId};
+use crate::semantic::{CompiledNode, DraftNode, SemanticNodeKind, SourceOrigin};
 
 pub(crate) trait SemanticNodeView {
     fn kind(&self) -> &SemanticNodeKind;
@@ -36,7 +34,7 @@ struct Frame {
 
 pub(crate) fn topological_order<N: SemanticNodeView>(
     nodes: &[N],
-    symbols: &BTreeMap<SymbolId, ValueRef>,
+    symbols: &[ValueRef],
     roots: impl IntoIterator<Item = ValueRef>,
 ) -> Result<Vec<ValueRef>> {
     let mut states = vec![0_u8; nodes.len()];
@@ -89,12 +87,12 @@ pub(crate) fn topological_order<N: SemanticNodeView>(
 
 fn dependency_at<N: SemanticNodeView>(
     node: &N,
-    symbols: &BTreeMap<SymbolId, ValueRef>,
+    symbols: &[ValueRef],
     index: usize,
 ) -> Result<Option<ValueRef>> {
     Ok(match node.kind() {
         SemanticNodeKind::Reference { symbol } if index == 0 => {
-            Some(*symbols.get(symbol).ok_or_else(|| {
+            Some(*symbols.get(symbol.index()).ok_or_else(|| {
                 Diagnostic::new(
                     "E_MISSING_REFERENCE",
                     format!("reference names unknown symbol {}", symbol.index()),
@@ -161,7 +159,7 @@ fn node_index<N>(value: ValueRef, nodes: &[N]) -> Result<usize> {
 mod tests {
     use super::*;
     use crate::model::{FrameCount, ImageFit, ValueType, VideoSpec};
-    use crate::semantic::{GraphBuilder, SourceOrigin};
+    use crate::semantic::{GraphBuilder, SourceOrigin, SymbolId};
     use crate::source::SourceSpan;
 
     fn origin() -> SourceOrigin {
@@ -173,7 +171,7 @@ mod tests {
         const ALIASES: usize = 20_001;
         let video = VideoSpec::default();
         let mut nodes = Vec::with_capacity(ALIASES + 1);
-        let mut symbols = BTreeMap::new();
+        let mut symbols = Vec::new();
         let mut builder = GraphBuilder::for_program(&mut nodes, &video, 1, origin());
         let source = builder
             .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
@@ -181,7 +179,8 @@ mod tests {
         let mut root = source;
         for index in 0..ALIASES {
             let symbol = SymbolId::new(u32::try_from(index).expect("test symbol ID"));
-            symbols.insert(symbol, root);
+            debug_assert_eq!(symbol.index(), symbols.len());
+            symbols.push(root);
             root = builder
                 .reference(symbol, ValueType::Video)
                 .expect("reference");
@@ -205,7 +204,7 @@ mod tests {
         let a = builder.reference(b_symbol, ValueType::Video).expect("a");
         let b = builder.reference(c_symbol, ValueType::Video).expect("b");
         let c = builder.reference(a_symbol, ValueType::Video).expect("c");
-        let symbols = BTreeMap::from([(a_symbol, a), (b_symbol, b), (c_symbol, c)]);
+        let symbols = vec![a, b, c];
 
         let error = topological_order(&nodes, &symbols, [a]).expect_err("cycle");
 

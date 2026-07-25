@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
@@ -120,7 +119,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         );
         definitions.push(definition);
         unit_programs.insert(unit_id, id);
-        programs.push(Arc::new(checked_program));
+        programs.push(checked_program);
     }
 
     let registry = ProgramRegistry::from_linked(definitions, builtin_count)?;
@@ -180,7 +179,7 @@ pub(super) fn check_with_registry(
     Ok(CheckedPackage {
         root: package.root,
         registry,
-        programs: vec![Arc::new(program)],
+        programs: vec![program],
     })
 }
 

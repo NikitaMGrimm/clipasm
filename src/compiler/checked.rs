@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use crate::model::ValueType;
 use crate::program::{ParameterType, ProgramId, ProgramRegistry, ResolvedSignature};
@@ -64,7 +63,7 @@ pub(super) struct CheckedLocal {
 pub(super) struct CheckedPackage {
     pub(super) root: crate::source::SourceUnitId,
     pub(super) registry: ProgramRegistry,
-    pub(super) programs: Vec<Arc<CheckedProgram>>,
+    pub(super) programs: Vec<CheckedProgram>,
 }
 
 #[derive(Clone, Debug)]

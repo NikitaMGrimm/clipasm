@@ -47,7 +47,7 @@ pub struct CompiledProgram {
     nodes: Vec<CompiledNode>,
     outputs: Vec<ValueRef>,
     named_values: BTreeMap<String, ValueRef>,
-    symbol_values: BTreeMap<SymbolId, ValueRef>,
+    symbol_values: Vec<ValueRef>,
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     entrypoint_source: SourceFile,
@@ -173,10 +173,10 @@ impl CompiledProgram {
     }
 
     pub(crate) fn symbol_value(&self, symbol: SymbolId) -> Option<ValueRef> {
-        self.symbol_values.get(&symbol).copied()
+        self.symbol_values.get(symbol.index()).copied()
     }
 
-    pub(crate) fn symbol_values(&self) -> &BTreeMap<SymbolId, ValueRef> {
+    pub(crate) fn symbol_values(&self) -> &[ValueRef] {
         &self.symbol_values
     }
 
@@ -281,7 +281,7 @@ pub fn compile_with_bindings(
     package: &SourcePackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
-    compile_checked(package, check::check(package)?, bindings)
+    compile_checked(package, &check::check(package)?, bindings)
 }
 
 #[cfg(test)]
@@ -290,12 +290,12 @@ pub(crate) fn compile_with_registry(
     registry: ProgramRegistry,
 ) -> Result<CompiledProgram> {
     let checked = check::check_with_registry(package, registry)?;
-    compile_checked(package, checked, &EntrypointBindings::new())
+    compile_checked(package, &checked, &EntrypointBindings::new())
 }
 
 fn compile_checked(
     package: &SourcePackage,
-    checked: checked::CheckedPackage,
+    checked: &checked::CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();

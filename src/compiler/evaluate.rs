@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
@@ -13,7 +12,7 @@ use crate::source::{SourceSpan, SourceUnitId, Spanned};
 use super::EntrypointBindings;
 use super::checked::{
     CheckedBody, CheckedInputValue, CheckedItem, CheckedItemKind, CheckedPackage,
-    CheckedParameterValue, CheckedReferenceTarget,
+    CheckedParameterValue, CheckedProgram, CheckedReferenceTarget,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -41,8 +40,7 @@ pub(super) struct SurfaceOutput {
 
 pub(super) struct Evaluation {
     pub(super) nodes: Vec<DraftNode>,
-    pub(super) symbols: BTreeMap<SymbolId, Symbol>,
-    pub(super) symbol_order: Vec<SymbolId>,
+    pub(super) symbols: Vec<Symbol>,
     pub(super) public_symbols: BTreeMap<String, SymbolId>,
     pub(super) surface: Vec<SurfaceRecord>,
     pub(super) outputs: Vec<ValueRef>,
@@ -50,37 +48,42 @@ pub(super) struct Evaluation {
 
 pub(super) fn evaluate(
     video: &VideoSpec,
-    checked: CheckedPackage,
+    checked: &CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
-    let root = checked.root;
-    let mut evaluator = Evaluator {
+    let context = EvaluationContext {
         video,
-        checked,
+        registry: &checked.registry,
+        programs: &checked.programs,
+        root: checked.root,
+    };
+    let mut evaluator = Evaluator {
         nodes: Vec::new(),
-        symbols: BTreeMap::new(),
-        symbol_order: Vec::new(),
+        symbols: Vec::new(),
         public_symbols: BTreeMap::new(),
         surface: Vec::new(),
     };
-    let root_call = evaluator.bind_entrypoint_call(bindings)?;
-    let outputs = evaluator.evaluate_program(root, Some(&root_call), true)?;
+    let root_call = evaluator.bind_entrypoint_call(&context, bindings)?;
+    let outputs = evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
-        symbol_order: evaluator.symbol_order,
         public_symbols: evaluator.public_symbols,
         surface: evaluator.surface,
         outputs,
     })
 }
 
-struct Evaluator<'a> {
+struct EvaluationContext<'a> {
     video: &'a VideoSpec,
-    checked: CheckedPackage,
+    registry: &'a crate::program::ProgramRegistry,
+    programs: &'a [CheckedProgram],
+    root: SourceUnitId,
+}
+
+struct Evaluator {
     nodes: Vec<DraftNode>,
-    symbols: BTreeMap<SymbolId, Symbol>,
-    symbol_order: Vec<SymbolId>,
+    symbols: Vec<Symbol>,
     public_symbols: BTreeMap<String, SymbolId>,
     surface: Vec<SurfaceRecord>,
 }
@@ -92,26 +95,30 @@ struct EvalScope {
     parameters: Vec<Spanned<crate::program::ParameterValue>>,
 }
 
-impl Evaluator<'_> {
-    fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
-        let root = Arc::clone(&self.checked.programs[self.checked.root.0]);
+impl Evaluator {
+    fn bind_entrypoint_call(
+        &mut self,
+        context: &EvaluationContext<'_>,
+        bindings: &EntrypointBindings,
+    ) -> Result<ResolvedCall> {
         super::entrypoint::bind_root_call(
-            &root,
-            &self.checked.registry,
+            &context.programs[context.root.0],
+            context.registry,
             bindings,
             &mut self.nodes,
-            self.video,
+            context.video,
         )
     }
 
     #[allow(clippy::too_many_lines)]
     fn evaluate_program(
         &mut self,
+        context: &EvaluationContext<'_>,
         unit: SourceUnitId,
         call: Option<&ResolvedCall>,
         public: bool,
     ) -> Result<Vec<ValueRef>> {
-        let checked_program = Arc::clone(&self.checked.programs[unit.0]);
+        let checked_program = &context.programs[unit.0];
         let mut scope = EvalScope {
             values: BTreeMap::new(),
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
@@ -187,7 +194,9 @@ impl Evaluator<'_> {
         for clip in &checked_program.clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(&clip.body, &mut scope, &mut stack, &mut frame, None)?;
+            self.evaluate_body(
+                context, &clip.body, &mut scope, &mut stack, &mut frame, None,
+            )?;
             let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
@@ -224,6 +233,7 @@ impl Evaluator<'_> {
             checked_program.span.clone(),
         );
         self.evaluate_body(
+            context,
             &checked_program.body,
             &mut scope,
             &mut stack,
@@ -246,21 +256,18 @@ impl Evaluator<'_> {
                 span.clone(),
             )
         })?);
-        self.symbol_order.push(symbol);
-        self.symbols.insert(
-            symbol,
-            Symbol {
-                name: name.to_owned(),
-                declared_at: span.clone(),
-                value: None,
-                value_type,
-            },
-        );
+        self.symbols.push(Symbol {
+            name: name.to_owned(),
+            declared_at: span.clone(),
+            value: None,
+            value_type,
+        });
         Ok(symbol)
     }
 
     fn evaluate_body(
         &mut self,
+        context: &EvaluationContext<'_>,
         checked: &CheckedBody,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
@@ -268,13 +275,14 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
         for item in &checked.items {
-            self.evaluate_item(item, scope, stack, frame, requested_frames)?;
+            self.evaluate_item(context, item, scope, stack, frame, requested_frames)?;
         }
         Ok(())
     }
 
     fn evaluate_item(
         &mut self,
+        context: &EvaluationContext<'_>,
         checked: &CheckedItem,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
@@ -284,7 +292,7 @@ impl Evaluator<'_> {
         let outputs = match &checked.kind {
             CheckedItemKind::Reference {
                 target: Some(target),
-            } => vec![self.evaluate_checked_reference(*target, &checked.span, scope)?],
+            } => vec![self.evaluate_checked_reference(context, *target, &checked.span, scope)?],
             CheckedItemKind::Invocation {
                 program,
                 signature,
@@ -296,6 +304,7 @@ impl Evaluator<'_> {
                 body_input_ids,
                 ..
             } => self.evaluate_invocation(
+                context,
                 &checked.construct,
                 *program,
                 signature,
@@ -338,6 +347,7 @@ impl Evaluator<'_> {
 
     fn evaluate_checked_reference(
         &mut self,
+        context: &EvaluationContext<'_>,
         target: CheckedReferenceTarget,
         span: &SourceSpan,
         scope: &EvalScope,
@@ -345,9 +355,9 @@ impl Evaluator<'_> {
         match target {
             CheckedReferenceTarget::Local(local) => {
                 let symbol = scope.local_symbols[local.index()];
-                let value_type = self.symbols[&symbol].value_type;
+                let value_type = self.symbols[symbol.index()].value_type;
                 let origin = SourceOrigin::new("reference", span.clone());
-                GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin)
+                GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin)
                     .reference(symbol, value_type)
             }
             CheckedReferenceTarget::BodyInput(input) => scope.body_inputs[input.index()]
@@ -364,6 +374,7 @@ impl Evaluator<'_> {
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
+        context: &EvaluationContext<'_>,
         construct: &str,
         program: crate::program::ProgramId,
         signature: &ResolvedSignature,
@@ -379,14 +390,14 @@ impl Evaluator<'_> {
         requested_frames: Option<FrameCount>,
         span: &SourceSpan,
     ) -> Result<Vec<ValueRef>> {
-        let registry = self.checked.registry.clone();
-        let definition = registry.definition(program);
+        let definition = context.registry.definition(program);
         let origin = SourceOrigin::new(construct, span.clone());
         debug_assert_eq!(signature.inputs.len(), checked_inputs.len());
         let mut slots = vec![None; signature.inputs.len()];
         for (index, (port, input)) in signature.inputs.iter().zip(checked_inputs).enumerate() {
             if let Some(input) = input {
                 slots[index] = Some(self.evaluate_checked_input(
+                    context,
                     input,
                     port,
                     construct,
@@ -452,7 +463,7 @@ impl Evaluator<'_> {
             ProgramImplementation::Direct(lower) => {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
-                    self.video,
+                    context.video,
                     definition.descriptor.semantic_version,
                     origin,
                 );
@@ -464,7 +475,7 @@ impl Evaluator<'_> {
                 let plan = {
                     let mut builder = GraphBuilder::for_program(
                         &mut self.nodes,
-                        self.video,
+                        context.video,
                         definition.descriptor.semantic_version,
                         origin.clone(),
                     );
@@ -490,6 +501,7 @@ impl Evaluator<'_> {
                     bound_body_inputs.push(id);
                 }
                 self.evaluate_body(
+                    context,
                     checked_body,
                     scope,
                     stack,
@@ -502,20 +514,20 @@ impl Evaluator<'_> {
                 let owned = stack.finish_body(&child);
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
-                    self.video,
+                    context.video,
                     definition.descriptor.semantic_version,
                     origin,
                 );
                 plan.finalizer.finish(owned, &mut builder)?
             }
             ProgramImplementation::Authored(unit) => {
-                self.evaluate_program(*unit, Some(&call), false)?
+                self.evaluate_program(context, *unit, Some(&call), false)?
             }
             ProgramImplementation::External(external) => {
                 let invocation = external.invocation(&call)?;
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
-                    self.video,
+                    context.video,
                     definition.descriptor.semantic_version,
                     origin,
                 );
@@ -528,6 +540,7 @@ impl Evaluator<'_> {
 
     fn evaluate_checked_input(
         &mut self,
+        context: &EvaluationContext<'_>,
         input: &CheckedInputValue,
         port: &ResolvedInputPort,
         program: &str,
@@ -538,7 +551,7 @@ impl Evaluator<'_> {
             CheckedInputValue::References(targets, span) => (
                 targets
                     .iter()
-                    .map(|target| self.evaluate_checked_reference(*target, span, scope))
+                    .map(|target| self.evaluate_checked_reference(context, *target, span, scope))
                     .collect::<Result<Vec<_>>>()?,
                 span,
             ),
@@ -547,7 +560,14 @@ impl Evaluator<'_> {
                     format!("inline input body for `{program}.{}`", port.name),
                     span.clone(),
                 );
-                self.evaluate_body(body, scope, &mut local, &mut frame, requested_frames)?;
+                self.evaluate_body(
+                    context,
+                    body,
+                    scope,
+                    &mut local,
+                    &mut frame,
+                    requested_frames,
+                )?;
                 let [result] = local.values() else {
                     return Err(output_count_error(
                         "E_INPUT_BODY_OUTPUT_COUNT",
@@ -579,7 +599,8 @@ impl Evaluator<'_> {
                     ));
                 }
                 let origin = SourceOrigin::new("input adaptation", span.clone());
-                let mut builder = GraphBuilder::for_program(&mut self.nodes, self.video, 1, origin);
+                let mut builder =
+                    GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin);
                 match (value_ref.value_type(), port.value_type) {
                     (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref),
                     (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref),
@@ -601,7 +622,7 @@ impl Evaluator<'_> {
     fn bind_symbol(&mut self, id: SymbolId, value: ValueRef) -> Result<()> {
         let symbol = self
             .symbols
-            .get_mut(&id)
+            .get_mut(id.index())
             .expect("all symbols are collected before evaluation");
         let declared_type = symbol.value_type;
         if declared_type != value.value_type() {
