@@ -1,11 +1,13 @@
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
-use crate::program::StackAccess;
+use crate::program::{ParameterType, StackAccess};
 use crate::source::{SourceFile, SourceSpan, Spanned};
 
 use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
-    Argument, Block, Expression, Invocation, OutputBindings, SourceFileSyntax, Statement,
+    Argument, Block, ConfigDeclaration, Declaration, Expression, InputDeclaration, Invocation,
+    OutputBindings, ParameterDeclaration, PathDeclaration, Scalar, SourceFileSyntax, Statement,
+    VideoConfigDeclaration,
 };
 
 pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
@@ -33,14 +35,30 @@ impl Parser {
         let version = self.parse_version()?;
         self.expect_statement_end("version declaration")?;
 
+        let mut declarations = Vec::new();
         let mut statements = Vec::new();
+        let mut saw_statement = false;
         self.skip_newlines();
         while !self.at(&TokenKind::End) {
-            statements.push(self.parse_statement()?);
+            if self.starts_declaration() {
+                if saw_statement {
+                    return Err(Diagnostic::new(
+                        "E_DECLARATION_AFTER_STATEMENT",
+                        "file declarations must appear before executable statements",
+                        self.current().span.clone(),
+                    ));
+                }
+                declarations.push(self.parse_declaration()?);
+                self.expect_statement_end("declaration")?;
+            } else {
+                saw_statement = true;
+                statements.push(self.parse_statement()?);
+            }
             self.skip_newlines();
         }
         Ok(SourceFileSyntax {
             version,
+            declarations,
             statements,
             span,
         })
@@ -70,6 +88,229 @@ impl Parser {
             ));
         }
         Ok(Spanned::new(version, token.span))
+    }
+
+    fn parse_declaration(&mut self) -> Result<Declaration> {
+        match self.current_identifier() {
+            Some("config") => self.parse_config().map(Declaration::Config),
+            Some("import") => self
+                .parse_path_declaration("import")
+                .map(Declaration::Import),
+            Some("external") => self
+                .parse_path_declaration("external")
+                .map(Declaration::External),
+            Some("input") => self.parse_input().map(Declaration::Input),
+            Some("param") => self.parse_parameter().map(Declaration::Parameter),
+            _ => Err(self.expected("a file declaration")),
+        }
+    }
+
+    fn parse_config(&mut self) -> Result<ConfigDeclaration> {
+        let span = self.current().span.clone();
+        self.expect_keyword("config", "E_EXPECTED_TOKEN", "expected `config`")?;
+        self.expect(&TokenKind::LeftBrace, "`{` after `config`")?;
+        self.skip_newlines();
+
+        let mut video = None;
+        let mut output = None;
+        while !self.at(&TokenKind::RightBrace) {
+            if self.at(&TokenKind::End) {
+                return Err(Diagnostic::new(
+                    "E_UNTERMINATED_CONFIG",
+                    "config block is missing its closing `}`",
+                    span,
+                ));
+            }
+            let field = self.expect_identifier("a config field")?;
+            match field.value.as_str() {
+                "video" => {
+                    if video.is_some() {
+                        return Err(duplicate_declaration_field("config", "video", field.span));
+                    }
+                    video = Some(self.parse_video_config(field.span)?);
+                }
+                "output" => {
+                    if output.is_some() {
+                        return Err(duplicate_declaration_field("config", "output", field.span));
+                    }
+                    self.expect(&TokenKind::Equal, "`=` after `output`")?;
+                    output = Some(self.expect_string("an output path")?);
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_CONFIG_FIELD",
+                        format!("unknown config field `{}`", field.value),
+                        field.span,
+                    ));
+                }
+            }
+            self.expect_statement_end("config field")?;
+        }
+        self.advance();
+        Ok(ConfigDeclaration {
+            video,
+            output,
+            span,
+        })
+    }
+
+    fn parse_video_config(&mut self, span: SourceSpan) -> Result<VideoConfigDeclaration> {
+        self.expect(&TokenKind::LeftBrace, "`{` after `video`")?;
+        self.skip_newlines();
+        let mut width = None;
+        let mut height = None;
+        let mut fps = None;
+        while !self.at(&TokenKind::RightBrace) {
+            if self.at(&TokenKind::End) {
+                return Err(Diagnostic::new(
+                    "E_UNTERMINATED_CONFIG",
+                    "video config block is missing its closing `}`",
+                    span,
+                ));
+            }
+            let field = self.expect_identifier("a video config field")?;
+            self.expect(&TokenKind::Equal, "`=` after the video config field")?;
+            let value = self.expect_scalar_text("a video config value")?;
+            let target = match field.value.as_str() {
+                "width" => &mut width,
+                "height" => &mut height,
+                "fps" => &mut fps,
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_VIDEO_FIELD",
+                        format!("unknown video config field `{}`", field.value),
+                        field.span,
+                    ));
+                }
+            };
+            if target.replace(value).is_some() {
+                return Err(duplicate_declaration_field(
+                    "video config",
+                    &field.value,
+                    field.span,
+                ));
+            }
+            self.expect_statement_end("video config field")?;
+        }
+        self.advance();
+        Ok(VideoConfigDeclaration {
+            width,
+            height,
+            fps,
+            span,
+        })
+    }
+
+    fn parse_path_declaration(&mut self, keyword: &str) -> Result<PathDeclaration> {
+        let span = self.current().span.clone();
+        self.advance();
+        let path = self.expect_string(&format!("a path after `{keyword}`"))?;
+        self.expect_keyword(
+            "as",
+            "E_MISSING_IMPORT_ALIAS",
+            &format!("`{keyword}` requires `as alias`"),
+        )?;
+        let alias = self.expect_identifier("an import alias")?;
+        Ok(PathDeclaration { path, alias, span })
+    }
+
+    fn parse_input(&mut self) -> Result<InputDeclaration> {
+        let span = self.current().span.clone();
+        self.advance();
+        let name = self.expect_identifier("an input name")?;
+        self.expect(&TokenKind::Colon, "`:` after the input name")?;
+        let value_type = self.parse_value_type("an input type")?;
+        Ok(InputDeclaration {
+            name,
+            value_type,
+            span,
+        })
+    }
+
+    fn parse_parameter(&mut self) -> Result<ParameterDeclaration> {
+        let span = self.current().span.clone();
+        self.advance();
+        let name = self.expect_identifier("a parameter name")?;
+        self.expect(&TokenKind::Colon, "`:` after the parameter name")?;
+        let parameter_type = self.parse_parameter_type()?;
+        let default = if self.consume(&TokenKind::Equal) {
+            Some(self.parse_scalar()?)
+        } else {
+            None
+        };
+        Ok(ParameterDeclaration {
+            name,
+            parameter_type,
+            default,
+            span,
+        })
+    }
+
+    fn parse_value_type(&mut self, expected: &str) -> Result<Spanned<ValueType>> {
+        let name = self.expect_identifier(expected)?;
+        let value = ValueType::from_source_name(&name.value).ok_or_else(|| {
+            Diagnostic::new(
+                "E_UNKNOWN_VALUE_TYPE",
+                format!(
+                    "unknown value type `{}`; expected `Video` or `Audio`",
+                    name.value
+                ),
+                name.span.clone(),
+            )
+        })?;
+        Ok(Spanned::new(value, name.span))
+    }
+
+    fn parse_parameter_type(&mut self) -> Result<Spanned<ParameterType>> {
+        let name = self.expect_identifier("a parameter type")?;
+        let keyword_values = if name.value == "Keyword" {
+            self.expect(&TokenKind::LeftParen, "`(` after `Keyword`")?;
+            self.skip_newlines();
+            if self.at(&TokenKind::RightParen) {
+                return Err(Diagnostic::new(
+                    "E_MISSING_KEYWORD_VALUES",
+                    "a `Keyword` parameter requires at least one allowed value",
+                    name.span,
+                ));
+            }
+            let mut values = Vec::new();
+            loop {
+                values.push(self.expect_identifier("an allowed keyword value")?.value);
+                self.skip_newlines();
+                if self.consume(&TokenKind::RightParen) {
+                    break;
+                }
+                self.expect(&TokenKind::Comma, "`,` between keyword values")?;
+                self.skip_newlines();
+            }
+            Some(values)
+        } else {
+            None
+        };
+        let parameter_type = ParameterType::from_source_name(&name.value, keyword_values)
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "E_UNKNOWN_PARAMETER_TYPE",
+                    format!("unknown parameter type `{}`", name.value),
+                    name.span.clone(),
+                )
+            })?;
+        Ok(Spanned::new(parameter_type, name.span))
+    }
+
+    fn parse_scalar(&mut self) -> Result<Scalar> {
+        let token = self.advance().clone();
+        match token.kind {
+            TokenKind::String(value) => Ok(Scalar::String(Spanned::new(value, token.span))),
+            TokenKind::Bare(value) | TokenKind::Identifier(value) => {
+                Ok(Scalar::Atom(Spanned::new(value, token.span)))
+            }
+            _ => Err(Diagnostic::new(
+                "E_EXPECTED_TOKEN",
+                "expected a scalar default value",
+                token.span,
+            )),
+        }
     }
 
     fn parse_statement(&mut self) -> Result<Statement> {
@@ -322,6 +563,46 @@ impl Parser {
             || self.peek_is(1, &TokenKind::LeftBrace)
     }
 
+    fn starts_declaration(&self) -> bool {
+        matches!(
+            self.current_identifier(),
+            Some("config" | "import" | "external" | "input" | "param")
+        )
+    }
+
+    fn current_identifier(&self) -> Option<&str> {
+        match &self.current().kind {
+            TokenKind::Identifier(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn expect_string(&mut self, expected: &str) -> Result<Spanned<String>> {
+        let token = self.advance().clone();
+        match token.kind {
+            TokenKind::String(value) => Ok(Spanned::new(value, token.span)),
+            _ => Err(Diagnostic::new(
+                "E_EXPECTED_TOKEN",
+                format!("expected {expected}"),
+                token.span,
+            )),
+        }
+    }
+
+    fn expect_scalar_text(&mut self, expected: &str) -> Result<Spanned<String>> {
+        let token = self.advance().clone();
+        match token.kind {
+            TokenKind::String(value) | TokenKind::Bare(value) | TokenKind::Identifier(value) => {
+                Ok(Spanned::new(value, token.span))
+            }
+            _ => Err(Diagnostic::new(
+                "E_EXPECTED_TOKEN",
+                format!("expected {expected}"),
+                token.span,
+            )),
+        }
+    }
+
     fn expect_identifier(&mut self, expected: &str) -> Result<Spanned<String>> {
         let token = self.advance().clone();
         match token.kind {
@@ -407,6 +688,14 @@ impl Parser {
     }
 }
 
+fn duplicate_declaration_field(owner: &str, field: &str, span: SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_DUPLICATE_DECLARATION_FIELD",
+        format!("duplicate {owner} field `{field}`"),
+        span,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +767,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_file_declarations_before_execution() {
+        let syntax = parse_text(
+            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal \"programs/brighten.json\" as brighten\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n\n$source\n",
+        );
+        assert_eq!(syntax.declarations.len(), 7);
+        let Declaration::Config(config) = &syntax.declarations[0] else {
+            panic!("config declaration");
+        };
+        let video = config.video.as_ref().expect("video config");
+        assert_eq!(
+            video.width.as_ref().map(|value| value.value.as_str()),
+            Some("1920")
+        );
+        assert_eq!(
+            video.fps.as_ref().map(|value| value.value.as_str()),
+            Some("30000/1001")
+        );
+        assert_eq!(
+            config.output.as_ref().map(|value| value.value.as_str()),
+            Some("generated/final.mp4")
+        );
+
+        let Declaration::Parameter(parameter) = &syntax.declarations[6] else {
+            panic!("keyword parameter");
+        };
+        assert_eq!(
+            parameter.parameter_type.value,
+            ParameterType::Keyword(vec![
+                "contain".to_owned(),
+                "cover".to_owned(),
+                "stretch".to_owned(),
+            ])
+        );
+        assert!(matches!(parameter.default, Some(Scalar::Atom(_))));
+        assert_eq!(syntax.statements.len(), 1);
+    }
+
+    #[test]
     fn rejects_invalid_ordering_and_incomplete_structure() {
         let positional = parse(SourceFile::new(
             "test.clipasm",
@@ -493,5 +820,19 @@ mod tests {
         let version = parse(SourceFile::new("test.clipasm", "clipasm 2\ndrop\n"))
             .expect_err("unsupported version");
         assert_eq!(version.code, "E_UNSUPPORTED_VERSION");
+
+        let late_declaration = parse(SourceFile::new(
+            "test.clipasm",
+            "clipasm 1\ndrop\nparam count: Integer = 2\n",
+        ))
+        .expect_err("declaration after execution");
+        assert_eq!(late_declaration.code, "E_DECLARATION_AFTER_STATEMENT");
+
+        let empty_keywords = parse(SourceFile::new(
+            "test.clipasm",
+            "clipasm 1\nparam fit: Keyword()\n",
+        ))
+        .expect_err("empty keyword declaration");
+        assert_eq!(empty_keywords.code, "E_MISSING_KEYWORD_VALUES");
     }
 }
