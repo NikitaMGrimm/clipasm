@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::compiler::evaluate::Evaluation;
 use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{AudioSpec, ValueId, ValueRef, VideoSpec};
+use crate::model::{AudioSpec, ValueId, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SymbolId};
 use crate::source::{SourceUnit, Spanned};
 use std::path::PathBuf;
@@ -136,15 +136,20 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
 }
 
 fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
+    let references_by_value = collect_references_by_value(&evaluation.nodes);
     let mut edges = BTreeMap::<SymbolId, Vec<SymbolId>>::new();
     for index in 0..evaluation.symbols.len() {
         let symbol = SymbolId::new(u32::try_from(index).expect("symbol ID"));
         let value = evaluation.symbols[symbol.index()]
             .value
             .expect("every collected symbol is evaluated");
-        let mut references = BTreeSet::new();
-        collect_direct_references(value, &evaluation.nodes, &mut references);
-        edges.insert(symbol, references.into_iter().collect());
+        edges.insert(
+            symbol,
+            references_by_value[value.id().get() as usize]
+                .iter()
+                .copied()
+                .collect(),
+        );
     }
     let mut states = BTreeMap::<SymbolId, u8>::new();
     let mut path = Vec::<SymbolId>::new();
@@ -205,28 +210,25 @@ fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
     Ok(())
 }
 
-fn collect_direct_references(
-    value: ValueRef,
-    nodes: &[DraftNode],
-    output: &mut BTreeSet<SymbolId>,
-) {
-    let mut visited = vec![false; nodes.len()];
-    let mut stack = vec![value];
-    while let Some(value) = stack.pop() {
-        let index = value.id().get() as usize;
-        if visited[index] {
-            continue;
-        }
-        visited[index] = true;
-        nodes[index]
-            .kind()
+fn collect_references_by_value(nodes: &[DraftNode]) -> Vec<BTreeSet<SymbolId>> {
+    let mut references_by_value = Vec::<BTreeSet<SymbolId>>::with_capacity(nodes.len());
+    for node in nodes {
+        let mut references = BTreeSet::new();
+        node.kind()
             .visit_dependencies(|dependency| match dependency {
-                SemanticDependency::Value(value) => stack.push(value),
+                SemanticDependency::Value(value) => {
+                    let upstream = references_by_value
+                        .get(value.id().get() as usize)
+                        .expect("semantic value dependencies precede their consumers");
+                    references.extend(upstream);
+                }
                 SemanticDependency::Symbol(symbol) => {
-                    output.insert(symbol);
+                    references.insert(symbol);
                 }
             });
+        references_by_value.push(references);
     }
+    references_by_value
 }
 
 #[cfg(test)]
@@ -235,7 +237,7 @@ mod tests {
 
     use super::*;
     use crate::compiler::evaluate::{SurfaceRecord, Symbol};
-    use crate::model::{FrameCount, ImageFit, ValueType};
+    use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
     use crate::semantic::{GraphBuilder, SourceOrigin};
     use crate::source::SourceSpan;
 
@@ -295,6 +297,37 @@ mod tests {
         assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
         assert!(error.message.starts_with("named-value dependency cycle:"));
         assert!(error.message.ends_with("name_00000"));
+    }
+
+    #[test]
+    fn reference_collection_reuses_shared_value_prefixes() {
+        const NODES: usize = 20_000;
+        let video = VideoSpec::default();
+        let mut nodes = Vec::with_capacity(NODES + 1);
+        let mut values = Vec::with_capacity(NODES + 1);
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin(),
+        );
+        let mut value = builder
+            .image_video("source.png".into(), FrameCount(1), ImageFit::Cover)
+            .expect("source");
+        values.push(value);
+        for _ in 0..NODES {
+            value = builder
+                .repeat(value, NonZeroU64::new(2).expect("nonzero"))
+                .expect("repeat");
+            values.push(value);
+        }
+        drop(builder);
+
+        let references = collect_references_by_value(&nodes);
+
+        assert_eq!(references.len(), values.len());
+        assert!(references.iter().all(BTreeSet::is_empty));
     }
 
     #[test]
