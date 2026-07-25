@@ -298,28 +298,9 @@ pub(super) fn infer_local_types(
         let slot = match local {
             LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
             LocalType::Parameter(_) => LocalSlot::Parameter,
-            LocalType::Alias(_) => LocalSlot::Value(arena.allocate(ValueConstraint::Any)),
-            LocalType::GenericDeclaration(deferred) => {
-                let definition = &definitions[deferred.program.index()];
-                let constraint = definition
-                    .descriptor
-                    .type_parameter
-                    .as_ref()
-                    .expect("deferred output belongs to generic program")
-                    .constraint;
-                LocalSlot::Value(arena.allocate(constraint))
-            }
+            LocalType::Inferred { constraint, .. } => LocalSlot::Value(arena.allocate(*constraint)),
         };
         slots.insert(name.clone(), slot);
-    }
-
-    for (name, local) in locals.iter() {
-        if let LocalType::Alias(target) = local {
-            let span = SourceSpan::file_start("<type-inference>");
-            let left = value_slot(&slots, name, &span)?;
-            let right = value_slot(&slots, target, &span)?;
-            equate(&mut arena, left, right, &span)?;
-        }
     }
 
     loop {

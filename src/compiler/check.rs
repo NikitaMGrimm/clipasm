@@ -6,7 +6,7 @@ use crate::model::ValueType;
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry, ResolvedSignature,
-    ValueTypeSpec, builtin_programs,
+    ValueConstraint, ValueTypeSpec, builtin_programs,
 };
 use crate::source::{
     ArgumentValue, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
@@ -23,15 +23,11 @@ const MAX_BODY_NESTING: usize = 256;
 pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
-    Alias(String),
-    GenericDeclaration(GenericLocalDeclaration),
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct GenericLocalDeclaration {
-    pub(super) program: ProgramId,
-    pub(super) invocation: crate::source::Invocation,
-    pub(super) span: crate::source::SourceSpan,
+    Inferred {
+        constraint: ValueConstraint,
+        dependencies: BTreeSet<String>,
+        span: crate::source::SourceSpan,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -834,7 +830,11 @@ fn item_output_types(
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<Vec<LocalType>> {
     match &item.kind {
-        ItemKind::Reference(reference) => Ok(vec![LocalType::Alias(reference.name.value.clone())]),
+        ItemKind::Reference(reference) => Ok(vec![LocalType::Inferred {
+            constraint: ValueConstraint::Any,
+            dependencies: BTreeSet::from([reference.name.value.clone()]),
+            span: item.span.clone(),
+        }]),
         ItemKind::Invocation(invocation) => {
             let program = program_id_for(
                 &invocation.program.value,
@@ -844,6 +844,15 @@ fn item_output_types(
             )?;
             let definition = &definitions[program.index()];
             let selected = selected_generic_type(definition, invocation)?;
+            let mut dependencies = BTreeSet::new();
+            collect_invocation_dependencies(
+                invocation,
+                definitions,
+                builtins,
+                namespace,
+                &BTreeSet::new(),
+                &mut dependencies,
+            )?;
             Ok(definition
                 .descriptor
                 .outputs
@@ -852,12 +861,15 @@ fn item_output_types(
                 .map(|output| match output {
                     ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
                     ValueTypeSpec::Generic => selected.map_or_else(
-                        || {
-                            LocalType::GenericDeclaration(GenericLocalDeclaration {
-                                program,
-                                invocation: invocation.clone(),
-                                span: item.span.clone(),
-                            })
+                        || LocalType::Inferred {
+                            constraint: definition
+                                .descriptor
+                                .type_parameter
+                                .as_ref()
+                                .expect("generic output has a type parameter")
+                                .constraint,
+                            dependencies: dependencies.clone(),
+                            span: item.span.clone(),
                         },
                         LocalType::Value,
                     ),
@@ -1659,7 +1671,7 @@ fn validate_parameter_argument(
                 ),
                 reference.span.clone(),
             )),
-            Some(LocalType::Value(_) | LocalType::GenericDeclaration(_)) => Err(Diagnostic::new(
+            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
                     "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
@@ -1667,9 +1679,6 @@ fn validate_parameter_argument(
                 ),
                 reference.span.clone(),
             )),
-            Some(LocalType::Alias(_)) => {
-                unreachable!("local aliases are resolved before validation")
-            }
             None => Err(missing_reference(&reference.value, &reference.span)),
         },
         ArgumentValue::References(_, _) | ArgumentValue::Body(_) => Err(Diagnostic::new(
@@ -1721,78 +1730,86 @@ fn insert_local(
 fn ensure_local_types_resolved(
     locals: &mut BTreeMap<String, LocalType>,
     _unit: SourceUnitId,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
+    _definitions: &[ProgramDefinition],
+    _builtins: &BTreeMap<String, ProgramId>,
+    _namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<()> {
-    let names = locals.keys().cloned().collect::<Vec<_>>();
-    for name in names {
-        ensure_local_type_resolved(
-            &name,
-            locals,
-            definitions,
-            builtins,
-            namespace,
-            &mut Vec::new(),
-        )?;
+    struct Frame {
+        name: String,
+        dependencies: Vec<String>,
+        next: usize,
+    }
+
+    let unresolved = locals
+        .iter()
+        .filter_map(|(name, local)| match local {
+            LocalType::Inferred {
+                dependencies, span, ..
+            } => Some((name.clone(), (dependencies.clone(), span.clone()))),
+            LocalType::Value(_) | LocalType::Parameter(_) => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut states = BTreeMap::<String, u8>::new();
+
+    for root in unresolved.keys() {
+        if states.get(root).copied().unwrap_or(0) != 0 {
+            continue;
+        }
+        let mut path = vec![root.clone()];
+        let mut positions = BTreeMap::from([(root.clone(), 0_usize)]);
+        let mut stack = vec![Frame {
+            name: root.clone(),
+            dependencies: unresolved[root].0.iter().cloned().collect(),
+            next: 0,
+        }];
+        states.insert(root.clone(), 1);
+
+        while let Some(frame) = stack.last_mut() {
+            let Some(dependency) = frame.dependencies.get(frame.next).cloned() else {
+                let frame = stack.pop().expect("active inference frame");
+                path.pop();
+                positions.remove(&frame.name);
+                states.insert(frame.name, 2);
+                continue;
+            };
+            frame.next += 1;
+            if !locals.contains_key(&dependency) {
+                return Err(missing_reference(&dependency, &unresolved[&frame.name].1));
+            }
+            if !unresolved.contains_key(&dependency) {
+                continue;
+            }
+            match states.get(&dependency).copied().unwrap_or(0) {
+                0 => {
+                    states.insert(dependency.clone(), 1);
+                    positions.insert(dependency.clone(), path.len());
+                    path.push(dependency.clone());
+                    stack.push(Frame {
+                        name: dependency.clone(),
+                        dependencies: unresolved[&dependency].0.iter().cloned().collect(),
+                        next: 0,
+                    });
+                }
+                1 => {
+                    let start = positions[&dependency];
+                    let mut cycle = path[start..].to_vec();
+                    cycle.push(dependency.clone());
+                    return Err(Diagnostic::new(
+                        "E_DEPENDENCY_CYCLE",
+                        format!("named-value dependency cycle: {}", cycle.join(" -> ")),
+                        unresolved[&dependency].1.clone(),
+                    ));
+                }
+                2 => {}
+                _ => unreachable!("inference dependency state is closed"),
+            }
+        }
+    }
+
+    if let Some((name, (_, span))) = unresolved.first_key_value() {
+        return Err(unresolved_local_type(name, span));
     }
     Ok(())
-}
-
-fn ensure_local_type_resolved(
-    name: &str,
-    locals: &BTreeMap<String, LocalType>,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    path: &mut Vec<String>,
-) -> Result<()> {
-    if let Some(start) = path.iter().position(|entry| entry == name) {
-        let mut cycle = path[start..].to_vec();
-        cycle.push(name.to_owned());
-        return Err(Diagnostic::new(
-            "E_DEPENDENCY_CYCLE",
-            format!("named-value dependency cycle: {}", cycle.join(" -> ")),
-            local_inference_span(locals.get(name)),
-        ));
-    }
-
-    let local = locals.get(name).cloned().ok_or_else(|| {
-        missing_reference(
-            name,
-            &crate::source::SourceSpan::file_start("<source-inference>"),
-        )
-    })?;
-    match local {
-        LocalType::Value(_) | LocalType::Parameter(_) => Ok(()),
-        LocalType::Alias(ref target) => {
-            path.push(name.to_owned());
-            ensure_local_type_resolved(target, locals, definitions, builtins, namespace, path)?;
-            path.pop();
-            Err(unresolved_local_type(
-                name,
-                &local_inference_span(Some(&local)),
-            ))
-        }
-        LocalType::GenericDeclaration(deferred) => {
-            path.push(name.to_owned());
-            for dependency in deferred_dependencies(&deferred, definitions, builtins, namespace)? {
-                if !locals.contains_key(&dependency) {
-                    return Err(missing_reference(&dependency, &deferred.span));
-                }
-                ensure_local_type_resolved(
-                    &dependency,
-                    locals,
-                    definitions,
-                    builtins,
-                    namespace,
-                    path,
-                )?;
-            }
-            path.pop();
-            Err(unresolved_local_type(name, &deferred.span))
-        }
-    }
 }
 
 fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {
@@ -1803,31 +1820,6 @@ fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagno
         ),
         span.clone(),
     )
-}
-
-fn local_inference_span(local: Option<&LocalType>) -> crate::source::SourceSpan {
-    match local {
-        Some(LocalType::GenericDeclaration(deferred)) => deferred.span.clone(),
-        _ => crate::source::SourceSpan::file_start("<source-inference>"),
-    }
-}
-
-fn deferred_dependencies(
-    deferred: &GenericLocalDeclaration,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-) -> Result<BTreeSet<String>> {
-    let mut dependencies = BTreeSet::new();
-    collect_invocation_dependencies(
-        &deferred.invocation,
-        definitions,
-        builtins,
-        namespace,
-        &BTreeSet::new(),
-        &mut dependencies,
-    )?;
-    Ok(dependencies)
 }
 
 fn collect_body_dependencies(
@@ -1930,7 +1922,7 @@ fn value_local(
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        Some(LocalType::Alias(_) | LocalType::GenericDeclaration(_)) => Err(Diagnostic::new(
+        Some(LocalType::Inferred { .. }) => Err(Diagnostic::new(
             "E_UNRESOLVED_LOCAL_TYPE",
             format!("named value `${name}` has not finished type inference"),
             span.clone(),
