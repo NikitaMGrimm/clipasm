@@ -94,10 +94,10 @@ mod tests {
     use crate::semantic::SemanticNodeKind;
 
     fn compile_repeat(count: u64) -> crate::compiler::CompiledProgram {
-        let workflow = crate::frontend::yaml::parse_str(
-            Path::new("repeat.yaml"),
+        let workflow = crate::language::parse_str(
+            Path::new("repeat.clipasm"),
             &format!(
-                "- program:\n    version: 1\n    project:\n      video: {{fps: 10}}\n\n- image: {{path: card.png, duration: 1s}}\n- repeat: {count}\n"
+                "clipasm 1\nconfig {{ video {{ fps = 10 }} }}\nimage(\"card.png\", 1s)\nrepeat({count})\n"
             ),
         )
         .expect("workflow");

@@ -25,10 +25,18 @@ use super::{parser, sugar};
 ///
 /// Returns a source-located diagnostic for syntax or lowering failures.
 pub fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
+    parse_str_with_registry(path, text, &ProgramRegistry::default())
+}
+
+pub(crate) fn parse_str_with_registry(
+    path: &Path,
+    text: &str,
+    registry: &ProgramRegistry,
+) -> Result<SourcePackage> {
     let source = SourceFile::new(path.to_path_buf(), text.to_owned());
     let syntax = parser::parse(source.clone())?;
     reject_file_backed_declarations(&syntax)?;
-    let programs = builtin_shapes();
+    let programs = registry_shapes(registry);
     let unit = lower_source(source, syntax, &programs)?;
     Ok(SourcePackage {
         root: SourceUnitId(0),
@@ -85,7 +93,11 @@ pub(crate) fn lower_source(
 }
 
 pub(super) fn builtin_shapes() -> BTreeMap<String, CallableShape> {
-    ProgramRegistry::default()
+    registry_shapes(&ProgramRegistry::default())
+}
+
+fn registry_shapes(registry: &ProgramRegistry) -> BTreeMap<String, CallableShape> {
+    registry
         .definitions()
         .iter()
         .map(|definition| {

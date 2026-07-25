@@ -4,8 +4,16 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
-    let source = clipasm::frontend::yaml::parse_file(path)?;
+fn compile_file(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
+    let source = clipasm::language::parse_file(path)?;
+    clipasm::compiler::compile(&source)
+}
+
+fn compile_source(
+    path: &Path,
+    text: &str,
+) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
+    let source = clipasm::language::parse_str(path, text)?;
     clipasm::compiler::compile(&source)
 }
 
@@ -33,10 +41,11 @@ fn compile_json(workflow: &Path) -> serde_json::Value {
 
 #[test]
 fn source_program_body_returns_one_video_without_an_implicit_glue() {
-    let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
-    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
-        .expect("source program syntax");
-    let compiled = clipasm::compiler::compile(&program).expect("source program result");
+    let compiled = compile_source(
+        Path::new("program.clipasm"),
+        "clipasm 1\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("source program result");
 
     assert_eq!(
         compiled.result_domain().expect("known domain").frames().0,
@@ -46,101 +55,94 @@ fn source_program_body_returns_one_video_without_an_implicit_glue() {
 
 #[test]
 fn source_program_allows_zero_or_multiple_outputs_without_publication() {
-    let empty =
-        clipasm::frontend::yaml::parse_str(Path::new("empty.yaml"), "- program:\n    version: 1\n")
-            .expect("empty source syntax");
-    let compiled = clipasm::compiler::compile(&empty).expect("zero outputs");
+    let compiled = compile_source(Path::new("empty.clipasm"), "clipasm 1\n").expect("zero outputs");
     assert!(compiled.outputs().is_empty());
 
-    let multiple = clipasm::frontend::yaml::parse_str(
-        Path::new("multiple.yaml"),
-        "- program:\n    version: 1\n\n- image: {path: a.png, duration: 1s}\n- image: {path: b.png, duration: 1s}\n",
+    let compiled = compile_source(
+        Path::new("multiple.clipasm"),
+        "clipasm 1\nimage(\"a.png\", 1s)\nimage(\"b.png\", 1s)\n",
     )
-    .expect("multiple-value source syntax");
-    let compiled = clipasm::compiler::compile(&multiple).expect("multiple outputs");
+    .expect("multiple outputs");
     assert_eq!(compiled.outputs().len(), 2);
 }
 
 #[test]
 fn source_output_publication_requires_exactly_one_video() {
     for (source, count) in [
-        ("- program:\n    version: 1\n    output: final.mp4\n", 0),
+        ("clipasm 1\nconfig { output = \"final.mp4\" }\n", 0),
         (
-            "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: a.png, duration: 1s}\n- image: {path: b.png, duration: 1s}\n",
+            "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"a.png\", 1s)\nimage(\"b.png\", 1s)\n",
             2,
         ),
     ] {
-        let program = clipasm::frontend::yaml::parse_str(Path::new("publish.yaml"), source)
-            .expect("publication syntax");
-        let error = clipasm::compiler::compile(&program).expect_err("invalid output count");
+        let error =
+            compile_source(Path::new("publish.clipasm"), source).expect_err("invalid output count");
         assert_eq!(error.code, "E_ENTRYPOINT_OUTPUT_COUNT");
         assert!(error.message.contains(&count.to_string()));
     }
 }
 
 #[test]
-fn source_program_header_is_required_first_and_rejects_unknown_fields() {
+fn native_version_and_declaration_order_are_enforced() {
     let cases = [
-        ("version: 1\nglue: []\n", "E_EXPECTED_SOURCE_PROGRAM"),
-        ("- image: card.png\n", "E_MISSING_PROGRAM_HEADER"),
+        ("image(\"card.png\", 1s)\n", "E_MISSING_VERSION"),
+        ("clipasm 2\n", "E_UNSUPPORTED_VERSION"),
         (
-            "- program:\n    version: 1\n\n- program:\n    version: 1\n",
-            "E_MISPLACED_PROGRAM_HEADER",
+            "clipasm 1\nimage(\"card.png\", 1s)\nparam count: Integer\n",
+            "E_DECLARATION_AFTER_STATEMENT",
         ),
         (
-            "- program:\n    version: 1\n    unknown_field: true\n",
-            "E_UNKNOWN_PROGRAM_HEADER_FIELD",
+            "clipasm 1\nconfig { unknown = 1 }\n",
+            "E_UNKNOWN_CONFIG_FIELD",
         ),
     ];
 
     for (source, expected_code) in cases {
-        let error = clipasm::frontend::yaml::parse_str(Path::new("invalid.yaml"), source)
+        let error = clipasm::language::parse_str(Path::new("invalid.clipasm"), source)
             .expect_err("invalid source program");
         assert_eq!(error.code, expected_code);
     }
 }
 
 #[test]
-fn stack_access_is_generic_source_and_invocation_metadata() {
-    let source = "- program:\n    version: 1\n    stack_access: visible\n\n- image:\n    path: card.ppm\n    duration: 1s\n    stack_access: visible\n";
-    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
-        .expect("stack metadata");
-    clipasm::compiler::compile(&program).expect("no-op visible image");
+fn stack_access_is_generic_invocation_metadata() {
+    compile_source(
+        Path::new("program.clipasm"),
+        "clipasm 1\n@visible image(\"card.ppm\", 1s)\n",
+    )
+    .expect("no-op visible image");
 
-    for source in [
-        "- program:\n    version: 1\n    stack_access: inherited\n",
-        "- program:\n    version: 1\n\n- image:\n    path: card.ppm\n    duration: 1s\n    stack_access: inherited\n",
-    ] {
-        let error = clipasm::frontend::yaml::parse_str(Path::new("invalid.yaml"), source)
-            .expect_err("invalid stack access");
-        assert_eq!(error.code, "E_INVALID_STACK_ACCESS");
-    }
+    let error = clipasm::language::parse_str(
+        Path::new("invalid.clipasm"),
+        "clipasm 1\n@inherited image(\"card.ppm\", 1s)\n",
+    )
+    .expect_err("invalid stack access");
+    assert_eq!(error.code, "E_INVALID_STACK_ACCESS");
 }
 
 #[test]
 fn during_uses_video_as_its_single_input_name() {
-    let accepted = clipasm::frontend::yaml::parse_str(
-        Path::new("during-video.yaml"),
-        "- program:\n    version: 1\n    clips:\n      clip: {image: {path: card.ppm, duration: 2s}}\n\n- during:\n    video: $clip\n    range: 500ms..1500ms\n    body:\n      - repeat: 2\n",
+    compile_source(
+        Path::new("during-video.clipasm"),
+        "clipasm 1\nclip { image(\"card.ppm\", 2s) } as selected\nduring(video=$selected, range=500ms..1500ms) { repeat(2) }\n",
     )
-    .expect("during.video syntax");
-    clipasm::compiler::compile(&accepted).expect("during.video input");
+    .expect("during.video input");
 
-    let rejected = clipasm::frontend::yaml::parse_str(
-        Path::new("during-base.yaml"),
-        "- program:\n    version: 1\n    clips:\n      clip: {image: {path: card.ppm, duration: 2s}}\n\n- during:\n    base: $clip\n    range: 500ms..1500ms\n    body:\n      - repeat: 2\n",
+    let error = clipasm::language::parse_str(
+        Path::new("during-base.clipasm"),
+        "clipasm 1\nclip { image(\"card.ppm\", 2s) } as selected\nduring(base=$selected, range=500ms..1500ms) { repeat(2) }\n",
     )
-    .expect("canonical source");
-    let error = clipasm::compiler::compile(&rejected).expect_err("obsolete during.base");
+    .expect_err("obsolete during.base");
     assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
 }
 
 #[test]
 fn compiled_program_serializes_ordered_outputs() {
-    let source = "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n";
-    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
-        .expect("source program");
-    let compiled = clipasm::compiler::compile(&program).expect("compiled program");
+    let compiled = compile_source(
+        Path::new("program.clipasm"),
+        "clipasm 1\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("compiled program");
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
 
@@ -155,48 +157,35 @@ fn compiled_program_serializes_ordered_outputs() {
 #[test]
 fn source_output_order_changes_compiled_identity() {
     let source = |first: &str, second: &str| {
-        format!(
-            "- program:\n    version: 1\n\n- image: {{path: {first}, duration: 1s}}\n- image: {{path: {second}, duration: 1s}}\n"
-        )
+        format!("clipasm 1\nimage(\"{first}\", 1s)\nimage(\"{second}\", 1s)\n")
     };
-    let first = clipasm::frontend::yaml::parse_str(
-        Path::new("program.yaml"),
+    let first = compile_source(
+        Path::new("program.clipasm"),
         &source("first.png", "second.png"),
     )
     .expect("first order");
-    let second = clipasm::frontend::yaml::parse_str(
-        Path::new("program.yaml"),
+    let second = compile_source(
+        Path::new("program.clipasm"),
         &source("second.png", "first.png"),
     )
     .expect("second order");
 
-    assert_ne!(
-        clipasm::compiler::compile(&first)
-            .expect("first compile")
-            .structure_hash(),
-        clipasm::compiler::compile(&second)
-            .expect("second compile")
-            .structure_hash()
-    );
+    assert_ne!(first.structure_hash(), second.structure_hash());
 }
 
 #[test]
-fn id_and_ids_are_mutually_exclusive_and_ids_requires_a_sequence() {
+fn parenthesized_output_bindings_require_multiple_names() {
     for (source, code) in [
         (
-            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  id: card\n  ids: [other]\n",
-            "E_DUPLICATE_OUTPUT_BINDING",
-        ),
-        (
-            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: card\n",
+            "clipasm 1\nimage(\"card.png\", 1s) as (card)\n",
             "E_INVALID_OUTPUT_BINDING",
         ),
         (
-            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: []\n",
-            "E_INVALID_OUTPUT_BINDING",
+            "clipasm 1\nimage(\"card.png\", 1s) as ()\n",
+            "E_EXPECTED_TOKEN",
         ),
     ] {
-        let error = clipasm::frontend::yaml::parse_str(Path::new("invalid.yaml"), source)
+        let error = clipasm::language::parse_str(Path::new("invalid.clipasm"), source)
             .expect_err("invalid output binding syntax");
         assert_eq!(error.code, code);
     }
@@ -204,48 +193,38 @@ fn id_and_ids_are_mutually_exclusive_and_ids_requires_a_sequence() {
 
 #[test]
 fn explain_entries_expose_authored_names_and_source_locations() {
-    let source =
-        "- program:\n    version: 1\n\n- image: {path: card.ppm, duration: 1s}\n  id: card\n";
-    let program = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
-        .expect("source program");
-    let compiled = clipasm::compiler::compile(&program).expect("compiled program");
+    let compiled = compile_source(
+        Path::new("program.clipasm"),
+        "clipasm 1\nimage(\"card.ppm\", 1s) as card\n",
+    )
+    .expect("compiled program");
     let entry = compiled.explain().last().expect("explain entry");
 
     assert_eq!(entry.construct(), "image");
     assert_eq!(entry.outputs().len(), 1);
     assert_eq!(entry.outputs()[0].id(), Some("card"));
-    assert_eq!(entry.span().file(), Path::new("program.yaml"));
-    assert_eq!(entry.span().line, 4);
+    assert_eq!(entry.span().file(), Path::new("program.clipasm"));
+    assert_eq!(entry.span().line, 2);
 }
 
 #[test]
 fn entrypoint_output_does_not_change_compiled_semantics() {
     let source = |output: &str| {
-        format!(
-            "- program:\n    version: 1\n    output: {output}\n\n- image: {{path: card.ppm, duration: 1s}}\n"
-        )
+        format!("clipasm 1\nconfig {{ output = \"{output}\" }}\nimage(\"card.ppm\", 1s)\n")
     };
-    let first = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), &source("first.mp4"))
+    let first = compile_source(Path::new("program.clipasm"), &source("first.mp4"))
         .expect("first source program");
-    let second =
-        clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), &source("second.mp4"))
-            .expect("second source program");
+    let second = compile_source(Path::new("program.clipasm"), &source("second.mp4"))
+        .expect("second source program");
 
-    assert_eq!(
-        clipasm::compiler::compile(&first)
-            .expect("first compile")
-            .structure_hash(),
-        clipasm::compiler::compile(&second)
-            .expect("second compile")
-            .structure_hash()
-    );
+    assert_eq!(first.structure_hash(), second.structure_hash());
 }
 
 #[test]
 fn variadic_inputs_remain_reference_only() {
-    let source = clipasm::frontend::yaml::parse_str(
-        Path::new("program.yaml"),
-        "- program:\n    version: 1\n\n- concat:\n    values:\n      - image: {path: card.ppm, duration: 1s}\n",
+    let source = clipasm::language::parse_str(
+        Path::new("program.clipasm"),
+        "clipasm 1\nconcat(values={ image(\"card.ppm\", 1s) })\n",
     )
     .expect("canonical source");
     let error = clipasm::compiler::compile(&source).expect_err("variadic inline body");
@@ -346,29 +325,34 @@ fn reducible_frame_rate_is_canonical() {
 }
 
 #[test]
-fn unused_definitions_are_still_compiled_and_validated() {
+fn unused_imported_definitions_are_statically_checked() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    fs::write(
+        directory.path().join("invalid.clipasm"),
+        "clipasm 1\nparam count: Integer = nope\nimage(\"unused.png\", 1s)\n",
+    )
+    .expect("invalid imported program");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      invalid:\n        image: unused.png\n\n- glue:\n    - image:\n        path: used.png\n        duration: 1s\n  ",
+        "clipasm 1\nimport \"invalid.clipasm\" as invalid\nimage(\"used.png\", 1s)\n",
     )
     .expect("workflow");
-    let error = compile_yaml(&workflow).expect_err("unused invalid clip");
-    assert_eq!(error.code, "E_MISSING_IMAGE_DURATION");
+    let error = compile_file(&workflow).expect_err("unused invalid import");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
 }
 
 #[test]
 fn video_sources_compile_purely_with_a_deferred_media_domain() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n\n- glue:\n    - video: missing.mp4\n  ",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nvideo(\"missing.mp4\")\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("pure compile");
+    let compiled = compile_file(&workflow).expect("pure compile");
     assert!(compiled.result_domain().is_none());
     let document: serde_json::Value =
         serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
@@ -380,30 +364,24 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
 #[test]
 fn video_sources_do_not_accept_an_authored_duration() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - video:\n        path: source.mp4\n        duration: 1s\n  ",
+        "clipasm 1\nvideo(path=\"source.mp4\", duration=1s)\n",
     )
     .expect("workflow");
 
-    let error = compile_yaml(&workflow).expect_err("duration argument");
+    let error = compile_file(&workflow).expect_err("duration argument");
     assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
 }
 
 #[test]
 fn compiler_owns_positive_project_dimension_validation() {
     for (field, source) in [
-        (
-            "width",
-            "- program:\n    version: 1\n    project:\n      video: {width: 0}\n",
-        ),
-        (
-            "height",
-            "- program:\n    version: 1\n    project:\n      video: {height: 0}\n",
-        ),
+        ("width", "clipasm 1\nconfig { video { width = 0 } }\n"),
+        ("height", "clipasm 1\nconfig { video { height = 0 } }\n"),
     ] {
-        let package = clipasm::frontend::yaml::parse_str(Path::new("program.yaml"), source)
+        let package = clipasm::language::parse_str(Path::new("program.clipasm"), source)
             .expect("zero is representable in canonical source");
         let error = clipasm::compiler::compile(&package).expect_err("invalid project dimension");
         assert_eq!(error.code, "E_INVALID_VIDEO_SPEC");

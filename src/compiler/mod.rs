@@ -388,27 +388,27 @@ mod tests {
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
     #[test]
-    fn compilation_is_independent_of_the_yaml_frontend() {
-        let text = "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n";
-        let yaml =
-            crate::frontend::yaml::parse_str(Path::new("program.yaml"), text).expect("YAML source");
+    fn native_lowering_matches_direct_canonical_source() {
+        let text = "clipasm 1\nimage(\"card.png\", 1s)\n";
+        let lowered =
+            crate::language::parse_str(Path::new("program.clipasm"), text).expect("native source");
 
-        let source = SourceFile::new("program.yaml", text);
+        let source = SourceFile::new("program.clipasm", text);
         let program_span = SourceSpan::at(source.clone(), 1, 9);
-        let item_span = SourceSpan::at(source.clone(), 4, 8);
+        let item_span = SourceSpan::at(source.clone(), 2, 1);
         let arguments = BTreeMap::from([
             (
                 "duration".to_owned(),
                 ArgumentValue::Literal(Literal::String(
                     "1s".to_owned(),
-                    SourceSpan::at(source.clone(), 4, 42),
+                    SourceSpan::at(source.clone(), 2, 19),
                 )),
             ),
             (
                 "path".to_owned(),
                 ArgumentValue::Literal(Literal::String(
                     "card.png".to_owned(),
-                    SourceSpan::at(source.clone(), 4, 22),
+                    SourceSpan::at(source.clone(), 2, 7),
                 )),
             ),
         ]);
@@ -418,10 +418,7 @@ mod tests {
                 source,
                 imports: Vec::new(),
                 externals: Vec::new(),
-                project: Some(Spanned::new(
-                    ProjectSettings::default(),
-                    program_span.clone(),
-                )),
+                project: None,
                 program: SourceProgram {
                     inputs: Vec::new(),
                     parameters: Vec::new(),
@@ -448,7 +445,7 @@ mod tests {
         };
 
         assert_eq!(
-            compile(&yaml).expect("YAML compile").structure_hash(),
+            compile(&lowered).expect("lowered compile").structure_hash(),
             compile(&direct).expect("direct compile").structure_hash()
         );
     }

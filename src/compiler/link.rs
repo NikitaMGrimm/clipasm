@@ -135,20 +135,20 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         write(
             directory.path(),
-            "leaf.yaml",
-            "- program:\n    version: 1\n    inputs:\n      - video: Video\n\n- repeat:\n    value: $video\n    count: 2\n",
+            "leaf.clipasm",
+            "clipasm 1\ninput video: Video\nrepeat($video, 2)\n",
         );
         write(
             directory.path(),
-            "middle.yaml",
-            "- program:\n    version: 1\n    imports:\n      leaf: ./leaf.yaml\n    inputs:\n      - video: Video\n\n- leaf: {video: $video}\n",
+            "middle.clipasm",
+            "clipasm 1\nimport \"leaf.clipasm\" as leaf\ninput video: Video\nleaf($video)\n",
         );
         write(
             directory.path(),
-            "root.yaml",
-            "- program:\n    version: 1\n    imports:\n      middle: ./middle.yaml\n\n- image: {path: missing.ppm, duration: 1s}\n- middle\n",
+            "root.clipasm",
+            "clipasm 1\nimport \"middle.clipasm\" as middle\nimage(\"missing.ppm\", 1s)\nmiddle\n",
         );
-        crate::frontend::yaml::parse_file(&directory.path().join("root.yaml"))
+        crate::language::parse_file(&directory.path().join("root.clipasm"))
             .expect("linked source package")
     }
 
@@ -204,16 +204,16 @@ mod tests {
     #[test]
     fn compiler_checks_disconnected_source_units() {
         let mut package = chain_package();
-        let disconnected = crate::frontend::yaml::parse_str(
-            Path::new("disconnected.yaml"),
-            "- program:\n    version: 1\n    parameters:\n      count:\n        type: Integer\n        default: nope\n\n- image: {path: unused.ppm, duration: 1s}\n",
+        let disconnected = crate::language::parse_str(
+            Path::new("disconnected.clipasm"),
+            "clipasm 1\nparam count: Integer = nope\nimage(\"unused.ppm\", 1s)\n",
         )
         .expect("disconnected source unit");
         package.units.push(disconnected.root().clone());
 
         let error = crate::compiler::compile(&package).expect_err("invalid disconnected program");
         assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
-        assert!(error.span.file().ends_with("disconnected.yaml"));
+        assert!(error.span.file().ends_with("disconnected.clipasm"));
     }
 
     #[test]
@@ -229,9 +229,9 @@ mod tests {
 
         let error = crate::compiler::compile(&package).expect_err("cyclic linked package");
         assert_eq!(error.code, "E_PROGRAM_IMPORT_CYCLE");
-        assert!(error.message.contains("leaf.yaml"));
-        assert!(error.message.contains("middle.yaml"));
-        assert!(error.message.contains("root.yaml"));
+        assert!(error.message.contains("leaf.clipasm"));
+        assert!(error.message.contains("middle.clipasm"));
+        assert!(error.message.contains("root.clipasm"));
     }
 
     #[test]

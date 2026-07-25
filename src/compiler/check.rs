@@ -402,7 +402,7 @@ fn collect_body_names(
                     return Err(binding_count_error(
                         item,
                         output_types.len(),
-                        "`id` requires exactly one output",
+                        "`as name` requires exactly one output",
                         &name.span,
                     ));
                 };
@@ -414,7 +414,7 @@ fn collect_body_names(
                     return Err(binding_count_error(
                         item,
                         output_types.len(),
-                        &format!("`ids` contains {} name(s)", names.len()),
+                        &format!("`as (...)` contains {} name(s)", names.len()),
                         span,
                     ));
                 }

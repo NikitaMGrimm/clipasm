@@ -699,7 +699,6 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
-    use crate::frontend::yaml::Language;
     use crate::model::{FrameCount, ImageFit};
     use crate::program::{
         BodyFinalizer, BodyPlan, Cardinality, InputPort, ProgramDefinition, ProgramDescriptor,
@@ -1009,13 +1008,9 @@ mod tests {
         definitions: Vec<ProgramDefinition>,
     ) -> (crate::source::SourcePackage, ProgramRegistry) {
         let registry = ProgramRegistry::from_definitions(definitions).expect("registry");
-        let language = Language::new(registry.clone()).expect("language");
-        let workflow = crate::frontend::yaml::parse_str_with_language(
-            Path::new("test.yaml"),
-            source,
-            &language,
-        )
-        .expect("workflow");
+        let workflow =
+            crate::language::parse_str_with_registry(Path::new("test.clipasm"), source, &registry)
+                .expect("workflow");
         (workflow, registry)
     }
 
@@ -1045,7 +1040,7 @@ mod tests {
     #[test]
     fn ids_bind_multiple_outputs_in_stack_order_and_support_forward_references() {
         let (workflow, registry) = parse_with_synthetic_outputs(
-            "- program:\n    version: 1\n    clips:\n      combined:\n        - $before\n        - $after\n        - concat\n\n- two_output:\n  ids: [before, after]\n- concat\n",
+            "clipasm 1\nclip {\n  $before\n  $after\n  concat\n} as combined\ntwo_output as (before, after)\nconcat\n",
         );
         let compiled =
             crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
@@ -1065,9 +1060,8 @@ mod tests {
 
     #[test]
     fn zero_output_items_leave_the_stack_unchanged() {
-        let (workflow, registry) = parse_with_synthetic_outputs(
-            "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n- zero_output\n",
-        );
+        let (workflow, registry) =
+            parse_with_synthetic_outputs("clipasm 1\nimage(\"card.png\", 1s)\nzero_output\n");
         let compiled =
             crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
         let entry = compiled
@@ -1080,8 +1074,7 @@ mod tests {
 
     #[test]
     fn unnamed_multiple_outputs_are_appended_and_may_be_consumed() {
-        let (workflow, registry) =
-            parse_with_synthetic_outputs("- program:\n    version: 1\n\n- two_output\n- concat\n");
+        let (workflow, registry) = parse_with_synthetic_outputs("clipasm 1\ntwo_output\nconcat\n");
         let compiled =
             crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
         assert_eq!(compiled.outputs().len(), 1);
@@ -1091,21 +1084,18 @@ mod tests {
     fn output_bindings_require_the_exact_supported_cardinality() {
         for (source, expected) in [
             (
-                "- program:\n    version: 1\n\n- two_output:\n  id: pair\n",
-                "`id` requires exactly one output",
+                "clipasm 1\ntwo_output as pair\n",
+                "`as name` requires exactly one output",
             ),
             (
-                "- program:\n    version: 1\n\n- two_output:\n  ids: [only]\n",
-                "`ids` contains 1 name(s)",
+                "clipasm 1\ntwo_output as (first, second, third)\n",
+                "3 name(s)",
             ),
             (
-                "- program:\n    version: 1\n\n- image: {path: card.png, duration: 1s}\n  ids: [card]\n",
-                "produces 1 value(s)",
+                "clipasm 1\nimage(\"card.png\", 1s) as (card, extra)\n",
+                "2 name(s)",
             ),
-            (
-                "- program:\n    version: 1\n\n- zero_output:\n  id: none\n",
-                "produces 0 value(s)",
-            ),
+            ("clipasm 1\nzero_output as none\n", "produces 0 value(s)"),
         ] {
             let (workflow, registry) = parse_with_synthetic_outputs(source);
             let error = crate::compiler::compile_with_registry(&workflow, &registry)
@@ -1118,8 +1108,8 @@ mod tests {
     #[test]
     fn direct_and_body_outputs_must_match_their_declarations() {
         for source in [
-            "- program:\n    version: 1\n\n- wrong_direct\n",
-            "- program:\n    version: 1\n\n- wrong_body: [source]\n",
+            "clipasm 1\nwrong_direct\n",
+            "clipasm 1\nwrong_body { source }\n",
         ] {
             let (workflow, registry) = parse_with_registry(source, output_programs());
             let error =
@@ -1130,10 +1120,8 @@ mod tests {
 
     #[test]
     fn program_output_count_must_match_its_declaration() {
-        let (workflow, registry) = parse_with_registry(
-            "- program:\n    version: 1\n\n- wrong_count\n",
-            output_programs(),
-        );
+        let (workflow, registry) =
+            parse_with_registry("clipasm 1\nwrong_count\n", output_programs());
         let error =
             crate::compiler::compile_with_registry(&workflow, &registry).expect_err("output count");
         assert_eq!(error.code, "E_PROGRAM_OUTPUT_COUNT");
@@ -1142,7 +1130,7 @@ mod tests {
     #[test]
     fn scoped_builders_propagate_program_semantic_versions() {
         let (workflow, registry) = parse_with_registry(
-            "- program:\n    version: 1\n    clips:\n      unused: versioned_direct\n\n- versioned_body: []\n",
+            "clipasm 1\nclip { versioned_direct } as unused\nversioned_body {}\n",
             version_programs(),
         );
         let compiled =
@@ -1167,14 +1155,14 @@ mod tests {
     #[test]
     fn descriptor_stack_access_defaults_apply_per_invocation_and_can_be_overridden() {
         let (workflow, registry) = parse_with_registry(
-            "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary\n",
+            "clipasm 1\nsource\nvisible_body { visible_unary }\n",
             visible_default_programs(),
         );
         crate::compiler::compile_with_registry(&workflow, &registry)
             .expect("visible descriptor defaults capture the source");
 
         let (workflow, registry) = parse_with_registry(
-            "- program:\n    version: 1\n\n- source\n- visible_body:\n    - visible_unary:\n        stack_access: owned\n",
+            "clipasm 1\nsource\nvisible_body { @owned visible_unary }\n",
             visible_default_programs(),
         );
         let error = crate::compiler::compile_with_registry(&workflow, &registry)
