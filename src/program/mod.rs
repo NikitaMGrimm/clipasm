@@ -160,38 +160,6 @@ pub(crate) struct BodyContract {
     pub(crate) count_error_code: &'static str,
 }
 
-impl BodyContract {
-    pub(crate) fn resolve(&self, generic: Option<ValueType>) -> ResolvedBodyContract {
-        let resolve = |spec: ValueTypeSpec| match spec {
-            ValueTypeSpec::Exact(value_type) => value_type,
-            ValueTypeSpec::Generic => generic.expect("generic body contract has a resolved type"),
-        };
-        ResolvedBodyContract {
-            initial_values: self.initial_values.iter().copied().map(resolve).collect(),
-            outputs: match &self.outputs {
-                BodyOutputConstraint::Exactly(outputs) => ResolvedBodyOutputConstraint::Exactly(
-                    outputs.iter().copied().map(resolve).collect(),
-                ),
-                BodyOutputConstraint::Variadic { value_type, min } => {
-                    ResolvedBodyOutputConstraint::Variadic {
-                        value_type: resolve(*value_type),
-                        min: *min,
-                    }
-                }
-            },
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn exact_initial_values(&self) -> Option<Vec<ValueType>> {
-        self.initial_values
-            .iter()
-            .copied()
-            .map(ValueTypeSpec::exact)
-            .collect()
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum BodyOutputConstraint {
     Exactly(Vec<ValueTypeSpec>),
@@ -199,18 +167,6 @@ pub(crate) enum BodyOutputConstraint {
         value_type: ValueTypeSpec,
         min: usize,
     },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedBodyContract {
-    pub(crate) initial_values: Vec<ValueType>,
-    pub(crate) outputs: ResolvedBodyOutputConstraint,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ResolvedBodyOutputConstraint {
-    Exactly(Vec<ValueType>),
-    Variadic { value_type: ValueType, min: usize },
 }
 
 pub(crate) type ProgramOutputs = Vec<ValueRef>;
@@ -251,16 +207,6 @@ impl ProgramDefinition {
     #[must_use]
     pub(crate) const fn is_body(&self) -> bool {
         matches!(self.implementation, ProgramImplementation::Body { .. })
-    }
-
-    #[must_use]
-    pub(crate) const fn body_contract(&self) -> Option<&BodyContract> {
-        match &self.implementation {
-            ProgramImplementation::Body { contract, .. } => Some(contract),
-            ProgramImplementation::Direct(_)
-            | ProgramImplementation::Authored(_)
-            | ProgramImplementation::External(_) => None,
-        }
     }
 }
 

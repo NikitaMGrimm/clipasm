@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, ProgramDefinition, ProgramImplementation, StackAccess, ValueTypeSpec,
+    Cardinality, ProgramDefinition, ProgramImplementation, ResolvedSignature, StackAccess,
+    ValueTypeSpec,
 };
 use crate::source::{Literal, OutputBindings, SourceSpan};
 
@@ -12,7 +13,8 @@ use super::draft::{
     DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, DraftProgram,
 };
 use super::stack::{
-    EvaluationStack, StackBindingInput, StackBindingOutcome, StackCompatibility, StackFrame,
+    EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
+    StackFrame,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -253,17 +255,63 @@ enum Requirement {
     Generic(TypeVarId),
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug)]
+pub(super) struct ResolvedInvocation {
+    pub(super) signature: ResolvedSignature,
+    pub(super) stack_plan: StackBindingPlan,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct InferenceResult {
+    pub(super) invocations: Vec<ResolvedInvocation>,
+    pub(super) clip_outputs: Vec<Vec<ValueType>>,
+    pub(super) outputs: Vec<ValueType>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PassPurpose {
+    Infer,
+    Resolve,
+}
+
 struct PassState {
+    purpose: PassPurpose,
     deferred: usize,
+    invocations: Vec<Option<ResolvedInvocation>>,
 }
 
 impl PassState {
+    fn infer(invocation_count: usize) -> Self {
+        Self {
+            purpose: PassPurpose::Infer,
+            deferred: 0,
+            invocations: vec![None; invocation_count],
+        }
+    }
+
+    fn resolve(invocation_count: usize) -> Self {
+        Self {
+            purpose: PassPurpose::Resolve,
+            deferred: 0,
+            invocations: vec![None; invocation_count],
+        }
+    }
+
+    const fn is_resolving(&self) -> bool {
+        matches!(self.purpose, PassPurpose::Resolve)
+    }
+
     fn mark_deferred(&mut self) {
         self.deferred = self
             .deferred
             .checked_add(1)
             .expect("too many deferred type-inference decisions");
+    }
+
+    fn record(&mut self, invocation: &DraftInvocation, resolved: ResolvedInvocation) {
+        if self.is_resolving() {
+            self.invocations[invocation.id.0] = Some(resolved);
+        }
     }
 }
 
@@ -292,22 +340,40 @@ fn allocate_body_generics(
     }
 }
 
-pub(super) fn infer_local_types(
+struct TypeState {
+    arena: TypeArena,
+    slots: BTreeMap<String, LocalSlot>,
+    invocation_generics: Vec<Option<TypeVarId>>,
+}
+
+pub(super) fn resolve_program_types(
     program: &DraftProgram,
     locals: &mut BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
-) -> Result<()> {
-    let mut arena = TypeArena::default();
-    let mut slots = BTreeMap::new();
+) -> Result<InferenceResult> {
+    let mut types = prepare_type_state(program, locals, definitions);
+    infer_fixpoint(program, definitions, &mut types)?;
+    apply_resolved_local_types(locals, &types);
+    resolve_final_program(program, definitions, &types)
+}
 
-    for (name, local) in locals.iter() {
-        let slot = match local {
-            LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
-            LocalType::Parameter(_) => LocalSlot::Parameter,
-            LocalType::Inferred { .. } => LocalSlot::Value(arena.allocate()),
-        };
-        slots.insert(name.clone(), slot);
-    }
+fn prepare_type_state(
+    program: &DraftProgram,
+    locals: &BTreeMap<String, LocalType>,
+    definitions: &[ProgramDefinition],
+) -> TypeState {
+    let mut arena = TypeArena::default();
+    let slots = locals
+        .iter()
+        .map(|(name, local)| {
+            let slot = match local {
+                LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
+                LocalType::Parameter(_) => LocalSlot::Parameter,
+                LocalType::Inferred { .. } => LocalSlot::Value(arena.allocate()),
+            };
+            (name.clone(), slot)
+        })
+        .collect();
     let mut invocation_generics = vec![None; program.invocation_count];
     for clip in &program.clips {
         allocate_body_generics(
@@ -323,79 +389,186 @@ pub(super) fn infer_local_types(
         &mut arena,
         &mut invocation_generics,
     );
+    TypeState {
+        arena,
+        slots,
+        invocation_generics,
+    }
+}
 
+fn infer_fixpoint(
+    program: &DraftProgram,
+    definitions: &[ProgramDefinition],
+    types: &mut TypeState,
+) -> Result<()> {
     loop {
-        let before = arena.revision();
-        let mut attempt = arena.clone();
-        let mut state = PassState::default();
-
-        for clip in &program.clips {
-            let (mut stack, mut frame) = EvaluationStack::isolated(
-                format!("named clip `{}` type inference", clip.name),
-                clip.span.clone(),
-            );
-            infer_body(
-                &clip.body,
-                &slots,
-                &BTreeMap::new(),
-                definitions,
-                &invocation_generics,
-                &mut attempt,
-                &mut stack,
-                &mut frame,
-                &mut state,
-            )?;
-        }
-
-        let (mut stack, mut frame) =
-            EvaluationStack::isolated("source program type inference", program.span.clone());
-        infer_body(
-            &program.body,
-            &slots,
-            &BTreeMap::new(),
+        let before = types.arena.revision();
+        let mut attempt = types.arena.clone();
+        let mut state = PassState::infer(program.invocation_count);
+        infer_program_bodies(
+            program,
             definitions,
-            &invocation_generics,
+            &types.slots,
+            &types.invocation_generics,
             &mut attempt,
-            &mut stack,
-            &mut frame,
             &mut state,
+            "type inference",
         )?;
-
-        for variable in slots
+        for variable in types
+            .slots
             .values()
             .filter_map(|slot| match slot {
                 LocalSlot::Value(variable) => Some(*variable),
                 LocalSlot::Parameter => None,
             })
-            .chain(invocation_generics.iter().flatten().copied())
+            .chain(types.invocation_generics.iter().flatten().copied())
         {
-            arena
+            types
+                .arena
                 .constrain_domain(variable, attempt.domain(variable))
                 .map_err(|_| type_mismatch(&program.span))?;
         }
-
-        if arena.revision() == before {
+        if types.arena.revision() == before {
             if state.deferred > 0 {
-                return Err(Diagnostic::new(
-                    "E_TYPE_INFERENCE_DEPENDENCY",
-                    "generic type inference depends on an unresolved stack selection; add `type: Video` or `type: Audio`",
-                    program.span.clone(),
-                ));
+                return Err(inference_dependency(&program.span));
             }
-            break;
+            return Ok(());
         }
     }
+}
 
-    for (name, slot) in slots {
+fn apply_resolved_local_types(locals: &mut BTreeMap<String, LocalType>, types: &TypeState) {
+    for (name, slot) in &types.slots {
         let LocalSlot::Value(variable) = slot else {
             continue;
         };
-        let Some(value_type) = arena.domain(variable).concrete() else {
-            continue;
-        };
-        locals.insert(name, LocalType::Value(value_type));
+        if let Some(value_type) = types.arena.domain(*variable).concrete() {
+            locals.insert(name.clone(), LocalType::Value(value_type));
+        }
     }
-    Ok(())
+}
+
+fn resolve_final_program(
+    program: &DraftProgram,
+    definitions: &[ProgramDefinition],
+    types: &TypeState,
+) -> Result<InferenceResult> {
+    let mut arena = types.arena.clone();
+    let mut state = PassState::resolve(program.invocation_count);
+    let clip_outputs = infer_program_bodies(
+        program,
+        definitions,
+        &types.slots,
+        &types.invocation_generics,
+        &mut arena,
+        &mut state,
+        "type resolution",
+    )?;
+    if state.deferred > 0 {
+        return Err(inference_dependency(&program.span));
+    }
+    let outputs = clip_outputs
+        .last()
+        .cloned()
+        .expect("source body resolution result");
+    let clip_outputs = clip_outputs[..clip_outputs.len() - 1].to_vec();
+    let invocations = state
+        .invocations
+        .into_iter()
+        .enumerate()
+        .map(|(index, resolved)| {
+            resolved.ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INTERNAL_TYPE_RESOLUTION",
+                    format!("invocation {index} was not resolved"),
+                    program.span.clone(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(InferenceResult {
+        invocations,
+        clip_outputs,
+        outputs,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn infer_program_bodies(
+    program: &DraftProgram,
+    definitions: &[ProgramDefinition],
+    slots: &BTreeMap<String, LocalSlot>,
+    invocation_generics: &[Option<TypeVarId>],
+    arena: &mut TypeArena,
+    state: &mut PassState,
+    phase: &str,
+) -> Result<Vec<Vec<ValueType>>> {
+    let mut outputs = Vec::with_capacity(program.clips.len() + 1);
+    for clip in &program.clips {
+        let (mut stack, mut frame) = EvaluationStack::isolated(
+            format!("named clip `{}` {phase}", clip.name),
+            clip.span.clone(),
+        );
+        infer_body(
+            &clip.body,
+            slots,
+            &BTreeMap::new(),
+            definitions,
+            invocation_generics,
+            arena,
+            &mut stack,
+            &mut frame,
+            state,
+        )?;
+        outputs.push(if state.is_resolving() {
+            concrete_values(arena, stack.values(), &clip.span)?
+        } else {
+            Vec::new()
+        });
+    }
+    let (mut stack, mut frame) =
+        EvaluationStack::isolated(format!("source program {phase}"), program.span.clone());
+    infer_body(
+        &program.body,
+        slots,
+        &BTreeMap::new(),
+        definitions,
+        invocation_generics,
+        arena,
+        &mut stack,
+        &mut frame,
+        state,
+    )?;
+    outputs.push(if state.is_resolving() {
+        concrete_values(arena, stack.values(), &program.span)?
+    } else {
+        Vec::new()
+    });
+    Ok(outputs)
+}
+
+fn concrete_values(
+    arena: &TypeArena,
+    values: &[TypeVarId],
+    span: &SourceSpan,
+) -> Result<Vec<ValueType>> {
+    values
+        .iter()
+        .map(|value| {
+            arena
+                .domain(*value)
+                .concrete()
+                .ok_or_else(|| inference_dependency(span))
+        })
+        .collect()
+}
+
+fn inference_dependency(span: &SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_TYPE_INFERENCE_DEPENDENCY",
+        "generic type inference depends on an unresolved stack selection; add `type: Video` or `type: Audio`",
+        span.clone(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -467,13 +640,36 @@ fn infer_invocation(
             .iter()
             .position(|parameter| parameter.name == *selector)
             .expect("validated generic selector");
-        if let Some(DraftParameter::Literal(argument)) = &invocation.parameters[selector_index] {
-            let selected = match argument {
-                Literal::String(value, _) if value == "Video" => ValueType::Video,
-                Literal::String(value, _) if value == "Audio" => ValueType::Audio,
-                _ => return Ok(Vec::new()),
+        if let Some(argument) = &invocation.parameters[selector_index] {
+            let (selected, span) = match argument {
+                DraftParameter::Literal(Literal::String(value, span)) if value == "Video" => {
+                    (ValueType::Video, span)
+                }
+                DraftParameter::Literal(Literal::String(value, span)) if value == "Audio" => {
+                    (ValueType::Audio, span)
+                }
+                DraftParameter::Literal(literal) => {
+                    return Err(Diagnostic::new(
+                        "E_INVALID_ARGUMENT_VALUE",
+                        format!(
+                            "parameter `{}.{selector}` must be `Video` or `Audio`",
+                            definition.descriptor.name
+                        ),
+                        literal.span().clone(),
+                    ));
+                }
+                DraftParameter::Reference(reference) => {
+                    return Err(Diagnostic::new(
+                        "E_INVALID_ARGUMENT_VALUE",
+                        format!(
+                            "parameter `{}.{selector}` must be `Video` or `Audio`",
+                            definition.descriptor.name
+                        ),
+                        reference.span.clone(),
+                    ));
+                }
             };
-            constrain(arena, variable, selected, argument.span())?;
+            constrain(arena, variable, selected, span)?;
         }
     }
 
@@ -490,6 +686,8 @@ fn infer_invocation(
         };
         let values = explicit_values(
             argument,
+            &invocation.name.value,
+            &port.name,
             globals,
             lexical,
             definitions,
@@ -511,9 +709,9 @@ fn infer_invocation(
         )?;
     }
 
-    bind_missing(
-        definition, generic, arena, stack, frame, access, &mut slots, state,
-    );
+    let stack_plan = bind_missing(
+        definition, invocation, generic, arena, stack, frame, access, &mut slots, state,
+    )?;
     if state.deferred > deferred_before {
         return Ok(invocation_outputs(definition, generic, arena));
     }
@@ -558,44 +756,29 @@ fn infer_invocation(
             return Ok(invocation_outputs(definition, generic, arena));
         }
         let body_outputs = stack.finish_body(&child);
-        match &contract.outputs {
-            crate::program::BodyOutputConstraint::Exactly(expected) => {
-                if body_outputs.len() == expected.len() {
-                    for (actual, expected) in body_outputs.iter().zip(expected) {
-                        match expected {
-                            ValueTypeSpec::Exact(value_type) => {
-                                constrain(arena, *actual, *value_type, &body.span)?;
-                            }
-                            ValueTypeSpec::Generic => {
-                                equate(
-                                    arena,
-                                    *actual,
-                                    generic.expect("generic body output"),
-                                    &body.span,
-                                )?;
-                            }
-                        }
-                    }
-                }
-            }
-            crate::program::BodyOutputConstraint::Variadic { value_type, .. } => {
-                for actual in body_outputs {
-                    match value_type {
-                        ValueTypeSpec::Exact(expected) => {
-                            constrain(arena, actual, *expected, &body.span)?;
-                        }
-                        ValueTypeSpec::Generic => {
-                            equate(
-                                arena,
-                                actual,
-                                generic.expect("generic body output"),
-                                &body.span,
-                            )?;
-                        }
-                    }
-                }
-            }
-        }
+        constrain_body_outputs(
+            &invocation.name.value,
+            &body_outputs,
+            &contract.outputs,
+            contract.count_error_code,
+            generic,
+            arena,
+            state,
+            &body.span,
+        )?;
+    }
+
+    if state.is_resolving() {
+        let generic = generic
+            .map(|variable| concrete_type(arena, variable, &invocation.name.span))
+            .transpose()?;
+        state.record(
+            invocation,
+            ResolvedInvocation {
+                signature: definition.descriptor.resolve_signature(generic),
+                stack_plan: stack_plan.unwrap_or(StackBindingPlan { inputs: Vec::new() }),
+            },
+        );
     }
 
     Ok(invocation_outputs(definition, generic, arena))
@@ -620,6 +803,8 @@ fn invocation_outputs(
 #[allow(clippy::too_many_arguments)]
 fn explicit_values(
     argument: &DraftInput,
+    program: &str,
+    port: &str,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
@@ -652,6 +837,16 @@ fn explicit_values(
                 &mut frame,
                 state,
             )?;
+            if stack.len() != 1 {
+                return Err(Diagnostic::new(
+                    "E_INPUT_BODY_OUTPUT_COUNT",
+                    format!(
+                        "inline input body for `{program}.{port}` must leave exactly one value, but {} values remain",
+                        stack.len()
+                    ),
+                    body.span.clone(),
+                ));
+            }
             Ok(stack.values().to_vec())
         }
     }
@@ -703,7 +898,17 @@ fn infer_generic_from_stack(
                 )?;
             }
             StackBindingOutcome::Deferred => state.mark_deferred(),
-            StackBindingOutcome::Impossible(_) => {}
+            StackBindingOutcome::Impossible(_) => {
+                if state.is_resolving()
+                    && access == StackAccess::Owned
+                    && let Some(value_type) =
+                        stack.nearest_accessible_with(frame, StackAccess::Visible, |value| {
+                            arena.domain(value).concrete()
+                        })
+                {
+                    constrain(arena, generic, value_type, &invocation.name.span)?;
+                }
+            }
         }
         return Ok(());
     }
@@ -752,6 +957,7 @@ fn infer_generic_from_stack(
 #[allow(clippy::too_many_arguments)]
 fn bind_missing(
     definition: &ProgramDefinition,
+    invocation: &DraftInvocation,
     generic: Option<TypeVarId>,
     arena: &TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
@@ -759,7 +965,7 @@ fn bind_missing(
     access: StackAccess,
     slots: &mut [Option<Vec<TypeVarId>>],
     state: &mut PassState,
-) {
+) -> Result<Option<StackBindingPlan>> {
     let inputs = definition
         .descriptor
         .inputs
@@ -776,7 +982,7 @@ fn bind_missing(
         })
         .collect::<Vec<_>>();
     if inputs.is_empty() {
-        return;
+        return Ok(Some(StackBindingPlan { inputs: Vec::new() }));
     }
     match stack.plan_bindings(frame, access, &inputs, |value, requirement| {
         compatibility(arena, value, requirement)
@@ -785,10 +991,131 @@ fn bind_missing(
             for bound in stack.apply_binding_plan(&plan) {
                 slots[bound.port] = Some(bound.values);
             }
+            Ok(Some(plan))
         }
-        StackBindingOutcome::Deferred => state.mark_deferred(),
-        StackBindingOutcome::Impossible(_) => {}
+        StackBindingOutcome::Deferred => {
+            state.mark_deferred();
+            Ok(None)
+        }
+        StackBindingOutcome::Impossible(_failure) if !state.is_resolving() => Ok(None),
+        StackBindingOutcome::Impossible(failure) => {
+            let port = &definition.descriptor.inputs[failure.port];
+            let required = match port.value_type {
+                ValueTypeSpec::Exact(value_type) => value_type,
+                ValueTypeSpec::Generic => generic
+                    .and_then(|variable| arena.domain(variable).concrete())
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_STACK_UNDERFLOW",
+                            format!(
+                                "program `{}` needs a preceding Video or Audio value",
+                                invocation.name.value
+                            ),
+                            invocation.name.span.clone(),
+                        )
+                    })?,
+            };
+            let (code, requirement) = match port.cardinality {
+                Cardinality::One => (
+                    "E_STACK_UNDERFLOW",
+                    format!(
+                        "`{}.{}` needs one preceding {required} value",
+                        invocation.name.value, port.name
+                    ),
+                ),
+                Cardinality::Variadic { min } => (
+                    "E_MISSING_REQUIRED_INPUT",
+                    format!(
+                        "`{}.{}` needs at least {min} {required} value(s)",
+                        invocation.name.value, port.name
+                    ),
+                ),
+            };
+            Err(stack.underflow_with(
+                frame,
+                access,
+                code,
+                &requirement,
+                required,
+                failure.available,
+                &failure.selected,
+                &invocation.name.span,
+                |value| arena.domain(value).concrete(),
+            ))
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn constrain_body_outputs(
+    program: &str,
+    values: &[TypeVarId],
+    constraint: &crate::program::BodyOutputConstraint,
+    count_error_code: &'static str,
+    generic: Option<TypeVarId>,
+    arena: &mut TypeArena,
+    state: &PassState,
+    span: &SourceSpan,
+) -> Result<()> {
+    match constraint {
+        crate::program::BodyOutputConstraint::Exactly(expected) => {
+            if values.len() != expected.len() {
+                if state.is_resolving() {
+                    return Err(Diagnostic::new(
+                        count_error_code,
+                        format!(
+                            "`{program}` body must leave exactly {} value(s), but {} values remain",
+                            expected.len(),
+                            values.len()
+                        ),
+                        span.clone(),
+                    ));
+                }
+                return Ok(());
+            }
+            for (actual, expected) in values.iter().zip(expected) {
+                constrain_body_output(*actual, *expected, generic, arena, span)?;
+            }
+        }
+        crate::program::BodyOutputConstraint::Variadic { value_type, min } => {
+            if values.len() < *min {
+                if state.is_resolving() {
+                    return Err(Diagnostic::new(
+                        count_error_code,
+                        format!("`{program}` body must produce at least {min} value(s)"),
+                        span.clone(),
+                    ));
+                }
+                return Ok(());
+            }
+            for actual in values {
+                constrain_body_output(*actual, *value_type, generic, arena, span)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn constrain_body_output(
+    actual: TypeVarId,
+    expected: ValueTypeSpec,
+    generic: Option<TypeVarId>,
+    arena: &mut TypeArena,
+    span: &SourceSpan,
+) -> Result<()> {
+    match expected {
+        ValueTypeSpec::Exact(value_type) => constrain(arena, actual, value_type, span),
+        ValueTypeSpec::Generic => {
+            equate(arena, actual, generic.expect("generic body output"), span)
+        }
+    }
+}
+
+fn concrete_type(arena: &TypeArena, value: TypeVarId, span: &SourceSpan) -> Result<ValueType> {
+    arena
+        .domain(value)
+        .concrete()
+        .ok_or_else(|| inference_dependency(span))
 }
 
 fn compatibility(

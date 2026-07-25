@@ -120,16 +120,19 @@ impl<T> EvaluationStack<T> {
     }
 }
 
+#[cfg(test)]
 pub(super) trait StackValue {
     fn value_type(self) -> ValueType;
 }
 
+#[cfg(test)]
 impl StackValue for ValueRef {
     fn value_type(self) -> ValueType {
         self.value_type()
     }
 }
 
+#[cfg(test)]
 impl StackValue for ValueType {
     fn value_type(self) -> ValueType {
         self
@@ -277,6 +280,24 @@ impl<T: Copy> EvaluationStack<T> {
         StackBindingOutcome::Resolved(StackBindingPlan { inputs: planned })
     }
 
+    pub(super) fn nearest_accessible_with<R>(
+        &self,
+        frame: &StackFrame,
+        access: StackAccess,
+        mut value: impl FnMut(T) -> Option<R>,
+    ) -> Option<R> {
+        self.values
+            .iter()
+            .copied()
+            .zip(self.owners.iter().copied())
+            .rev()
+            .find_map(|(candidate, owner)| {
+                Self::accessible(owner, frame, access)
+                    .then(|| value(candidate))
+                    .flatten()
+            })
+    }
+
     fn accessible(owner: usize, frame: &StackFrame, access: StackAccess) -> bool {
         match access {
             StackAccess::Owned => owner == frame.depth,
@@ -317,60 +338,8 @@ impl<T: Copy> EvaluationStack<T> {
     }
 }
 
+#[cfg(test)]
 impl<T: Copy + StackValue> EvaluationStack<T> {
-    pub(super) fn nearest_accessible_type(
-        &self,
-        frame: &StackFrame,
-        access: StackAccess,
-        accepts: impl Fn(ValueType) -> bool,
-    ) -> Option<ValueType> {
-        self.values
-            .iter()
-            .copied()
-            .zip(self.owners.iter().copied())
-            .rev()
-            .find_map(|(value, owner)| {
-                let value_type = value.value_type();
-                (Self::accessible(owner, frame, access) && accepts(value_type))
-                    .then_some(value_type)
-            })
-    }
-
-    pub(super) fn accessible_types(
-        &self,
-        frame: &StackFrame,
-        access: StackAccess,
-        accepts: impl Fn(ValueType) -> bool,
-    ) -> Vec<ValueType> {
-        let mut types = Vec::new();
-        for (value, owner) in self.values.iter().copied().zip(self.owners.iter().copied()) {
-            let value_type = value.value_type();
-            if Self::accessible(owner, frame, access)
-                && accepts(value_type)
-                && !types.contains(&value_type)
-            {
-                types.push(value_type);
-            }
-        }
-        types
-    }
-
-    pub(super) fn accessible_count(
-        &self,
-        frame: &StackFrame,
-        access: StackAccess,
-        required: ValueType,
-    ) -> usize {
-        self.values
-            .iter()
-            .copied()
-            .zip(self.owners.iter().copied())
-            .filter(|(value, owner)| {
-                Self::accessible(*owner, frame, access) && value.value_type() == required
-            })
-            .count()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(super) fn underflow(
         &self,
