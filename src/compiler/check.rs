@@ -81,6 +81,9 @@ pub(super) struct CheckedBody {
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedItem {
+    pub(super) span: crate::source::SourceSpan,
+    pub(super) construct: String,
+    pub(super) output_names: Vec<Option<String>>,
     pub(super) output_types: Vec<ValueType>,
     pub(super) output_bindings: Vec<Option<ValueLocalId>>,
     pub(super) kind: CheckedItemKind,
@@ -98,6 +101,7 @@ pub(super) enum CheckedItemKind {
         target: Option<CheckedReferenceTarget>,
     },
     Invocation {
+        source: Box<crate::source::Invocation>,
         program: ProgramId,
         signature: ResolvedSignature,
         access: crate::program::StackAccess,
@@ -892,6 +896,16 @@ fn validate_explicit_input_types(
     Ok(())
 }
 
+fn output_names(bindings: &OutputBindings, count: usize) -> Vec<Option<String>> {
+    match bindings {
+        OutputBindings::None => vec![None; count],
+        OutputBindings::One(name) => vec![Some(name.value.clone())],
+        OutputBindings::Many(names, _) => {
+            names.iter().map(|name| Some(name.value.clone())).collect()
+        }
+    }
+}
+
 fn checked_stack_plan(
     program: &str,
     signature: &ResolvedSignature,
@@ -973,6 +987,9 @@ fn infer_body(
                 let output = value_local(locals, &reference.name.value, &reference.name.span)?;
                 stack.extend(frame, [output]);
                 CheckedItem {
+                    span: item.span.clone(),
+                    construct: "reference".to_owned(),
+                    output_names: output_names(&item.output_bindings, 1),
                     output_types: vec![output],
                     output_bindings: Vec::new(),
                     kind: CheckedItemKind::Reference { target: None },
@@ -1120,9 +1137,13 @@ fn infer_body(
                 let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
                 CheckedItem {
+                    span: item.span.clone(),
+                    construct: invocation.program.value.clone(),
+                    output_names: output_names(&item.output_bindings, output_types.len()),
                     output_types,
                     output_bindings: Vec::new(),
                     kind: CheckedItemKind::Invocation {
+                        source: Box::new(invocation.clone()),
                         program,
                         signature,
                         access,

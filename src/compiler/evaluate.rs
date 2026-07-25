@@ -164,9 +164,18 @@ impl Evaluator<'_> {
         let video_signature = video_definition.descriptor.resolve_signature(None);
         let checked_input = CheckedBody {
             items: vec![CheckedItem {
+                span: program.span().clone(),
+                construct: "video".to_owned(),
+                output_names: vec![None; video_signature.outputs.len()],
                 output_types: video_signature.outputs.clone(),
                 output_bindings: vec![None; video_signature.outputs.len()],
                 kind: CheckedItemKind::Invocation {
+                    source: Box::new(Invocation {
+                        program: Spanned::new("video".to_owned(), program.span().clone()),
+                        stack_access: None,
+                        arguments: BTreeMap::new(),
+                        body: None,
+                    }),
                     program: video_program,
                     signature: video_signature.clone(),
                     access: video_definition.descriptor.default_stack_access,
@@ -195,7 +204,6 @@ impl Evaluator<'_> {
                     let (mut input_stack, mut input_frame) =
                         EvaluationStack::isolated("entrypoint Video input", body.span.clone());
                     self.evaluate_body(
-                        body,
                         &checked_input,
                         &mut scope,
                         &mut input_stack,
@@ -279,9 +287,7 @@ impl Evaluator<'_> {
         for (clip, checked) in clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(
-                &clip.body, checked, &mut scope, &mut stack, &mut frame, None,
-            )?;
+            self.evaluate_body(checked, &mut scope, &mut stack, &mut frame, None)?;
             let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
@@ -318,7 +324,6 @@ impl Evaluator<'_> {
             program.span().clone(),
         );
         self.evaluate_body(
-            program.body(),
             &checked_program.body,
             &mut scope,
             &mut stack,
@@ -400,78 +405,59 @@ impl Evaluator<'_> {
 
     fn evaluate_body(
         &mut self,
-        body: &ProgramBody,
         checked: &CheckedBody,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
-        debug_assert_eq!(body.items.len(), checked.items.len());
-        for (item, checked) in body.items.iter().zip(&checked.items) {
-            self.evaluate_item(item, checked, scope, stack, frame, requested_frames)?;
+        for item in &checked.items {
+            self.evaluate_item(item, scope, stack, frame, requested_frames)?;
         }
         Ok(())
     }
 
     fn evaluate_item(
         &mut self,
-        item: &Item,
         checked: &CheckedItem,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
         requested_frames: Option<FrameCount>,
     ) -> Result<()> {
-        let (outputs, construct) = match (&item.kind, &checked.kind) {
-            (
-                ItemKind::Reference(_),
-                CheckedItemKind::Reference {
-                    target: Some(target),
-                },
-            ) => (
-                vec![self.evaluate_checked_reference(*target, &item.span, scope)?],
-                "reference".to_owned(),
-            ),
-            (
-                ItemKind::Invocation(invocation),
-                CheckedItemKind::Invocation {
-                    program,
-                    signature,
-                    access,
-                    stack_plan,
-                    body,
-                    input_bodies,
-                    body_input_ids,
-                },
-            ) => (
-                self.evaluate_invocation(
-                    invocation,
-                    *program,
-                    signature,
-                    *access,
-                    stack_plan,
-                    body.as_deref(),
-                    input_bodies,
-                    body_input_ids,
-                    scope,
-                    stack,
-                    frame,
-                    requested_frames,
-                    &item.span,
-                )?,
-                invocation.program.value.clone(),
-            ),
-            _ => unreachable!("checked item kind matches canonical source"),
+        let outputs = match &checked.kind {
+            CheckedItemKind::Reference {
+                target: Some(target),
+            } => vec![self.evaluate_checked_reference(*target, &checked.span, scope)?],
+            CheckedItemKind::Invocation {
+                source,
+                program,
+                signature,
+                access,
+                stack_plan,
+                body,
+                input_bodies,
+                body_input_ids,
+            } => self.evaluate_invocation(
+                source,
+                *program,
+                signature,
+                *access,
+                stack_plan,
+                body.as_deref(),
+                input_bodies,
+                body_input_ids,
+                scope,
+                stack,
+                frame,
+                requested_frames,
+                &checked.span,
+            )?,
+            CheckedItemKind::Reference { target: None } => {
+                unreachable!("checked reference target is resolved")
+            }
         };
-        let output_names = match &item.output_bindings {
-            OutputBindings::None => vec![None; outputs.len()],
-            OutputBindings::One(id) => vec![Some(id.value.clone())],
-            OutputBindings::Many(ids, _) => ids
-                .iter()
-                .map(|id| Some(id.value.clone()))
-                .collect::<Vec<_>>(),
-        };
+        let output_names = checked.output_names.clone();
         debug_assert_eq!(outputs.len(), output_names.len());
         debug_assert_eq!(outputs.len(), checked.output_bindings.len());
         for (output, binding) in outputs.iter().copied().zip(&checked.output_bindings) {
@@ -481,13 +467,13 @@ impl Evaluator<'_> {
         }
         stack.extend(frame, outputs.iter().copied());
         self.surface.push(SurfaceRecord {
-            construct,
+            construct: checked.construct.clone(),
             outputs: outputs
                 .into_iter()
                 .zip(output_names)
                 .map(|(value, id)| SurfaceOutput { value, id })
                 .collect(),
-            span: item.span.clone(),
+            span: checked.span.clone(),
         });
         Ok(())
     }
@@ -659,10 +645,6 @@ impl Evaluator<'_> {
                 lower(&call, &mut builder)?
             }
             ProgramImplementation::Body(prepare) => {
-                let body = invocation
-                    .body
-                    .as_ref()
-                    .expect("checked body program has canonical body");
                 let checked_body =
                     checked_body.expect("checked body program has checked body metadata");
                 let plan = {
@@ -695,7 +677,6 @@ impl Evaluator<'_> {
                 }
                 scope.body_input_names.push(body_input_ids.clone());
                 self.evaluate_body(
-                    body,
                     checked_body,
                     scope,
                     stack,
@@ -766,7 +747,6 @@ impl Evaluator<'_> {
                     body.span.clone(),
                 );
                 self.evaluate_body(
-                    body,
                     checked_body,
                     scope,
                     &mut local,
