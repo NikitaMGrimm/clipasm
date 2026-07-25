@@ -11,7 +11,7 @@ tests, documentation, and identity versions.
 
 ## Setup
 
-Install Rust 1.89 or newer. Full verification also
+Install Rust 1.95 or newer. Full verification also
 requires FFmpeg, FFprobe, and mdBook on `PATH`.
 
 ## Contribution workflow

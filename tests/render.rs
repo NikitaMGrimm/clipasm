@@ -46,7 +46,13 @@ fn renders_and_reuses_verified_cache() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&first.manifest).expect("new manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["plan"]["video"]["fps"]["numerator"], 10);
+    assert_eq!(manifest["format_version"], 1);
+    assert_eq!(manifest["project"]["video"]["fps"]["numerator"], 10);
+    assert_eq!(manifest["semantic_hash"], plan.semantic_hash());
+    assert_eq!(manifest["cache"]["hits"], 0);
+    assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
+    assert!(manifest.get("plan").is_none());
+    assert!(manifest.get("execution_namespace").is_none());
     assert_eq!(first.cache_hits, 0);
     assert_eq!(first.cache_misses, plan.nodes().len());
     let second = render::render(&plan).expect("cached render");
@@ -677,6 +683,47 @@ fn renders_native_audio_trim_repeat_and_concat() {
     )));
     let report = render::render(&plan).expect("render native audio operations");
     assert!(report.output.is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn renders_non_utf8_output_without_serializing_local_paths() {
+    use std::os::unix::ffi::OsStringExt as _;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping non-UTF output test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(&workflow, "clipasm 1\nimage(\"card.ppm\", 100ms)\n").expect("workflow");
+    let package = clipasm::language::parse_file(&workflow).expect("parse");
+    let mut bindings = compiler::EntrypointBindings::new();
+    let mut output_name = std::ffi::OsString::from_vec(b"video-\xFF.mp4".to_vec());
+    let output = directory.path().join(&output_name);
+    bindings.set_output(
+        output.clone(),
+        clipasm::source::SourceSpan::file_start(&workflow),
+    );
+    let compiled = compiler::compile_with_bindings(&package, &bindings).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let report = render::render(&plan).expect("render non-UTF output");
+
+    assert_eq!(report.output, output);
+    assert!(report.output.is_file());
+    assert!(report.manifest.is_file());
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&report.manifest).expect("manifest"))
+            .expect("manifest JSON");
+    assert_eq!(document["format_version"], 1);
+    assert!(document.get("plan").is_none());
+    output_name.push(".manifest.json");
+    assert_eq!(report.manifest, directory.path().join(output_name));
 }
 
 #[cfg(unix)]

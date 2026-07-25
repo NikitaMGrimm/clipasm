@@ -8,6 +8,7 @@
 mod artifact;
 mod execute;
 mod lock;
+mod manifest;
 mod publication;
 mod staging;
 
@@ -39,21 +40,12 @@ pub struct RenderReport {
     pub cache_misses: usize,
 }
 
-#[derive(Serialize)]
-struct Manifest<'a> {
-    engine_version: &'static str,
-    ffmpeg: &'a str,
-    ffprobe: &'a str,
-    cache_hits: usize,
-    cache_misses: usize,
-    plan: &'a PreparedPlan,
-}
-
 /// Render an invariant-protected prepared plan and publish its MP4 and manifest.
 ///
 /// Working intermediates use lossless FFV1 with non-subsampled `yuv444p`.
 /// The only delivery profile is H.264 MP4 with `yuv420p`, square pixels, and
-/// no audio. This is the renderer's initial fixed color/media policy.
+/// AAC when the result carries meaningful audio. This is the renderer's initial
+/// fixed color/media policy.
 ///
 /// Both files are staged before either destination is changed. If publication
 /// fails, `ClipAsm` attempts to restore both previously published files. Each
@@ -213,21 +205,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     let publication = PublicationTransaction::new(plan.output(), plan.manifest())?;
     executor.stage_export(result_artifact, publication.staged_output(), result_node)?;
 
-    let manifest = Manifest {
-        engine_version: env!("CARGO_PKG_VERSION"),
-        ffmpeg: plan.ffmpeg().version(),
-        ffprobe: plan.ffprobe().version(),
-        cache_hits,
-        cache_misses,
-        plan,
-    };
-    let manifest_json = serde_json::to_vec_pretty(&manifest).map_err(|error| {
-        Diagnostic::new(
-            "E_MANIFEST",
-            format!("could not serialize render manifest: {error}"),
-            SourceSpan::source_start(plan.entrypoint_source().clone()),
-        )
-    })?;
+    let manifest_json = manifest::serialize(plan, result_node, cache_hits, cache_misses)?;
     publication.stage_manifest(&manifest_json)?;
     publication.commit()?;
 

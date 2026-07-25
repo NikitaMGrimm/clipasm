@@ -298,7 +298,10 @@ input to global output boundaries. See
 `render` verifies the prepared FFmpeg and FFprobe build identities and source
 hashes again, reuses only verified cached artifacts, renders missing
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
-exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
+exports one H.264/yuv420p MP4 with AAC when the result Video has audio. The
+sibling render manifest has its own versioned schema and records only project
+media properties, semantic/result identity, tool version summaries, and cache
+statistics; it does not serialize the executable prepared plan or local paths.
 Cache and publication orchestration remain in `render`. The native executor
 keeps one exhaustive prepared-primitive dispatcher and delegates media, Audio,
 timeline, effect, transition, external-process, and export work to focused

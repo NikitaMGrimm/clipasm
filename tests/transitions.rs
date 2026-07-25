@@ -64,22 +64,25 @@ fn decode_audio(path: &Path) -> Vec<u8> {
     output.stdout
 }
 
-fn cache_artifact(
-    directory: &Path,
-    manifest: &Path,
-    fingerprint: &str,
-    extension: &str,
-) -> PathBuf {
-    let document: serde_json::Value =
-        serde_json::from_slice(&fs::read(manifest).expect("read manifest")).expect("manifest JSON");
-    let namespace = document["plan"]["execution_namespace"]
-        .as_str()
-        .expect("execution namespace");
-    directory
-        .join(".clipasm")
-        .join("cache")
-        .join(namespace)
-        .join(format!("{fingerprint}.{extension}"))
+fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> PathBuf {
+    let cache = directory.join(".clipasm").join("cache");
+    let namespaces = fs::read_dir(&cache)
+        .expect("cache directory")
+        .filter_map(|entry| {
+            let entry = entry.expect("cache entry");
+            entry
+                .file_type()
+                .expect("cache entry type")
+                .is_dir()
+                .then(|| entry.path())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        namespaces.len(),
+        1,
+        "unexpected cache namespaces: {namespaces:?}"
+    );
+    namespaces[0].join(format!("{fingerprint}.{extension}"))
 }
 
 #[test]
@@ -278,12 +281,7 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
         assert!(average(frame, 2) > 220 && average(frame, 0) < 35);
     }
 
-    let artifact = cache_artifact(
-        directory.path(),
-        &report.manifest,
-        transition.fingerprint(),
-        "mkv",
-    );
+    let artifact = cache_artifact(directory.path(), transition.fingerprint(), "mkv");
     let audio = decode_audio(&artifact);
     let boundary = |frame: u64| frame.saturating_mul(SAMPLE_RATE).div_ceil(FPS);
     let prefix_samples = boundary(SOURCE_FRAMES - OVERLAP_FRAMES);
