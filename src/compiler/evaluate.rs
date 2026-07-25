@@ -11,7 +11,7 @@ use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_v
 use crate::source::{SourcePackage, SourceSpan, SourceUnitId, Spanned};
 
 use super::EntrypointBindings;
-use super::check::{
+use super::checked::{
     CheckedBody, CheckedInputValue, CheckedItem, CheckedItemKind, CheckedPackage,
     CheckedParameterValue, CheckedReferenceTarget,
 };

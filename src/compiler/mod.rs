@@ -6,6 +6,7 @@
 
 mod bind;
 mod check;
+mod checked;
 mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
@@ -293,7 +294,7 @@ pub(crate) fn compile_with_registry(
 
 fn compile_checked(
     package: &SourcePackage,
-    checked: check::CheckedPackage,
+    checked: checked::CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();
