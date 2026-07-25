@@ -1,17 +1,17 @@
 # ClipAsm domain context
 
 This document is the source of truth for canonical domain language and settled
-authoring semantics. Public YAML forms and program arguments are defined in
-`docs/workflow-reference.md`; phase ownership belongs in
+authoring semantics. The native `.clipasm` grammar is implemented under
+`src/language`; phase ownership belongs in
 `docs/architecture.md`, and durable trade-offs belong in `docs/adr/`.
 
 ## Glossary
 
-- A **frontend** translates one authoring representation into canonical source.
-  YAML is the first frontend; future frontends may use different syntax and
-  representation-specific sugar.
-- **Canonical source** is the representation-neutral, fully desugared authored
-  ClipAsm model consumed by the compiler.
+- The **native language** is the sole supported `.clipasm` authoring syntax.
+  Its lexer, parser, package loader, and lowerer own grammar and sugar.
+- **Canonical source** is the lowered authored `ClipAsm` model consumed by the
+  compiler. It is an internal phase boundary, not a promised alternate-frontend
+  API.
 - **Checked source** is the compiler-owned executable representation derived
   from canonical source after program names, references, effective stack
   access, arguments, body contracts, stack bindings, named-value types, and
@@ -25,23 +25,26 @@ authoring semantics. Public YAML forms and program arguments are defined in
   values.
 - The **root source unit** may additionally declare project and publication
   settings for compilation and rendering. Imported units may not.
-- A **program header** is the required first source item. It declares the
-  language version, project settings, named clips, and optional entrypoint
-  output path; it is not executable.
+- A **file declaration** is non-executable source metadata such as the required
+  `clipasm 1` version line, configuration, imports, externals, inputs, and
+  parameters. All declarations precede executable statements.
 - An **item** is one executable entry in a sequence body.
 - A **program** is a typed callable construct with declared inputs,
-  parameters, and an ordered output sequence. Current built-ins declare exactly
-  one Video or Audio output.
+  parameters, and an ordered output sequence.
 - A **direct program** produces its output without evaluating a nested body.
 - A **body program** evaluates one nested body with a program-defined initial
   value sequence and finalization rule.
 - An **external program** is a typed registered program whose semantic node is
   compiled purely and whose trusted executable runs only during rendering.
-- A **clip** is any finite Video value. A Video carries picture plus optional
-  synchronized audio.
+- A **Video** is a finite picture timeline with optional synchronized audio.
 - **Audio** is a finite standalone normalized audio timeline.
-- A **named clip** is a clip declaration bound to a name under `clips`; `clip`
-  is not a program or invocation keyword.
+- A **clip block** is native-language sugar that evaluates a `glue` body, may
+  bind the result with `as`, and removes the resulting stack occurrence with an
+  owned `drop`. It is lowered before compilation and is not a registered
+  program.
+- A **stack block** is the structural `{ ... }` item. It evaluates a child stack
+  frame and returns every remaining value owned by that frame in order. It is
+  not a registered program or a lexical name scope.
 - A **value** is an immutable typed graph result. A stack may contain multiple
   occurrences of the same value.
 - A **reference expression** is `$name`. It reads a named value without
@@ -95,7 +98,6 @@ the outer `$video`, while `$video` inside the inner body names the inner bound
 port. The body itself is structural invocation data, not a port. Programs with
 no fixed inputs, such as `glue`, expose no aliases.
 
-- A named clip is isolated, starts empty, and must leave exactly one Video.
 - `join` resolves one homogeneous timeline type, starts its body with two bound
   values of that type, exposes `$before` and `$after`, and concatenates the
   body's owned values in order.
@@ -103,17 +105,21 @@ no fixed inputs, such as `glue`, expose no aliases.
   type from its body unless selected explicitly, and concatenates those values.
 - `during` exposes its complete bound `$video`, starts the body stack with only
   the selected range, requires one processed owned Video, and splices it back.
+- A plain stack block starts an owned child frame and returns its complete
+  ordered remainder. `@visible { ... }` uses the normal visible stack rules.
+- A clip block defaults its generated `glue` to owned access. An explicit
+  access modifier applies to that `glue`; the generated cleanup `drop` remains
+  owned.
 
 A source-program body starts empty and returns all final owned values in physical
 order. Zero, one, or multiple outputs are valid for pure validation and
 compilation. Publication finds exactly one Video output by type and ignores any
-auxiliary Audio outputs. Named clips, inline inputs, and body contracts remain
-strict.
+auxiliary Audio outputs. Inline inputs and body contracts remain strict.
 
 Implicit stack binding always requires exact types. `trim`, `repeat`, `concat`,
 `drop`, `join`, and `glue` are type-preserving over Video or Audio. Unary programs select the
 nearest accessible compatible value. `concat` consumes one homogeneous typed
-view; `type: Video` or `type: Audio` selects it explicitly, while bare `concat`
+view; `<Video>` or `<Audio>` selects it explicitly, while bare `concat`
 is an error when both timeline types are accessible. Generic explicit inputs
 must match exactly and never adapt.
 
@@ -134,20 +140,23 @@ also uses checked coverage rounding.
 
 ## Names, references, and dependencies
 
-Clip names and invocation output names share one namespace. `id` names the
-single output of a one-output item. `ids` completely names a multi-output item
-in bottom-to-top stack order. Forward references affect dependency resolution,
-not list execution order. Naming attaches local identities to already-produced
-outputs and never changes type inference, input selection, stack effects, or
-body semantics. Generic types are inferred from selectors, explicit inputs,
-body contracts, and normal type-directed stack binding. `type:` is required
-only for genuine ambiguity, deliberate selection, or an irreducible inference
-dependency. References create semantic graph dependencies and never move,
+Output bindings share one program-wide namespace. `as name` names one output;
+`as (first, second)` completely names a multi-output item in bottom-to-top stack
+order. IDs declared in nested bodies and stack blocks remain available
+throughout the containing source program. Duplicate names are errors rather
+than lexical shadowing; only body-input aliases shadow while their body is
+active. Forward references affect dependency resolution, not statement
+execution order. Naming attaches local identities to already-produced outputs
+and never changes type inference, input selection, stack effects, or body
+semantics. Generic types are inferred from explicit type arguments, explicit
+inputs, body contracts, and normal type-directed stack binding. A type argument
+is required only for genuine ambiguity, deliberate selection, or an
+irreducible inference dependency. References create semantic graph dependencies and never move,
 remove, or duplicate stack occurrences. Cycles, missing names, and duplicate
 names are compile errors.
 
 Each source-program invocation has an isolated local namespace containing its
-declared inputs, parameters, clips, and invocation output names. Inputs are
+declared inputs, parameters, and output bindings. Inputs are
 local graph values; parameters are local scalar values. A scalar parameter is
 not a stack value, and a graph value is not a scalar parameter. Local names do
 not escape the invocation; only the program's ordered outputs return to the
