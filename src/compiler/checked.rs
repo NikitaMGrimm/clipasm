@@ -54,15 +54,6 @@ pub(super) struct CheckedProgram {
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
     pub(super) body_input_count: usize,
-    pub(super) clips: Vec<CheckedClip>,
-    pub(super) body: CheckedBody,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct CheckedClip {
-    pub(super) name: String,
-    pub(super) span: crate::source::SourceSpan,
-    pub(super) local: ValueLocalId,
     pub(super) body: CheckedBody,
 }
 

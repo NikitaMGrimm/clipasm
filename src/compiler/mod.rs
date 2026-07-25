@@ -424,7 +424,6 @@ mod tests {
                 program: SourceProgram {
                     inputs: Vec::new(),
                     parameters: Vec::new(),
-                    clips: Vec::new(),
                     body: ProgramBody {
                         items: vec![Item {
                             kind: ItemKind::Invocation(Invocation {

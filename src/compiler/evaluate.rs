@@ -6,7 +6,7 @@ use crate::program::{
     Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation, ResolvedCall,
     ResolvedInput, ValueTypeSpec,
 };
-use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
+use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
 
 use super::EntrypointBindings;
@@ -182,39 +182,6 @@ impl Evaluator {
                 checked_program.span.clone(),
             ));
         }
-        for clip in &checked_program.clips {
-            let (mut stack, mut frame) =
-                EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(
-                context, &clip.body, &mut scope, &mut stack, &mut frame, None,
-            )?;
-            let [output] = stack.values() else {
-                return Err(output_count_error(
-                    "E_CLIP_OUTPUT_COUNT",
-                    &format!("named clip `{}`", clip.name),
-                    stack.len(),
-                    &clip.span,
-                ));
-            };
-            require_value_type(
-                *output,
-                ValueType::Video,
-                "named clip",
-                "output",
-                &clip.span,
-            )?;
-            let symbol = scope.local_symbols[clip.local.index()];
-            self.bind_symbol(symbol, *output)?;
-            self.surface.push(SurfaceRecord {
-                construct: "named clip".to_owned(),
-                outputs: vec![SurfaceOutput {
-                    value: *output,
-                    id: Some(clip.name.clone()),
-                }],
-                span: clip.span.clone(),
-            });
-        }
-
         let (mut stack, parent) =
             EvaluationStack::isolated("authored program", checked_program.span.clone());
         let mut body_frame = EvaluationStack::<ValueRef>::enter_body(
@@ -955,6 +922,18 @@ mod tests {
                 vec![],
                 vec![ValueType::Video],
                 ProgramImplementation::Direct(lower_source),
+            ),
+            definition(
+                "drop",
+                1,
+                StackAccess::Owned,
+                vec![InputPort {
+                    name: "value".to_owned(),
+                    value_type: ValueType::Video.into(),
+                    cardinality: Cardinality::One,
+                }],
+                vec![],
+                ProgramImplementation::Direct(lower_zero),
             ),
             versioned_body,
         ]

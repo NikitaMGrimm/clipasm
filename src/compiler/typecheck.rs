@@ -271,7 +271,6 @@ pub(super) struct ResolvedInvocation {
 #[derive(Clone, Debug)]
 pub(super) struct InferenceResult {
     pub(super) invocations: Vec<ResolvedInvocation>,
-    pub(super) clip_outputs: Vec<Vec<ValueType>>,
     pub(super) outputs: Vec<ValueType>,
 }
 
@@ -382,14 +381,6 @@ fn prepare_type_state(
         })
         .collect();
     let mut invocation_generics = vec![None; program.invocation_count];
-    for clip in &program.clips {
-        allocate_body_generics(
-            &clip.body,
-            definitions,
-            &mut arena,
-            &mut invocation_generics,
-        );
-    }
     allocate_body_generics(
         &program.body,
         definitions,
@@ -412,7 +403,7 @@ fn infer_fixpoint(
         let before = types.arena.revision();
         let mut attempt = types.arena.clone();
         let mut state = PassState::infer(program.invocation_count);
-        infer_program_bodies(
+        infer_program_body(
             program,
             definitions,
             &types.slots,
@@ -462,7 +453,7 @@ fn resolve_final_program(
 ) -> Result<InferenceResult> {
     let mut arena = types.arena.clone();
     let mut state = PassState::resolve(program.invocation_count);
-    let clip_outputs = infer_program_bodies(
+    let outputs = infer_program_body(
         program,
         definitions,
         &types.slots,
@@ -474,11 +465,6 @@ fn resolve_final_program(
     if state.deferred > 0 {
         return Err(inference_dependency(&program.span));
     }
-    let outputs = clip_outputs
-        .last()
-        .cloned()
-        .expect("source body resolution result");
-    let clip_outputs = clip_outputs[..clip_outputs.len() - 1].to_vec();
     let invocations = state
         .invocations
         .into_iter()
@@ -495,13 +481,12 @@ fn resolve_final_program(
         .collect::<Result<Vec<_>>>()?;
     Ok(InferenceResult {
         invocations,
-        clip_outputs,
         outputs,
     })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn infer_program_bodies(
+fn infer_program_body(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
     slots: &BTreeMap<String, LocalSlot>,
@@ -509,30 +494,7 @@ fn infer_program_bodies(
     arena: &mut TypeArena,
     state: &mut PassState,
     phase: &str,
-) -> Result<Vec<Vec<ValueType>>> {
-    let mut outputs = Vec::with_capacity(program.clips.len() + 1);
-    for clip in &program.clips {
-        let (mut stack, mut frame) = EvaluationStack::isolated(
-            format!("named clip `{}` {phase}", clip.name),
-            clip.span.clone(),
-        );
-        infer_body(
-            &clip.body,
-            slots,
-            &BTreeMap::new(),
-            definitions,
-            invocation_generics,
-            arena,
-            &mut stack,
-            &mut frame,
-            state,
-        )?;
-        outputs.push(if state.is_resolving() {
-            concrete_values(arena, stack.values(), &clip.span)?
-        } else {
-            Vec::new()
-        });
-    }
+) -> Result<Vec<ValueType>> {
     let (mut stack, mut frame) =
         EvaluationStack::isolated(format!("source program {phase}"), program.span.clone());
     infer_body(
@@ -546,12 +508,11 @@ fn infer_program_bodies(
         &mut frame,
         state,
     )?;
-    outputs.push(if state.is_resolving() {
+    Ok(if state.is_resolving() {
         concrete_values(arena, stack.values(), &program.span)?
     } else {
         Vec::new()
-    });
-    Ok(outputs)
+    })
 }
 
 fn concrete_values(

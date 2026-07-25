@@ -20,10 +20,9 @@ pub(super) enum LocalType {
 }
 
 pub(super) use super::checked::{
-    BodyInputId, CheckedBody, CheckedClip, CheckedInputValue, CheckedInvocation, CheckedItem,
-    CheckedItemKind, CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter,
-    CheckedParameterValue, CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget,
-    ValueLocalId,
+    BodyInputId, CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
+    CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
+    CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget, ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -220,17 +219,6 @@ fn check_program(
             &parameter.name.span,
         )?;
     }
-    for clip in program.clips() {
-        insert_local(
-            &mut local_types,
-            &clip.name,
-            LocalType::Value(ValueType::Video),
-            &clip.span,
-        )?;
-    }
-    for clip in &draft.clips {
-        collect_body_names(&clip.body, &mut local_types, definitions)?;
-    }
     collect_body_names(&draft.body, &mut local_types, definitions)?;
     validate_local_dependencies(&local_types)?;
     let inference = super::typecheck::resolve_program_types(&draft, &mut local_types, definitions)?;
@@ -240,42 +228,6 @@ fn check_program(
     let mut body_input_count = 0_usize;
     let lexical_types = BTreeMap::new();
     let lexical_ids = BTreeMap::new();
-    let mut checked_clips = Vec::with_capacity(draft.clips.len());
-    for (clip, outputs) in draft.clips.iter().zip(&inference.clip_outputs) {
-        let [output] = outputs.as_slice() else {
-            return Err(Diagnostic::new(
-                "E_CLIP_OUTPUT_COUNT",
-                format!(
-                    "named clip `{}` must leave exactly one value, but {} values remain",
-                    clip.name,
-                    outputs.len()
-                ),
-                clip.span.clone(),
-            ));
-        };
-        if *output != ValueType::Video {
-            return Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
-                format!(
-                    "named clip `{}` must produce Video, but found {output}",
-                    clip.name
-                ),
-                clip.span.clone(),
-            ));
-        }
-        checked_clips.push(materialize_body(
-            &clip.body,
-            &local_types,
-            &bindings.local_ids,
-            &bindings.parameter_ids,
-            &lexical_types,
-            &lexical_ids,
-            &mut body_input_count,
-            definitions,
-            &inference.invocations,
-        )?);
-    }
-
     let checked_body = materialize_body(
         &draft.body,
         &local_types,
@@ -287,18 +239,6 @@ fn check_program(
         definitions,
         &inference.invocations,
     )?;
-    let mut clips = program
-        .clips()
-        .iter()
-        .zip(checked_clips)
-        .map(|(clip, body)| CheckedClip {
-            name: clip.name.clone(),
-            span: clip.span.clone(),
-            local: bindings.local_ids[&clip.name],
-            body,
-        })
-        .collect::<Vec<_>>();
-    clips.sort_by(|left, right| left.name.cmp(&right.name));
     Ok((
         inference.outputs,
         CheckedProgram {
@@ -320,7 +260,6 @@ fn check_program(
             locals: bindings.locals,
             parameters: bindings.parameters,
             body_input_count,
-            clips,
             body: checked_body,
         },
     ))
@@ -391,12 +330,6 @@ fn prepare_program_bindings(
     };
     for input in program.inputs() {
         declare(&input.name, program.span())?;
-    }
-    for clip in program.clips() {
-        declare(&clip.name, &clip.span)?;
-    }
-    for clip in &draft.clips {
-        declare_body_outputs(&clip.body, &mut declare)?;
     }
     declare_body_outputs(&draft.body, &mut declare)?;
 

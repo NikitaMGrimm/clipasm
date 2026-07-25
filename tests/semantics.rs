@@ -789,12 +789,15 @@ fn partial_explicit_join_binding_uses_the_preceding_value() {
 }
 
 #[test]
-fn named_clip_does_not_receive_glue_finalization() {
+fn legacy_named_clip_lowers_to_owned_glue() {
     let (_directory, workflow) = project(
         "- program:\n    version: 1\n    clips:\n      pair:\n        - {image: {path: a.ppm, duration: 1s}}\n        - {image: {path: b.ppm, duration: 1s}}\n\n- glue:\n    - $pair\n  ",
     );
-    let error = compiler::compile(&workflow).expect_err("leftovers");
-    assert_eq!(error.code, "E_CLIP_OUTPUT_COUNT");
+    let compiled = compiler::compile(&workflow).expect("compiled glue-backed clip");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        60
+    );
 }
 
 #[test]

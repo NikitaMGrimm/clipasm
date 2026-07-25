@@ -12,7 +12,7 @@ use crate::program::{
     Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation, StackAccess,
 };
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
+    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceExternalImport,
     SourceImport, SourcePackage, SourceParameter, SourceProgram, SourceUnit, SourceUnitId,
     UnlinkedSourceUnit, VideoSettings,
@@ -207,11 +207,14 @@ fn parse_source_program(
             header_span.clone(),
         ));
     }
-    let body = ProgramBody {
-        items: items
+    clips.extend(
+        items
             .into_iter()
             .map(|item| parse_item(item, language))
             .collect::<Result<Vec<_>>>()?,
+    );
+    let body = ProgramBody {
+        items: clips,
         span: root_span,
     };
 
@@ -223,7 +226,6 @@ fn parse_source_program(
         program: SourceProgram {
             inputs,
             parameters,
-            clips,
             body,
             span: header_span,
             stack_access,
@@ -465,8 +467,8 @@ fn parse_u32(text: &str, span: &SourceSpan, field: &str) -> Result<u32> {
     })
 }
 
-fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<NamedClip>> {
-    let mut clips = Vec::new();
+fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
+    let mut items = Vec::new();
     for (name, span, value) in into_mapping(node, "`clips`")? {
         validate_name(&name, &span)?;
         let body = match value.kind {
@@ -479,9 +481,28 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<NamedClip>> {
                 }
             }
         };
-        clips.push(NamedClip { name, body, span });
+        items.push(Item {
+            kind: ItemKind::Invocation(Invocation {
+                program: Spanned::new("glue".to_owned(), span.clone()),
+                stack_access: Some(Spanned::new(StackAccess::Owned, span.clone())),
+                arguments: BTreeMap::new(),
+                body: Some(body),
+            }),
+            output_bindings: OutputBindings::One(Spanned::new(name, span.clone())),
+            span: span.clone(),
+        });
+        items.push(Item {
+            kind: ItemKind::Invocation(Invocation {
+                program: Spanned::new("drop".to_owned(), span.clone()),
+                stack_access: Some(Spanned::new(StackAccess::Owned, span.clone())),
+                arguments: BTreeMap::new(),
+                body: None,
+            }),
+            output_bindings: OutputBindings::None,
+            span,
+        });
     }
-    Ok(clips)
+    Ok(items)
 }
 
 fn parse_body(node: RawNode, owner: &str, language: &Language) -> Result<ProgramBody> {
@@ -1005,10 +1026,13 @@ mod tests {
         )
         .expect("source program");
         assert!(matches!(
-            program.root().program.body.items[0].kind,
+            program.root().program.body.items[2].kind,
             ItemKind::Reference(Reference { .. })
         ));
-        assert_eq!(program.root().program.clips[0].body.items.len(), 1);
+        let ItemKind::Invocation(glue) = &program.root().program.body.items[0].kind else {
+            panic!("lowered clip glue");
+        };
+        assert_eq!(glue.body.as_ref().expect("clip body").items.len(), 1);
     }
 
     #[test]

@@ -128,7 +128,6 @@ pub(crate) struct ResolvedImport {
 pub struct SourceProgram {
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<SourceParameter>,
-    pub(crate) clips: Vec<NamedClip>,
     pub(crate) body: ProgramBody,
     pub(crate) span: SourceSpan,
     pub(crate) stack_access: StackAccess,
@@ -143,11 +142,6 @@ impl SourceProgram {
     #[must_use]
     pub(crate) fn parameters(&self) -> &[SourceParameter] {
         &self.parameters
-    }
-
-    #[must_use]
-    pub(crate) fn clips(&self) -> &[NamedClip] {
-        &self.clips
     }
 
     #[must_use]
@@ -183,13 +177,6 @@ pub(crate) struct VideoSettings {
     pub(crate) width: Option<Spanned<u32>>,
     pub(crate) height: Option<Spanned<u32>>,
     pub(crate) fps: Option<Spanned<String>>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct NamedClip {
-    pub(crate) name: String,
-    pub(crate) body: ProgramBody,
-    pub(crate) span: SourceSpan,
 }
 
 #[derive(Clone, Debug)]

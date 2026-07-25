@@ -17,16 +17,8 @@ pub(super) struct InvocationId(pub(super) usize);
 #[derive(Clone, Debug)]
 pub(super) struct DraftProgram {
     pub(super) span: SourceSpan,
-    pub(super) clips: Vec<DraftClip>,
     pub(super) body: DraftBody,
     pub(super) invocation_count: usize,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct DraftClip {
-    pub(super) name: String,
-    pub(super) span: SourceSpan,
-    pub(super) body: DraftBody,
 }
 
 #[derive(Clone, Debug)]
@@ -90,24 +82,6 @@ impl DraftProgram {
         namespace: &BTreeMap<String, ProgramId>,
     ) -> Result<Self> {
         let mut invocation_count = 0;
-        let clips = source
-            .clips()
-            .iter()
-            .map(|clip| {
-                Ok(DraftClip {
-                    name: clip.name.clone(),
-                    span: clip.span.clone(),
-                    body: DraftBody::build(
-                        &clip.body,
-                        definitions,
-                        builtins,
-                        namespace,
-                        0,
-                        &mut invocation_count,
-                    )?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
         let body = DraftBody::build(
             source.body(),
             definitions,
@@ -118,7 +92,6 @@ impl DraftProgram {
         )?;
         Ok(Self {
             span: source.span().clone(),
-            clips,
             body,
             invocation_count,
         })
