@@ -1,5 +1,8 @@
 # ClipAsm
 
+ClipAsm is pre-release software. Its language, file formats, Rust API, and
+command-line interface may change without compatibility guarantees.
+
 ClipAsm compiles a representation-neutral typed source program into a video
 graph, prepares result-reachable media with FFmpeg and FFprobe, and renders an
 MP4. The current authoring frontend is strict YAML.
@@ -100,3 +103,9 @@ beside the entrypoint source.
 ```console
 ./scripts/check.sh
 ```
+
+## Repository history
+
+![Rust source lines over main history](https://nikitamgrimm.github.io/clipasm/loc-history.svg)
+
+[Open the full history chart](https://nikitamgrimm.github.io/clipasm/).

@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.89"
 description = "A strict, typed, stack-based programmatic video compiler"
 license = "MIT"
+repository = "https://github.com/NikitaMGrimm/clipasm"
 
 [lib]
 name = "clipasm"
