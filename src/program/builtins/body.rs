@@ -2,7 +2,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
-    ParameterDescriptor, ParameterType, PostfixSyntax, ProgramDefinition, ProgramDescriptor,
+    ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
     ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, TypeParameter,
     ValueConstraint, ValueTypeSpec,
 };
@@ -27,7 +27,7 @@ pub(crate) fn join() -> ProgramDefinition {
             },
             count_error_code: "E_EMPTY_JOIN",
         },
-        None,
+        false,
     )
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn glue() -> ProgramDefinition {
             },
             count_error_code: "E_EMPTY_GLUE",
         },
-        None,
+        false,
     )
 }
 
@@ -66,9 +66,7 @@ pub(crate) fn during() -> ProgramDefinition {
             outputs: BodyOutputConstraint::Exactly(vec![VIDEO.into()]),
             count_error_code: "E_BODY_OUTPUT_COUNT",
         },
-        Some(PostfixSyntax {
-            parameter: "range".to_owned(),
-        }),
+        true,
     )
 }
 
@@ -83,7 +81,6 @@ fn generic_descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters: vec![type_selector()],
-        primary_parameter: None,
         type_parameter: Some(TypeParameter {
             constraint: ValueConstraint::Timeline,
             selector: "type".to_owned(),
@@ -113,7 +110,7 @@ fn descriptor(
     semantic_version: u32,
     inputs: Vec<InputPort>,
     parameters: Vec<ParameterDescriptor>,
-    primary_parameter: Option<&str>,
+    _primary_parameter: Option<&str>,
 ) -> ProgramDescriptor {
     ProgramDescriptor {
         name: name.to_owned(),
@@ -121,7 +118,6 @@ fn descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters,
-        primary_parameter: primary_parameter.map(str::to_owned),
         type_parameter: None,
         outputs: vec![VIDEO.into()],
     }
@@ -139,13 +135,14 @@ fn body(
     descriptor: ProgramDescriptor,
     prepare: crate::program::BodyPrepareFn,
     body_contract: BodyContract,
-    postfix: Option<PostfixSyntax>,
+    _postfix: bool,
 ) -> ProgramDefinition {
     ProgramDefinition {
         descriptor,
-        implementation: ProgramImplementation::Body(prepare),
-        body_contract: Some(body_contract),
-        postfix,
+        implementation: ProgramImplementation::Body {
+            prepare,
+            contract: body_contract,
+        },
     }
 }
 

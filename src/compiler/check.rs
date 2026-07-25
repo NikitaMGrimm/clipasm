@@ -55,7 +55,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         );
         let program_id =
             ProgramId::new(u32::try_from(definitions.len()).expect("program catalog fits in u32"));
-        definitions.push(external.definition(external_id, format!("external_program_{index}")));
+        definitions.push(external.definition(format!("external_program_{index}")));
         external_programs.insert(external_id, program_id);
     }
     let mut unit_programs = BTreeMap::new();
@@ -120,13 +120,10 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 default_stack_access: unit.program().stack_access(),
                 inputs: unit.program().inputs().to_vec(),
                 parameters,
-                primary_parameter: None,
                 type_parameter: None,
                 outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation: ProgramImplementation::Authored(unit_id),
-            body_contract: None,
-            postfix: None,
         };
         let id = ProgramId::new(
             u32::try_from(definitions.len()).expect("linked program catalog fits in u32"),
@@ -882,11 +879,13 @@ fn resolve_invocation_signature(
                     span.clone(),
                 ));
             }
-            if matches!(definition.implementation, ProgramImplementation::Body(_))
-                && !descriptor
-                    .inputs
-                    .iter()
-                    .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            if matches!(
+                definition.implementation,
+                ProgramImplementation::Body { .. }
+            ) && !descriptor
+                .inputs
+                .iter()
+                .any(|port| matches!(port.value_type, ValueTypeSpec::Generic))
             {
                 return Ok(None);
             }
@@ -1074,11 +1073,10 @@ fn infer_body(
                     ProgramImplementation::Direct(_)
                     | ProgramImplementation::Authored(_)
                     | ProgramImplementation::External(_) => None,
-                    ProgramImplementation::Body(_) => {
+                    ProgramImplementation::Body { .. } => {
                         let body = invocation.body.as_deref().expect("draft body program");
                         let contract = definition
-                            .body_contract
-                            .as_ref()
+                            .body_contract()
                             .expect("validated body program contract");
                         let mut child = EvaluationStack::<ValueType>::enter_body(
                             frame,

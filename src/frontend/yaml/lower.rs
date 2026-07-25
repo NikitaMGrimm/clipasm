@@ -10,8 +10,7 @@ use super::language::{
 use super::raw::{RawKind, RawNode};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{
-    Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation,
-    ProgramRegistry, StackAccess,
+    Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation, StackAccess,
 };
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, Literal, NamedClip, OutputBindings, ProgramBody,
@@ -627,10 +626,11 @@ fn parse_invocation(
 
     if program_entries.len() == 1 {
         let (program, program_span, value) = program_entries.remove(0);
-        let invocation = if let Some(definition) = language.programs.get(&program) {
+        let invocation = if let Some((program_id, definition)) = language.resolve(&program) {
+            let syntax = language.syntax(program_id);
             let invocation =
-                normalize_invocation(definition, program_span.clone(), value, language)?;
-            if definition.postfix.is_some() && invocation.body.is_none() {
+                normalize_invocation(definition, &syntax, program_span.clone(), value, language)?;
+            if syntax.postfix && invocation.body.is_none() {
                 return Err(Diagnostic::new(
                     "E_POSTFIX_REQUIRES_EXPRESSION",
                     format!("postfix program `{program}` requires an expression to wrap"),
@@ -653,10 +653,9 @@ fn parse_invocation(
         .enumerate()
         .filter_map(|(index, (name, _, value))| {
             language
-                .programs
-                .get(name)
-                .filter(|definition| {
-                    definition.postfix.is_some()
+                .resolve(name)
+                .filter(|(program, _)| {
+                    language.syntax(*program).postfix
                         && (matches!(value.kind, RawKind::Mapping(_))
                             || matches!(value.kind, RawKind::Scalar { .. })
                                 && !is_empty_scalar(value))
@@ -678,18 +677,26 @@ fn parse_invocation(
     let wrapper_index = postfix_indices[0];
     let (wrapper_name, wrapper_span, wrapper_value) = program_entries.remove(wrapper_index);
     let (head_name, head_span, head_value) = program_entries.remove(0);
-    let head_definition = require_program(&language.programs, &head_name, &head_span)?;
-    let head_invocation =
-        normalize_invocation(head_definition, head_span.clone(), head_value, language)?;
+    let (head_id, head_definition) = require_program(language, &head_name, &head_span)?;
+    let head_syntax = language.syntax(head_id);
+    let head_invocation = normalize_invocation(
+        head_definition,
+        &head_syntax,
+        head_span.clone(),
+        head_value,
+        language,
+    )?;
     let inner = Item {
         kind: ItemKind::Invocation(head_invocation),
         output_bindings: OutputBindings::None,
         span: head_span,
     };
 
-    let wrapper_definition = require_program(&language.programs, &wrapper_name, &wrapper_span)?;
+    let (wrapper_id, wrapper_definition) = require_program(language, &wrapper_name, &wrapper_span)?;
+    let wrapper_syntax = language.syntax(wrapper_id);
     let mut wrapper_invocation = normalize_invocation(
         wrapper_definition,
+        &wrapper_syntax,
         wrapper_span.clone(),
         wrapper_value,
         language,
@@ -758,11 +765,11 @@ fn normalize_generic_invocation(
 }
 
 fn require_program<'a>(
-    registry: &'a ProgramRegistry,
+    language: &'a Language,
     program: &str,
     span: &SourceSpan,
-) -> Result<&'a ProgramDefinition> {
-    registry.get(program).ok_or_else(|| {
+) -> Result<(crate::program::ProgramId, &'a ProgramDefinition)> {
+    language.resolve(program).ok_or_else(|| {
         Diagnostic::new(
             "E_UNKNOWN_PROGRAM",
             format!("unknown program `{program}`"),
@@ -773,6 +780,7 @@ fn require_program<'a>(
 
 fn normalize_invocation(
     definition: &ProgramDefinition,
+    syntax: &super::language::ProgramSyntax,
     program_span: SourceSpan,
     value: RawNode,
     language: &Language,
@@ -787,8 +795,10 @@ fn normalize_invocation(
         for (name, name_span, value) in into_mapping(value, "a full invocation mapping")? {
             if name == STACK_ACCESS_FIELD {
                 stack_access = Some(parse_stack_access(&value)?);
-            } else if matches!(definition.implementation, ProgramImplementation::Body(_))
-                && name == BODY_FIELD
+            } else if matches!(
+                definition.implementation,
+                ProgramImplementation::Body { .. }
+            ) && name == BODY_FIELD
             {
                 body = Some(parse_body(value, &format!("`{program}` body"), language)?);
             } else {
@@ -802,12 +812,14 @@ fn normalize_invocation(
                 }
             }
         }
-    } else if matches!(definition.implementation, ProgramImplementation::Body(_))
-        && matches!(value.kind, RawKind::Sequence(_))
+    } else if matches!(
+        definition.implementation,
+        ProgramImplementation::Body { .. }
+    ) && matches!(value.kind, RawKind::Sequence(_))
     {
         body = Some(parse_body(value, &format!("`{program}` body"), language)?);
     } else {
-        let Some(primary) = definition.descriptor.primary_parameter.as_deref() else {
+        let Some(primary) = syntax.primary_parameter else {
             return Err(Diagnostic::new(
                 "E_INVALID_PRIMARY_ARGUMENT",
                 format!("program `{program}` has no primary shorthand parameter"),
@@ -986,8 +998,8 @@ mod tests {
     use super::*;
     use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
     use crate::program::{
-        BodyFinalizer, BodyPlan, ParameterDescriptor, ParameterType, PostfixSyntax,
-        ProgramDescriptor, ResolvedCall, StackAccess,
+        BodyFinalizer, BodyPlan, ParameterDescriptor, ParameterType, ProgramDescriptor,
+        ProgramRegistry, ResolvedCall, StackAccess,
     };
     use crate::semantic::GraphBuilder;
 
@@ -1195,13 +1207,10 @@ mod tests {
                         parameter_type: ParameterType::File,
                         required: true,
                     }],
-                    primary_parameter: Some("path".to_owned()),
                     type_parameter: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Direct(lower_synthetic_source),
-                body_contract: None,
-                postfix: None,
             },
             ProgramDefinition {
                 descriptor: ProgramDescriptor {
@@ -1210,19 +1219,19 @@ mod tests {
                     default_stack_access: StackAccess::Owned,
                     inputs: vec![],
                     parameters: vec![],
-                    primary_parameter: None,
                     type_parameter: None,
                     outputs: vec![ValueType::Video.into()],
                 },
-                implementation: ProgramImplementation::Body(prepare_synthetic_body),
-                body_contract: Some(crate::program::BodyContract {
-                    initial_values: Vec::new(),
-                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![
-                        ValueType::Video.into(),
-                    ]),
-                    count_error_code: "E_BODY_OUTPUT_COUNT",
-                }),
-                postfix: None,
+                implementation: ProgramImplementation::Body {
+                    prepare: prepare_synthetic_body,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             },
             ProgramDefinition {
                 descriptor: ProgramDescriptor {
@@ -1235,21 +1244,19 @@ mod tests {
                         parameter_type: ParameterType::TimeRange,
                         required: true,
                     }],
-                    primary_parameter: Some("range".to_owned()),
                     type_parameter: None,
                     outputs: vec![ValueType::Video.into()],
                 },
-                implementation: ProgramImplementation::Body(prepare_synthetic_postfix),
-                body_contract: Some(crate::program::BodyContract {
-                    initial_values: Vec::new(),
-                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![
-                        ValueType::Video.into(),
-                    ]),
-                    count_error_code: "E_BODY_OUTPUT_COUNT",
-                }),
-                postfix: Some(PostfixSyntax {
-                    parameter: "range".to_owned(),
-                }),
+                implementation: ProgramImplementation::Body {
+                    prepare: prepare_synthetic_postfix,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             },
         ]
     }
@@ -1258,7 +1265,14 @@ mod tests {
     fn postfix_output_bindings_belong_to_the_outer_invocation() {
         let registry =
             ProgramRegistry::from_definitions(synthetic_programs()).expect("synthetic registry");
-        let language = Language::new(registry.clone()).expect("synthetic language");
+        let language = Language::with_test_syntax(
+            registry.clone(),
+            [
+                ("synthetic_direct", Some("path"), false),
+                ("synthetic_postfix", Some("range"), true),
+            ],
+        )
+        .expect("synthetic language");
         let workflow = parse_str_with_language(
             Path::new("workflow.yaml"),
             "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n  ids: [first, second]\n",
@@ -1282,7 +1296,14 @@ mod tests {
     fn registry_metadata_extends_parser_and_evaluator() {
         let registry =
             ProgramRegistry::from_definitions(synthetic_programs()).expect("synthetic registry");
-        let language = Language::new(registry.clone()).expect("synthetic language");
+        let language = Language::with_test_syntax(
+            registry.clone(),
+            [
+                ("synthetic_direct", Some("path"), false),
+                ("synthetic_postfix", Some("range"), true),
+            ],
+        )
+        .expect("synthetic language");
         let workflow = parse_str_with_language(
             Path::new("workflow.yaml"),
             "- program:\n    version: 1\n\n- synthetic_direct: asset.any\n  synthetic_postfix: 0s..1s\n",

@@ -45,11 +45,6 @@ impl SourcePackage {
     }
 
     #[must_use]
-    pub(crate) fn external_program(&self, id: ExternalProgramId) -> &ExternalProgram {
-        &self.external_programs[id.index()]
-    }
-
-    #[must_use]
     pub(crate) fn external_programs(&self) -> &[ExternalProgram] {
         &self.external_programs
     }

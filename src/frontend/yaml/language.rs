@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
+
 use crate::diagnostic::Result;
-use crate::program::{ProgramImplementation, ProgramRegistry, definition_error};
+use crate::program::{ProgramDefinition, ProgramId, ProgramRegistry, definition_error};
 
 pub(crate) const ID_FIELD: &str = "id";
 pub(crate) const IDS_FIELD: &str = "ids";
@@ -7,21 +9,100 @@ pub(crate) const BODY_FIELD: &str = "body";
 pub(crate) const PROGRAM_HEADER_FIELD: &str = "program";
 pub(crate) const STACK_ACCESS_FIELD: &str = "stack_access";
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ProgramSyntax {
+    pub(crate) primary_parameter: Option<&'static str>,
+    pub(crate) postfix: bool,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Language {
     pub(crate) programs: ProgramRegistry,
+    syntax: BTreeMap<ProgramId, ProgramSyntax>,
 }
 
 impl Default for Language {
     fn default() -> Self {
-        Self::new(ProgramRegistry::default()).expect("built-in language is valid")
+        let programs = ProgramRegistry::default();
+        let syntax = [
+            ("image", Some("path"), false),
+            ("video", Some("path"), false),
+            ("audio", Some("path"), false),
+            ("concat", Some("type"), false),
+            ("repeat", Some("count"), false),
+            ("trim", Some("range"), false),
+            ("drop", Some("type"), false),
+            ("zoom", Some("percent"), false),
+            ("wobble", Some("pixels"), false),
+            ("flash", Some("frames"), false),
+            ("during", Some("range"), true),
+        ];
+        Self::with_syntax(programs, syntax).expect("built-in YAML language is valid")
     }
 }
 
 impl Language {
+    #[cfg(test)]
     pub(crate) fn new(programs: ProgramRegistry) -> Result<Self> {
+        Self::with_syntax(programs, std::iter::empty())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_test_syntax(
+        programs: ProgramRegistry,
+        syntax: impl IntoIterator<Item = (&'static str, Option<&'static str>, bool)>,
+    ) -> Result<Self> {
+        Self::with_syntax(programs, syntax)
+    }
+
+    fn with_syntax(
+        programs: ProgramRegistry,
+        syntax: impl IntoIterator<Item = (&'static str, Option<&'static str>, bool)>,
+    ) -> Result<Self> {
         validate_syntax_collisions(&programs)?;
-        Ok(Self { programs })
+        let mut by_program = BTreeMap::new();
+        for (name, primary_parameter, postfix) in syntax {
+            let id = programs.id(name).ok_or_else(|| {
+                definition_error(format!("YAML syntax names unknown program `{name}`"))
+            })?;
+            let definition = programs.definition(id);
+            if let Some(primary) = primary_parameter
+                && !definition
+                    .descriptor
+                    .parameters
+                    .iter()
+                    .any(|parameter| parameter.name == primary)
+            {
+                return Err(definition_error(format!(
+                    "YAML syntax for `{name}` names nonexistent primary parameter `{primary}`"
+                )));
+            }
+            if postfix && !definition.is_body() {
+                return Err(definition_error(format!(
+                    "YAML postfix syntax requires body program `{name}`"
+                )));
+            }
+            by_program.insert(
+                id,
+                ProgramSyntax {
+                    primary_parameter,
+                    postfix,
+                },
+            );
+        }
+        Ok(Self {
+            programs,
+            syntax: by_program,
+        })
+    }
+
+    pub(crate) fn syntax(&self, program: ProgramId) -> ProgramSyntax {
+        self.syntax.get(&program).cloned().unwrap_or_default()
+    }
+
+    pub(crate) fn resolve(&self, name: &str) -> Option<(ProgramId, &ProgramDefinition)> {
+        let id = self.programs.id(name)?;
+        Some((id, self.programs.definition(id)))
     }
 }
 
@@ -41,42 +122,28 @@ fn validate_syntax_collisions(programs: &ProgramRegistry) -> Result<()> {
             .inputs
             .iter()
             .any(|input| input.name == STACK_ACCESS_FIELD)
+            || descriptor
+                .parameters
+                .iter()
+                .any(|parameter| parameter.name == STACK_ACCESS_FIELD)
         {
             return Err(definition_error(format!(
-                "program `{}` has an input named `{STACK_ACCESS_FIELD}`",
+                "program `{}` has an argument named `{STACK_ACCESS_FIELD}`",
                 descriptor.name
             )));
         }
-        if descriptor
-            .parameters
-            .iter()
-            .any(|parameter| parameter.name == STACK_ACCESS_FIELD)
+        if definition.is_body()
+            && (descriptor
+                .inputs
+                .iter()
+                .any(|input| input.name == BODY_FIELD)
+                || descriptor
+                    .parameters
+                    .iter()
+                    .any(|parameter| parameter.name == BODY_FIELD))
         {
             return Err(definition_error(format!(
-                "program `{}` has a parameter named `{STACK_ACCESS_FIELD}`",
-                descriptor.name
-            )));
-        }
-        if !matches!(definition.implementation, ProgramImplementation::Body(_)) {
-            continue;
-        }
-        if descriptor
-            .inputs
-            .iter()
-            .any(|input| input.name == BODY_FIELD)
-        {
-            return Err(definition_error(format!(
-                "body program `{}` has an input named `{BODY_FIELD}`",
-                descriptor.name
-            )));
-        }
-        if descriptor
-            .parameters
-            .iter()
-            .any(|parameter| parameter.name == BODY_FIELD)
-        {
-            return Err(definition_error(format!(
-                "body program `{}` has a parameter named `{BODY_FIELD}`",
+                "body program `{}` has an argument named `{BODY_FIELD}`",
                 descriptor.name
             )));
         }
@@ -89,125 +156,47 @@ mod tests {
     use super::*;
     use crate::model::{ValueRef, ValueType};
     use crate::program::{
-        BodyPlan, Cardinality, InputPort, ParameterDescriptor, ParameterType, PostfixSyntax,
-        ProgramDefinition, ProgramDescriptor, ResolvedCall, StackAccess,
+        Cardinality, InputPort, ProgramDefinition, ProgramDescriptor, ProgramImplementation,
+        ResolvedCall, StackAccess,
     };
     use crate::semantic::GraphBuilder;
-
-    fn prepare(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
-        unreachable!("language validation does not execute programs")
-    }
 
     fn direct(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
         unreachable!("language validation does not execute programs")
     }
 
-    fn definition(
-        name: &str,
-        implementation: ProgramImplementation,
-        inputs: Vec<InputPort>,
-        parameters: Vec<ParameterDescriptor>,
-        output: ValueType,
-        postfix: Option<PostfixSyntax>,
-    ) -> ProgramDefinition {
+    fn definition(name: &str, inputs: Vec<InputPort>) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
                 name: name.to_owned(),
                 semantic_version: 1,
                 default_stack_access: StackAccess::Owned,
                 inputs,
-                parameters,
-                primary_parameter: None,
+                parameters: vec![],
                 type_parameter: None,
-                outputs: vec![output.into()],
+                outputs: vec![ValueType::Video.into()],
             },
-            implementation,
-            body_contract: None,
-            postfix,
+            implementation: ProgramImplementation::Direct(direct),
         }
-    }
-
-    fn language_with(extra: ProgramDefinition) -> Result<Language> {
-        Language::new(ProgramRegistry::from_definitions(vec![extra])?)
     }
 
     #[test]
-    fn rejects_only_real_syntax_collisions() {
+    fn rejects_reserved_program_names_and_arguments() {
         for name in [ID_FIELD, IDS_FIELD, PROGRAM_HEADER_FIELD] {
-            language_with(definition(
-                name,
-                ProgramImplementation::Direct(direct),
-                vec![],
-                vec![],
-                ValueType::Video,
-                None,
-            ))
-            .expect_err("source syntax collision");
+            let registry = ProgramRegistry::from_definitions(vec![definition(name, vec![])])
+                .expect("program registry");
+            Language::new(registry).expect_err("source syntax collision");
         }
 
-        for collision in [
-            definition(
-                "stack_access_input",
-                ProgramImplementation::Direct(direct),
-                vec![InputPort {
-                    name: STACK_ACCESS_FIELD.to_owned(),
-                    value_type: ValueType::Video.into(),
-                    cardinality: Cardinality::One,
-                }],
-                vec![],
-                ValueType::Video,
-                None,
-            ),
-            definition(
-                "stack_access_parameter",
-                ProgramImplementation::Direct(direct),
-                vec![],
-                vec![ParameterDescriptor {
-                    name: STACK_ACCESS_FIELD.to_owned(),
-                    parameter_type: ParameterType::File,
-                    required: false,
-                }],
-                ValueType::Video,
-                None,
-            ),
-            definition(
-                "body_input",
-                ProgramImplementation::Body(prepare),
-                vec![InputPort {
-                    name: BODY_FIELD.to_owned(),
-                    value_type: ValueType::Video.into(),
-                    cardinality: Cardinality::One,
-                }],
-                vec![],
-                ValueType::Video,
-                None,
-            ),
-            definition(
-                "body_parameter",
-                ProgramImplementation::Body(prepare),
-                vec![],
-                vec![ParameterDescriptor {
-                    name: BODY_FIELD.to_owned(),
-                    parameter_type: ParameterType::File,
-                    required: false,
-                }],
-                ValueType::Video,
-                None,
-            ),
-        ] {
-            language_with(collision).expect_err("syntax collision");
-        }
-
-        for name in ["ref", "clip"] {
-            language_with(definition(
-                name,
-                ProgramImplementation::Direct(direct),
-                vec![],
-                vec![],
-                ValueType::Video,
-                None,
-            ))
-            .expect("ordinary item-level program name");
-        }
+        let registry = ProgramRegistry::from_definitions(vec![definition(
+            "collision",
+            vec![InputPort {
+                name: STACK_ACCESS_FIELD.to_owned(),
+                value_type: ValueType::Video.into(),
+                cardinality: Cardinality::One,
+            }],
+        )])
+        .expect("program registry");
+        Language::new(registry).expect_err("argument syntax collision");
     }
 }

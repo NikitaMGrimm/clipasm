@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::external::ExternalProgramId;
 use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::{GraphBuilder, SourceOrigin};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
@@ -148,7 +147,6 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) default_stack_access: StackAccess,
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<ParameterDescriptor>,
-    pub(crate) primary_parameter: Option<String>,
     pub(crate) type_parameter: Option<TypeParameter>,
     pub(crate) outputs: Vec<ValueTypeSpec>,
 }
@@ -174,11 +172,6 @@ impl ProgramDescriptor {
             outputs: self.outputs.iter().copied().map(resolve).collect(),
         }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PostfixSyntax {
-    pub(crate) parameter: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -247,19 +240,22 @@ pub(crate) type DirectLowerFn =
 pub(crate) type BodyPrepareFn =
     for<'graph> fn(&ResolvedCall, &mut GraphBuilder<'graph>) -> Result<BodyPlan>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) enum ProgramImplementation {
     Direct(DirectLowerFn),
-    Body(BodyPrepareFn),
+    Body {
+        prepare: BodyPrepareFn,
+        contract: BodyContract,
+    },
     Authored(SourceUnitId),
-    External(ExternalProgramId),
+    External(crate::external::ExternalRuntime),
 }
 
 impl std::fmt::Debug for ProgramImplementation {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::Direct(_) => "Direct",
-            Self::Body(_) => "Body",
+            Self::Body { .. } => "Body",
             Self::Authored(_) => "Authored",
             Self::External(_) => "External",
         })
@@ -270,8 +266,23 @@ impl std::fmt::Debug for ProgramImplementation {
 pub(crate) struct ProgramDefinition {
     pub(crate) descriptor: ProgramDescriptor,
     pub(crate) implementation: ProgramImplementation,
-    pub(crate) body_contract: Option<BodyContract>,
-    pub(crate) postfix: Option<PostfixSyntax>,
+}
+
+impl ProgramDefinition {
+    #[must_use]
+    pub(crate) const fn is_body(&self) -> bool {
+        matches!(self.implementation, ProgramImplementation::Body { .. })
+    }
+
+    #[must_use]
+    pub(crate) const fn body_contract(&self) -> Option<&BodyContract> {
+        match &self.implementation {
+            ProgramImplementation::Body { contract, .. } => Some(contract),
+            ProgramImplementation::Direct(_)
+            | ProgramImplementation::Authored(_)
+            | ProgramImplementation::External(_) => None,
+        }
+    }
 }
 
 pub(crate) struct BodyPlan {
@@ -590,18 +601,6 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 return Err(collision_error(&descriptor.name, &parameter.name));
             }
         }
-        if let Some(primary) = &descriptor.primary_parameter
-            && !descriptor
-                .parameters
-                .iter()
-                .any(|parameter| parameter.name == *primary)
-        {
-            return Err(definition_error(format!(
-                "program `{}` names nonexistent primary parameter `{primary}`",
-                descriptor.name
-            )));
-        }
-
         let has_generic = descriptor
             .inputs
             .iter()
@@ -650,64 +649,16 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
             None => {}
         }
 
-        match (definition.implementation, &definition.body_contract) {
-            (ProgramImplementation::Body(_), None) => {
-                return Err(definition_error(format!(
-                    "body program `{}` is missing a body contract",
-                    descriptor.name
-                )));
-            }
-            (
-                ProgramImplementation::Direct(_)
-                | ProgramImplementation::Authored(_)
-                | ProgramImplementation::External(_),
-                Some(_),
-            ) => {
-                return Err(definition_error(format!(
-                    "non-body program `{}` cannot declare a body contract",
-                    descriptor.name
-                )));
-            }
-            (
-                _,
-                Some(BodyContract {
-                    outputs: BodyOutputConstraint::Variadic { min: 0, .. },
-                    ..
-                }),
-            ) => {
-                return Err(definition_error(format!(
-                    "body program `{}` has a variadic body output minimum of zero",
-                    descriptor.name
-                )));
-            }
-            _ => {}
-        }
-
-        match (definition.implementation, &definition.postfix) {
-            (
-                ProgramImplementation::Direct(_)
-                | ProgramImplementation::Authored(_)
-                | ProgramImplementation::External(_),
-                Some(_),
-            ) => {
-                return Err(definition_error(format!(
-                    "non-body program `{}` cannot declare postfix syntax",
-                    descriptor.name
-                )));
-            }
-            (ProgramImplementation::Body(_), Some(postfix)) => {
-                let Some(_) = descriptor
-                    .parameters
-                    .iter()
-                    .find(|parameter| parameter.name == postfix.parameter)
-                else {
-                    return Err(definition_error(format!(
-                        "program `{}` names nonexistent postfix parameter `{}`",
-                        descriptor.name, postfix.parameter
-                    )));
-                };
-            }
-            _ => {}
+        if let ProgramImplementation::Body { contract, .. } = &definition.implementation
+            && matches!(
+                contract.outputs,
+                BodyOutputConstraint::Variadic { min: 0, .. }
+            )
+        {
+            return Err(definition_error(format!(
+                "body program `{}` has a variadic body output minimum of zero",
+                descriptor.name
+            )));
         }
     }
     Ok(())
@@ -746,17 +697,13 @@ mod tests {
         unreachable!("validation does not execute programs")
     }
 
-    fn body_stub(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
-        unreachable!("validation does not execute programs")
-    }
-
     fn definition(
         name: &str,
         inputs: Vec<InputPort>,
         parameters: Vec<ParameterDescriptor>,
-        primary_parameter: Option<&str>,
+        _primary_parameter: Option<&str>,
         implementation: ProgramImplementation,
-        postfix: Option<PostfixSyntax>,
+        _postfix: Option<()>,
     ) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
@@ -765,13 +712,10 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
-                primary_parameter: primary_parameter.map(str::to_owned),
                 type_parameter: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation,
-            body_contract: None,
-            postfix,
         }
     }
 
@@ -837,30 +781,5 @@ mod tests {
             None,
         )];
         ProgramRegistry::from_definitions(definitions).expect_err("mixed cardinalities");
-    }
-
-    #[test]
-    fn validates_primary_and_postfix_targets() {
-        let definitions = vec![definition(
-            "missing_primary",
-            vec![],
-            vec![],
-            Some("value"),
-            ProgramImplementation::Direct(direct_stub),
-            None,
-        )];
-        ProgramRegistry::from_definitions(definitions).expect_err("missing primary target");
-
-        let definitions = vec![definition(
-            "bad_postfix",
-            vec![],
-            vec![],
-            None,
-            ProgramImplementation::Body(body_stub),
-            Some(PostfixSyntax {
-                parameter: "range".to_owned(),
-            }),
-        )];
-        ProgramRegistry::from_definitions(definitions).expect_err("missing postfix target");
     }
 }

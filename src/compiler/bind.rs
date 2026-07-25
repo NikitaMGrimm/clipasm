@@ -424,13 +424,10 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs: vec![],
                 parameters: parameters(),
-                primary_parameter: None,
                 type_parameter: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation: ProgramImplementation::Direct(lower_stub),
-            body_contract: None,
-            postfix: None,
         }
     }
 

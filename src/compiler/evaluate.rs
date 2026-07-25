@@ -450,7 +450,7 @@ impl Evaluator<'_> {
             origin.clone(),
         );
 
-        let outputs = match definition.implementation {
+        let outputs = match &definition.implementation {
             ProgramImplementation::Direct(lower) => {
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
@@ -460,7 +460,7 @@ impl Evaluator<'_> {
                 );
                 lower(&call, &mut builder)?
             }
-            ProgramImplementation::Body(prepare) => {
+            ProgramImplementation::Body { prepare, .. } => {
                 let checked_body =
                     checked_body.expect("checked body program has checked body metadata");
                 let plan = {
@@ -511,10 +511,9 @@ impl Evaluator<'_> {
                 plan.finalizer.finish(owned, &mut builder)?
             }
             ProgramImplementation::Authored(unit) => {
-                self.evaluate_program(unit, Some(&call), false)?
+                self.evaluate_program(*unit, Some(&call), false)?
             }
             ProgramImplementation::External(external) => {
-                let external = self.package.external_program(external);
                 let invocation = external.invocation(&call)?;
                 let mut builder = GraphBuilder::for_program(
                     &mut self.nodes,
@@ -808,15 +807,6 @@ mod tests {
         outputs: Vec<ValueType>,
         implementation: ProgramImplementation,
     ) -> ProgramDefinition {
-        let body_contract = matches!(implementation, ProgramImplementation::Body(_)).then(|| {
-            crate::program::BodyContract {
-                initial_values: Vec::new(),
-                outputs: crate::program::BodyOutputConstraint::Exactly(
-                    outputs.iter().copied().map(Into::into).collect(),
-                ),
-                count_error_code: "E_BODY_OUTPUT_COUNT",
-            }
-        });
         ProgramDefinition {
             descriptor: ProgramDescriptor {
                 name: name.to_owned(),
@@ -824,13 +814,10 @@ mod tests {
                 default_stack_access,
                 inputs,
                 parameters: vec![],
-                primary_parameter: None,
                 type_parameter: None,
                 outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation,
-            body_contract,
-            postfix: None,
         }
     }
 
@@ -842,7 +829,16 @@ mod tests {
                 StackAccess::Owned,
                 vec![],
                 vec![ValueType::Video],
-                ProgramImplementation::Body(prepare_root),
+                ProgramImplementation::Body {
+                    prepare: prepare_root,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             ),
             definition(
                 "source",
@@ -866,7 +862,16 @@ mod tests {
                 StackAccess::Owned,
                 vec![],
                 vec![ValueType::Video],
-                ProgramImplementation::Body(prepare_wrong_body),
+                ProgramImplementation::Body {
+                    prepare: prepare_wrong_body,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             ),
             definition(
                 "wrong_count",
@@ -886,13 +891,22 @@ mod tests {
             StackAccess::Owned,
             vec![],
             vec![ValueType::Video],
-            ProgramImplementation::Body(prepare_versioned_body),
+            ProgramImplementation::Body {
+                prepare: prepare_versioned_body,
+                contract: crate::program::BodyContract {
+                    initial_values: Vec::new(),
+                    outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                        ValueType::Video.into(),
+                    ]),
+                    count_error_code: "E_BODY_OUTPUT_COUNT",
+                },
+            },
         );
-        versioned_body
-            .body_contract
-            .as_mut()
-            .expect("body contract")
-            .initial_values = vec![ValueType::Video.into()];
+        let ProgramImplementation::Body { contract, .. } = &mut versioned_body.implementation
+        else {
+            unreachable!("versioned body implementation")
+        };
+        contract.initial_values = vec![ValueType::Video.into()];
         vec![
             definition(
                 "glue",
@@ -900,7 +914,16 @@ mod tests {
                 StackAccess::Owned,
                 vec![],
                 vec![ValueType::Video],
-                ProgramImplementation::Body(prepare_root),
+                ProgramImplementation::Body {
+                    prepare: prepare_root,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             ),
             definition(
                 "versioned_direct",
@@ -942,7 +965,16 @@ mod tests {
                 StackAccess::Visible,
                 vec![],
                 vec![ValueType::Video],
-                ProgramImplementation::Body(prepare_root),
+                ProgramImplementation::Body {
+                    prepare: prepare_root,
+                    contract: crate::program::BodyContract {
+                        initial_values: Vec::new(),
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
             ),
         ]
     }

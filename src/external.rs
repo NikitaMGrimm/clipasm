@@ -23,11 +23,6 @@ impl ExternalProgramId {
     pub(crate) const fn new(value: u32) -> Self {
         Self(value)
     }
-
-    #[must_use]
-    pub(crate) const fn index(self) -> usize {
-        self.0 as usize
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -41,32 +36,35 @@ pub(crate) struct ExternalInvocation {
 #[derive(Clone, Debug)]
 pub(crate) struct ExternalProgram {
     semantic_version: u32,
+    runtime: ExternalRuntime,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExternalRuntime {
     command: Spanned<PathBuf>,
     inputs: Vec<InputPort>,
     parameters: Vec<ParameterDescriptor>,
-    primary_parameter: Option<String>,
     preserve_input: String,
 }
 
 impl ExternalProgram {
-    pub(crate) fn definition(&self, id: ExternalProgramId, name: String) -> ProgramDefinition {
+    pub(crate) fn definition(&self, name: String) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
                 name,
                 semantic_version: self.semantic_version,
                 default_stack_access: StackAccess::Owned,
-                inputs: self.inputs.clone(),
-                parameters: self.parameters.clone(),
-                primary_parameter: self.primary_parameter.clone(),
+                inputs: self.runtime.inputs.clone(),
+                parameters: self.runtime.parameters.clone(),
                 type_parameter: None,
                 outputs: vec![ValueType::Video.into()],
             },
-            implementation: ProgramImplementation::External(id),
-            body_contract: None,
-            postfix: None,
+            implementation: ProgramImplementation::External(self.runtime.clone()),
         }
     }
+}
 
+impl ExternalRuntime {
     pub(crate) fn invocation(&self, call: &ResolvedCall) -> Result<ExternalInvocation> {
         let inputs = self
             .inputs
@@ -128,7 +126,6 @@ struct Manifest {
     inputs: Vec<ManifestInput>,
     #[serde(default)]
     parameters: Vec<ManifestParameter>,
-    primary_parameter: Option<String>,
     output: ManifestOutput,
 }
 
@@ -316,13 +313,14 @@ pub(crate) fn load_manifest(path: &Path) -> Result<ExternalProgram> {
 
     let program = ExternalProgram {
         semantic_version: manifest.semantic_version,
-        command: Spanned::new(manifest.command, span.clone()),
-        inputs,
-        parameters,
-        primary_parameter: manifest.primary_parameter,
-        preserve_input: manifest.output.preserve,
+        runtime: ExternalRuntime {
+            command: Spanned::new(manifest.command, span.clone()),
+            inputs,
+            parameters,
+            preserve_input: manifest.output.preserve,
+        },
     };
-    let validation = program.definition(ExternalProgramId::new(0), "external".to_owned());
+    let validation = program.definition("external".to_owned());
     crate::program::ProgramRegistry::from_definitions(vec![validation])?;
     Ok(program)
 }

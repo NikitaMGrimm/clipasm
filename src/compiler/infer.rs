@@ -493,9 +493,8 @@ fn infer_invocation(
         }
     }
 
-    if let ProgramImplementation::Body(_) = definition.implementation {
+    if let ProgramImplementation::Body { contract, .. } = &definition.implementation {
         let body = invocation.body.as_deref().expect("draft body program");
-        let contract = definition.body_contract.as_ref().expect("body contract");
         let mut child = EvaluationStack::<TypeVarId>::enter_body(
             frame,
             access,

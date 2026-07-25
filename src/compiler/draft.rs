@@ -308,7 +308,7 @@ impl DraftInvocation {
                 }
                 None
             }
-            ProgramImplementation::Body(_) => {
+            ProgramImplementation::Body { .. } => {
                 let body = source.body.as_ref().ok_or_else(|| {
                     Diagnostic::new(
                         "E_MISSING_PROGRAM_BODY",

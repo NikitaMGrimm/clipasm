@@ -54,7 +54,6 @@ pub(crate) fn audio_source() -> ProgramDefinition {
             default_stack_access: StackAccess::Owned,
             inputs: vec![],
             parameters: vec![parameter("path", ParameterType::File, true)],
-            primary_parameter: Some("path".to_owned()),
             type_parameter: None,
             outputs: vec![ValueType::Audio.into()],
         },
@@ -74,7 +73,6 @@ pub(crate) fn extract_audio() -> ProgramDefinition {
                 cardinality: Cardinality::One,
             }],
             parameters: vec![],
-            primary_parameter: None,
             type_parameter: None,
             outputs: vec![ValueType::Audio.into()],
         },
@@ -101,7 +99,6 @@ pub(crate) fn set_audio() -> ProgramDefinition {
                 },
             ],
             parameters: vec![],
-            primary_parameter: None,
             type_parameter: None,
             outputs: vec![ValueType::Video.into()],
         },
@@ -226,7 +223,7 @@ fn descriptor(
     semantic_version: u32,
     inputs: Vec<InputPort>,
     parameters: Vec<ParameterDescriptor>,
-    primary_parameter: Option<&str>,
+    _primary_parameter: Option<&str>,
 ) -> ProgramDescriptor {
     ProgramDescriptor {
         name: name.to_owned(),
@@ -234,7 +231,6 @@ fn descriptor(
         default_stack_access: StackAccess::Owned,
         inputs,
         parameters,
-        primary_parameter: primary_parameter.map(str::to_owned),
         type_parameter: None,
         outputs: vec![ValueType::Video.into()],
     }
@@ -247,7 +243,7 @@ fn generic_descriptor(
     input_name: &str,
     cardinality: Cardinality,
     parameters: Vec<ParameterDescriptor>,
-    primary_parameter: Option<&str>,
+    _primary_parameter: Option<&str>,
     constraint: ValueConstraint,
     has_output: bool,
 ) -> ProgramDescriptor {
@@ -261,7 +257,6 @@ fn generic_descriptor(
             cardinality,
         }],
         parameters,
-        primary_parameter: primary_parameter.map(str::to_owned),
         type_parameter: Some(TypeParameter {
             constraint,
             selector: "type".to_owned(),
@@ -317,8 +312,6 @@ fn direct(
     ProgramDefinition {
         descriptor,
         implementation: ProgramImplementation::Direct(lower),
-        body_contract: None,
-        postfix: None,
     }
 }
 
