@@ -21,7 +21,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | `src/semantic.rs` | Semantic operations and constrained graph builder |
 | `src/compiler` | Checked-source construction, binding, stack evaluation, references, domains, and hashes |
 | `src/format` | Explicit downstream serialized document formats |
-| `src/preflight` | Assets, tools, exact domains, and prepared primitives |
+| `src/preflight` | Assets, tools, exact typed domains, and prepared Video/Audio primitives |
 | `src/render` | Cache execution, FFmpeg, verification, and publication |
 | `src/model` | Invariant-protected value, time, and video types |
 | `tests` | Public compiler, preflight, CLI, and render contracts |
@@ -45,7 +45,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
-| Change prepared primitive or rendering | preflight, `src/render` | cache format, FFmpeg requirements, render integration |
+| Change prepared primitive or rendering | `src/preflight/mod.rs`, `src/preflight/lower.rs`, `src/preflight/identity.rs`, `src/render` | Video/Audio variant invariants, serialized prepared shape, semantic/cache identity, FFmpeg requirements, render integration |
 | Change CLI behavior | `src/cli.rs`, library boundary | CLI tests, `README.md`, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change terminology | `CONTEXT.md` first | [YAML frontend reference](../workflow-reference.md), architecture, diagnostics, code names |

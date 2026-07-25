@@ -208,11 +208,17 @@ identity.
   renderer primitives
 - assigns content fingerprints and an execution namespace
 
-The prepared plan has exact frame domains for Video nodes and exact sample
-domains for Audio nodes. Audio is normalized to 48 kHz stereo. Working Video
-artifacts always contain one lossless normalized audio stream, using silence for
-semantically silent Videos, while semantic audio presence controls final MP4
-publication.
+The prepared plan represents Video and Audio nodes as separate structural
+variants. A Video variant always carries a Video primitive, exact frame domain,
+and attached-audio state; an Audio variant always carries an Audio primitive and
+exact sample domain. Wrong-media operations and missing domains are therefore not
+representable in a prepared node. The serialized prepared-plan adapter preserves
+the existing `kind`, `value_type`, `domain`, `audio_domain`, and `has_audio`
+fields.
+
+Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
+one lossless normalized audio stream, using silence for semantically silent
+Videos, while semantic audio presence controls final MP4 publication.
 
 ## Rendering
 
@@ -251,7 +257,7 @@ remain iterative so graph depth is not limited by the Rust call stack.
 - Semantic graph construction owns graph-local validity.
 - Compilation owns checked stack evaluation, semantic dependency resolution,
   and pure domain inference.
-- Preflight owns media and tool discovery.
+- Preflight owns media and tool discovery, exact typed domains, and prepared primitive construction.
 - Rendering owns artifact execution and publication.
 
 Do not move media I/O into compilation or backend policy into semantic Video

@@ -74,9 +74,9 @@ const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
 #[derive(Clone, Debug, Serialize)]
 /// An exact, media-verified plan consumed by [`crate::render::render`].
 ///
-/// Every node has an exact [`VideoDomain`], every source asset has a recorded
-/// content hash, and tool/media policy has been incorporated into the private
-/// execution namespace.
+/// Every Video node has an exact [`VideoDomain`], every Audio node has an
+/// exact [`AudioDomain`], every source asset has a recorded content hash, and
+/// tool/media policy has been incorporated into the private execution namespace.
 pub struct PreparedPlan {
     format_version: u32,
     engine_version: String,
