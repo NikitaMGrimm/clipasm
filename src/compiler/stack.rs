@@ -403,7 +403,7 @@ impl<T: Copy> EvaluationStack<T> {
                 .count();
             if visible > available {
                 diagnostic = diagnostic.note(format!(
-                    "{} additional {required} value(s) are visible outside this invocation's owned values; set `stack_access: visible` to permit consuming them",
+                    "{} additional {required} value(s) are visible outside this invocation's owned values; add `@visible` to permit consuming them",
                     visible - available
                 ));
             }

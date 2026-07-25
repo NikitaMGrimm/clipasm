@@ -1193,7 +1193,7 @@ fn value_slot(
         )),
         None => Err(Diagnostic::new(
             "E_MISSING_REFERENCE",
-            format!("reference `${name}` does not name a local input, clip, or id"),
+            format!("reference `${name}` does not name an input, body alias, or output binding"),
             span.clone(),
         )),
     }

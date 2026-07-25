@@ -1076,7 +1076,9 @@ fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Res
 fn missing_reference(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {
     Diagnostic::new(
         "E_MISSING_REFERENCE",
-        format!("reference `${name}` does not name a local input, parameter, clip, or id"),
+        format!(
+            "reference `${name}` does not name an input, parameter, body alias, or output binding"
+        ),
         span.clone(),
     )
 }
