@@ -105,6 +105,25 @@ fn native_version_and_declaration_order_are_enforced() {
 }
 
 #[test]
+fn root_input_diagnostics_point_to_the_authored_declaration() {
+    let missing = compile_source(
+        Path::new("missing-input.clipasm"),
+        "clipasm 1\ninput video: Video\n$video\n",
+    )
+    .expect_err("missing root input");
+    assert_eq!(missing.code, "E_MISSING_REQUIRED_INPUT");
+    assert_eq!((missing.span.line, missing.span.column), (2, 7));
+
+    let duplicate = compile_source(
+        Path::new("duplicate-input.clipasm"),
+        "clipasm 1\ninput video: Video\ninput video: Video\n$video\n",
+    )
+    .expect_err("duplicate root input");
+    assert_eq!(duplicate.code, "E_DUPLICATE_NAME");
+    assert_eq!((duplicate.span.line, duplicate.span.column), (3, 7));
+}
+
+#[test]
 fn stack_access_is_generic_invocation_metadata() {
     compile_source(
         Path::new("program.clipasm"),

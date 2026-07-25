@@ -10,7 +10,7 @@ mod name;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::program::{InputPort, ParameterType, StackAccess};
+use crate::program::{Cardinality, InputPort, ParameterType, StackAccess, ValueTypeSpec};
 
 pub(crate) use location::Spanned;
 pub use location::{SourceFile, SourceSpan};
@@ -104,7 +104,7 @@ pub(crate) struct ResolvedImport {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SourceProgram {
-    pub(crate) inputs: Vec<InputPort>,
+    pub(crate) inputs: Vec<SourceInput>,
     pub(crate) parameters: Vec<SourceParameter>,
     pub(crate) implementation: SourceProgramImplementation,
     pub(crate) span: SourceSpan,
@@ -113,7 +113,7 @@ pub(crate) struct SourceProgram {
 
 impl SourceProgram {
     #[must_use]
-    pub(crate) fn inputs(&self) -> &[InputPort] {
+    pub(crate) fn inputs(&self) -> &[SourceInput] {
         &self.inputs
     }
 
@@ -135,6 +135,25 @@ impl SourceProgram {
     #[must_use]
     pub(crate) const fn stack_access(&self) -> StackAccess {
         self.stack_access
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SourceInput {
+    pub(crate) name: String,
+    pub(crate) value_type: ValueTypeSpec,
+    pub(crate) cardinality: Cardinality,
+    pub(crate) declared_at: SourceSpan,
+}
+
+impl SourceInput {
+    #[must_use]
+    pub(crate) fn descriptor(&self) -> InputPort {
+        InputPort {
+            name: self.name.clone(),
+            value_type: self.value_type,
+            cardinality: self.cardinality,
+        }
     }
 }
 

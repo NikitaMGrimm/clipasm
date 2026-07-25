@@ -8,8 +8,8 @@ use crate::program::{
     builtin_programs,
 };
 use crate::source::{
-    OutputBindings, ProgramBody, SourcePackage, SourceProgram, SourceProgramImplementation,
-    SourceUnitId, Spanned,
+    OutputBindings, ProgramBody, SourceInput, SourcePackage, SourceProgram,
+    SourceProgramImplementation, SourceUnitId, Spanned,
 };
 
 use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
@@ -175,7 +175,11 @@ fn clipasm_definition(
             name: format!("source_program_{}", unit.index()),
             semantic_version: 1,
             default_stack_access: program.stack_access(),
-            inputs: program.inputs().to_vec(),
+            inputs: program
+                .inputs()
+                .iter()
+                .map(SourceInput::descriptor)
+                .collect(),
             parameters,
             outputs: outputs.into_iter().map(Into::into).collect(),
         },
@@ -235,7 +239,11 @@ fn external_definition(
             name: format!("source_program_{}", unit.index()),
             semantic_version: external.semantic_version.value,
             default_stack_access: program.stack_access(),
-            inputs: program.inputs().to_vec(),
+            inputs: program
+                .inputs()
+                .iter()
+                .map(SourceInput::descriptor)
+                .collect(),
             parameters,
             outputs: vec![ValueType::Video.into()],
         },
@@ -307,7 +315,7 @@ fn check_program(
                     .exact()
                     .expect("authored inputs are concrete"),
             ),
-            program.span(),
+            &input.declared_at,
         )?;
     }
     for parameter in program.parameters() {
@@ -347,6 +355,7 @@ fn check_program(
                 .iter()
                 .map(|input| CheckedProgramInput {
                     name: input.name.clone(),
+                    declared_at: input.declared_at.clone(),
                     local: bindings.local_ids[&input.name],
                 })
                 .collect(),
@@ -421,7 +430,7 @@ fn prepare_program_bindings(
         Ok(())
     };
     for input in program.inputs() {
-        declare(&input.name, program.span())?;
+        declare(&input.name, &input.declared_at)?;
     }
     declare_body_outputs(&draft.body, &mut declare)?;
 

@@ -59,6 +59,7 @@ impl CheckedSourceProgram {
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgramInput {
     pub(super) name: String,
+    pub(super) declared_at: crate::source::SourceSpan,
     pub(super) local: ValueLocalId,
 }
 
