@@ -41,6 +41,34 @@ fn compile_json(workflow: &Path) -> serde_json::Value {
     serde_json::from_slice(&output.stdout).expect("compiled JSON")
 }
 
+#[cfg(unix)]
+#[test]
+fn non_utf8_bound_media_path_returns_a_fingerprint_diagnostic() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt as _;
+    use std::path::PathBuf;
+
+    let package = clipasm::language::parse_str(
+        Path::new("template.clipasm"),
+        "clipasm 1\ninput source: Video\n$source\n",
+    )
+    .expect("source");
+    let mut bindings = clipasm::compiler::EntrypointBindings::new();
+    bindings
+        .bind_video_input(
+            "source",
+            PathBuf::from(OsString::from_vec(b"footage-\xff.mp4".to_vec())),
+            clipasm::source::SourceSpan::file_start("<test>"),
+        )
+        .expect("binding");
+
+    let error = clipasm::compiler::compile_with_bindings(&package, &bindings)
+        .expect_err("non-UTF-8 identity must be diagnosed");
+
+    assert_eq!(error.code, "E_FINGERPRINT");
+    assert!(error.message.contains("path contains invalid UTF-8"));
+}
+
 #[test]
 fn source_program_body_returns_one_video_without_an_implicit_glue() {
     let compiled = compile_source(
