@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
-    Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
+    Cardinality, InputPort, ParameterDescriptor, ParameterSlot, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
     ValueTypeSpec,
 };
@@ -231,6 +231,7 @@ fn generic_descriptor(
     parameters: Vec<ParameterDescriptor>,
     has_output: bool,
 ) -> ProgramDescriptor {
+    let type_selector = ParameterSlot::new(parameters.len() - 1);
     ProgramDescriptor {
         name: name.to_owned(),
         semantic_version,
@@ -241,7 +242,7 @@ fn generic_descriptor(
             cardinality,
         }],
         parameters,
-        type_selector: Some("type".to_owned()),
+        type_selector: Some(type_selector),
         outputs: has_output
             .then_some(ValueTypeSpec::Generic)
             .into_iter()

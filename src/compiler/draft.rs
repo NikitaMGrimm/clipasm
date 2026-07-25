@@ -204,13 +204,8 @@ impl DraftInvocation {
         let mut parameters = vec![None; definition.descriptor.parameters.len()];
 
         for (name, argument) in &source.arguments {
-            if let Some((index, port)) = definition
-                .descriptor
-                .inputs
-                .iter()
-                .enumerate()
-                .find(|(_, port)| port.name == *name)
-            {
+            if let Some(slot) = definition.descriptor.input_slot(name) {
+                let port = definition.descriptor.input(slot);
                 let input = match argument {
                     ArgumentValue::Reference(reference) => DraftInput::Reference(reference.clone()),
                     ArgumentValue::References(references, span) => {
@@ -274,15 +269,9 @@ impl DraftInvocation {
                     }
                     _ => {}
                 }
-                inputs[index] = Some(input);
-            } else if let Some((index, _)) = definition
-                .descriptor
-                .parameters
-                .iter()
-                .enumerate()
-                .find(|(_, parameter)| parameter.name == *name)
-            {
-                parameters[index] = Some(match argument {
+                inputs[slot.index()] = Some(input);
+            } else if let Some(slot) = definition.descriptor.parameter_slot(name) {
+                parameters[slot.index()] = Some(match argument {
                     ArgumentValue::Literal(literal) => DraftParameter::Literal(literal.clone()),
                     ArgumentValue::Reference(reference) => {
                         DraftParameter::Reference(reference.clone())

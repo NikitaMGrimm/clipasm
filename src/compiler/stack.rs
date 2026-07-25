@@ -1,6 +1,6 @@
 use crate::diagnostic::Diagnostic;
 use crate::model::{ValueRef, ValueType};
-use crate::program::{Cardinality, StackAccess};
+use crate::program::{Cardinality, InputSlot, StackAccess};
 use crate::source::SourceSpan;
 
 #[derive(Clone, Debug)]
@@ -152,14 +152,14 @@ pub(super) enum StackCompatibility {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct StackBindingInput<R> {
-    pub(super) port: usize,
+    pub(super) port: InputSlot,
     pub(super) requirement: R,
     pub(super) cardinality: Cardinality,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PlannedStackInput {
-    pub(super) port: usize,
+    pub(super) port: InputSlot,
     pub(super) indices: Vec<usize>,
 }
 
@@ -170,7 +170,7 @@ pub(super) struct StackBindingPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct StackBindingFailure {
-    pub(super) port: usize,
+    pub(super) port: InputSlot,
     pub(super) available: usize,
     pub(super) selected: Vec<usize>,
 }
@@ -184,7 +184,7 @@ pub(super) enum StackBindingOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct BoundStackInput<T> {
-    pub(super) port: usize,
+    pub(super) port: InputSlot,
     pub(super) values: Vec<T>,
 }
 
@@ -482,7 +482,7 @@ mod tests {
             span: &SourceSpan,
         ) -> Result<ValueRef, Diagnostic> {
             let inputs = [StackBindingInput {
-                port: 0,
+                port: InputSlot::new(0),
                 requirement: required,
                 cardinality: Cardinality::One,
             }];
@@ -516,7 +516,7 @@ mod tests {
             span: &SourceSpan,
         ) -> Result<Vec<ValueRef>, Diagnostic> {
             let inputs = [StackBindingInput {
-                port: 0,
+                port: InputSlot::new(0),
                 requirement: required,
                 cardinality: Cardinality::Variadic { min },
             }];
@@ -575,12 +575,12 @@ mod tests {
         );
         let inputs = [
             StackBindingInput {
-                port: 0,
+                port: InputSlot::new(0),
                 requirement: VIDEO_DOMAIN,
                 cardinality: Cardinality::One,
             },
             StackBindingInput {
-                port: 2,
+                port: InputSlot::new(2),
                 requirement: VIDEO_DOMAIN,
                 cardinality: Cardinality::One,
             },
@@ -595,11 +595,11 @@ mod tests {
             plan.inputs,
             vec![
                 PlannedStackInput {
-                    port: 0,
+                    port: InputSlot::new(0),
                     indices: vec![0],
                 },
                 PlannedStackInput {
-                    port: 2,
+                    port: InputSlot::new(2),
                     indices: vec![2],
                 },
             ]
@@ -636,7 +636,7 @@ mod tests {
             ],
         );
         let inputs = [StackBindingInput {
-            port: 0,
+            port: InputSlot::new(0),
             requirement: VIDEO_DOMAIN,
             cardinality: Cardinality::One,
         }];
@@ -666,7 +666,7 @@ mod tests {
             ],
         );
         let inputs = [StackBindingInput {
-            port: 0,
+            port: InputSlot::new(0),
             requirement: VIDEO_DOMAIN,
             cardinality: Cardinality::Variadic { min: 1 },
         }];
@@ -689,7 +689,7 @@ mod tests {
             },
         );
         let inputs = [StackBindingInput {
-            port: 3,
+            port: InputSlot::new(3),
             requirement: VIDEO_DOMAIN,
             cardinality: Cardinality::Variadic { min: 1 },
         }];
@@ -697,7 +697,7 @@ mod tests {
         assert_eq!(
             stack.plan_bindings(&frame, StackAccess::Owned, &inputs, abstract_compatibility),
             StackBindingOutcome::Impossible(StackBindingFailure {
-                port: 3,
+                port: InputSlot::new(3),
                 available: 0,
                 selected: vec![],
             })

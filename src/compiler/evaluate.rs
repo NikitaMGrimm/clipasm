@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, ProgramDefinition, ProgramImplementation, ResolvedCall, ResolvedInputPort,
-    ResolvedSignature,
+    BoundParameters, InputPort, ProgramDefinition, ProgramImplementation, ResolvedCall,
+    ResolvedSignature, ValueTypeSpec,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
@@ -390,13 +390,21 @@ impl Evaluator {
         let definition = context.registry.definition(program);
         let origin = SourceOrigin::new(construct, span.clone());
         debug_assert_eq!(signature.inputs.len(), checked_inputs.len());
+        debug_assert_eq!(definition.descriptor.inputs.len(), checked_inputs.len());
         let mut slots = vec![None; signature.inputs.len()];
-        for (index, (port, input)) in signature.inputs.iter().zip(checked_inputs).enumerate() {
+        for (index, ((port, expected_type), input)) in definition
+            .descriptor
+            .inputs
+            .iter()
+            .zip(&signature.inputs)
+            .zip(checked_inputs)
+            .enumerate()
+        {
             if let Some(input) = input {
                 slots[index] = Some(self.evaluate_checked_input(
                     context,
                     input,
-                    port,
+                    (port, *expected_type),
                     construct,
                     requested_frames,
                     scope,
@@ -404,10 +412,11 @@ impl Evaluator {
             }
         }
         for bound in stack.apply_binding_plan(stack_plan) {
-            debug_assert!(slots[bound.port].is_none());
-            slots[bound.port] = Some(bound.values);
+            debug_assert!(slots[bound.port.index()].is_none());
+            slots[bound.port.index()] = Some(bound.values);
         }
-        let inputs = signature
+        let inputs = definition
+            .descriptor
             .inputs
             .iter()
             .zip(slots)
@@ -486,7 +495,8 @@ impl Evaluator {
                 );
                 stack.extend(&child, plan.initial_values);
                 let mut bound_body_inputs = Vec::with_capacity(body_input_ids.len());
-                for port in signature
+                for port in definition
+                    .descriptor
                     .inputs
                     .iter()
                     .filter(|port| matches!(port.cardinality, crate::program::Cardinality::One))
@@ -539,11 +549,12 @@ impl Evaluator {
         &mut self,
         context: &EvaluationContext<'_>,
         input: &CheckedInputValue,
-        port: &ResolvedInputPort,
+        input_contract: (&InputPort, ValueType),
         program: &str,
         requested_frames: Option<FrameCount>,
         scope: &mut EvalScope,
     ) -> Result<Vec<ValueRef>> {
+        let (port, expected_type) = input_contract;
         let (values, span) = match input {
             CheckedInputValue::References(targets, span) => (
                 targets
@@ -580,16 +591,16 @@ impl Evaluator {
         values
             .into_iter()
             .map(|value_ref| {
-                if value_ref.value_type() == port.value_type {
+                if value_ref.value_type() == expected_type {
                     return Ok(value_ref);
                 }
-                if !port.allow_adaptation {
+                if !matches!(port.value_type, ValueTypeSpec::Exact(_)) {
                     return Err(Diagnostic::new(
                         "E_INTERNAL_BINDING",
                         format!(
                             "checked `{program}.{}` input expected {}, but evaluated to {}",
                             port.name,
-                            port.value_type,
+                            expected_type,
                             value_ref.value_type()
                         ),
                         span.clone(),
@@ -598,7 +609,7 @@ impl Evaluator {
                 let origin = SourceOrigin::new("input adaptation", span.clone());
                 let mut builder =
                     GraphBuilder::for_program(&mut self.nodes, context.video, 1, origin);
-                match (value_ref.value_type(), port.value_type) {
+                match (value_ref.value_type(), expected_type) {
                     (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref),
                     (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref),
                     _ => Err(Diagnostic::new(
@@ -607,7 +618,7 @@ impl Evaluator {
                             "checked `{program}.{}` adaptation cannot convert {} to {}",
                             port.name,
                             value_ref.value_type(),
-                            port.value_type
+                            expected_type
                         ),
                         span.clone(),
                     )),

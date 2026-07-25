@@ -26,6 +26,36 @@ impl ProgramId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct InputSlot(usize);
+
+impl InputSlot {
+    #[must_use]
+    pub(crate) const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ParameterSlot(usize);
+
+impl ParameterSlot {
+    #[must_use]
+    pub(crate) const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(self) -> usize {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Cardinality {
     One,
@@ -78,17 +108,8 @@ pub(crate) struct InputPort {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedInputPort {
-    pub(crate) name: String,
-    pub(crate) value_type: ValueType,
-    pub(crate) cardinality: Cardinality,
-    pub(crate) allow_adaptation: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResolvedSignature {
-    pub(crate) generic: Option<ValueType>,
-    pub(crate) inputs: Vec<ResolvedInputPort>,
+    pub(crate) inputs: Vec<ValueType>,
     pub(crate) outputs: Vec<ValueType>,
 }
 
@@ -126,27 +147,47 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) default_stack_access: StackAccess,
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<ParameterDescriptor>,
-    pub(crate) type_selector: Option<String>,
+    pub(crate) type_selector: Option<ParameterSlot>,
     pub(crate) outputs: Vec<ValueTypeSpec>,
 }
 
 impl ProgramDescriptor {
+    #[must_use]
+    pub(crate) fn input(&self, slot: InputSlot) -> &InputPort {
+        &self.inputs[slot.index()]
+    }
+
+    #[must_use]
+    pub(crate) fn parameter(&self, slot: ParameterSlot) -> &ParameterDescriptor {
+        &self.parameters[slot.index()]
+    }
+
+    #[must_use]
+    pub(crate) fn input_slot(&self, name: &str) -> Option<InputSlot> {
+        self.inputs
+            .iter()
+            .position(|input| input.name == name)
+            .map(InputSlot::new)
+    }
+
+    #[must_use]
+    pub(crate) fn parameter_slot(&self, name: &str) -> Option<ParameterSlot> {
+        self.parameters
+            .iter()
+            .position(|parameter| parameter.name == name)
+            .map(ParameterSlot::new)
+    }
+
     pub(crate) fn resolve_signature(&self, generic: Option<ValueType>) -> ResolvedSignature {
         let resolve = |spec: ValueTypeSpec| match spec {
             ValueTypeSpec::Exact(value_type) => value_type,
             ValueTypeSpec::Generic => generic.expect("generic descriptor has a resolved type"),
         };
         ResolvedSignature {
-            generic,
             inputs: self
                 .inputs
                 .iter()
-                .map(|port| ResolvedInputPort {
-                    name: port.name.clone(),
-                    value_type: resolve(port.value_type),
-                    cardinality: port.cardinality,
-                    allow_adaptation: matches!(port.value_type, ValueTypeSpec::Exact(_)),
-                })
+                .map(|port| resolve(port.value_type))
                 .collect(),
             outputs: self.outputs.iter().copied().map(resolve).collect(),
         }
@@ -516,7 +557,7 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 .outputs
                 .iter()
                 .any(|output| matches!(output, ValueTypeSpec::Generic));
-        match &descriptor.type_selector {
+        match descriptor.type_selector {
             Some(type_selector) => {
                 if !has_generic {
                     return Err(definition_error(format!(
@@ -524,14 +565,11 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                         descriptor.name
                     )));
                 }
-                let Some(selector) = descriptor
-                    .parameters
-                    .iter()
-                    .find(|parameter| parameter.name == *type_selector)
-                else {
+                let Some(selector) = descriptor.parameters.get(type_selector.index()) else {
                     return Err(definition_error(format!(
-                        "program `{}` names nonexistent type selector `{}`",
-                        descriptor.name, type_selector
+                        "program `{}` names a nonexistent type selector slot {}",
+                        descriptor.name,
+                        type_selector.index()
                     )));
                 };
                 if selector.required
@@ -543,7 +581,7 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 {
                     return Err(definition_error(format!(
                         "program `{}` type selector `{}` must be an optional Video/Audio Keyword",
-                        descriptor.name, type_selector
+                        descriptor.name, selector.name
                     )));
                 }
             }

@@ -2,7 +2,7 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
-    ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
+    ParameterDescriptor, ParameterSlot, ParameterType, ProgramDefinition, ProgramDescriptor,
     ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, ValueTypeSpec,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
@@ -76,7 +76,7 @@ fn generic_descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters: vec![type_selector()],
-        type_selector: Some("type".to_owned()),
+        type_selector: Some(ParameterSlot::new(0)),
         outputs: vec![ValueTypeSpec::Generic],
     }
 }

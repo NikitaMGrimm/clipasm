@@ -621,13 +621,18 @@ fn materialize_body(
                         let body = invocation.body.as_deref().expect("draft body program");
                         let mut body_local_types = lexical_types.clone();
                         let mut body_lexical_ids = lexical_ids.clone();
-                        for port in &resolved.signature.inputs {
+                        for (port, value_type) in definition
+                            .descriptor
+                            .inputs
+                            .iter()
+                            .zip(&resolved.signature.inputs)
+                        {
                             if !matches!(port.cardinality, Cardinality::One) {
                                 continue;
                             }
                             let id = allocate_body_input(body_input_count, &item.span)?;
                             body_input_ids.insert(port.name.clone(), id);
-                            body_local_types.insert(port.name.clone(), port.value_type);
+                            body_local_types.insert(port.name.clone(), *value_type);
                             body_lexical_ids.insert(port.name.clone(), id);
                         }
                         Some(Box::new(materialize_body(

@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, ProgramDefinition, ProgramImplementation, ResolvedSignature, StackAccess,
-    ValueTypeSpec,
+    Cardinality, InputSlot, ProgramDefinition, ProgramImplementation, ResolvedSignature,
+    StackAccess, ValueTypeSpec,
 };
 use crate::source::{Literal, OutputBindings, SourceSpan};
 
@@ -639,15 +639,9 @@ fn infer_invocation(
         let selector = definition
             .descriptor
             .type_selector
-            .as_ref()
             .expect("generic definition");
-        let selector_index = definition
-            .descriptor
-            .parameters
-            .iter()
-            .position(|parameter| parameter.name == *selector)
-            .expect("validated generic selector");
-        if let Some(argument) = &invocation.parameters[selector_index] {
+        let selector_name = &definition.descriptor.parameter(selector).name;
+        if let Some(argument) = &invocation.parameters[selector.index()] {
             let (selected, span) = match argument {
                 DraftParameter::Literal(Literal::String(value, span)) if value == "Video" => {
                     (ValueType::Video, span)
@@ -659,7 +653,7 @@ fn infer_invocation(
                     return Err(Diagnostic::new(
                         "E_INVALID_ARGUMENT_VALUE",
                         format!(
-                            "parameter `{}.{selector}` must be `Video` or `Audio`",
+                            "parameter `{}.{selector_name}` must be `Video` or `Audio`",
                             definition.descriptor.name
                         ),
                         literal.span().clone(),
@@ -669,7 +663,7 @@ fn infer_invocation(
                     return Err(Diagnostic::new(
                         "E_INVALID_ARGUMENT_VALUE",
                         format!(
-                            "parameter `{}.{selector}` must be `Video` or `Audio`",
+                            "parameter `{}.{selector_name}` must be `Video` or `Audio`",
                             definition.descriptor.name
                         ),
                         reference.span.clone(),
@@ -888,7 +882,7 @@ fn infer_generic_from_stack(
     }
     if missing.len() == 1 && matches!(missing[0].1.cardinality, Cardinality::One) {
         let input = [StackBindingInput {
-            port: missing[0].0,
+            port: InputSlot::new(missing[0].0),
             requirement: Requirement::Generic(generic),
             cardinality: Cardinality::One,
         }];
@@ -930,7 +924,7 @@ fn infer_generic_from_stack(
         let inputs = missing
             .iter()
             .map(|(index, port)| StackBindingInput {
-                port: *index,
+                port: InputSlot::new(*index),
                 requirement: Requirement::Exact(candidate),
                 cardinality: port.cardinality,
             })
@@ -980,7 +974,7 @@ fn bind_missing(
         .enumerate()
         .filter(|(index, _)| slots[*index].is_none())
         .map(|(index, port)| StackBindingInput {
-            port: index,
+            port: InputSlot::new(index),
             requirement: match port.value_type {
                 ValueTypeSpec::Exact(value_type) => Requirement::Exact(value_type),
                 ValueTypeSpec::Generic => Requirement::Generic(generic.expect("generic port")),
@@ -996,7 +990,7 @@ fn bind_missing(
     }) {
         StackBindingOutcome::Resolved(plan) => {
             for bound in stack.apply_binding_plan(&plan) {
-                slots[bound.port] = Some(bound.values);
+                slots[bound.port.index()] = Some(bound.values);
             }
             Ok(Some(plan))
         }
@@ -1006,7 +1000,7 @@ fn bind_missing(
         }
         StackBindingOutcome::Impossible(_failure) if !state.is_resolving() => Ok(None),
         StackBindingOutcome::Impossible(failure) => {
-            let port = &definition.descriptor.inputs[failure.port];
+            let port = definition.descriptor.input(failure.port);
             let required = match port.value_type {
                 ValueTypeSpec::Exact(value_type) => value_type,
                 ValueTypeSpec::Generic => generic
