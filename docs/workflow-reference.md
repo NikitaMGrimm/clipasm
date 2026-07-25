@@ -521,6 +521,40 @@ converted to the smallest project-frame count that covers that time, with a
 minimum of one frame. An explicit value must be positive and no longer than
 `after`.
 
+### Crossfade
+
+Typical stack use consumes the nearest two Videos in `before`, then `after`
+order:
+
+```yaml
+- image: {path: before.png, duration: 2s}
+- image: {path: after.png, duration: 2s}
+- crossfade: 500ms
+```
+
+Full form may supply either input explicitly:
+
+```yaml
+- crossfade:
+    before: $first
+    after: $second
+    duration: 500ms
+```
+
+`crossfade` overlaps the end of `before` with the start of `after`. `duration`
+defaults to 500 milliseconds and becomes the smallest project-frame count that
+covers the authored time. It must cover at least one frame and may not exceed
+either input. Known domains are checked during compilation; media-derived
+domains are checked during preflight.
+
+If the input lengths are `before`, `after`, and `overlap` frames, the output is
+`before + after - overlap` frames. The first overlap frame is the complete
+`before` picture, the final overlap frame is the complete `after` picture, and
+intermediate frames blend linearly. A one-frame overlap is an equal blend.
+Attached Audio fades over the exact sample interval corresponding to the same
+cumulative frame boundaries. If only one input has meaningful Audio, it fades
+to or from normalized silence.
+
 ## Explicit graph inputs
 
 An explicit input may read a named value without consuming the surrounding

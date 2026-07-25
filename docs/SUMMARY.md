@@ -25,6 +25,7 @@
 - [Run registered external programs](adr/0012-run-external-programs.md)
 - [Map frame and sample boundaries cumulatively](adr/0013-map-frame-and-sample-boundaries.md)
 - [Keep native operations closed and phase-owned](adr/0014-keep-native-operations-phase-owned.md)
+- [Overlap audiovisual transitions on exact boundaries](adr/0015-overlap-audiovisual-transitions-exactly.md)
 
 # Development
 

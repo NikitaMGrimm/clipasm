@@ -174,7 +174,7 @@ directory without rewriting authored source.
 Registered programs are:
 
 - direct: `image`, `video`, `audio`, `extract_audio`, `set_audio`, `concat`,
-  `repeat`, `trim`, `zoom`, `wobble`, `flash`
+  `repeat`, `trim`, `zoom`, `wobble`, `flash`, `crossfade`
 - body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
@@ -271,8 +271,11 @@ frame `b` receives samples between the mapped absolute boundaries, not a fresh
 rounding of `b - a`. Video concatenation, joins, slices, extraction, audio-on-
 black adaptation, and repeat rendering all use this policy. Adjacent segments
 therefore telescope to the exact combined sample count, so arbitrary source
-segmentation cannot accumulate audio drift. See
-[ADR 0013](adr/0013-map-frame-and-sample-boundaries.md).
+segmentation cannot accumulate audio drift. Crossfade uses the same mapper for
+its shortened prefix, overlap, and suffix, including phase-adjusting the latter
+input to global output boundaries. See
+[ADR 0013](adr/0013-map-frame-and-sample-boundaries.md) and
+[ADR 0015](adr/0015-overlap-audiovisual-transitions-exactly.md).
 
 ## Rendering
 
@@ -290,9 +293,17 @@ replacement, so operation modules cannot diverge on execution lifecycle.
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated
 audio segments at cumulative boundaries so FFmpeg distributes unavoidable
-sample corrections through the timeline. Artifact verification, locking, and
-rollback-capable publication remain separate deep modules; there is no generic
-process runner, operation trait hierarchy, or renderer backend interface.
+sample corrections through the timeline. Crossfade places faded Audio regions
+on one exact full-length sample timeline rather than deriving placement from
+packet boundaries.
+
+Every native Video filter produces a finite exact frame stream. Working and
+final encoders do not impose a second `-frames:v` cutoff, which could terminate
+coverage-rounded Audio at the final Video timestamp; artifact verification
+checks the exact resulting frame and sample counts instead. Artifact
+verification, locking, and rollback-capable publication remain separate deep
+modules; there is no generic process runner, operation trait hierarchy, or
+renderer backend interface.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

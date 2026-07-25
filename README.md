@@ -19,7 +19,7 @@ Current features:
 - registered external executables using the same typed program binder
 - ordered source-program results and isolated inline fixed inputs
 - type-preserving trimming, concatenation, repetition, and stack dropping
-- trimming, centered zoom, deterministic wobble, and white-flash cuts
+- trimming, centered zoom, deterministic wobble, white-flash cuts, and audiovisual crossfades
 - `during`, `join`, and nested `glue`
 - `audio`, `extract_audio`, and `set_audio` with synchronized Video audio
 - content-addressed render caching

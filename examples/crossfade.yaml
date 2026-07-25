@@ -1,0 +1,9 @@
+- program:
+    version: 1
+    project:
+      video: {width: 320, height: 180, fps: 30}
+    output: crossfade.mp4
+
+- image: {path: assets/morning.png, duration: 2s}
+- image: {path: assets/evening.png, duration: 2s}
+- crossfade: 500ms

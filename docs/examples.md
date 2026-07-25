@@ -16,6 +16,18 @@ cargo run -- validate examples/scenic-sequence.yaml
 cargo run -- render examples/scenic-sequence.yaml
 ```
 
+## Exact crossfade
+
+`examples/crossfade.yaml` overlaps two committed illustrated still images for
+500 milliseconds. It demonstrates that `crossfade` is a direct two-input Video
+program: the output is shorter than concatenation by the overlap duration, and
+its normalized Audio timeline follows the same exact frame boundaries.
+
+```console
+cargo run -- validate examples/crossfade.yaml
+cargo run -- render examples/crossfade.yaml
+```
+
 ## Gentle motion edit
 
 `examples/gentle-motion-edit.yaml` uses the committed two-second
