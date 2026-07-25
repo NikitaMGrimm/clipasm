@@ -450,7 +450,7 @@ fn item_output_types(
     match &item.kind {
         DraftItemKind::Reference(reference) => vec![LocalType::Inferred {
             dependencies: BTreeSet::from([reference.value.clone()]),
-            span: item.span.clone(),
+            span: item.origin.span.clone(),
         }],
         DraftItemKind::Invocation(invocation) => {
             let definition = &definitions[invocation.program.index()];
@@ -470,7 +470,7 @@ fn item_output_types(
                     ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
                     ValueTypeSpec::Generic => LocalType::Inferred {
                         dependencies: dependencies.clone(),
-                        span: item.span.clone(),
+                        span: item.origin.span.clone(),
                     },
                 })
                 .collect()
@@ -491,7 +491,7 @@ fn item_output_types(
             (0..count)
                 .map(|_| LocalType::Inferred {
                     dependencies: dependencies.clone(),
-                    span: item.span.clone(),
+                    span: item.origin.span.clone(),
                 })
                 .collect()
         }
@@ -566,8 +566,7 @@ fn materialize_body(
                     lexical_ids,
                 )?;
                 CheckedItem {
-                    span: item.span.clone(),
-                    construct: "reference".to_owned(),
+                    origin: item.origin.clone(),
                     outputs: checked_outputs(&item.output_bindings, &[output], local_ids)?,
                     kind: CheckedItemKind::Reference { target },
                 }
@@ -607,7 +606,7 @@ fn materialize_body(
                             if !matches!(port.cardinality, Cardinality::One) {
                                 continue;
                             }
-                            let id = allocate_body_input(body_input_count, &item.span)?;
+                            let id = allocate_body_input(body_input_count, &item.origin.span)?;
                             body_input_ids[index] = Some(id);
                             body_local_types.insert(port.name.clone(), *value_type);
                             body_lexical_ids.insert(port.name.clone(), id);
@@ -627,8 +626,7 @@ fn materialize_body(
                     }
                 };
                 CheckedItem {
-                    span: item.span.clone(),
-                    construct: invocation.name.value.clone(),
+                    origin: item.origin.clone(),
                     outputs: checked_outputs(
                         &item.output_bindings,
                         &resolved.signature.outputs,
@@ -647,8 +645,7 @@ fn materialize_body(
                 }
             }
             DraftItemKind::StackBlock(block) => CheckedItem {
-                span: item.span.clone(),
-                construct: "stack block".to_owned(),
+                origin: item.origin.clone(),
                 outputs: checked_outputs(
                     &item.output_bindings,
                     &stack_blocks[block.id.0],
@@ -1090,14 +1087,12 @@ fn binding_count_error(
     binding: &str,
     span: &crate::source::SourceSpan,
 ) -> Diagnostic {
-    let construct = match &item.kind {
-        DraftItemKind::Reference(_) => "reference",
-        DraftItemKind::Invocation(invocation) => &invocation.name.value,
-        DraftItemKind::StackBlock(_) => "stack block",
-    };
     Diagnostic::new(
         "E_OUTPUT_BINDING_COUNT",
-        format!("`{construct}` produces {output_count} value(s), but {binding}"),
+        format!(
+            "`{}` produces {output_count} value(s), but {binding}",
+            item.origin.construct
+        ),
         span.clone(),
     )
 }

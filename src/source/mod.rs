@@ -189,7 +189,61 @@ pub(crate) struct ProgramBody {
 pub(crate) struct Item {
     pub(crate) kind: ItemKind,
     pub(crate) output_bindings: OutputBindings,
+    pub(crate) origin: ItemOrigin,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ItemOrigin {
+    pub(crate) construct: String,
     pub(crate) span: SourceSpan,
+    pub(crate) expansion: Vec<ExpansionFrame>,
+    pub(crate) visibility: SurfaceVisibility,
+}
+
+impl ItemOrigin {
+    #[must_use]
+    pub(crate) fn authored(construct: impl Into<String>, span: SourceSpan) -> Self {
+        Self {
+            construct: construct.into(),
+            span,
+            expansion: Vec::new(),
+            visibility: SurfaceVisibility::Visible,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn expanded(
+        &self,
+        sugar: impl Into<String>,
+        role: impl Into<String>,
+        visibility: SurfaceVisibility,
+    ) -> Self {
+        let mut expansion = self.expansion.clone();
+        expansion.push(ExpansionFrame {
+            sugar: sugar.into(),
+            role: role.into(),
+            span: self.span.clone(),
+        });
+        Self {
+            construct: self.construct.clone(),
+            span: self.span.clone(),
+            expansion,
+            visibility,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExpansionFrame {
+    pub(crate) sugar: String,
+    pub(crate) role: String,
+    pub(crate) span: SourceSpan,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SurfaceVisibility {
+    Visible,
+    Hidden,
 }
 
 #[derive(Clone, Debug)]

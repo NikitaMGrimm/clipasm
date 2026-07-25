@@ -798,6 +798,29 @@ fn legacy_named_clip_lowers_to_owned_glue() {
         compiled.result_domain().expect("known domain").frames().0,
         60
     );
+    let constructs = compiled
+        .explain()
+        .iter()
+        .map(clipasm::compiler::ExplainEntry::construct)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        constructs
+            .iter()
+            .filter(|construct| **construct == "clip")
+            .count(),
+        1
+    );
+    assert!(!constructs.contains(&"drop"));
+}
+
+#[test]
+fn generated_clip_diagnostics_use_the_authored_construct() {
+    let (_directory, workflow) = project(
+        "- program:\n    version: 1\n    clips:\n      mixed:\n        - {image: {path: a.ppm, duration: 1s}}\n        - {audio: a.wav}\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("mixed clip body");
+    assert!(error.message.contains("`clip`"), "{}", error.message);
+    assert!(!error.message.contains("`glue`"), "{}", error.message);
 }
 
 #[test]

@@ -7,7 +7,7 @@ use crate::program::{
     ResolvedInput, ValueTypeSpec,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId};
-use crate::source::{SourceSpan, SourceUnitId, Spanned};
+use crate::source::{SourceSpan, SourceUnitId, Spanned, SurfaceVisibility};
 
 use super::EntrypointBindings;
 use super::checked::{
@@ -249,14 +249,19 @@ impl Evaluator {
     ) -> Result<()> {
         let outputs = match &checked.kind {
             CheckedItemKind::Reference { target } => {
-                vec![self.evaluate_checked_reference(context, *target, &checked.span, scope)?]
+                vec![self.evaluate_checked_reference(
+                    context,
+                    *target,
+                    &checked.origin.span,
+                    scope,
+                )?]
             }
             CheckedItemKind::Invocation(invocation) => self.evaluate_invocation(
                 context,
                 invocation,
                 InvocationSite {
-                    construct: &checked.construct,
-                    span: &checked.span,
+                    construct: &checked.origin.construct,
+                    span: &checked.origin.span,
                     requested_frames,
                 },
                 scope,
@@ -267,8 +272,8 @@ impl Evaluator {
                 let mut child = EvaluationStack::<ValueRef>::enter_body(
                     frame,
                     block.access,
-                    "stack block",
-                    checked.span.clone(),
+                    checked.origin.construct.clone(),
+                    checked.origin.span.clone(),
                 );
                 self.evaluate_body(
                     context,
@@ -289,18 +294,20 @@ impl Evaluator {
             }
         }
         stack.extend(frame, outputs.iter().copied());
-        self.surface.push(SurfaceRecord {
-            construct: checked.construct.clone(),
-            outputs: outputs
-                .into_iter()
-                .zip(&checked.outputs)
-                .map(|(value, metadata)| SurfaceOutput {
-                    value,
-                    id: metadata.name.clone(),
-                })
-                .collect(),
-            span: checked.span.clone(),
-        });
+        if checked.origin.visibility == SurfaceVisibility::Visible {
+            self.surface.push(SurfaceRecord {
+                construct: checked.origin.construct.clone(),
+                outputs: outputs
+                    .into_iter()
+                    .zip(&checked.outputs)
+                    .map(|(value, metadata)| SurfaceOutput {
+                        value,
+                        id: metadata.name.clone(),
+                    })
+                    .collect(),
+                span: checked.origin.span.clone(),
+            });
+        }
         Ok(())
     }
 

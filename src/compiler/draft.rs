@@ -6,8 +6,8 @@ use crate::program::{
     Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess,
 };
 use crate::source::{
-    ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourceProgram, SourceSpan,
-    Spanned, StackBlock,
+    ArgumentValue, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody, SourceProgram,
+    SourceSpan, Spanned, StackBlock,
 };
 
 const MAX_BODY_NESTING: usize = 256;
@@ -34,7 +34,7 @@ pub(super) struct DraftBody {
 
 #[derive(Clone, Debug)]
 pub(super) struct DraftItem {
-    pub(super) span: SourceSpan,
+    pub(super) origin: ItemOrigin,
     pub(super) output_bindings: OutputBindings,
     pub(super) kind: DraftItemKind,
 }
@@ -166,7 +166,7 @@ impl DraftBody {
                         }
                     };
                     Ok(DraftItem {
-                        span: item.span.clone(),
+                        origin: item.origin.clone(),
                         output_bindings: item.output_bindings.clone(),
                         kind,
                     })

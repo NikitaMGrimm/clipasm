@@ -381,8 +381,9 @@ mod tests {
     use super::*;
     use crate::program::StackAccess;
     use crate::source::{
-        ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
-        ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId, StackBlock,
+        ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
+        ProgramBody, ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId,
+        StackBlock,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -434,7 +435,7 @@ mod tests {
                                 body: None,
                             }),
                             output_bindings: OutputBindings::None,
-                            span: item_span,
+                            origin: ItemOrigin::authored("image", item_span),
                         }],
                         span: SourceSpan::at(program_span.source().clone(), 1, 1),
                     },
@@ -476,7 +477,7 @@ mod tests {
                 body: None,
             }),
             output_bindings: OutputBindings::None,
-            span: span.clone(),
+            origin: ItemOrigin::authored(name, span.clone()),
         };
         let package = SourcePackage {
             root: SourceUnitId(0),
@@ -510,7 +511,7 @@ mod tests {
                                 ],
                                 span.clone(),
                             ),
-                            span: span.clone(),
+                            origin: ItemOrigin::authored("stack block", span.clone()),
                         }],
                         span: span.clone(),
                     },

@@ -71,8 +71,7 @@ pub(super) struct CheckedOutput {
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedItem {
-    pub(super) span: crate::source::SourceSpan,
-    pub(super) construct: String,
+    pub(super) origin: crate::source::ItemOrigin,
     pub(super) outputs: Vec<CheckedOutput>,
     pub(super) kind: CheckedItemKind,
 }

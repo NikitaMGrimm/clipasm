@@ -13,10 +13,10 @@ use crate::program::{
     Cardinality, InputPort, ParameterType, ProgramDefinition, ProgramImplementation, StackAccess,
 };
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
+    ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceExternalImport,
     SourceImport, SourcePackage, SourceParameter, SourceProgram, SourceUnit, SourceUnitId,
-    UnlinkedSourceUnit, VideoSettings,
+    SurfaceVisibility, UnlinkedSourceUnit, VideoSettings,
 };
 use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -471,6 +471,7 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
                 }
             }
         };
+        let origin = ItemOrigin::authored("clip", span.clone());
         items.push(Item {
             kind: ItemKind::Invocation(Invocation {
                 program: Spanned::new("glue".to_owned(), span.clone()),
@@ -480,7 +481,7 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
                 body: Some(body),
             }),
             output_bindings: OutputBindings::One(Spanned::new(name, span.clone())),
-            span: span.clone(),
+            origin: origin.expanded("clip", "result", SurfaceVisibility::Visible),
         });
         items.push(Item {
             kind: ItemKind::Invocation(Invocation {
@@ -491,7 +492,7 @@ fn parse_clips(node: RawNode, language: &Language) -> Result<Vec<Item>> {
                 body: None,
             }),
             output_bindings: OutputBindings::None,
-            span,
+            origin: origin.expanded("clip", "cleanup", SurfaceVisibility::Hidden),
         });
     }
     Ok(items)
@@ -524,9 +525,10 @@ fn parse_item(node: RawNode, language: &Language) -> Result<Item> {
                         name: Spanned::new(reference, item_span.clone()),
                     }),
                     output_bindings: OutputBindings::None,
-                    span: item_span,
+                    origin: ItemOrigin::authored("reference", item_span),
                 })
             } else if style == TScalarStyle::Plain {
+                let construct = value.clone();
                 Ok(Item {
                     kind: ItemKind::Invocation(Invocation {
                         program: Spanned::new(value, item_span.clone()),
@@ -536,7 +538,7 @@ fn parse_item(node: RawNode, language: &Language) -> Result<Item> {
                         body: None,
                     }),
                     output_bindings: OutputBindings::None,
-                    span: item_span,
+                    origin: ItemOrigin::authored(construct, item_span),
                 })
             } else {
                 Err(Diagnostic::new(
@@ -646,10 +648,11 @@ fn parse_invocation(
         } else {
             normalize_generic_invocation(program, program_span, value, language)?
         };
+        let construct = invocation.program.value.clone();
         return Ok(Item {
             kind: ItemKind::Invocation(invocation),
             output_bindings,
-            span,
+            origin: ItemOrigin::authored(construct, span),
         });
     }
 
@@ -694,7 +697,7 @@ fn parse_invocation(
     let inner = Item {
         kind: ItemKind::Invocation(head_invocation),
         output_bindings: OutputBindings::None,
-        span: head_span,
+        origin: ItemOrigin::authored(head_name, head_span),
     };
 
     let (wrapper_id, wrapper_definition) = require_program(language, &wrapper_name, &wrapper_span)?;
@@ -720,7 +723,7 @@ fn parse_invocation(
     Ok(Item {
         kind: ItemKind::Invocation(wrapper_invocation),
         output_bindings,
-        span,
+        origin: ItemOrigin::authored(wrapper_name, span),
     })
 }
 

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{Cardinality, InputPort, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody,
+    ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS, SourceExternalImport,
     SourceFile, SourceImport, SourcePackage, SourceParameter, SourceProgram, SourceUnit,
     SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
@@ -243,7 +243,7 @@ impl Lowerer<'_> {
                     name: reference.clone(),
                 }),
                 output_bindings: bindings,
-                span: statement.span.clone(),
+                origin: ItemOrigin::authored("reference", statement.span.clone()),
             }]),
             Expression::Invocation(invocation) => {
                 self.lower_invocation(invocation, bindings, lexical)
@@ -365,7 +365,7 @@ impl Lowerer<'_> {
                 body,
             }),
             output_bindings,
-            span: invocation.span.clone(),
+            origin: ItemOrigin::authored(invocation.name.value.clone(), invocation.span.clone()),
         });
         Ok(preceding)
     }
@@ -427,7 +427,7 @@ impl Lowerer<'_> {
                     name: reference.clone(),
                 }),
                 output_bindings: OutputBindings::None,
-                span: reference.span.clone(),
+                origin: ItemOrigin::authored("reference", reference.span.clone()),
             }]),
             Expression::Invocation(invocation) => {
                 self.lower_invocation(invocation, OutputBindings::None, lexical)
@@ -462,7 +462,7 @@ impl Lowerer<'_> {
                 body: self.lower_program_body(block, lexical)?,
             }),
             output_bindings,
-            span,
+            origin: ItemOrigin::authored("stack block", span),
         })
     }
 

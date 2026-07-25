@@ -44,6 +44,16 @@ to owned access in the native language; explicit visible access uses the normal
 stack visibility boundary rules. Output bindings apply to the block's complete
 ordered result sequence, while IDs declared inside remain program-wide.
 
+Every canonical item also carries one surface origin separate from its
+executable target. The origin records the authored construct name and span,
+ordered sugar-expansion frames, and whether the item belongs in normal explain
+output. Compiler draft and checked source preserve that value unchanged.
+Diagnostics and semantic source origins use the authored construct, while
+program lookup and execution continue to use the actual invocation target.
+Generated helpers may therefore remain executable and diagnosable without
+appearing as user-authored operations. Surface provenance is excluded from
+semantic and cache identity.
+
 ## Compilation
 
 Before evaluation, the compiler validates the complete linked source-unit

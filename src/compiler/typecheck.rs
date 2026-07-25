@@ -594,6 +594,7 @@ fn infer_body(
                 )?]
             }
             DraftItemKind::Invocation(invocation) => infer_invocation(
+                &item.origin,
                 invocation,
                 globals,
                 lexical,
@@ -609,7 +610,7 @@ fn infer_body(
                     frame,
                     block.access,
                     "stack block",
-                    item.span.clone(),
+                    item.origin.span.clone(),
                 );
                 infer_body(
                     &block.body,
@@ -624,12 +625,21 @@ fn infer_body(
                 )?;
                 let outputs = stack.finish_body(&child);
                 if state.is_resolving() {
-                    state.record_stack_block(block, concrete_values(arena, &outputs, &item.span)?);
+                    state.record_stack_block(
+                        block,
+                        concrete_values(arena, &outputs, &item.origin.span)?,
+                    );
                 }
                 outputs
             }
         };
-        constrain_bindings(globals, &item.output_bindings, &outputs, arena, &item.span)?;
+        constrain_bindings(
+            globals,
+            &item.output_bindings,
+            &outputs,
+            arena,
+            &item.origin.span,
+        )?;
         stack.extend(frame, outputs);
     }
     Ok(())
@@ -637,6 +647,7 @@ fn infer_body(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_invocation(
+    origin: &crate::source::ItemOrigin,
     invocation: &DraftInvocation,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
@@ -671,7 +682,7 @@ fn infer_invocation(
         };
         let values = explicit_values(
             argument,
-            &invocation.name.value,
+            &origin.construct,
             &port.name,
             globals,
             lexical,
@@ -690,12 +701,12 @@ fn infer_invocation(
 
     if let Some(variable) = generic {
         infer_generic_from_stack(
-            definition, invocation, variable, arena, stack, frame, access, &slots, state,
+            definition, origin, variable, arena, stack, frame, access, &slots, state,
         )?;
     }
 
     let stack_plan = bind_missing(
-        definition, invocation, generic, arena, stack, frame, access, &mut slots, state,
+        definition, origin, generic, arena, stack, frame, access, &mut slots, state,
     )?;
     if state.deferred > deferred_before {
         return Ok(invocation_outputs(definition, generic, arena));
@@ -716,8 +727,8 @@ fn infer_invocation(
         let mut child = EvaluationStack::<TypeVarId>::enter_body(
             frame,
             access,
-            invocation.name.value.clone(),
-            invocation.name.span.clone(),
+            origin.construct.clone(),
+            origin.span.clone(),
         );
         for initial in &contract.initial_values {
             let variable = match initial {
@@ -742,7 +753,7 @@ fn infer_invocation(
         }
         let body_outputs = stack.finish_body(&child);
         constrain_body_outputs(
-            &invocation.name.value,
+            &origin.construct,
             &body_outputs,
             &contract.outputs,
             contract.count_error_code,
@@ -755,7 +766,7 @@ fn infer_invocation(
 
     if state.is_resolving() {
         let generic = generic
-            .map(|variable| concrete_type(arena, variable, &invocation.name.span))
+            .map(|variable| concrete_type(arena, variable, &origin.span))
             .transpose()?;
         state.record(
             invocation,
@@ -840,7 +851,7 @@ fn explicit_values(
 #[allow(clippy::too_many_arguments)]
 fn infer_generic_from_stack(
     definition: &ProgramDefinition,
-    invocation: &DraftInvocation,
+    origin: &crate::source::ItemOrigin,
     generic: TypeVarId,
     arena: &mut TypeArena,
     stack: &EvaluationStack<TypeVarId>,
@@ -875,12 +886,7 @@ fn infer_generic_from_stack(
         }) {
             StackBindingOutcome::Resolved(plan) => {
                 let selected = plan.inputs[0].indices[0];
-                equate(
-                    arena,
-                    generic,
-                    stack.values()[selected],
-                    &invocation.name.span,
-                )?;
+                equate(arena, generic, stack.values()[selected], &origin.span)?;
             }
             StackBindingOutcome::Deferred => state.mark_deferred(),
             StackBindingOutcome::Impossible(_) => {
@@ -891,7 +897,7 @@ fn infer_generic_from_stack(
                             arena.domain(value).concrete()
                         })
                 {
-                    constrain(arena, generic, value_type, &invocation.name.span)?;
+                    constrain(arena, generic, value_type, &origin.span)?;
                 }
             }
         }
@@ -926,13 +932,13 @@ fn infer_generic_from_stack(
             "E_AMBIGUOUS_GENERIC_TYPE",
             format!(
                 "program `{}` can bind both Video and Audio; use `<Video>` or `<Audio>`",
-                invocation.name.value
+                origin.construct
             ),
-            invocation.name.span.clone(),
+            origin.span.clone(),
         ));
     }
     if possible.len() == 1 && !saw_deferred {
-        constrain(arena, generic, possible[0], &invocation.name.span)?;
+        constrain(arena, generic, possible[0], &origin.span)?;
     } else if possible.len() != 1 || saw_deferred {
         state.mark_deferred();
     }
@@ -942,7 +948,7 @@ fn infer_generic_from_stack(
 #[allow(clippy::too_many_arguments)]
 fn bind_missing(
     definition: &ProgramDefinition,
-    invocation: &DraftInvocation,
+    origin: &crate::source::ItemOrigin,
     generic: Option<TypeVarId>,
     arena: &TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
@@ -994,9 +1000,9 @@ fn bind_missing(
                             "E_STACK_UNDERFLOW",
                             format!(
                                 "program `{}` needs a preceding Video or Audio value",
-                                invocation.name.value
+                                origin.construct
                             ),
-                            invocation.name.span.clone(),
+                            origin.span.clone(),
                         )
                     })?,
             };
@@ -1005,14 +1011,14 @@ fn bind_missing(
                     "E_STACK_UNDERFLOW",
                     format!(
                         "`{}.{}` needs one preceding {required} value",
-                        invocation.name.value, port.name
+                        origin.construct, port.name
                     ),
                 ),
                 Cardinality::Variadic { min } => (
                     "E_MISSING_REQUIRED_INPUT",
                     format!(
                         "`{}.{}` needs at least {min} {required} value(s)",
-                        invocation.name.value, port.name
+                        origin.construct, port.name
                     ),
                 ),
             };
@@ -1024,7 +1030,7 @@ fn bind_missing(
                 required,
                 failure.available,
                 &failure.selected,
-                &invocation.name.span,
+                &origin.span,
                 |value| arena.domain(value).concrete(),
             ))
         }
@@ -1059,7 +1065,7 @@ fn constrain_body_outputs(
                 return Ok(());
             }
             for (actual, expected) in values.iter().zip(expected) {
-                constrain_body_output(*actual, *expected, generic, arena, span)?;
+                constrain_body_output(program, *actual, *expected, generic, arena, span)?;
             }
         }
         crate::program::BodyOutputConstraint::Variadic { value_type, min } => {
@@ -1074,7 +1080,7 @@ fn constrain_body_outputs(
                 return Ok(());
             }
             for actual in values {
-                constrain_body_output(*actual, *value_type, generic, arena, span)?;
+                constrain_body_output(program, *actual, *value_type, generic, arena, span)?;
             }
         }
     }
@@ -1082,18 +1088,24 @@ fn constrain_body_outputs(
 }
 
 fn constrain_body_output(
+    program: &str,
     actual: TypeVarId,
     expected: ValueTypeSpec,
     generic: Option<TypeVarId>,
     arena: &mut TypeArena,
     span: &SourceSpan,
 ) -> Result<()> {
-    match expected {
-        ValueTypeSpec::Exact(value_type) => constrain(arena, actual, value_type, span),
-        ValueTypeSpec::Generic => {
-            equate(arena, actual, generic.expect("generic body output"), span)
-        }
-    }
+    let result = match expected {
+        ValueTypeSpec::Exact(value_type) => arena.constrain(actual, value_type),
+        ValueTypeSpec::Generic => arena.equate(actual, generic.expect("generic body output")),
+    };
+    result.map_err(|_| {
+        Diagnostic::new(
+            "E_GENERIC_TYPE_MISMATCH",
+            format!("`{program}` body must contain only one value type"),
+            span.clone(),
+        )
+    })
 }
 
 fn concrete_type(arena: &TypeArena, value: TypeVarId, span: &SourceSpan) -> Result<ValueType> {
