@@ -6,6 +6,8 @@ use yaml_rust2::scanner::{Marker, TScalarStyle};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::source::{SourceFile, SourceSpan};
 
+const MAX_YAML_NESTING: usize = 256;
+
 #[derive(Clone, Debug)]
 pub(super) struct RawNode {
     pub(super) kind: RawKind,
@@ -61,14 +63,22 @@ pub(super) fn parse(source: &SourceFile) -> Result<RawNode> {
         .position(|(event, _)| matches!(event, Event::DocumentStart))
         .map_or(0, |index| index + 1);
     let mut cursor = start;
-    raw_node(&sink.events, &mut cursor, source)
+    raw_node(&sink.events, &mut cursor, source, 0)
 }
 
 fn raw_node(
     events: &[(Event, Marker)],
     cursor: &mut usize,
     source: &SourceFile,
+    depth: usize,
 ) -> Result<RawNode> {
+    if depth > MAX_YAML_NESTING {
+        return Err(Diagnostic::new(
+            "E_YAML_NESTING_DEPTH",
+            format!("YAML nesting exceeds the supported depth of {MAX_YAML_NESTING}"),
+            SourceSpan::source_start(source.clone()),
+        ));
+    }
     let Some((event, marker)) = events.get(*cursor) else {
         return Err(Diagnostic::new(
             "E_YAML_SYNTAX",
@@ -101,7 +111,7 @@ fn raw_node(
                 events.get(*cursor).map(|item| &item.0),
                 Some(Event::SequenceEnd)
             ) {
-                values.push(raw_node(events, cursor, source)?);
+                values.push(raw_node(events, cursor, source, depth + 1)?);
             }
             *cursor += 1;
             Ok(RawNode {
@@ -117,7 +127,7 @@ fn raw_node(
                 events.get(*cursor).map(|item| &item.0),
                 Some(Event::MappingEnd)
             ) {
-                let key = raw_node(events, cursor, source)?;
+                let key = raw_node(events, cursor, source, depth + 1)?;
                 let (key_text, key_span) = match key.kind {
                     RawKind::Scalar { value, .. } => (value, key.span),
                     _ => {
@@ -135,7 +145,7 @@ fn raw_node(
                         key_span,
                     ));
                 }
-                let value = raw_node(events, cursor, source)?;
+                let value = raw_node(events, cursor, source, depth + 1)?;
                 entries.push((key_text, key_span, value));
             }
             *cursor += 1;
@@ -168,4 +178,23 @@ fn reject_properties(anchor: usize, has_tag: bool, span: &SourceSpan) -> Result<
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_yaml_beyond_the_supported_nesting_depth() {
+        let mut text = String::new();
+        for depth in 0..MAX_YAML_NESTING + 2 {
+            text.push_str(&"  ".repeat(depth));
+            text.push_str("-\n");
+        }
+        text.push_str(&"  ".repeat(MAX_YAML_NESTING + 2));
+        text.push_str("0\n");
+        let source = SourceFile::new("deep.yaml", text);
+        let error = parse(&source).expect_err("excessive YAML nesting");
+        assert_eq!(error.code, "E_YAML_NESTING_DEPTH");
+    }
 }

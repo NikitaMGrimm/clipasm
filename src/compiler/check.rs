@@ -15,6 +15,8 @@ use crate::source::{
 
 use super::stack::EvaluationStack;
 
+const MAX_BODY_NESTING: usize = 256;
+
 #[derive(Clone, Debug)]
 pub(super) enum LocalType {
     Value(ValueType),
@@ -248,6 +250,7 @@ fn check_program(
             definitions,
             builtins,
             namespace,
+            0,
         )?;
     }
     collect_body_names(
@@ -257,6 +260,7 @@ fn check_program(
         definitions,
         builtins,
         namespace,
+        0,
     )?;
     super::infer::infer_local_types(&program, &mut locals, definitions, builtins, namespace)?;
     ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
@@ -333,7 +337,15 @@ fn collect_body_names(
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
+    depth: usize,
 ) -> Result<()> {
+    if depth > MAX_BODY_NESTING {
+        return Err(Diagnostic::new(
+            "E_BODY_NESTING_DEPTH",
+            format!("program body nesting exceeds the supported depth of {MAX_BODY_NESTING}"),
+            body.span.clone(),
+        ));
+    }
     for item in &body.items {
         match &item.output_bindings {
             OutputBindings::None => {}
@@ -368,11 +380,27 @@ fn collect_body_names(
         }
         if let ItemKind::Invocation(invocation) = &item.kind {
             if let Some(body) = &invocation.body {
-                collect_body_names(body, locals, unit, definitions, builtins, namespace)?;
+                collect_body_names(
+                    body,
+                    locals,
+                    unit,
+                    definitions,
+                    builtins,
+                    namespace,
+                    depth + 1,
+                )?;
             }
             for argument in invocation.arguments.values() {
                 if let ArgumentValue::Body(body) = argument {
-                    collect_body_names(body, locals, unit, definitions, builtins, namespace)?;
+                    collect_body_names(
+                        body,
+                        locals,
+                        unit,
+                        definitions,
+                        builtins,
+                        namespace,
+                        depth + 1,
+                    )?;
                 }
             }
         }

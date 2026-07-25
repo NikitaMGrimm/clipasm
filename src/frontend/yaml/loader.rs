@@ -6,6 +6,8 @@ use std::sync::Arc;
 use super::language::Language;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::{ExternalProgram, ExternalProgramId, load_manifest};
+const MAX_IMPORT_DEPTH: usize = 128;
+
 use crate::source::{
     ResolvedExternalImport, ResolvedImport, SourceFile, SourcePackage, SourceSpan, SourceUnit,
     SourceUnitId,
@@ -29,7 +31,7 @@ pub fn parse_file(path: &Path) -> Result<SourcePackage> {
         visiting: Vec::new(),
         visiting_positions: BTreeMap::new(),
     };
-    let root = loader.load(path, true, None)?;
+    let root = loader.load(path, true, None, 0)?;
     Ok(SourcePackage {
         root,
         units: loader.units,
@@ -54,7 +56,17 @@ impl Loader<'_> {
         path: &Path,
         is_root: bool,
         import_span: Option<&SourceSpan>,
+        depth: usize,
     ) -> Result<SourceUnitId> {
+        if depth > MAX_IMPORT_DEPTH {
+            return Err(Diagnostic::new(
+                "E_PROGRAM_IMPORT_DEPTH",
+                format!("program import nesting exceeds the supported depth of {MAX_IMPORT_DEPTH}"),
+                import_span
+                    .cloned()
+                    .unwrap_or_else(|| SourceSpan::file_start(path)),
+            ));
+        }
         let canonical = fs::canonicalize(path)
             .map_err(|error| Diagnostic::io("E_WORKFLOW_IO", path, &error))?;
         if let Some(id) = self.loaded.get(&canonical).copied() {
@@ -176,7 +188,7 @@ impl Loader<'_> {
                     .unwrap_or_else(|| Path::new("."))
                     .join(&import.path.value)
             };
-            let target = self.load(&imported_path, false, Some(&import.path.span))?;
+            let target = self.load(&imported_path, false, Some(&import.path.span), depth + 1)?;
             imports.push(ResolvedImport {
                 alias: import.alias.clone(),
                 target,
