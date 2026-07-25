@@ -7,12 +7,12 @@ use std::process::Command;
 use clipasm::{compiler, preflight, render};
 
 fn compile_source(source: &str) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
-    let source = clipasm::frontend::yaml::parse_str(Path::new("transitions.yaml"), source)?;
+    let source = clipasm::language::parse_str(Path::new("transitions.clipasm"), source)?;
     compiler::compile(&source)
 }
 
 fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
-    let source = clipasm::frontend::yaml::parse_file(path)?;
+    let source = clipasm::language::parse_file(path)?;
     compiler::compile(&source)
 }
 
@@ -89,11 +89,11 @@ fn cache_artifact(
 fn crossfade_normalizes_duration_and_shortens_the_domain() {
     let source = |crossfade: &str| {
         format!(
-            "- program:\n    version: 1\n    project:\n      video: {{width: 64, height: 48, fps: 10}}\n\n- glue:\n    - image: {{path: before.ppm, duration: 1s}}\n    - image: {{path: after.ppm, duration: 1s}}\n    - join:\n        - {crossfade}\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nimage(\"before.ppm\", 1s)\nimage(\"after.ppm\", 1s)\njoin {{ {crossfade} }}\n"
         )
     };
     let default = compile_source(&source("crossfade")).expect("default crossfade");
-    let explicit = compile_source(&source("crossfade: 500ms")).expect("explicit default crossfade");
+    let explicit = compile_source(&source("crossfade(500ms)")).expect("explicit default crossfade");
 
     assert_eq!(default.structure_hash(), explicit.structure_hash());
     assert_eq!(
@@ -117,7 +117,7 @@ fn crossfade_normalizes_duration_and_shortens_the_domain() {
 fn crossfade_rejects_empty_or_excessive_overlap() {
     for (duration, expected) in [("0ms", "at least one"), ("2s", "before")] {
         let source = format!(
-            "- program:\n    version: 1\n    project:\n      video: {{fps: 10}}\n\n- glue:\n    - image: {{path: before.ppm, duration: 1s}}\n    - image: {{path: after.ppm, duration: 1s}}\n    - join:\n        - crossfade: {duration}\n"
+            "clipasm 1\nconfig {{ video {{ fps = 10 }} }}\nimage(\"before.ppm\", 1s)\nimage(\"after.ppm\", 1s)\njoin {{ crossfade({duration}) }}\n"
         );
         let error = compile_source(&source).expect_err("invalid crossfade overlap");
         assert_eq!(error.code, "E_INVALID_CROSSFADE_DURATION");
@@ -150,10 +150,10 @@ fn preflight_checks_crossfade_against_deferred_video_duration() {
         .status()
         .expect("create deferred Video");
     assert!(status.success());
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: result.mp4\n\n- glue:\n    - image: {path: before.ppm, duration: 1s}\n    - video: after.mkv\n    - join:\n        - crossfade: 500ms\n",
+        "clipasm 1\nconfig {\n  video { width = 64\nheight = 48\nfps = 10 }\n  output = \"result.mp4\"\n}\nimage(\"before.ppm\", 1s)\nvideo(\"after.mkv\")\njoin { crossfade(500ms) }\n",
     )
     .expect("workflow");
 
@@ -176,10 +176,10 @@ fn crossfade_renders_a_one_frame_full_overlap() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "before.ppm", "255 0 0");
     write_image(directory.path(), "after.ppm", "0 0 255");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: result.mp4\n\n- glue:\n    - image: {path: before.ppm, duration: 100ms, fit: stretch}\n    - image: {path: after.ppm, duration: 100ms, fit: stretch}\n    - join:\n        - crossfade: 100ms\n",
+        "clipasm 1\nconfig {\n  video { width = 64\nheight = 48\nfps = 10 }\n  output = \"result.mp4\"\n}\nimage(\"before.ppm\", 100ms, stretch)\nimage(\"after.ppm\", 100ms, stretch)\njoin { crossfade(100ms) }\n",
     )
     .expect("workflow");
 
@@ -223,10 +223,10 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     write_image(directory.path(), "after.ppm", "0 0 255");
     write_constant_audio(&directory.path().join("before.wav"), "0.2");
     write_constant_audio(&directory.path().join("after.wav"), "-0.2");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 29}\n    output: result.mp4\n\n- glue:\n    - image: {path: before.ppm, duration: 1s, fit: stretch}\n    - set_audio:\n        audio:\n          audio: before.wav\n    - image: {path: after.ppm, duration: 1s, fit: stretch}\n    - set_audio:\n        audio:\n          audio: after.wav\n    - join:\n        - crossfade: 500ms\n",
+        "clipasm 1\nconfig {\n  video { width = 64\nheight = 48\nfps = 29 }\n  output = \"result.mp4\"\n}\nimage(\"before.ppm\", 1s, stretch)\naudio(\"before.wav\")\nset_audio\nimage(\"after.ppm\", 1s, stretch)\naudio(\"after.wav\")\nset_audio\njoin { crossfade(500ms) }\n",
     )
     .expect("workflow");
 
