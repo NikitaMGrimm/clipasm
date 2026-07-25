@@ -34,4 +34,8 @@ impl StagingDirectory {
     pub(super) fn path(&self, name: &str) -> PathBuf {
         self.directory.path().join(name)
     }
+
+    pub(super) fn keep(self) -> PathBuf {
+        self.directory.keep()
+    }
 }
