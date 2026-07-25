@@ -24,8 +24,8 @@ pub(super) fn set_audio() -> ProgramDefinition {
             "set_audio",
             1,
             vec![
-                input("audio", ValueType::Audio, Cardinality::One),
                 input("video", ValueType::Video, Cardinality::One),
+                input("audio", ValueType::Audio, Cardinality::One),
             ],
             vec![],
             ValueType::Video,
@@ -43,4 +43,16 @@ fn lower_extract_audio(
 
 fn lower_set_audio(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     one_output(builder.set_audio(call.one_input("audio")?, call.one_input("video")?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_audio_exposes_video_before_audio() {
+        let definition = set_audio();
+        assert_eq!(definition.descriptor.inputs[0].name, "video");
+        assert_eq!(definition.descriptor.inputs[1].name, "audio");
+    }
 }

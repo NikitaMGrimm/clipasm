@@ -278,7 +278,7 @@ Authored times must align exactly to project frames. Ranges are closed-open:
 | `video` | none | `path`, optional `fit` | none |
 | `audio` | none | `path` | none |
 | `extract_audio` | `video: Video` | none | none |
-| `set_audio` | `audio: Audio`, `video: Video` | none | none |
+| `set_audio` | `video: Video`, `audio: Audio` | none | none |
 | `repeat` | `value: Video|Audio` | `count`, optional `type` | none |
 | `concat` | `values: Video...|Audio...` | optional `type` | none |
 | `trim` | `value: Video|Audio` | `range`, optional `type` | none |
