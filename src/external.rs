@@ -49,16 +49,20 @@ pub(crate) struct ExternalRuntime {
 }
 
 impl ExternalProgram {
+    pub(crate) fn descriptor(&self, name: String) -> ProgramDescriptor {
+        ProgramDescriptor {
+            name,
+            semantic_version: self.semantic_version,
+            default_stack_access: StackAccess::Owned,
+            inputs: self.inputs.clone(),
+            parameters: self.parameters.clone(),
+            outputs: vec![ValueType::Video.into()],
+        }
+    }
+
     pub(crate) fn definition(&self, name: String) -> ProgramDefinition {
         ProgramDefinition {
-            descriptor: ProgramDescriptor {
-                name,
-                semantic_version: self.semantic_version,
-                default_stack_access: StackAccess::Owned,
-                inputs: self.inputs.clone(),
-                parameters: self.parameters.clone(),
-                outputs: vec![ValueType::Video.into()],
-            },
+            descriptor: self.descriptor(name),
             implementation: ProgramImplementation::External(self.runtime.clone()),
         }
     }

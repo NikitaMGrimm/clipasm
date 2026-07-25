@@ -3,6 +3,7 @@
 #![allow(dead_code)] // File package loading and CLI integration follow this migration stage.
 
 mod lexer;
+mod loader;
 mod lower;
 mod parser;
 mod sugar;
