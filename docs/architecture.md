@@ -18,7 +18,7 @@ Optional entrypoint publication
 ```
 
 The reasons behind the load-bearing boundaries are recorded in the
-[architecture decision records](adr/).
+[architecture decision records](adr/index.md).
 
 ## Language and canonical source
 
@@ -282,12 +282,13 @@ pass derives the encoders, muxers, and filters required by that graph and its fi
 export. Missing capabilities for unreachable operations do not reject the plan;
 external programs remain responsible for extra FFmpeg features they invoke.
 
-Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
-one lossless normalized audio stream, using silence for semantically silent
-Videos, while semantic audio presence controls final MP4 publication.
-Standalone source-audio duration comes from its declared stream timeline where
-available and is converted to covering samples on that 48 kHz project grid. A
-decoded-count/source-rate duration is used only when timeline metadata is absent.
+Audio is normalized to the configured stereo project sample rate, which
+defaults to 48 kHz. Working Video artifacts always contain one lossless
+normalized audio stream, using silence for semantically silent Videos, while
+semantic audio presence controls final MP4 publication. Standalone source-audio
+duration comes from its declared stream timeline where available and is
+converted to covering samples on that project grid. A decoded-count/source-rate
+duration is used only when timeline metadata is absent.
 
 Video and Audio retain their native duration grids rather than sharing a
 least-common-denominator tick type. One exact rational timeline mapper converts

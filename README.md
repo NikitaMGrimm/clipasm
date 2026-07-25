@@ -1,106 +1,130 @@
-# Note about the documentation
-
-Most of the README and documentation were written with AI assistance. I plan to rewrite and improve them later.
-
 # ClipAsm
 
-ClipAsm is pre-release software. Its language, file formats, Rust API, and CLI
-may change without compatibility guarantees.
+ClipAsm is a typed, stack-based language for assembling Video and Audio graphs
+from `.clipasm` source. Compilation creates a pure semantic graph without
+opening media or invoking external tools; preflight resolves reachable assets,
+tools, and exact media domains; rendering uses FFmpeg to produce an MP4 and
+FFprobe to verify it.
 
-ClipAsm is a typed, stack-based language for assembling Video and Audio graphs.
-It compiles `.clipasm` source without opening media files, resolves assets and
-tools during preflight, and renders an MP4 through FFmpeg and FFprobe.
-
-Current features include still images, video and audio files, references,
-reusable imported programs, external executable programs, timeline operations,
-effects, transitions, exact audiovisual crossfades, scoped body programs,
-structural stack blocks, root inputs and parameters, and content-addressed
-render caching.
-
-## Requirements
-
-- Rust 1.95 or newer
-- FFmpeg and FFprobe on `PATH` for rendering
-- Python 3 on `PATH` for the external-program example
-
-Compilation and validation do not open media files or invoke external tools.
-Rendering a source file with registered external programs executes trusted code
-declared by that source file.
+> **Pre-release:** ClipAsm's language, file formats, Rust API, and CLI may
+> change without compatibility guarantees.
 
 ## Quick start
+
+To build ClipAsm from this repository, install:
+
+- Rust 1.95 or newer;
+- FFmpeg and FFprobe on `PATH` for rendering.
+
+The committed scenic-sequence example uses three small images from
+`examples/assets/`:
 
 ```clipasm
 clipasm 1
 
 config {
     video {
-        width = 1280
-        height = 720
-        fps = 30
+        width = 320
+        height = 180
+        fps = 24
     }
-    output = "final.mp4"
+    output = "generated/scenic-sequence.mp4"
 }
 
-image("title.png", 2s, contain)
-video("footage.mp4")
-concat
+glue {
+    image("assets/morning.png", 1500ms, contain)
+    image("assets/meadow.png", 1500ms, contain)
+    image("assets/evening.png", 1500ms, contain)
+}
 ```
+
+Run these commands from the repository root:
 
 ```console
-cargo run -- validate program.clipasm
-cargo run -- inspect program.clipasm
-cargo run -- render program.clipasm
+cargo run -- validate examples/scenic-sequence.clipasm
+cargo run -- inspect examples/scenic-sequence.clipasm
+cargo run -- render examples/scenic-sequence.clipasm
 ```
 
-A root program may declare inputs and scalar parameters:
+`validate` parses, type-checks, and infers every source-independent domain.
+`inspect` prints the compiled JSON document. `render` performs
+preflight and writes `examples/generated/scenic-sequence.mp4` together with its
+manifest and cache data.
 
-```clipasm
-clipasm 1
+Continue with the
+[first-render guide](docs/getting-started/first-render.md) or the
+[scenic-sequence tutorial](docs/tutorials/scenic-sequence.md).
 
-input video: Video
-param range: TimeRange
-param count: Integer
+## How ClipAsm handles media
 
-trim($video, $range)
-repeat($count)
-```
+ClipAsm keeps authored intent separate from media execution:
 
-```console
-cargo run -- render template.clipasm \
-  --video-input video=footage.mp4 \
-  --arg range=3s..8s \
-  --arg count=2 \
-  --output final.mp4
-```
+1. **Compilation** parses and checks the complete source package, evaluates its
+   stack programs, and creates a semantic graph without opening media files.
+2. **Preflight** resolves reachable assets and tools, probes media, and lowers
+   the graph into an exact prepared plan.
+3. **Rendering** executes that plan, caches verified intermediate artifacts,
+   and publishes the configured MP4 and manifest.
 
-CLI-supplied media, `File` parameters, and output overrides resolve from the
-caller's working directory. Paths written in source resolve from the `.clipasm`
-file containing them. Rendering writes the MP4, a versioned sibling manifest,
-and content-hashed cached intermediates under `.clipasm/cache/` beside the
-entrypoint source. Cache sidecars detect accidental artifact substitution; the
-cache is trusted local state, not an authenticated shared-cache boundary. The
-manifest records render identity and media/tool summaries without embedding
-local source or executable paths.
+See [Compilation, preflight, and rendering](docs/concepts/pipeline.md) for an
+accessible explanation and [Architecture](docs/architecture.md) for the
+maintainer-level phase model.
+
+## External programs are trusted code
+
+An imported source program may delegate its implementation to an executable.
+Compilation remains pure, but preflight resolves and hashes that executable and
+rendering runs it as trusted code. Review external declarations and their
+referenced files before rendering source you do not trust. The
+[external-program guide](docs/guides/external-programs.md) describes the
+workflow and trust boundary. The committed external-program example additionally
+requires Python 3 on `PATH`.
 
 ## Documentation
 
-- [Language reference](docs/language-reference.md)
-- [Runnable examples](docs/examples.md)
-- [Architecture](docs/architecture.md)
-- [Architecture decisions](docs/adr/)
-- [Settled terminology and semantics](CONTEXT.md)
-- [Development change guide](docs/development/change-guide.md)
-- [Contributing](CONTRIBUTING.md)
-- [Published book](https://nikitamgrimm.github.io/clipasm/)
+The [published ClipAsm guide](https://nikitamgrimm.github.io/clipasm/) is the
+main documentation entry point.
+
+- **Learn ClipAsm:** start with
+  [your first render](docs/getting-started/first-render.md), then work through
+  the [scenic sequence](docs/tutorials/scenic-sequence.md) and
+  [reusable composition](docs/tutorials/reusable-composition.md).
+- **Complete a task:** learn how to
+  [validate and inspect](docs/guides/validate-and-inspect.md),
+  [supply root inputs and parameters](docs/guides/root-inputs-and-parameters.md),
+  [import a source program](docs/guides/import-a-program.md), or
+  [review and run an external program](docs/guides/external-programs.md). Start
+  with [troubleshooting](docs/guides/troubleshooting.md) when a command fails.
+- **Look up exact behavior:** use the
+  [command-line reference](docs/reference/cli.md), normative
+  [language reference](docs/language-reference.md), and the
+  [runnable examples catalog](docs/examples.md).
+- **Understand the design:** read the
+  [concept explanations](docs/concepts/pipeline.md),
+  [architecture](docs/architecture.md), and
+  [architecture decision index](docs/adr/index.md).
+- **Contribute:** follow [Contributing](CONTRIBUTING.md), use the
+  [change guide](docs/development/change-guide.md), and keep documentation
+  consistent with the [documentation maintenance guide](docs/development/documentation.md).
+
+`CONTEXT.md` owns settled domain language and authoring semantics. The language
+reference owns public syntax and behavior, while Architecture and the ADRs
+describe maintainer internals and durable design decisions.
 
 ## Development
+
+Full contributor verification requires mdBook, FFmpeg, and FFprobe in addition
+to Rust:
 
 ```console
 ./scripts/check.sh
 ```
 
-## Repository history
+AI-assisted contributions are welcome under the responsibility and review
+requirements in [AI_POLICY.md](AI_POLICY.md).
 
-![Rust source lines over main history](https://nikitamgrimm.github.io/clipasm/loc-history.svg)
+Report possible vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).
 
-[Open the repository history chapter](https://nikitamgrimm.github.io/clipasm/repository-history.html).
+The published book also includes the
+[repository history chart](https://nikitamgrimm.github.io/clipasm/repository-history.html).

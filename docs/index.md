@@ -1,15 +1,67 @@
-# ClipAsm
+# The ClipAsm guide
 
-ClipAsm is a typed, stack-based language for building Video and Audio graphs.
-The native `.clipasm` loader lowers source into an internal authored model; the
-compiler then creates a pure semantic graph, preflight resolves reachable media
-and tools, and the renderer produces verified cached artifacts and an MP4.
+This guide is for people deciding whether ClipAsm fits a media workflow,
+learning to render their first program, looking up exact language behavior, or
+changing the project safely. ClipAsm is pre-release software, so its language,
+file formats, Rust API, and CLI may change without compatibility guarantees.
 
-Start with:
+ClipAsm is a typed, stack-based language for assembling Video and Audio graphs.
+Compilation creates a pure semantic graph without opening media files;
+preflight resolves reachable media and tools; rendering uses FFmpeg to produce
+the configured MP4 and FFprobe to verify it.
 
-- the [language reference](language-reference.md) for syntax and stack rules;
-- the [examples](examples.md) for runnable programs;
-- the [architecture](architecture.md) for compiler phases;
-- the [change guide](development/change-guide.md) for implementation ownership.
+## Recommended learning path
 
-The generated rustdoc is the API reference for embedding ClipAsm in Rust.
+1. [Check the requirements and complete a first render](getting-started/first-render.md).
+2. [Build the scenic sequence](tutorials/scenic-sequence.md) to learn the
+   configuration, values, and `glue` body as they become useful.
+3. [Build a reusable composition](tutorials/reusable-composition.md) to work
+   with names, references, and composition.
+4. Choose a task guide or concept below as your next project requires it.
+
+Each tutorial uses committed source and assets from the repository. The
+[examples catalog](examples.md) collects the programs and their exact commands.
+
+## Find what you need
+
+To accomplish a specific task:
+
+- [Validate and inspect a source file](guides/validate-and-inspect.md).
+- [Supply root inputs and parameters](guides/root-inputs-and-parameters.md).
+- [Import and call a source program](guides/import-a-program.md).
+- [Review and run an external program](guides/external-programs.md).
+- [Diagnose common failures](guides/troubleshooting.md).
+
+To look up exact behavior, use the
+[command-line reference](reference/cli.md) and normative
+[language reference](language-reference.md). To build a mental model first,
+read about:
+
+- [compilation, preflight, and rendering](concepts/pipeline.md);
+- [stack values, ownership, and visibility](concepts/stack-values.md);
+- [source programs and imports](concepts/source-programs-and-imports.md);
+- [pure compilation and external-program trust](concepts/external-programs-and-trust.md).
+
+## Public language and maintainer internals
+
+The language reference specifies public `.clipasm` syntax and behavior.
+Tutorials, task guides, and concept pages teach or summarize that behavior and
+link back to the reference instead of redefining it.
+
+The [architecture](architecture.md) describes internal phase responsibilities.
+The [architecture decision index](adr/index.md) records durable design choices,
+and the [change guide](development/change-guide.md) routes implementation work
+to its canonical owners. These pages are primarily for contributors,
+maintainers, and coding agents rather than prerequisites for using the
+language.
+
+## Contributing
+
+Start with the repository's
+[contribution workflow](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
+Documentation contributors should also read the
+[documentation maintenance guide](development/documentation.md). The
+[AI contribution policy](https://github.com/NikitaMGrimm/clipasm/blob/main/AI_POLICY.md)
+allows assisted work while keeping a human accountable for every submitted
+change. Report possible vulnerabilities through the repository's
+[security policy](https://github.com/NikitaMGrimm/clipasm/blob/main/SECURITY.md).

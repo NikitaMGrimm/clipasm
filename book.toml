@@ -1,6 +1,6 @@
 [book]
 title = "ClipAsm"
-description = "The ClipAsm language and architecture guide"
+description = "Learn, use, and contribute to ClipAsm"
 authors = ["ClipAsm contributors"]
 language = "en"
 src = "docs"
@@ -14,3 +14,7 @@ create-missing = false
 
 [output.html.playground]
 runnable = false
+
+[output.html.fold]
+enable = true
+level = 1

@@ -247,10 +247,11 @@ clip {
 $opening
 ```
 
-It lowers in memory to a visible user operation backed by `glue`, followed by a
-hidden owned cleanup. Diagnostics and explain output name the authored `clip`;
-generated helper names are not exposed. An explicit access modifier applies to
-the generated `glue`, while cleanup remains owned.
+It lowers in memory to a user-attributed operation backed by `glue`, followed by
+a hidden owned cleanup. Diagnostics and explain output name the authored
+`clip`; generated helper names are not exposed. The generated `glue` defaults
+to owned stack access; an explicit access modifier applies to it, while cleanup
+remains owned.
 
 ## Built-in programs
 

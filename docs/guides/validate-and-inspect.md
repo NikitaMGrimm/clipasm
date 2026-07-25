@@ -1,0 +1,58 @@
+# Validate and inspect a program
+
+Use validation while editing a source package, then inspect its compiled JSON
+document when you need to understand what compilation produced. Neither command
+opens media files, probes media, invokes FFmpeg or FFprobe, or executes an
+external program.
+
+This guide uses the committed scenic-sequence example. Run all commands from the
+repository root.
+
+## Validate the source package
+
+```console
+cargo run -- validate examples/scenic-sequence.clipasm
+```
+
+Validation parses and checks the complete source package, evaluates its stack
+programs, and infers every domain available from authored data. A successful
+result confirms that the source is well formed and type-correct. It does not
+confirm that authored media paths exist or that the tools needed for rendering
+are available.
+
+If validation fails, start with the reported source location and construct.
+Fix that error before inspecting or rendering the program.
+
+## Inspect the compiled JSON document
+
+```console
+cargo run -- inspect examples/scenic-sequence.clipasm
+```
+
+Inspection prints a downstream serialization of compiled semantics as JSON.
+It is not canonical source or an authoring format. The useful categories are:
+
+- project Video and Audio settings;
+- semantic graph nodes, their operations, and value types;
+- source-independent Video frame or Audio sample domains;
+- ordered source-program outputs and named values;
+- source origins and the authored operations represented by the graph;
+- the configured publication output, when one is declared.
+
+Use this structure to confirm, for example, that three authored images feed one
+concatenation and that the resulting Video is the source program's output.
+Inspection is a view of compilation, not a prepared plan or a preview of
+rendered media.
+
+## Continue to rendering
+
+Run `render` only when you are ready for preflight to resolve assets and tools:
+
+```console
+cargo run -- render examples/scenic-sequence.clipasm
+```
+
+For the phase boundaries, read
+[Compilation, preflight, and rendering](../concepts/pipeline.md). See the
+[language reference](../language-reference.md) for exact language behavior and
+the [examples catalog](../examples.md) for more programs to validate.

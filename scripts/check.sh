@@ -18,4 +18,5 @@ cargo test --all-targets
 cargo test --doc
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 mdbook build
+python3 scripts/check_docs.py
 git diff --check

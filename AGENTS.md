@@ -24,3 +24,4 @@ documents rather than reconstructing decisions from code or prior conversation.
 - Local issue workflow: `docs/agents/issue-tracker.md`
 - Triage roles: `docs/agents/triage-labels.md`
 - Domain-document conventions: `docs/agents/domain.md`
+- Documentation work: `docs/agents/documentation.md`
