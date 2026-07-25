@@ -19,7 +19,7 @@ predict.
 
 ## Decision
 
-A built-in may declare one closed type parameter constrained to the current
+A built-in may declare one closed Video-or-Audio type selector over the current
 semantic value types. The compiler resolves that parameter once per invocation
 and stores the concrete input and output signature in checked source. The
 binder, evaluator, and program implementation receive only concrete types.
@@ -60,7 +60,7 @@ Inference narrows the closed Video-or-Audio domain monotonically and retries
 deferred stack choices when later constraints make progress. A concrete stack
 input skips values that cannot match and defers when a nearer unresolved value
 could change the selected occurrence. A unary generic input selects the nearest
-accessible value whose complete domain satisfies its constraint, so normal
+accessible value whose complete domain is Video or Audio, so normal
 proximity remains deterministic even before its concrete type is known.
 `type:` remains necessary for genuine broad-stack ambiguity, deliberate typed
 selection, or an irreducible inference dependency. Dependency cycles remain
@@ -88,5 +88,5 @@ defensive boundary.
 - Existing Video operation identities remain unchanged.
 - Mixed stacks remain explicit at broad variadic reductions.
 - Checked source, rather than runtime evaluation, owns generic type resolution.
-- The descriptor model gains one small closed type parameter instead of a
-  general-purpose generic type system.
+- The descriptor model carries one optional closed type selector instead of a
+  general-purpose generic type system or a speculative constraint hierarchy.

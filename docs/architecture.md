@@ -75,7 +75,7 @@ plan, evaluates checked inline input bodies on isolated evaluation stacks, and
 materializes the ordinary resolved-call interface consumed by program
 implementations. Root values supplied by a CLI or another host after source
 checking use a dedicated entrypoint adapter. The checker
-resolves the single closed type parameter used by type-preserving built-ins and
+resolves the single closed Video-or-Audio selector used by type-preserving built-ins and
 stores the resulting concrete signature in checked source. A body-inferred
 program such as bare `glue` contributes its homogeneous owned body outputs to
 that same inference, including when the result is named or referenced before
@@ -111,9 +111,11 @@ layout.
 All programs are runtime `ProgramDefinition` values in one crate-private
 catalog. Each definition contains typed inputs, typed parameters, an ordered
 output sequence, a semantic version, and an explicit default stack access.
-Implementations are built-in direct lowerers, built-in body preparers,
-authored source programs, or registered external processes. Body programs
-additionally expose a declarative body contract used by common type inference.
+Implementations are built-in direct lowerers, body implementations that own
+their preparer and declarative body contract, authored source programs, or
+external implementations that own their runtime specification. Implementation-
+specific data is carried by the applicable variant rather than optional
+sidecars on every definition.
 
 Direct programs lower immediately. Body programs prepare initial values and a
 requested-duration context. Their resolved fixed graph inputs are exposed in
@@ -125,17 +127,18 @@ that frame in physical order, and gives them to a program-owned finalizer that
 returns the
 definition's declared output sequence.
 
-An authored program uses the same caller-side binder. Its invocation then
-opens an isolated local scope and empty local stack. Bound graph inputs and
+An authored program receives the same concrete resolved-call interface. Its
+invocation opens an isolated local scope and empty local stack. Bound graph inputs and
 scalar parameters become immutable local bindings. Local clips and `id`/`ids`
 bindings do not escape; only the complete ordered final owned values return to the caller. Internal references use typed symbol identities, while public root
 names remain a separate compiled interface.
 
-External root bindings enter compilation through `EntrypointBindings`. A bound
-root Video input is adapted to an isolated canonical body invoking the native
-`video` program, then evaluated and bound through the ordinary program catalog,
-call binder, and type checks. Scalar text is converted by the shared parameter
-binder. Binding spans carry the caller's path base, so the CLI can resolve
+External root bindings enter compilation through `EntrypointBindings` after
+checked-source construction. The adapter validates names and concrete checked
+input/parameter types directly, lowers bound Video paths through the registered
+native `video` implementation, and constructs the root resolved call without
+reconstructing canonical source. Scalar text uses the same parameter conversion
+module as authored literals. Binding spans carry the caller's path base, so the CLI can resolve
 supplied media, `File` parameters, and output destinations from its working
 directory without rewriting authored source.
 

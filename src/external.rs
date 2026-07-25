@@ -12,7 +12,7 @@ use crate::program::{
 use crate::source::{SourceFile, SourceSpan, Spanned};
 
 pub(crate) const EXTERNAL_PROTOCOL_VERSION: u32 = 1;
-const EXTERNAL_MANIFEST_FORMAT_VERSION: u32 = 1;
+const EXTERNAL_MANIFEST_FORMAT_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]

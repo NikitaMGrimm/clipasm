@@ -138,7 +138,7 @@ The initial JSON manifest format is:
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "protocol_version": 1,
   "semantic_version": 1,
   "command": "./brighten.py",
@@ -161,10 +161,9 @@ Video input whose exact frame domain and meaningful-audio state the output must
 retain.
 
 External calls use ordinary explicit and implicit input binding, parameter
-validation, stack access, IDs, references, and output checks. YAML currently
-uses the full mapping form because its external descriptors are discovered from
-the same header; manifest `primary_parameter` metadata is available to other
-frontends but does not add YAML scalar shorthand.
+validation, stack access, IDs, references, and output checks. YAML uses the full mapping form for external programs. Invocation shorthand is
+frontend-owned metadata and is not part of the external manifest or shared
+program descriptor.
 
 Validation and compilation read the manifest but do not resolve or execute its
 command. Preflight resolves the executable and records a content hash. Rendering

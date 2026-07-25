@@ -24,7 +24,6 @@ pub(crate) fn image() -> ProgramDefinition {
                 parameter("duration", ParameterType::Duration, false),
                 fit_parameter(),
             ],
-            Some("path"),
         ),
         lower_image,
     )
@@ -40,7 +39,6 @@ pub(crate) fn video_source() -> ProgramDefinition {
                 parameter("path", ParameterType::File, true),
                 fit_parameter(),
             ],
-            Some("path"),
         ),
         lower_video,
     )
@@ -114,7 +112,6 @@ pub(crate) fn concat() -> ProgramDefinition {
             "values",
             Cardinality::Variadic { min: 1 },
             vec![type_selector()],
-            Some("type"),
             true,
         ),
         lower_concat,
@@ -132,7 +129,6 @@ pub(crate) fn repeat() -> ProgramDefinition {
                 parameter("count", ParameterType::Integer, true),
                 type_selector(),
             ],
-            Some("count"),
             true,
         ),
         lower_repeat,
@@ -150,7 +146,6 @@ pub(crate) fn trim() -> ProgramDefinition {
                 parameter("range", ParameterType::TimeRange, true),
                 type_selector(),
             ],
-            Some("range"),
             true,
         ),
         lower_trim,
@@ -165,7 +160,6 @@ pub(crate) fn drop_value() -> ProgramDefinition {
             "value",
             Cardinality::One,
             vec![type_selector()],
-            Some("type"),
             false,
         ),
         lower_drop,
@@ -179,7 +173,6 @@ pub(crate) fn zoom() -> ProgramDefinition {
             3,
             vec![input("video", Cardinality::One)],
             vec![parameter("percent", ParameterType::Integer, false)],
-            Some("percent"),
         ),
         lower_zoom,
     )
@@ -192,7 +185,6 @@ pub(crate) fn wobble() -> ProgramDefinition {
             2,
             vec![input("video", Cardinality::One)],
             vec![parameter("pixels", ParameterType::Integer, false)],
-            Some("pixels"),
         ),
         lower_wobble,
     )
@@ -208,7 +200,6 @@ pub(crate) fn flash() -> ProgramDefinition {
                 input("after", Cardinality::One),
             ],
             vec![parameter("frames", ParameterType::Integer, false)],
-            Some("frames"),
         ),
         lower_flash,
     )
@@ -219,7 +210,6 @@ fn descriptor(
     semantic_version: u32,
     inputs: Vec<InputPort>,
     parameters: Vec<ParameterDescriptor>,
-    _primary_parameter: Option<&str>,
 ) -> ProgramDescriptor {
     ProgramDescriptor {
         name: name.to_owned(),
@@ -239,7 +229,6 @@ fn generic_descriptor(
     input_name: &str,
     cardinality: Cardinality,
     parameters: Vec<ParameterDescriptor>,
-    _primary_parameter: Option<&str>,
     has_output: bool,
 ) -> ProgramDescriptor {
     ProgramDescriptor {

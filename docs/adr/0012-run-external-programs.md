@@ -36,7 +36,7 @@ and may not collide with built-ins or authored imports.
 
 The initial manifest and protocol are deliberately closed:
 
-- JSON manifest format version 1;
+- JSON manifest format version 2;
 - process protocol version 1;
 - fixed Video or Audio inputs;
 - Integer and Keyword parameters;

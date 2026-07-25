@@ -26,7 +26,6 @@ pub(crate) fn join() -> ProgramDefinition {
             },
             count_error_code: "E_EMPTY_JOIN",
         },
-        false,
     )
 }
 
@@ -42,7 +41,6 @@ pub(crate) fn glue() -> ProgramDefinition {
             },
             count_error_code: "E_EMPTY_GLUE",
         },
-        false,
     )
 }
 
@@ -57,7 +55,6 @@ pub(crate) fn during() -> ProgramDefinition {
                 parameter_type: ParameterType::TimeRange,
                 required: true,
             }],
-            Some("range"),
         ),
         prepare_during,
         BodyContract {
@@ -65,7 +62,6 @@ pub(crate) fn during() -> ProgramDefinition {
             outputs: BodyOutputConstraint::Exactly(vec![VIDEO.into()]),
             count_error_code: "E_BODY_OUTPUT_COUNT",
         },
-        true,
     )
 }
 
@@ -106,7 +102,6 @@ fn descriptor(
     semantic_version: u32,
     inputs: Vec<InputPort>,
     parameters: Vec<ParameterDescriptor>,
-    _primary_parameter: Option<&str>,
 ) -> ProgramDescriptor {
     ProgramDescriptor {
         name: name.to_owned(),
@@ -131,7 +126,6 @@ fn body(
     descriptor: ProgramDescriptor,
     prepare: crate::program::BodyPrepareFn,
     body_contract: BodyContract,
-    _postfix: bool,
 ) -> ProgramDefinition {
     ProgramDefinition {
         descriptor,

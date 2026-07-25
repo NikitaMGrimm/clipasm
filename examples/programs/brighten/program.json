@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "protocol_version": 1,
   "semantic_version": 1,
   "command": "./brighten.py",
@@ -9,6 +9,5 @@
   "parameters": [
     {"name": "amount", "type": "Integer", "required": true}
   ],
-  "primary_parameter": "amount",
   "output": {"type": "Video", "preserve": "video"}
 }

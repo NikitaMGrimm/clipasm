@@ -662,9 +662,7 @@ mod tests {
         name: &str,
         inputs: Vec<InputPort>,
         parameters: Vec<ParameterDescriptor>,
-        _primary_parameter: Option<&str>,
         implementation: ProgramImplementation,
-        _postfix: Option<()>,
     ) -> ProgramDefinition {
         ProgramDefinition {
             descriptor: ProgramDescriptor {
@@ -687,17 +685,13 @@ mod tests {
                 "duplicate",
                 vec![],
                 vec![],
-                None,
                 ProgramImplementation::Direct(direct_stub),
-                None,
             ),
             definition(
                 "duplicate",
                 vec![],
                 vec![],
-                None,
                 ProgramImplementation::Direct(direct_stub),
-                None,
             ),
         ];
         let error = ProgramRegistry::from_definitions(definitions).expect_err("duplicate");
@@ -711,9 +705,7 @@ mod tests {
                 name,
                 vec![],
                 vec![],
-                None,
                 ProgramImplementation::Direct(direct_stub),
-                None,
             )];
             ProgramRegistry::from_definitions(definitions).expect("ordinary program name");
         }
@@ -737,9 +729,7 @@ mod tests {
             "mixed",
             ports,
             vec![],
-            None,
             ProgramImplementation::Direct(direct_stub),
-            None,
         )];
         ProgramRegistry::from_definitions(definitions).expect_err("mixed cardinalities");
     }

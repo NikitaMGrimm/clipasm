@@ -714,7 +714,7 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     fs::write(
         directory.path().join("effect.json"),
         r#"{
-  "format_version": 1,
+  "format_version": 2,
   "protocol_version": 1,
   "semantic_version": 1,
   "command": "./effect.py",

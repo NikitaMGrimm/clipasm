@@ -34,14 +34,14 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Change canonical source semantics | `src/source`, compiler | every frontend, source-body contracts, [architecture](../architecture.md), semantic identity |
 | Change checked-source construction | `src/compiler/draft.rs`, `src/compiler/check.rs`, `src/compiler/checked.rs` | linked-program validation, argument roles, output inference, evaluator interface, every frontend through canonical source |
 | Change YAML source-program or header syntax | `src/frontend/yaml` | canonical lowering, examples, [YAML frontend reference](../workflow-reference.md), [ADR 0005](../adr/0005-treat-source-files-as-programs.md) |
-| Change inline input syntax or evaluation | frontend, `src/compiler/bind.rs`, `src/compiler/evaluate.rs` | descriptor-order binding, isolated-stack tests, requested-frame inheritance, global IDs and dependencies |
+| Change inline input syntax or evaluation | frontend, `src/compiler/check.rs`, `src/compiler/evaluate.rs` | descriptor-order checking, isolated-stack tests, requested-frame inheritance, global IDs and dependencies |
 | Add a direct program | `src/program/builtins/direct.rs`, registry | normalization, binding, domains, [YAML frontend reference](../workflow-reference.md), semantic version |
 | Add a body program | `src/program/builtins/body.rs`, registry | body syntax, stack contract, finalizer tests, [YAML frontend reference](../workflow-reference.md) |
 | Change an existing program | its definition and lowerer/finalizer | semantic version, domain tests, [YAML frontend reference](../workflow-reference.md), hashes |
 | Change YAML syntax | `src/frontend/yaml` | canonical-source tests, compiler contracts, examples, [YAML frontend reference](../workflow-reference.md) |
 | Add a frontend | `src/frontend`, `src/source` | canonical equivalence tests, source locations, relative paths, CLI selection |
 | Change compiled JSON | `src/format/json.rs` | format version, compiler contracts, [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md) |
-| Change call or stack binding | `src/compiler/bind.rs` | direct/body contracts, explicit inputs, variadics, stack diagnostics |
+| Change call or stack binding | `src/compiler/check.rs`, `src/compiler/stack.rs`, `src/compiler/entrypoint.rs` | checked argument plans, root bindings, direct/body contracts, variadics, stack diagnostics |
 | Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |

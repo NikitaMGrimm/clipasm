@@ -9,7 +9,7 @@ fn write_manifest(directory: &std::path::Path, command: &str) {
         directory.join("effect.json"),
         format!(
             r#"{{
-  "format_version": 1,
+  "format_version": 2,
   "protocol_version": 1,
   "semantic_version": 1,
   "command": {command:?},
