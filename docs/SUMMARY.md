@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](index.md)
+[Repository history](repository-history.md)
 
 # Language
 

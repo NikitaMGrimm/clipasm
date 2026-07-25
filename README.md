@@ -90,6 +90,7 @@ beside the entrypoint source.
 
 ## Documentation
 
+- [Read the ClipAsm book](https://nikitamgrimm.github.io/clipasm/)
 - [YAML frontend reference](docs/workflow-reference.md)
 - [Architecture](docs/architecture.md)
 - [Architecture decisions](docs/adr/)
@@ -108,4 +109,4 @@ beside the entrypoint source.
 
 ![Rust source lines over main history](https://nikitamgrimm.github.io/clipasm/loc-history.svg)
 
-[Open the full history chart](https://nikitamgrimm.github.io/clipasm/).
+[Open the repository history chapter](https://nikitamgrimm.github.io/clipasm/repository-history.html).
