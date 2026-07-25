@@ -20,9 +20,10 @@ pub(super) enum LocalType {
 }
 
 pub(super) use super::checked::{
-    BodyInputId, CheckedBody, CheckedClip, CheckedInputValue, CheckedItem, CheckedItemKind,
-    CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
-    CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget, ValueLocalId,
+    BodyInputId, CheckedBody, CheckedClip, CheckedInputValue, CheckedInvocation, CheckedItem,
+    CheckedItemKind, CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter,
+    CheckedParameterValue, CheckedProgram, CheckedProgramInput, ParameterId, ReferenceTarget,
+    ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -621,7 +622,7 @@ fn materialize_body(
                     definitions,
                     invocations,
                 )?;
-                let mut body_input_ids = BTreeMap::new();
+                let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
                 let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_)
                     | ProgramImplementation::Authored(_)
@@ -630,17 +631,18 @@ fn materialize_body(
                         let body = invocation.body.as_deref().expect("draft body program");
                         let mut body_local_types = lexical_types.clone();
                         let mut body_lexical_ids = lexical_ids.clone();
-                        for (port, value_type) in definition
+                        for (index, (port, value_type)) in definition
                             .descriptor
                             .inputs
                             .iter()
                             .zip(&resolved.signature.inputs)
+                            .enumerate()
                         {
                             if !matches!(port.cardinality, Cardinality::One) {
                                 continue;
                             }
                             let id = allocate_body_input(body_input_count, &item.span)?;
-                            body_input_ids.insert(port.name.clone(), id);
+                            body_input_ids[index] = Some(id);
                             body_local_types.insert(port.name.clone(), *value_type);
                             body_lexical_ids.insert(port.name.clone(), id);
                         }
@@ -665,7 +667,7 @@ fn materialize_body(
                         &resolved.signature.outputs,
                         local_ids,
                     )?,
-                    kind: CheckedItemKind::Invocation {
+                    kind: CheckedItemKind::Invocation(CheckedInvocation {
                         program: invocation.program,
                         signature: resolved.signature.clone(),
                         access: invocation.access,
@@ -674,7 +676,7 @@ fn materialize_body(
                         parameters: validated.parameters,
                         body: checked_body,
                         body_input_ids,
-                    },
+                    }),
                 }
             }
         };

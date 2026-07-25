@@ -4,15 +4,15 @@ use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation, ResolvedCall,
-    ResolvedInput, ResolvedSignature, ValueTypeSpec,
+    ResolvedInput, ValueTypeSpec,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
 use crate::source::{SourceSpan, SourceUnitId, Spanned};
 
 use super::EntrypointBindings;
 use super::checked::{
-    CheckedBody, CheckedInputValue, CheckedItem, CheckedItemKind, CheckedPackage,
-    CheckedParameterValue, CheckedProgram, ReferenceTarget,
+    CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
+    CheckedPackage, CheckedParameterValue, CheckedProgram, ReferenceTarget,
 };
 
 use super::stack::{EvaluationStack, StackFrame};
@@ -98,6 +98,13 @@ struct EvalScope {
     local_symbols: Vec<SymbolId>,
     body_inputs: Vec<Option<ValueRef>>,
     parameters: Vec<Spanned<crate::program::ParameterValue>>,
+}
+
+#[derive(Clone, Copy)]
+struct InvocationSite<'a> {
+    construct: &'a str,
+    span: &'a SourceSpan,
+    requested_frames: Option<FrameCount>,
 }
 
 impl Evaluator {
@@ -277,32 +284,17 @@ impl Evaluator {
             CheckedItemKind::Reference { target } => {
                 vec![self.evaluate_checked_reference(context, *target, &checked.span, scope)?]
             }
-            CheckedItemKind::Invocation {
-                program,
-                signature,
-                access,
-                stack_plan,
-                inputs,
-                parameters,
-                body,
-                body_input_ids,
-                ..
-            } => self.evaluate_invocation(
+            CheckedItemKind::Invocation(invocation) => self.evaluate_invocation(
                 context,
-                &checked.construct,
-                *program,
-                signature,
-                *access,
-                stack_plan,
-                inputs,
-                parameters,
-                body.as_deref(),
-                body_input_ids,
+                invocation,
+                InvocationSite {
+                    construct: &checked.construct,
+                    span: &checked.span,
+                    requested_frames,
+                },
                 scope,
                 stack,
                 frame,
-                requested_frames,
-                &checked.span,
             )?,
         };
         debug_assert_eq!(outputs.len(), checked.outputs.len());
@@ -355,26 +347,23 @@ impl Evaluator {
         }
     }
 
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
         context: &EvaluationContext<'_>,
-        construct: &str,
-        program: crate::program::ProgramId,
-        signature: &ResolvedSignature,
-        access: crate::program::StackAccess,
-        stack_plan: &super::stack::StackBindingPlan,
-        checked_inputs: &[Option<CheckedInputValue>],
-        checked_parameters: &[Option<CheckedParameterValue>],
-        checked_body: Option<&CheckedBody>,
-        body_input_ids: &BTreeMap<String, super::check::BodyInputId>,
+        invocation: &CheckedInvocation,
+        site: InvocationSite<'_>,
         scope: &mut EvalScope,
         stack: &mut EvaluationStack,
         frame: &mut StackFrame,
-        requested_frames: Option<FrameCount>,
-        span: &SourceSpan,
     ) -> Result<Vec<ValueRef>> {
-        let definition = context.registry.definition(program);
+        let construct = site.construct;
+        let span = site.span;
+        let requested_frames = site.requested_frames;
+        let definition = context.registry.definition(invocation.program);
+        let signature = &invocation.signature;
+        let checked_inputs = &invocation.inputs;
+        let checked_parameters = &invocation.parameters;
         let origin = SourceOrigin::new(construct, span.clone());
         debug_assert_eq!(signature.inputs.len(), checked_inputs.len());
         debug_assert_eq!(definition.descriptor.inputs.len(), checked_inputs.len());
@@ -398,7 +387,7 @@ impl Evaluator {
                 )?);
             }
         }
-        for bound in stack.apply_binding_plan(stack_plan) {
+        for bound in stack.apply_binding_plan(&invocation.stack_plan) {
             debug_assert!(slots[bound.port.index()].is_none());
             slots[bound.port.index()] = Some(bound.values);
         }
@@ -472,8 +461,10 @@ impl Evaluator {
                 lower(&call, &mut builder)?
             }
             ProgramImplementation::Body { prepare, .. } => {
-                let checked_body =
-                    checked_body.expect("checked body program has checked body metadata");
+                let checked_body = invocation
+                    .body
+                    .as_deref()
+                    .expect("checked body program has checked body metadata");
                 let plan = {
                     let mut builder = GraphBuilder::for_program(
                         &mut self.nodes,
@@ -485,23 +476,34 @@ impl Evaluator {
                 };
                 let mut child = EvaluationStack::<ValueRef>::enter_body(
                     frame,
-                    access,
+                    invocation.access,
                     definition.descriptor.name.clone(),
                     span.clone(),
                 );
                 stack.extend(&child, plan.initial_values);
-                let mut bound_body_inputs = Vec::with_capacity(body_input_ids.len());
-                for port in definition
-                    .descriptor
-                    .inputs
-                    .iter()
-                    .filter(|port| matches!(port.cardinality, crate::program::Cardinality::One))
-                {
-                    let id = body_input_ids[&port.name];
-                    let previous =
-                        scope.body_inputs[id.index()].replace(call.one_input(&port.name)?);
+                debug_assert_eq!(
+                    invocation.body_input_ids.len(),
+                    definition.descriptor.inputs.len()
+                );
+                let mut bound_body_inputs = Vec::with_capacity(invocation.body_input_ids.len());
+                for ((port, binding), id) in call.inputs().zip(&invocation.body_input_ids) {
+                    let Some(id) = id else {
+                        debug_assert!(matches!(port.cardinality, Cardinality::Variadic { .. }));
+                        continue;
+                    };
+                    let ResolvedInput::One(value) = binding else {
+                        return Err(Diagnostic::new(
+                            "E_INTERNAL_BINDING",
+                            format!(
+                                "body input `{}.{}` requires exactly one value",
+                                definition.descriptor.name, port.name
+                            ),
+                            span.clone(),
+                        ));
+                    };
+                    let previous = scope.body_inputs[id.index()].replace(*value);
                     debug_assert!(previous.is_none());
-                    bound_body_inputs.push(id);
+                    bound_body_inputs.push(*id);
                 }
                 self.evaluate_body(
                     context,

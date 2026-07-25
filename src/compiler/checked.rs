@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use crate::model::ValueType;
 use crate::program::{ParameterType, ProgramId, ProgramRegistry, ResolvedSignature};
 
@@ -89,18 +87,19 @@ pub(super) struct CheckedItem {
 }
 
 #[derive(Clone, Debug)]
+pub(super) struct CheckedInvocation {
+    pub(super) program: ProgramId,
+    pub(super) signature: ResolvedSignature,
+    pub(super) access: crate::program::StackAccess,
+    pub(super) stack_plan: StackBindingPlan,
+    pub(super) inputs: Vec<Option<CheckedInputValue>>,
+    pub(super) parameters: Vec<Option<CheckedParameterValue>>,
+    pub(super) body: Option<Box<CheckedBody>>,
+    pub(super) body_input_ids: Vec<Option<BodyInputId>>,
+}
+
+#[derive(Clone, Debug)]
 pub(super) enum CheckedItemKind {
-    Reference {
-        target: ReferenceTarget,
-    },
-    Invocation {
-        program: ProgramId,
-        signature: ResolvedSignature,
-        access: crate::program::StackAccess,
-        stack_plan: StackBindingPlan,
-        inputs: Vec<Option<CheckedInputValue>>,
-        parameters: Vec<Option<CheckedParameterValue>>,
-        body: Option<Box<CheckedBody>>,
-        body_input_ids: BTreeMap<String, BodyInputId>,
-    },
+    Reference { target: ReferenceTarget },
+    Invocation(CheckedInvocation),
 }
