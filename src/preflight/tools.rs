@@ -368,6 +368,95 @@ pub(super) fn verify_image_decodable(
 }
 
 #[derive(Deserialize)]
+struct AudioFrameProbeDocument {
+    #[serde(default)]
+    frames: Vec<AudioFrameProbe>,
+}
+
+#[derive(Deserialize)]
+struct AudioFrameProbe {
+    nb_samples: Option<u64>,
+}
+
+pub(crate) fn decoded_audio_samples(
+    ffprobe: &Path,
+    path: &Path,
+    span: &SourceSpan,
+    contract_code: &'static str,
+) -> Result<u64> {
+    let output = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_frames",
+            "-show_entries",
+            "frame=nb_samples",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            Diagnostic::new(
+                "E_FFPROBE",
+                format!(
+                    "could not count decoded audio samples in `{}`: {error}",
+                    path.display()
+                ),
+                span.clone(),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(Diagnostic::new(
+            contract_code,
+            format!(
+                "FFprobe could not count decoded audio samples in `{}`\n{}",
+                path.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            span.clone(),
+        ));
+    }
+    let document: AudioFrameProbeDocument =
+        serde_json::from_slice(&output.stdout).map_err(|error| {
+            Diagnostic::new(
+                contract_code,
+                format!(
+                    "FFprobe returned invalid audio frame metadata for `{}`: {error}",
+                    path.display()
+                ),
+                span.clone(),
+            )
+        })?;
+    let mut samples = 0_u64;
+    for frame in document.frames {
+        let count = frame.nb_samples.ok_or_else(|| {
+            Diagnostic::new(
+                contract_code,
+                format!(
+                    "FFprobe omitted a decoded audio sample count for `{}`",
+                    path.display()
+                ),
+                span.clone(),
+            )
+        })?;
+        samples = samples
+            .checked_add(count)
+            .ok_or_else(|| audio_duration_overflow(span))?;
+    }
+    if samples == 0 {
+        return Err(Diagnostic::new(
+            contract_code,
+            format!("audio `{}` contains no decoded samples", path.display()),
+            span.clone(),
+        ));
+    }
+    Ok(samples)
+}
+
+#[derive(Deserialize)]
 struct VideoProbeDocument {
     #[serde(default)]
     streams: Vec<VideoProbeStream>,
@@ -434,24 +523,8 @@ pub(super) fn verify_audio_decodable(
                 span.clone(),
             )
         })?;
-    let (duration_numerator, duration_denominator) = video_duration(stream).ok_or_else(|| {
-        Diagnostic::new(
-            "E_SOURCE_CONTRACT",
-            format!(
-                "audio `{}` does not expose a usable duration",
-                path.display()
-            ),
-            span.clone(),
-        )
-    })?;
-    let numerator = duration_numerator
-        .checked_mul(u128::from(audio.sample_rate))
-        .ok_or_else(|| audio_duration_overflow(span))?;
-    let samples = numerator
-        .checked_add(duration_denominator - 1)
-        .ok_or_else(|| audio_duration_overflow(span))?
-        / duration_denominator;
-    let samples = u64::try_from(samples).map_err(|_| audio_duration_overflow(span))?;
+    let _ = stream;
+    let samples = decoded_audio_samples(ffprobe.executable(), path, span, "E_SOURCE_CONTRACT")?;
     let decode = Command::new(ffmpeg.executable())
         .args(["-v", "error", "-xerror", "-i"])
         .arg(path)

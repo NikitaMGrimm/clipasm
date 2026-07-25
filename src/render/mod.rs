@@ -7,6 +7,7 @@
 //! `FFmpeg` primitives, and publishes the MP4 and manifest as one in-process
 //! transaction.
 
+mod artifact;
 mod publication;
 
 use std::collections::BTreeMap;
@@ -17,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::EXTERNAL_PROTOCOL_VERSION;
@@ -29,6 +30,7 @@ use crate::preflight::{
     PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy, verify_prepared_asset,
 };
 use crate::source::SourceSpan;
+use artifact::{verify_prepared_artifact, verify_video_artifact};
 use publication::PublicationTransaction;
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -56,25 +58,6 @@ struct Manifest<'a> {
     cache_hits: usize,
     cache_misses: usize,
     plan: &'a PreparedPlan,
-}
-
-#[derive(Deserialize)]
-struct ProbeDocument {
-    streams: Vec<ProbeStream>,
-}
-
-#[derive(Deserialize)]
-struct ProbeStream {
-    codec_type: Option<String>,
-    width: Option<u32>,
-    height: Option<u32>,
-    pix_fmt: Option<String>,
-    r_frame_rate: Option<String>,
-    nb_read_frames: Option<String>,
-    start_time: Option<String>,
-    sample_aspect_ratio: Option<String>,
-    sample_rate: Option<String>,
-    channels: Option<u8>,
 }
 
 /// Render an invariant-protected prepared plan and publish its MP4 and manifest.
@@ -292,6 +275,7 @@ fn stage_export(
             domain,
             audio,
             has_audio,
+            false,
             media_policy.export_pixel_format(),
         )
     });
@@ -943,206 +927,6 @@ fn artifact<'a>(artifacts: &'a [PathBuf], id: NodeId, span: &SourceSpan) -> Resu
         })
 }
 
-#[allow(clippy::too_many_lines)]
-fn verify_prepared_artifact(
-    ffprobe: &Path,
-    path: &Path,
-    node: &PreparedNode,
-    audio: &AudioSpec,
-    pixel_format: &str,
-) -> Result<()> {
-    match node.value_type() {
-        ValueType::Video => {
-            verify_video_artifact(ffprobe, path, node.domain(), audio, true, pixel_format)
-        }
-        ValueType::Audio => verify_audio_artifact(ffprobe, path, node.audio_domain(), audio),
-        #[cfg(test)]
-        ValueType::Test => unreachable!("test values are not prepared"),
-    }
-}
-
-fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
-    let mut command = Command::new(ffprobe);
-    command
-        .args([
-            "-v",
-            "error",
-            "-count_frames",
-            "-show_streams",
-            "-of",
-            "json",
-        ])
-        .arg(path);
-    let output = run_output(command, "E_FFPROBE", &SourceSpan::file_start(path))?;
-    serde_json::from_slice(&output.stdout).map_err(|error| {
-        Diagnostic::new(
-            "E_ARTIFACT_CONTRACT",
-            format!(
-                "FFprobe returned invalid JSON for `{}`: {error}",
-                path.display()
-            ),
-            SourceSpan::file_start(path),
-        )
-    })
-}
-
-#[allow(clippy::too_many_lines)]
-fn verify_video_artifact(
-    ffprobe: &Path,
-    path: &Path,
-    domain: &VideoDomain,
-    audio: &AudioSpec,
-    expect_audio: bool,
-    pixel_format: &str,
-) -> Result<()> {
-    let document = probe_artifact(ffprobe, path)?;
-    let videos = document
-        .streams
-        .iter()
-        .filter(|stream| stream.codec_type.as_deref() == Some("video"))
-        .collect::<Vec<_>>();
-    let audios = document
-        .streams
-        .iter()
-        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
-        .collect::<Vec<_>>();
-    let expected_audio_count = usize::from(expect_audio);
-    if videos.len() != 1 || audios.len() != expected_audio_count {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected one video stream and {expected_audio_count} audio stream(s), found {} video and {} audio streams",
-                videos.len(),
-                audios.len()
-            ),
-        ));
-    }
-    let video = videos[0];
-    if video.width != Some(domain.width) || video.height != Some(domain.height) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected {}x{}, found {:?}x{:?}",
-                domain.width, domain.height, video.width, video.height
-            ),
-        ));
-    }
-    if video.pix_fmt.as_deref() != Some(pixel_format) {
-        return Err(contract_error(
-            path,
-            &format!("expected {pixel_format}, found {:?}", video.pix_fmt),
-        ));
-    }
-    let expected_rate = format!(
-        "{}/{}",
-        domain.frame_rate.numerator(),
-        domain.frame_rate.denominator()
-    );
-    if domain.frames.0 > 1 && video.r_frame_rate.as_deref() != Some(expected_rate.as_str()) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected frame rate {expected_rate}, found {:?}",
-                video.r_frame_rate
-            ),
-        ));
-    }
-    let actual_frames = video
-        .nb_read_frames
-        .as_deref()
-        .and_then(|value| value.parse::<u64>().ok());
-    if actual_frames != Some(domain.frames.0) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected {} frames, FFprobe counted {:?}",
-                domain.frames.0, actual_frames
-            ),
-        ));
-    }
-    verify_zero_start(path, video)?;
-    if video.sample_aspect_ratio.as_deref() != Some("1:1") {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected square pixels (1:1), found {:?}",
-                video.sample_aspect_ratio
-            ),
-        ));
-    }
-    if let Some(audio_stream) = audios.first() {
-        verify_audio_stream(path, audio_stream, audio)?;
-    }
-    Ok(())
-}
-
-fn verify_audio_artifact(
-    ffprobe: &Path,
-    path: &Path,
-    _domain: &AudioDomain,
-    audio: &AudioSpec,
-) -> Result<()> {
-    let document = probe_artifact(ffprobe, path)?;
-    let videos = document
-        .streams
-        .iter()
-        .filter(|stream| stream.codec_type.as_deref() == Some("video"))
-        .count();
-    let audios = document
-        .streams
-        .iter()
-        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
-        .collect::<Vec<_>>();
-    if videos != 0 || audios.len() != 1 {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected one audio stream and no video, found {videos} video and {} audio streams",
-                audios.len()
-            ),
-        ));
-    }
-    verify_audio_stream(path, audios[0], audio)
-}
-
-fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: &AudioSpec) -> Result<()> {
-    let expected_sample_rate = audio.sample_rate.to_string();
-    if stream.sample_rate.as_deref() != Some(expected_sample_rate.as_str()) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected audio sample rate {}, found {:?}",
-                audio.sample_rate, stream.sample_rate
-            ),
-        ));
-    }
-    if stream.channels != Some(audio.channels) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected {} audio channels, found {:?}",
-                audio.channels, stream.channels
-            ),
-        ));
-    }
-    verify_zero_start(path, stream)
-}
-
-fn verify_zero_start(path: &Path, stream: &ProbeStream) -> Result<()> {
-    let start = stream
-        .start_time
-        .as_deref()
-        .and_then(|value| value.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    if start.abs() > 0.000_001 {
-        return Err(contract_error(
-            path,
-            &format!("timestamps must begin at zero, found {start}"),
-        ));
-    }
-    Ok(())
-}
-
 fn temporary_sibling(path: &Path, role: &str, extension: &str) -> PathBuf {
     let counter = TEMPORARY_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut name = std::ffi::OsString::from(".");
@@ -1166,17 +950,6 @@ fn atomic_replace(source: &Path, destination: &Path, code: &'static str) -> Resu
             SourceSpan::file_start(destination),
         )
     })
-}
-
-fn contract_error(path: &Path, message: &str) -> Diagnostic {
-    Diagnostic::new(
-        "E_ARTIFACT_CONTRACT",
-        format!(
-            "artifact `{}` violates its contract: {message}",
-            path.display()
-        ),
-        SourceSpan::file_start(path),
-    )
 }
 
 fn run_command(command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {

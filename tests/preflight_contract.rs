@@ -60,6 +60,53 @@ fn unreachable_auxiliary_audio_is_not_preflighted() {
 }
 
 #[test]
+fn audio_preflight_counts_exact_decoded_samples() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("skipping exact audio test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let audio = directory.path().join("exact.mka");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=stereo",
+            "-af",
+            "atrim=end_sample=12345,asetpts=PTS-STARTPTS",
+            "-c:a",
+            "flac",
+        ])
+        .arg(&audio)
+        .status()
+        .expect("create exact audio fixture");
+    assert!(status.success());
+
+    let source = directory.path().join("program.yaml");
+    fs::write(
+        &source,
+        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n- audio: exact.mka\n- set_audio\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_yaml(&source).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    let audio = plan
+        .nodes()
+        .iter()
+        .find(|node| matches!(node.kind(), PreparedNodeKind::AudioSource { .. }))
+        .expect("prepared audio source");
+    assert_eq!(audio.audio_domain().samples, 12_345);
+}
+
+#[test]
 fn relocated_identical_projects_have_equal_semantic_hashes() {
     let first = tempfile::tempdir().expect("first directory");
     let second = tempfile::tempdir().expect("second directory");
