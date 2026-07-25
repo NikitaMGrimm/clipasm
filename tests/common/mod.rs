@@ -37,3 +37,12 @@ pub fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> P
     );
     namespaces[0].join(format!("{fingerprint}.{extension}"))
 }
+
+pub fn cache_metadata(artifact: &Path) -> PathBuf {
+    let mut name = artifact
+        .file_name()
+        .expect("cache artifact file name")
+        .to_os_string();
+    name.push(".cache.json");
+    artifact.parent().expect("cache artifact parent").join(name)
+}

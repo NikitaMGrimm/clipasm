@@ -353,6 +353,13 @@ impl PreparedNode {
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
+
+    pub(crate) fn visit_inputs(&self, visitor: impl FnMut(NodeId)) {
+        match &self.media {
+            PreparedMedia::Video { kind, .. } => kind.visit_inputs(visitor),
+            PreparedMedia::Audio { kind, .. } => kind.visit_inputs(visitor),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

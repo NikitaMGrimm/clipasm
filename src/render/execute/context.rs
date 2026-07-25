@@ -12,7 +12,7 @@ use super::super::{cache, staging::StagingDirectory};
 pub(super) struct RenderContext<'a> {
     plan: &'a PreparedPlan,
     node: &'a PreparedNode,
-    artifacts: &'a [PathBuf],
+    artifacts: &'a [Option<PathBuf>],
     temporary: &'a Path,
 }
 
@@ -20,7 +20,7 @@ impl<'a> RenderContext<'a> {
     pub(super) const fn new(
         plan: &'a PreparedPlan,
         node: &'a PreparedNode,
-        artifacts: &'a [PathBuf],
+        artifacts: &'a [Option<PathBuf>],
         temporary: &'a Path,
     ) -> Self {
         Self {
@@ -113,7 +113,7 @@ impl<'a> RenderContext<'a> {
     pub(super) fn artifact(&self, id: NodeId) -> Result<&'a Path> {
         self.artifacts
             .get(id.get() as usize)
-            .map(PathBuf::as_path)
+            .and_then(Option::as_deref)
             .ok_or_else(|| {
                 Diagnostic::new(
                     "E_INVALID_PLAN",

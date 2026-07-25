@@ -60,15 +60,17 @@ and hashes every `file(...)` argument, lowers every input dependency, and copies
 the exact domain and meaningful-audio state from the preserved Video input. The
 executable and file-argument content hashes participate in prepared identity.
 
-Rendering re-hashes the executable and file arguments before accepting cache
-entries or executing the node. It passes the executable and arguments separately
-and writes one versioned JSON request to standard input. ClipAsm does not build a
-shell command string; normal platform process semantics still apply. The request
-contains named input artifact paths and domains, bound parameters, a temporary
-output path, project Video and Audio settings, and resolved FFmpeg and FFprobe
-paths. A zero exit status indicates that the process wrote the output. ClipAsm
-then applies its ordinary prepared-artifact verification before committing the
-cache entry.
+When cache-aware execution planning reaches an external node, rendering
+re-hashes the executable and file arguments before accepting that node's cache
+entry or executing it. A verified downstream artifact may prune the external
+node entirely. Execution passes the executable and arguments separately and
+writes one versioned JSON request to standard input. ClipAsm does not build a
+shell command string; normal platform process semantics still apply. The
+request contains named input artifact paths and domains, bound parameters, a
+temporary output path, project Video and Audio settings, and resolved FFmpeg
+and FFprobe paths. A zero exit status indicates that the process wrote the
+output. ClipAsm then applies its ordinary prepared-artifact verification before
+committing the cache entry.
 File parameters resolve from the source location that supplied the value,
 become verified content-hashed prepared assets, and are re-hashed before cache
 reuse or execution. The process request receives their resolved paths.

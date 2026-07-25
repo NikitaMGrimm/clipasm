@@ -60,7 +60,7 @@ impl<'a> Executor<'a> {
     pub(in crate::render) fn render_node(
         &self,
         node: &PreparedNode,
-        artifacts: &[PathBuf],
+        artifacts: &[Option<PathBuf>],
         destination: &Path,
     ) -> Result<StagedArtifact> {
         let extension = match node.value_type() {

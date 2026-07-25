@@ -337,6 +337,17 @@ modules cannot diverge on execution lifecycle or artifact encoding. External
 programs use the versioned process protocol and must satisfy artifact
 verification rather than the native encoding policy.
 
+Before execution, a private execution plan walks backward from the prepared
+result. A cache entry becomes a dependency barrier only after both its sidecar
+content hash and exact prepared media contract have been verified. A miss
+expands to the node's canonical prepared inputs. Actions then run in stable
+topological order, rechecking planned misses under their per-artifact lock so a
+concurrent renderer can satisfy them without duplicate work. Source snapshots,
+external executables, and declared external files are reverified when their node
+is reached; a verified downstream artifact makes the pruned upstream subtree
+irrelevant. FFmpeg/FFprobe identity verification and final export remain
+unconditional.
+
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated
 audio segments at cumulative boundaries so FFmpeg distributes unavoidable
