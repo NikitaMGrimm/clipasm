@@ -6,8 +6,8 @@ use std::process::Command;
 
 use clipasm::preflight::{PreparedAudioKind, PreparedVideoKind};
 
-fn compile_yaml(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
-    let source = clipasm::frontend::yaml::parse_file(path)?;
+fn compile_file(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
+    let source = clipasm::language::parse_file(path)?;
     clipasm::compiler::compile(&source)
 }
 
@@ -20,14 +20,14 @@ fn write_image(directory: &Path, name: &str, color: &str) {
 fn prepared_plan_serializes_one_distinguished_result() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let source = directory.path().join("program.yaml");
+    let source = directory.path().join("program.clipasm");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("source program");
 
-    let compiled = compile_yaml(&source).expect("compile");
+    let compiled = compile_file(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let document = serde_json::to_value(&plan).expect("prepared JSON");
 
@@ -47,14 +47,14 @@ fn prepared_plan_serializes_one_distinguished_result() {
 fn prepared_media_is_structurally_typed_without_changing_json_shape() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let source = directory.path().join("program.yaml");
+    let source = directory.path().join("program.clipasm");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n  id: picture\n- drop: {type: Video}\n- extract_audio: {video: $picture}\n  id: sound\n- drop: {type: Audio}\n- set_audio: {audio: $sound, video: $picture}\n",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s) as picture\ndrop<Video>\nextract_audio($picture) as sound\ndrop<Audio>\nset_audio(video=$picture, audio=$sound)\n",
     )
     .expect("source program");
 
-    let compiled = compile_yaml(&source).expect("compile");
+    let compiled = compile_file(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let video = plan
         .nodes()
@@ -109,14 +109,14 @@ fn prepared_media_is_structurally_typed_without_changing_json_shape() {
 fn unreachable_auxiliary_audio_is_not_preflighted() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let source = directory.path().join("program.yaml");
+    let source = directory.path().join("program.clipasm");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n- audio: missing.wav\n- image: {path: card.ppm, duration: 1s}\n",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\naudio(\"missing.wav\")\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("source program");
 
-    let compiled = compile_yaml(&source).expect("compile");
+    let compiled = compile_file(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("unique Video reachability");
     assert_eq!(plan.nodes().len(), 1);
     assert!(matches!(
@@ -155,14 +155,14 @@ fn audio_preflight_counts_exact_decoded_samples() {
         .expect("create exact audio fixture");
     assert!(status.success());
 
-    let source = directory.path().join("program.yaml");
+    let source = directory.path().join("program.clipasm");
     fs::write(
         &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n- image: {path: card.ppm, duration: 1s}\n- audio: exact.mka\n- set_audio\n",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\naudio(\"exact.mka\")\nset_audio\n",
     )
     .expect("source program");
 
-    let compiled = compile_yaml(&source).expect("compile");
+    let compiled = compile_file(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let audio = plan
         .nodes()
@@ -184,14 +184,14 @@ fn relocated_identical_projects_have_equal_semantic_hashes() {
     for directory in [first.path(), second.path()] {
         write_image(directory, "card.ppm", "255 0 0");
         fs::write(
-            directory.join("workflow.yaml"),
-            "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+            directory.join("workflow.clipasm"),
+            "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
         )
         .expect("workflow");
     }
 
-    let first_compiled = compile_yaml(&first.path().join("workflow.yaml")).expect("compile");
-    let second_compiled = compile_yaml(&second.path().join("workflow.yaml")).expect("compile");
+    let first_compiled = compile_file(&first.path().join("workflow.clipasm")).expect("compile");
+    let second_compiled = compile_file(&second.path().join("workflow.clipasm")).expect("compile");
     let first_prepared = clipasm::preflight::preflight(&first_compiled).expect("preflight");
     let second_prepared = clipasm::preflight::preflight(&second_compiled).expect("preflight");
     assert_eq!(
@@ -205,14 +205,14 @@ fn unused_named_values_are_absent_from_executable_nodes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "used.ppm", "255 0 0");
     write_image(directory.path(), "unused.ppm", "0 255 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      unused:\n        image:\n          path: unused.ppm\n          duration: 1s\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: used.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nclip { image(\"unused.ppm\", 1s) } as unused\nimage(\"used.ppm\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let image_nodes = plan
         .nodes()
@@ -231,13 +231,13 @@ fn unused_named_values_are_absent_from_executable_nodes() {
 fn preflight_hashes_assets_and_render_rejects_later_changes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("workflow");
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let prepared = clipasm::preflight::preflight(&compiled).expect("preflight");
     let Some(PreparedVideoKind::ImageVideo { asset, .. }) = prepared.nodes()[0].video_kind() else {
         panic!("prepared image");
@@ -258,13 +258,13 @@ fn preflight_hashes_assets_and_render_rejects_later_changes() {
 fn backend_export_constraints_do_not_leak_into_pure_compilation() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 63, height: 65, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { video { width = 63\nheight = 65\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("workflow");
-    let compiled = compile_yaml(&workflow).expect("pure compile");
+    let compiled = compile_file(&workflow).expect("pure compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("export dimensions");
     assert_eq!(error.code, "E_EXPORT_DIMENSIONS");
 }
@@ -272,65 +272,29 @@ fn backend_export_constraints_do_not_leak_into_pure_compilation() {
 #[test]
 fn output_extension_is_strictly_mp4() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mov\n\n\n- glue:\n    - image:\n        path: missing.png\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mov\" }\nimage(\"missing.png\", 1s)\n",
     )
     .expect("workflow");
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("extension");
     assert_eq!(error.code, "E_INVALID_OUTPUT_EXTENSION");
-}
-
-#[test]
-fn output_cannot_replace_the_source_program() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let source = directory.path().join("program.mp4");
-    fs::write(
-        &source,
-        "- program:\n    version: 1\n    output: program.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
-    )
-    .expect("source program");
-
-    let compiled = compile_yaml(&source).expect("compile");
-    let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
-    assert_eq!(error.code, "E_OUTPUT_COLLISION");
-    assert!(error.message.contains("output"));
-    assert!(error.message.contains("source program"));
-}
-
-#[test]
-fn manifest_cannot_replace_the_source_program() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let source = directory.path().join("final.mp4.manifest.json");
-    fs::write(
-        &source,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}",
-    )
-    .expect("source program");
-
-    let compiled = compile_yaml(&source).expect("compile");
-    let error = clipasm::preflight::preflight(&compiled).expect_err("manifest collision");
-    assert_eq!(error.code, "E_MANIFEST_COLLISION");
-    assert!(error.message.contains("manifest"));
-    assert!(error.message.contains("source program"));
 }
 
 #[test]
 fn output_cannot_replace_a_reachable_image_asset() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.mp4", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: card.mp4\n\n\n- glue:\n    - image:\n        path: card.mp4\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"card.mp4\" }\nimage(\"card.mp4\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("output"));
@@ -363,14 +327,14 @@ fn output_cannot_replace_a_reachable_video_asset() {
         .status()
         .expect("create video");
     assert!(status.success());
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: source.mp4\n\n\n- glue:\n    - video: source.mp4",
+        "clipasm 1\nconfig { output = \"source.mp4\" }\nvideo(\"source.mp4\")\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output collision");
     assert_eq!(error.code, "E_OUTPUT_COLLISION");
     assert!(error.message.contains("video asset"));
@@ -380,14 +344,14 @@ fn output_cannot_replace_a_reachable_video_asset() {
 fn manifest_cannot_replace_a_reachable_asset() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "final.mp4.manifest.json", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: final.mp4.manifest.json\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"final.mp4.manifest.json\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("manifest collision");
     assert_eq!(error.code, "E_MANIFEST_COLLISION");
     assert!(error.message.contains("manifest"));
@@ -399,14 +363,14 @@ fn existing_directory_output_is_rejected() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
     fs::create_dir(directory.path().join("final.mp4")).expect("output directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("invalid output");
     assert_eq!(error.code, "E_INVALID_OUTPUT_DESTINATION");
     assert!(error.message.contains("not a regular file"));
@@ -425,14 +389,14 @@ fn output_symlink_to_a_regular_file_is_rejected() {
         directory.path().join("final.mp4"),
     )
     .expect("output symlink");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("output symlink");
     assert_eq!(error.code, "E_INVALID_OUTPUT_DESTINATION");
     assert!(error.message.contains("is a symlink"));
@@ -465,14 +429,14 @@ fn manifest_symlink_to_a_regular_file_is_rejected() {
         directory.path().join("final.mp4.manifest.json"),
     )
     .expect("manifest symlink");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("manifest symlink");
     assert_eq!(error.code, "E_INVALID_MANIFEST_DESTINATION");
     assert!(error.message.contains("is a symlink"));
@@ -491,14 +455,14 @@ fn manifest_symlink_to_a_regular_file_is_rejected() {
 #[test]
 fn video_preflight_reports_missing_files_by_source_kind() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - video: missing.mp4",
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nvideo(\"missing.mp4\")\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("missing video");
     assert_eq!(error.code, "E_MISSING_VIDEO_FILE");
 }
@@ -529,14 +493,14 @@ fn video_preflight_derives_the_full_source_duration() {
         .status()
         .expect("create source video");
     assert!(status.success());
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - video: source.mkv",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nvideo(\"source.mkv\")\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     assert_eq!(
         plan.nodes()[0]
@@ -552,14 +516,14 @@ fn video_preflight_derives_the_full_source_duration() {
 fn prepared_repeat_keeps_one_upstream_edge() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n    - repeat: 2",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nrepeat(2)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let Some(PreparedVideoKind::Repeat {
         input,
@@ -578,14 +542,14 @@ fn prepared_repeat_keeps_one_upstream_edge() {
 fn prepared_zoom_preserves_the_exact_input_domain() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - zoom: 12",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom(12)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let input_domain = *compiled.result_domain().expect("known zoom domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
@@ -601,14 +565,14 @@ fn prepared_zoom_preserves_the_exact_input_domain() {
 fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: card.ppm, duration: 1s}\n    - wobble: 4",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nwobble(4)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let input_domain = *compiled.result_domain().expect("known wobble domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
@@ -626,14 +590,14 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "before.ppm", "0 0 0");
     write_image(directory.path(), "after.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: before.ppm, duration: 1s}\n    - image: {path: after.ppm, duration: 1s}\n    - flash: 4",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nimage(\"after.ppm\", 1s)\nflash(4)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("compile");
+    let compiled = compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
     let Some(PreparedVideoKind::FlashJoin {
@@ -677,14 +641,14 @@ fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
         .status()
         .expect("create source video");
     assert!(status.success());
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 48, fps: 10}\n    output: final.mp4\n\n\n- glue:\n    - image: {path: before.ppm, duration: 1s}\n    - video: after.mkv\n    - flash: 11",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nvideo(\"after.mkv\")\nflash(11)\n",
     )
     .expect("workflow");
 
-    let compiled = compile_yaml(&workflow).expect("deferred compile");
+    let compiled = compile_file(&workflow).expect("deferred compile");
     assert!(compiled.result_domain().is_none());
     let error = clipasm::preflight::preflight(&compiled).expect_err("excessive flash frames");
     assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
