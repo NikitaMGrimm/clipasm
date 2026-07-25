@@ -95,11 +95,20 @@ pub(super) struct CheckedPackage {
 
 #[derive(Clone, Debug)]
 pub(super) struct CheckedProgram {
-    pub(super) source: Arc<SourceProgram>,
+    pub(super) span: crate::source::SourceSpan,
+    pub(super) stack_access: crate::program::StackAccess,
+    pub(super) inputs: Vec<InputPort>,
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
     pub(super) body_input_count: usize,
-    pub(super) clips: Vec<CheckedBody>,
+    pub(super) clips: Vec<CheckedClip>,
+    pub(super) body: CheckedBody,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedClip {
+    pub(super) name: String,
+    pub(super) span: crate::source::SourceSpan,
     pub(super) body: CheckedBody,
 }
 
@@ -202,7 +211,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         }
         let (outputs, checked_program) = check_program(
             unit_id,
-            Arc::clone(&unit.program),
+            unit.program(),
             &definitions,
             &builtin_names,
             &namespace,
@@ -267,7 +276,7 @@ pub(super) fn check_with_registry(
         .collect::<BTreeMap<_, _>>();
     let (_, program) = check_program(
         package.root,
-        Arc::clone(&package.root().program),
+        package.root().program(),
         definitions,
         &names,
         &BTreeMap::new(),
@@ -281,7 +290,7 @@ pub(super) fn check_with_registry(
 #[allow(clippy::too_many_lines)]
 fn check_program(
     unit: SourceUnitId,
-    program: Arc<SourceProgram>,
+    program: &SourceProgram,
     definitions: &[ProgramDefinition],
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
@@ -336,7 +345,7 @@ fn check_program(
         namespace,
         0,
     )?;
-    super::infer::infer_local_types(&program, &mut locals, definitions, builtins, namespace)?;
+    super::infer::infer_local_types(program, &mut locals, definitions, builtins, namespace)?;
     ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
 
     let mut checked_clips = Vec::with_capacity(program.clips().len());
@@ -395,7 +404,7 @@ fn check_program(
     )?;
     let outputs = stack.values().to_vec();
     let (locals, parameters, body_input_count) = assign_local_ids(
-        &program,
+        program,
         &locals,
         definitions,
         &mut checked_clips,
@@ -404,11 +413,22 @@ fn check_program(
     Ok((
         outputs,
         CheckedProgram {
-            source: program,
+            span: program.span().clone(),
+            stack_access: program.stack_access(),
+            inputs: program.inputs().to_vec(),
             locals,
             parameters,
             body_input_count,
-            clips: checked_clips,
+            clips: program
+                .clips()
+                .iter()
+                .zip(checked_clips)
+                .map(|(clip, body)| CheckedClip {
+                    name: clip.name.clone(),
+                    span: clip.span.clone(),
+                    body,
+                })
+                .collect(),
             body: checked_body,
         },
     ))

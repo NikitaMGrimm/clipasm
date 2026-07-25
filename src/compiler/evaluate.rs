@@ -236,7 +236,6 @@ impl Evaluator<'_> {
         public: bool,
     ) -> Result<Vec<ValueRef>> {
         let checked_program = Arc::clone(&self.checked.programs[unit.0]);
-        let program = Arc::clone(&checked_program.source);
         let mut scope = EvalScope {
             values: BTreeMap::new(),
             local_symbols: Vec::with_capacity(checked_program.locals.len()),
@@ -281,12 +280,12 @@ impl Evaluator<'_> {
         }
 
         if let Some(call) = call {
-            for input in program.inputs() {
+            for input in &checked_program.inputs {
                 let values = call.inputs().get(&input.name).ok_or_else(|| {
                     Diagnostic::new(
                         "E_INTERNAL_BINDING",
                         format!("authored program input `{}` was not bound", input.name),
-                        program.span().clone(),
+                        checked_program.span.clone(),
                     )
                 })?;
                 let [value] = values.as_slice() else {
@@ -296,29 +295,25 @@ impl Evaluator<'_> {
                             "authored program input `{}` requires exactly one value",
                             input.name
                         ),
-                        program.span().clone(),
+                        checked_program.span.clone(),
                     ));
                 };
                 let key = scope.values[&input.name];
                 self.bind_symbol(key, *value)?;
             }
-        } else if let Some(input) = program.inputs().first() {
+        } else if let Some(input) = checked_program.inputs.first() {
             return Err(Diagnostic::new(
                 "E_MISSING_REQUIRED_INPUT",
                 format!("root program is missing input `{}`", input.name),
-                program.span().clone(),
+                checked_program.span.clone(),
             ));
         }
-        let mut clips = program
-            .clips()
-            .iter()
-            .zip(&checked_program.clips)
-            .collect::<Vec<_>>();
-        clips.sort_by(|(left, _), (right, _)| left.name.cmp(&right.name));
-        for (clip, checked) in clips {
+        let mut clips = checked_program.clips.iter().collect::<Vec<_>>();
+        clips.sort_by(|left, right| left.name.cmp(&right.name));
+        for clip in clips {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated(format!("named clip `{}`", clip.name), clip.span.clone());
-            self.evaluate_body(checked, &mut scope, &mut stack, &mut frame, None)?;
+            self.evaluate_body(&clip.body, &mut scope, &mut stack, &mut frame, None)?;
             let [output] = stack.values() else {
                 return Err(output_count_error(
                     "E_CLIP_OUTPUT_COUNT",
@@ -347,12 +342,12 @@ impl Evaluator<'_> {
         }
 
         let (mut stack, parent) =
-            EvaluationStack::isolated("authored program", program.span().clone());
+            EvaluationStack::isolated("authored program", checked_program.span.clone());
         let mut body_frame = EvaluationStack::<ValueRef>::enter_body(
             &parent,
-            program.stack_access(),
+            checked_program.stack_access,
             "source program",
-            program.span().clone(),
+            checked_program.span.clone(),
         );
         self.evaluate_body(
             &checked_program.body,
