@@ -922,7 +922,7 @@ mod tests {
     fn ffmpeg_preflight_requires_the_flash_fade_filter() {
         let _guard = fake_tool_test_lock();
         let (_directory, no_fade) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts tpad concat perspective aresample aformat atrim apad anullsrc color'; else echo none; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac aac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale crop pad fps setsar format trim setpts asetpts asetnsamples tpad concat perspective aresample aformat atrim apad anullsrc color'; else echo none; fi\n",
         );
         let error = inspect_ffmpeg_at(&no_fade).expect_err("missing fade");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");

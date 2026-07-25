@@ -5,11 +5,13 @@
 
 mod audio;
 mod time;
+mod timeline;
 mod video;
 
 pub use audio::{AudioDomain, AudioSpec};
 pub use time::{FrameCount, FrameRange, SampleRange};
 pub(crate) use time::{SourceTime, SourceTimeRange};
+pub(crate) use timeline::{FrameSampleStep, TimelineRate};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
 
 use serde::{Deserialize, Serialize};

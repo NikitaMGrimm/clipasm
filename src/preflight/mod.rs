@@ -47,7 +47,7 @@ use lower::PreflightLowerer;
 use tools::{ExternalToolIdentity, ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
 const PREPARED_FORMAT_VERSION: u32 = 7;
-const CACHE_FORMAT_VERSION: u32 = 6;
+const CACHE_FORMAT_VERSION: u32 = 7;
 pub(crate) const WORKING_PIXEL_FORMAT: &str = "yuv444p";
 pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
@@ -59,6 +59,8 @@ const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "format",
     "trim",
     "setpts",
+    "asetpts",
+    "asetnsamples",
     "tpad",
     "concat",
     "fade",

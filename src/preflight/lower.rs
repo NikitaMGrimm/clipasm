@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
-    AudioDomain, FrameCount, FrameRange, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec,
+    AudioDomain, FrameCount, FrameRange, NodeId, TimelineRate, ValueId, ValueRef, VideoDomain,
+    VideoSpec,
 };
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 use crate::source::SourceSpan;
@@ -336,11 +337,11 @@ impl PreflightLowerer<'_> {
             }
             SemanticNodeKind::ExtractAudio { video } => {
                 let video = self.prepared_dependency(*video, compiled_node.origin())?;
-                let samples = self.compiled.audio().samples_for_frames(
-                    self.video_domain(video, compiled_node.origin())?.0.frames(),
-                    self.compiled.video().fps(),
-                    &compiled_node.origin().span,
-                )?;
+                let samples = TimelineRate::new(*self.compiled.video(), *self.compiled.audio())
+                    .samples_for_frames(
+                        self.video_domain(video, compiled_node.origin())?.0.frames(),
+                        &compiled_node.origin().span,
+                    )?;
                 self.add_audio_node(
                     PreparedAudioKind::ExtractAudio { video },
                     AudioDomain::new(samples, *self.compiled.audio()),
@@ -361,11 +362,11 @@ impl PreflightLowerer<'_> {
             }
             SemanticNodeKind::AudioOnBlack { audio } => {
                 let audio = self.prepared_dependency(*audio, compiled_node.origin())?;
-                let frames = self.compiled.audio().frames_for_samples(
-                    self.audio_domain(audio, compiled_node.origin())?.samples(),
-                    self.compiled.video().fps(),
-                    &compiled_node.origin().span,
-                )?;
+                let frames = TimelineRate::new(*self.compiled.video(), *self.compiled.audio())
+                    .frames_for_samples(
+                        self.audio_domain(audio, compiled_node.origin())?.samples(),
+                        &compiled_node.origin().span,
+                    )?;
                 self.add_video_node(
                     PreparedVideoKind::AudioOnBlack { audio },
                     project_domain(self.compiled.video(), frames),

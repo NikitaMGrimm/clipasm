@@ -6,7 +6,7 @@ use std::process::{Command, Output};
 use serde::Deserialize;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{AudioDomain, AudioSpec, VideoDomain};
+use crate::model::{AudioDomain, AudioSpec, TimelineRate, VideoDomain};
 use crate::preflight::tools::decoded_audio_samples;
 use crate::preflight::{PreparedNode, PreparedNodeMedia};
 use crate::source::SourceSpan;
@@ -164,11 +164,8 @@ pub(super) fn verify_video_artifact(
     if let Some(audio_stream) = audios.first() {
         verify_audio_stream(path, audio_stream, audio)?;
         if exact_audio_samples {
-            let expected_samples = audio.samples_for_frames(
-                domain.frames(),
-                domain.frame_rate(),
-                &SourceSpan::file_start(path),
-            )?;
+            let expected_samples = TimelineRate::new(domain.video_spec(), *audio)
+                .samples_for_frames(domain.frames(), &SourceSpan::file_start(path))?;
             verify_audio_samples(ffprobe, path, expected_samples)?;
         }
     }
