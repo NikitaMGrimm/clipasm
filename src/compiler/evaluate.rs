@@ -4,15 +4,11 @@ use std::sync::Arc;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ValueRef, ValueType, VideoSpec};
 use crate::program::{
-    BoundParameters, ParameterType, ProgramDefinition, ProgramImplementation, ResolvedCall,
-    ResolvedInputPort, ResolvedSignature,
+    BoundParameters, ProgramDefinition, ProgramImplementation, ResolvedCall, ResolvedInputPort,
+    ResolvedSignature,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
-use crate::source::SourceSpan;
-use crate::source::{
-    ArgumentValue, Invocation, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
-    SourceUnitId, Spanned,
-};
+use crate::source::{SourcePackage, SourceSpan, SourceUnitId, Spanned};
 
 use super::EntrypointBindings;
 use super::check::{
@@ -99,133 +95,11 @@ struct EvalScope {
 }
 
 impl Evaluator<'_> {
-    #[allow(clippy::too_many_lines)]
     fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
-        let program = self.package.root().program();
-        let Some(definition) = self
-            .checked
-            .registry
-            .source_program(self.package.root)
-            .cloned()
-        else {
-            debug_assert!(bindings.video_inputs.is_empty());
-            debug_assert!(bindings.parameters.is_empty());
-            return Ok(ResolvedCall::new(
-                "root".to_owned(),
-                BTreeMap::new(),
-                BoundParameters::new(),
-                None,
-                SourceOrigin::new("root program", program.span().clone()),
-            ));
-        };
-        let mut arguments = BTreeMap::new();
-        for (name, binding) in &bindings.video_inputs {
-            arguments.insert(
-                name.clone(),
-                ArgumentValue::Body(entrypoint_video_body(binding)),
-            );
-        }
-        for (name, binding) in &bindings.parameters {
-            let parameter_type = program
-                .parameters()
-                .iter()
-                .find(|parameter| parameter.name.value == *name)
-                .map(|parameter| &parameter.parameter_type);
-            let literal = match parameter_type {
-                Some(ParameterType::Integer) => binding.value.parse::<i64>().map_or_else(
-                    |_| Literal::String(binding.value.clone(), binding.span.clone()),
-                    |value| Literal::Integer(value, binding.span.clone()),
-                ),
-                _ => Literal::String(binding.value.clone(), binding.span.clone()),
-            };
-            arguments.insert(name.clone(), ArgumentValue::Literal(literal));
-        }
-        let invocation = Invocation {
-            program: Spanned::new("root".to_owned(), program.span().clone()),
-            stack_access: None,
-            arguments,
-            body: None,
-        };
-        let signature = definition.descriptor.resolve_signature(None);
-        let (mut stack, mut frame) =
-            EvaluationStack::isolated("root program call", program.span().clone());
-        super::bind::bind_call(
-            &definition,
-            &signature,
-            &invocation,
-            super::bind::BindContext {
-                stack: &mut stack,
-                frame: &mut frame,
-                access: definition.descriptor.default_stack_access,
-                requested_frames: None,
-                origin: SourceOrigin::new("root program", program.span().clone()),
-                stack_plan: None,
-            },
-            |_value, port| {
-                let binding = bindings.video_inputs.get(&port.name).ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_MISSING_REQUIRED_INPUT",
-                        format!("root program is missing input `{}`", port.name),
-                        program.span().clone(),
-                    )
-                })?;
-                self.evaluate_entrypoint_video(binding)
-            },
-            |_reference, _descriptor| {
-                unreachable!("entrypoint scalar bindings do not use references")
-            },
-        )
-    }
-
-    fn evaluate_entrypoint_video(
-        &mut self,
-        binding: &super::entrypoint::VideoInputBinding,
-    ) -> Result<Vec<ValueRef>> {
-        let program = self
-            .checked
-            .registry
-            .id("video")
-            .expect("native video program is registered");
-        let definition = self.checked.registry.definition(program).clone();
-        let signature = definition.descriptor.resolve_signature(None);
-        let span = binding.span.clone();
-        let invocation = Invocation {
-            program: Spanned::new("video".to_owned(), span.clone()),
-            stack_access: None,
-            arguments: BTreeMap::from([(
-                "path".to_owned(),
-                ArgumentValue::Literal(Literal::File(binding.path.clone(), span.clone())),
-            )]),
-            body: None,
-        };
-        let (mut stack, mut frame) =
-            EvaluationStack::isolated("entrypoint Video input", span.clone());
-        let call = super::bind::bind_call(
-            &definition,
-            &signature,
-            &invocation,
-            super::bind::BindContext {
-                stack: &mut stack,
-                frame: &mut frame,
-                access: definition.descriptor.default_stack_access,
-                requested_frames: None,
-                origin: SourceOrigin::new("video", span.clone()),
-                stack_plan: None,
-            },
-            |_value, _port| unreachable!("video has no graph inputs"),
-            |_reference, _descriptor| unreachable!("video parameters use literals"),
-        )?;
-        let ProgramImplementation::Direct(lower) = definition.implementation else {
-            unreachable!("video is a direct program")
-        };
-        let mut builder = GraphBuilder::for_program(
-            &mut self.nodes,
-            self.video,
-            definition.descriptor.semantic_version,
-            SourceOrigin::new("video", span.clone()),
-        );
-        let outputs = lower(&call, &mut builder)?;
-        validate_program_outputs(&definition, &signature.outputs, outputs, &span)
+        let registry = self.checked.registry.clone();
+        super::entrypoint::bind_root_call(self.package, &registry, bindings, |binding| {
+            super::entrypoint::lower_video_binding(&registry, binding, &mut self.nodes, self.video)
+        })
     }
 
     #[allow(clippy::too_many_lines)]
@@ -755,26 +629,6 @@ impl Evaluator<'_> {
             ));
         }
         Ok(())
-    }
-}
-
-fn entrypoint_video_body(binding: &super::entrypoint::VideoInputBinding) -> ProgramBody {
-    let span = binding.span.clone();
-    ProgramBody {
-        items: vec![Item {
-            kind: ItemKind::Invocation(Invocation {
-                program: Spanned::new("video".to_owned(), span.clone()),
-                stack_access: None,
-                arguments: BTreeMap::from([(
-                    "path".to_owned(),
-                    ArgumentValue::Literal(Literal::File(binding.path.clone(), span.clone())),
-                )]),
-                body: None,
-            }),
-            output_bindings: OutputBindings::None,
-            span: span.clone(),
-        }],
-        span,
     }
 }
 
