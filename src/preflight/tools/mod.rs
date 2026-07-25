@@ -62,6 +62,8 @@ pub(crate) fn inspect_external_tool(
             "E_EXTERNAL_EXECUTABLE",
         )?
     };
+    #[cfg(windows)]
+    let candidate = windows_command_candidate(&candidate);
     let executable = fs::canonicalize(&candidate).map_err(|error| {
         Diagnostic::new(
             "E_EXTERNAL_EXECUTABLE",
@@ -266,8 +268,9 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
     let authored = Path::new(name);
     #[cfg(windows)]
     {
-        if is_executable_file(authored) {
-            return fs::canonicalize(authored).map_err(|error| {
+        let direct = windows_command_candidate(authored);
+        if is_executable_file(&direct) {
+            return fs::canonicalize(&direct).map_err(|error| {
                 Diagnostic::new(
                     code,
                     format!("could not resolve executable `{name}`: {error}"),
@@ -283,6 +286,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(PathBuf::from)
+            .map(|candidate| windows_command_candidate(&candidate))
             .find(|candidate| is_executable_file(candidate))
             .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
@@ -323,6 +327,30 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
     }
 }
 
+#[cfg(windows)]
+fn windows_command_candidate(candidate: &Path) -> PathBuf {
+    windows_command_candidate_with(candidate, is_executable_file)
+}
+
+#[cfg(any(windows, test))]
+fn windows_command_candidate_with(
+    candidate: &Path,
+    mut is_file: impl FnMut(&Path) -> bool,
+) -> PathBuf {
+    let encoded = candidate.as_os_str().as_encoded_bytes();
+    if encoded.len() >= 4 && encoded[encoded.len() - 4..].eq_ignore_ascii_case(b".exe") {
+        return candidate.to_path_buf();
+    }
+    let mut suffixed = candidate.as_os_str().to_os_string();
+    suffixed.push(".exe");
+    let suffixed = PathBuf::from(suffixed);
+    if is_file(&suffixed) {
+        suffixed
+    } else {
+        candidate.to_path_buf()
+    }
+}
+
 fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -343,14 +371,18 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 fn inspect_tool_identity(tool: &Path, code: &'static str) -> Result<ToolIdentity> {
-    let executable = fs::canonicalize(tool).map_err(|error| {
+    #[cfg(windows)]
+    let tool = windows_command_candidate(tool);
+    #[cfg(not(windows))]
+    let tool = tool.to_path_buf();
+    let executable = fs::canonicalize(&tool).map_err(|error| {
         Diagnostic::new(
             code,
             format!(
                 "could not resolve executable `{}` for identity: {error}",
                 tool.display()
             ),
-            SourceSpan::file_start(tool),
+            SourceSpan::file_start(&tool),
         )
     })?;
     let version = tool_command_output(&executable, &["-version"], code)?;
@@ -443,6 +475,30 @@ mod tests {
     use super::*;
 
     static FAKE_TOOL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn windows_command_candidate_matches_rust_executable_suffix_resolution() {
+        let candidate = Path::new("tools/ffmpeg");
+        let resolved =
+            windows_command_candidate_with(candidate, |path| path == Path::new("tools/ffmpeg.exe"));
+        assert_eq!(resolved, Path::new("tools/ffmpeg.exe"));
+
+        let explicit = Path::new("tools/ffmpeg.EXE");
+        let resolved = windows_command_candidate_with(explicit, |_| {
+            panic!("an explicit .exe path must not probe a sibling")
+        });
+        assert_eq!(resolved, explicit);
+
+        let non_exe_extension = Path::new("tools/runner.cmd");
+        let resolved = windows_command_candidate_with(non_exe_extension, |path| {
+            path == Path::new("tools/runner.cmd.exe")
+        });
+        assert_eq!(resolved, Path::new("tools/runner.cmd.exe"));
+
+        let extensionless = Path::new("tools/custom-tool");
+        let resolved = windows_command_candidate_with(extensionless, |_| false);
+        assert_eq!(resolved, extensionless);
+    }
 
     fn fake_tool_test_lock() -> MutexGuard<'static, ()> {
         FAKE_TOOL_TEST_LOCK
