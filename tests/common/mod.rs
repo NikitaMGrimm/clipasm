@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub fn executable_available(name: &str) -> bool {
+pub fn executable_available(name: &str, version_argument: &str) -> bool {
     Command::new(name)
-        .arg("-version")
+        .arg(version_argument)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -14,7 +14,7 @@ pub fn executable_available(name: &str) -> bool {
 }
 
 pub fn media_tools_available() -> bool {
-    executable_available("ffmpeg") && executable_available("ffprobe")
+    executable_available("ffmpeg", "-version") && executable_available("ffprobe", "-version")
 }
 
 pub fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> PathBuf {

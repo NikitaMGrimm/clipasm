@@ -54,6 +54,7 @@ jobs:
           --test cli
           --test compiler_contract
           --test external_programs
+          --test preflight_contract
           --test render
           --test semantics
           --test transitions

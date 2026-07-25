@@ -76,6 +76,11 @@ fn renders_and_reuses_verified_cache() {
     assert_eq!(second.cache_hits, plan.nodes().len());
     assert_eq!(second.cache_misses, 0);
     assert!(second.manifest.is_file());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&second.manifest).expect("cached manifest"))
+            .expect("cached manifest JSON");
+    assert_eq!(manifest["cache"]["hits"], plan.nodes().len());
+    assert_eq!(manifest["cache"]["misses"], 0);
 }
 
 #[test]
@@ -786,7 +791,7 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
 fn renders_an_external_video_program() {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if !common::media_tools_available() || !common::executable_available("python3") {
+    if !common::media_tools_available() || !common::executable_available("python3", "--version") {
         eprintln!("skipping external render test because a required tool is unavailable");
         return;
     }
