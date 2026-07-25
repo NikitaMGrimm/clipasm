@@ -253,10 +253,7 @@ fn prepare_file_asset(
     }
     let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
     let content_hash = hash_file(&source_path, &origin.span)?;
-    Ok(PreparedAsset {
-        source_path,
-        content_hash,
-    })
+    Ok(PreparedAsset::new(source_path, content_hash))
 }
 
 pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) -> Result<()> {

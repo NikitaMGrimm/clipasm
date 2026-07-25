@@ -5,9 +5,11 @@ use serde::Serialize;
 use crate::diagnostic::Result;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 
+use super::plan::PreparedMedia;
+use super::tools::ToolIdentity;
 use super::{
     CACHE_FORMAT_VERSION, EXPORT_PIXEL_FORMAT, PREPARED_FORMAT_VERSION, PreparedAudioKind,
-    PreparedMedia, PreparedNode, PreparedVideoKind, ToolIdentity, WORKING_PIXEL_FORMAT,
+    PreparedNode, PreparedVideoKind, WORKING_PIXEL_FORMAT,
 };
 
 #[derive(Serialize)]
@@ -44,37 +46,36 @@ pub(super) fn node_fingerprint(
     semantic_version: u32,
     existing: &[PreparedNode],
 ) -> Result<String> {
-    let (value_type, domain, audio_domain, has_audio, operation, inputs) = match media {
+    let mut inputs = Vec::new();
+    let (value_type, domain, audio_domain, has_audio, operation) = match media {
         PreparedMedia::Video {
             kind,
             domain,
             has_audio,
         } => {
-            let (operation, inputs) = video_identity(kind);
+            kind.visit_inputs(|input| inputs.push(input));
             (
                 ValueType::Video,
                 Some(domain),
                 None,
                 *has_audio,
-                operation,
-                inputs,
+                video_identity(kind),
             )
         }
         PreparedMedia::Audio { kind, domain } => {
-            let (operation, inputs) = audio_identity(kind);
+            kind.visit_inputs(|input| inputs.push(input));
             (
                 ValueType::Audio,
                 None,
                 Some(domain),
                 false,
-                operation,
-                inputs,
+                audio_identity(kind),
             )
         }
     };
     let upstream = inputs
         .iter()
-        .map(|input| existing[input.get() as usize].fingerprint.as_str())
+        .map(|input| existing[input.get() as usize].fingerprint())
         .collect::<Vec<_>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
@@ -87,112 +88,75 @@ pub(super) fn node_fingerprint(
     })
 }
 
-fn video_identity(kind: &PreparedVideoKind) -> (serde_json::Value, Vec<NodeId>) {
+fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
     match kind {
-        PreparedVideoKind::ImageVideo { asset, frames, fit } => (
-            serde_json::json!({
-                "operation": "image_video",
-                "content_hash": asset.content_hash,
-                "frames": frames,
-                "fit": fit,
-            }),
-            Vec::new(),
-        ),
-        PreparedVideoKind::VideoSource { asset, frames, fit } => (
-            serde_json::json!({
-                "operation": "video_source",
-                "content_hash": asset.content_hash,
-                "frames": frames,
-                "fit": fit,
-            }),
-            Vec::new(),
-        ),
-        PreparedVideoKind::Slice { input, range } => (
-            serde_json::json!({"operation": "slice", "range": range}),
-            vec![*input],
-        ),
-        PreparedVideoKind::Repeat {
-            input,
-            count,
-            frames,
-        } => (
-            serde_json::json!({
-                "operation": "repeat",
-                "count": count,
-                "frames": frames,
-            }),
-            vec![*input],
-        ),
-        PreparedVideoKind::Zoom { input, percent } => (
-            serde_json::json!({"operation": "zoom", "percent": percent}),
-            vec![*input],
-        ),
-        PreparedVideoKind::Wobble { input, pixels } => (
-            serde_json::json!({"operation": "wobble", "pixels": pixels}),
-            vec![*input],
-        ),
-        PreparedVideoKind::FlashJoin {
-            before,
-            after,
-            frames,
-        } => (
-            serde_json::json!({"operation": "flash_join", "frames": frames}),
-            vec![*before, *after],
-        ),
-        PreparedVideoKind::Concat { inputs } => {
-            (serde_json::json!({"operation": "concat"}), inputs.clone())
+        PreparedVideoKind::ImageVideo { asset, frames, fit } => serde_json::json!({
+            "operation": "image_video",
+            "content_hash": asset.content_hash(),
+            "frames": frames,
+            "fit": fit,
+        }),
+        PreparedVideoKind::VideoSource { asset, frames, fit } => serde_json::json!({
+            "operation": "video_source",
+            "content_hash": asset.content_hash(),
+            "frames": frames,
+            "fit": fit,
+        }),
+        PreparedVideoKind::Slice { range, .. } => {
+            serde_json::json!({"operation": "slice", "range": range})
         }
-        PreparedVideoKind::SetAudio { audio, video } => (
-            serde_json::json!({"operation": "set_audio"}),
-            vec![*audio, *video],
-        ),
-        PreparedVideoKind::AudioOnBlack { audio } => (
-            serde_json::json!({"operation": "audio_on_black"}),
-            vec![*audio],
-        ),
+        PreparedVideoKind::Repeat { count, frames, .. } => serde_json::json!({
+            "operation": "repeat",
+            "count": count,
+            "frames": frames,
+        }),
+        PreparedVideoKind::Zoom { percent, .. } => {
+            serde_json::json!({"operation": "zoom", "percent": percent})
+        }
+        PreparedVideoKind::Wobble { pixels, .. } => {
+            serde_json::json!({"operation": "wobble", "pixels": pixels})
+        }
+        PreparedVideoKind::FlashJoin { frames, .. } => {
+            serde_json::json!({"operation": "flash_join", "frames": frames})
+        }
+        PreparedVideoKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
+        PreparedVideoKind::SetAudio { .. } => serde_json::json!({"operation": "set_audio"}),
+        PreparedVideoKind::AudioOnBlack { .. } => {
+            serde_json::json!({"operation": "audio_on_black"})
+        }
         PreparedVideoKind::ExternalVideo {
             executable,
             inputs,
             parameters,
             preserve_input,
-        } => (
-            serde_json::json!({
-                "operation": "external_video",
-                "executable_content_hash": executable.content_hash(),
-                "input_names": inputs.keys().collect::<Vec<_>>(),
-                "parameters": parameters,
-                "preserve_input": preserve_input,
-            }),
-            inputs.values().copied().collect(),
-        ),
+        } => serde_json::json!({
+            "operation": "external_video",
+            "executable_content_hash": executable.content_hash(),
+            "input_names": inputs.keys().collect::<Vec<_>>(),
+            "parameters": parameters,
+            "preserve_input": preserve_input,
+        }),
     }
 }
 
-fn audio_identity(kind: &PreparedAudioKind) -> (serde_json::Value, Vec<NodeId>) {
+fn audio_identity(kind: &PreparedAudioKind) -> serde_json::Value {
     match kind {
-        PreparedAudioKind::AudioSource { asset } => (
-            serde_json::json!({
-                "operation": "audio_source",
-                "content_hash": asset.content_hash,
-            }),
-            Vec::new(),
-        ),
-        PreparedAudioKind::AudioSlice { input, range } => (
-            serde_json::json!({"operation": "audio_slice", "range": range}),
-            vec![*input],
-        ),
-        PreparedAudioKind::AudioRepeat { input, count } => (
-            serde_json::json!({"operation": "audio_repeat", "count": count}),
-            vec![*input],
-        ),
-        PreparedAudioKind::AudioConcat { inputs } => (
-            serde_json::json!({"operation": "audio_concat"}),
-            inputs.clone(),
-        ),
-        PreparedAudioKind::ExtractAudio { video } => (
-            serde_json::json!({"operation": "extract_audio"}),
-            vec![*video],
-        ),
+        PreparedAudioKind::AudioSource { asset } => serde_json::json!({
+            "operation": "audio_source",
+            "content_hash": asset.content_hash(),
+        }),
+        PreparedAudioKind::AudioSlice { range, .. } => {
+            serde_json::json!({"operation": "audio_slice", "range": range})
+        }
+        PreparedAudioKind::AudioRepeat { count, .. } => {
+            serde_json::json!({"operation": "audio_repeat", "count": count})
+        }
+        PreparedAudioKind::AudioConcat { .. } => {
+            serde_json::json!({"operation": "audio_concat"})
+        }
+        PreparedAudioKind::ExtractAudio { .. } => {
+            serde_json::json!({"operation": "extract_audio"})
+        }
     }
 }
 
@@ -205,13 +169,13 @@ pub(super) fn prepared_semantic_hash(
 ) -> Result<String> {
     let names = names
         .iter()
-        .map(|(name, id)| (name.as_str(), nodes[id.get() as usize].fingerprint.as_str()))
+        .map(|(name, id)| (name.as_str(), nodes[id.get() as usize].fingerprint()))
         .collect::<BTreeMap<_, _>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
         format_version: PREPARED_FORMAT_VERSION,
         video,
         audio,
-        result: &nodes[result.get() as usize].fingerprint,
+        result: nodes[result.get() as usize].fingerprint(),
         names,
     })
 }

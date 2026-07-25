@@ -11,8 +11,9 @@ use crate::source::SourceSpan;
 
 use super::assets::{prepare_audio_asset, prepare_image_asset, prepare_video_asset};
 use super::identity::node_fingerprint;
+use super::plan::PreparedMedia;
 use super::tools::{ToolIdentity, inspect_external_tool};
-use super::{PreparedAudioKind, PreparedMedia, PreparedNode, PreparedVideoKind};
+use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
 pub(super) struct PreflightLowerer<'a> {
     pub(super) compiled: &'a CompiledProgram,
@@ -421,7 +422,7 @@ impl PreflightLowerer<'_> {
     }
 
     fn video_domain(&self, node: NodeId, origin: &SourceOrigin) -> Result<(&VideoDomain, bool)> {
-        match &self.nodes[node.get() as usize].media {
+        match self.nodes[node.get() as usize].prepared_media() {
             PreparedMedia::Video {
                 domain, has_audio, ..
             } => Ok((domain, *has_audio)),
@@ -437,7 +438,7 @@ impl PreflightLowerer<'_> {
     }
 
     fn audio_domain(&self, node: NodeId, origin: &SourceOrigin) -> Result<&AudioDomain> {
-        match &self.nodes[node.get() as usize].media {
+        match self.nodes[node.get() as usize].prepared_media() {
             PreparedMedia::Audio { domain, .. } => Ok(domain),
             PreparedMedia::Video { .. } => Err(Diagnostic::new(
                 "E_INVALID_GRAPH",
@@ -506,12 +507,8 @@ impl PreflightLowerer<'_> {
             )
         })?);
         let fingerprint = node_fingerprint(&media, semantic_version, &self.nodes)?;
-        self.nodes.push(PreparedNode {
-            id,
-            media,
-            origin,
-            fingerprint,
-        });
+        self.nodes
+            .push(PreparedNode::new(id, media, origin, fingerprint));
         Ok(id)
     }
 }
