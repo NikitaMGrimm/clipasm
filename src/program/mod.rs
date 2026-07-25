@@ -49,21 +49,6 @@ impl StackAccess {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ValueConstraint {
-    Timeline,
-    Any,
-}
-
-impl ValueConstraint {
-    #[must_use]
-    pub(crate) const fn accepts(self, value_type: ValueType) -> bool {
-        match self {
-            Self::Timeline | Self::Any => matches!(value_type, ValueType::Video | ValueType::Audio),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ValueTypeSpec {
     Exact(ValueType),
     Generic,
@@ -108,12 +93,6 @@ pub(crate) struct ResolvedSignature {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TypeParameter {
-    pub(crate) constraint: ValueConstraint,
-    pub(crate) selector: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterType {
     Integer,
     File,
@@ -147,7 +126,7 @@ pub(crate) struct ProgramDescriptor {
     pub(crate) default_stack_access: StackAccess,
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<ParameterDescriptor>,
-    pub(crate) type_parameter: Option<TypeParameter>,
+    pub(crate) type_selector: Option<String>,
     pub(crate) outputs: Vec<ValueTypeSpec>,
 }
 
@@ -609,8 +588,8 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 .outputs
                 .iter()
                 .any(|output| matches!(output, ValueTypeSpec::Generic));
-        match &descriptor.type_parameter {
-            Some(type_parameter) => {
+        match &descriptor.type_selector {
+            Some(type_selector) => {
                 if !has_generic {
                     return Err(definition_error(format!(
                         "program `{}` declares a type parameter without generic inputs or outputs",
@@ -620,11 +599,11 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 let Some(selector) = descriptor
                     .parameters
                     .iter()
-                    .find(|parameter| parameter.name == type_parameter.selector)
+                    .find(|parameter| parameter.name == *type_selector)
                 else {
                     return Err(definition_error(format!(
                         "program `{}` names nonexistent type selector `{}`",
-                        descriptor.name, type_parameter.selector
+                        descriptor.name, type_selector
                     )));
                 };
                 if selector.required
@@ -636,7 +615,7 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 {
                     return Err(definition_error(format!(
                         "program `{}` type selector `{}` must be an optional Video/Audio Keyword",
-                        descriptor.name, type_parameter.selector
+                        descriptor.name, type_selector
                     )));
                 }
             }
@@ -712,7 +691,7 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs,
                 parameters,
-                type_parameter: None,
+                type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation,

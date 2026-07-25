@@ -56,7 +56,7 @@ impl ExternalProgram {
                 default_stack_access: StackAccess::Owned,
                 inputs: self.runtime.inputs.clone(),
                 parameters: self.runtime.parameters.clone(),
-                type_parameter: None,
+                type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation: ProgramImplementation::External(self.runtime.clone()),

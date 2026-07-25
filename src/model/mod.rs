@@ -60,9 +60,6 @@ pub enum ValueType {
     Video,
     /// A finite standalone audio value.
     Audio,
-    #[cfg(test)]
-    /// Synthetic value type used to verify internal type checks.
-    Test,
 }
 
 impl std::fmt::Display for ValueType {
@@ -70,8 +67,6 @@ impl std::fmt::Display for ValueType {
         match self {
             Self::Video => formatter.write_str("Video"),
             Self::Audio => formatter.write_str("Audio"),
-            #[cfg(test)]
-            Self::Test => formatter.write_str("Test"),
         }
     }
 }

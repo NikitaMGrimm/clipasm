@@ -3,8 +3,7 @@ use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
     ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
-    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, TypeParameter,
-    ValueConstraint, ValueTypeSpec,
+    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, ValueTypeSpec,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
@@ -81,10 +80,7 @@ fn generic_descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters: vec![type_selector()],
-        type_parameter: Some(TypeParameter {
-            constraint: ValueConstraint::Timeline,
-            selector: "type".to_owned(),
-        }),
+        type_selector: Some("type".to_owned()),
         outputs: vec![ValueTypeSpec::Generic],
     }
 }
@@ -118,7 +114,7 @@ fn descriptor(
         default_stack_access: StackAccess::Visible,
         inputs,
         parameters,
-        type_parameter: None,
+        type_selector: None,
         outputs: vec![VIDEO.into()],
     }
 }

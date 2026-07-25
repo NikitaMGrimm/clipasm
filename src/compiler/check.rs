@@ -6,7 +6,7 @@ use crate::model::ValueType;
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry, ResolvedSignature,
-    ValueConstraint, ValueTypeSpec, builtin_programs,
+    ValueTypeSpec, builtin_programs,
 };
 use crate::source::{
     ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage, SourceProgram,
@@ -23,7 +23,6 @@ pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
     Inferred {
-        constraint: ValueConstraint,
         dependencies: BTreeSet<String>,
         span: crate::source::SourceSpan,
     },
@@ -120,7 +119,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 default_stack_access: unit.program().stack_access(),
                 inputs: unit.program().inputs().to_vec(),
                 parameters,
-                type_parameter: None,
+                type_selector: None,
                 outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation: ProgramImplementation::Authored(unit_id),
@@ -666,7 +665,6 @@ fn item_output_types(
 ) -> Result<Vec<LocalType>> {
     match &item.kind {
         DraftItemKind::Reference(reference) => Ok(vec![LocalType::Inferred {
-            constraint: ValueConstraint::Any,
             dependencies: BTreeSet::from([reference.value.clone()]),
             span: item.span.clone(),
         }]),
@@ -689,12 +687,6 @@ fn item_output_types(
                     ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
                     ValueTypeSpec::Generic => selected.map_or_else(
                         || LocalType::Inferred {
-                            constraint: definition
-                                .descriptor
-                                .type_parameter
-                                .as_ref()
-                                .expect("generic output has a type parameter")
-                                .constraint,
                             dependencies: dependencies.clone(),
                             span: item.span.clone(),
                         },
@@ -710,14 +702,14 @@ fn selected_generic_type(
     definition: &ProgramDefinition,
     invocation: &DraftInvocation,
 ) -> Result<Option<ValueType>> {
-    let Some(type_parameter) = &definition.descriptor.type_parameter else {
+    let Some(type_selector) = &definition.descriptor.type_selector else {
         return Ok(None);
     };
     let index = definition
         .descriptor
         .parameters
         .iter()
-        .position(|parameter| parameter.name == type_parameter.selector)
+        .position(|parameter| parameter.name == *type_selector)
         .expect("validated type selector exists");
     invocation.parameters[index]
         .as_ref()
@@ -732,7 +724,7 @@ fn selected_generic_type(
                 "E_INVALID_ARGUMENT_VALUE",
                 format!(
                     "parameter `{}.{}` must be `Video` or `Audio`",
-                    definition.descriptor.name, type_parameter.selector
+                    definition.descriptor.name, type_selector
                 ),
                 literal.span().clone(),
             )),
@@ -740,7 +732,7 @@ fn selected_generic_type(
                 "E_INVALID_ARGUMENT_VALUE",
                 format!(
                     "parameter `{}.{}` must be `Video` or `Audio`",
-                    definition.descriptor.name, type_parameter.selector
+                    definition.descriptor.name, type_selector
                 ),
                 reference.span.clone(),
             )),
@@ -759,7 +751,7 @@ fn resolve_invocation_signature(
     span: &crate::source::SourceSpan,
 ) -> Result<Option<ResolvedSignature>> {
     let descriptor = &definition.descriptor;
-    let Some(type_parameter) = &descriptor.type_parameter else {
+    let Some(_type_selector) = &descriptor.type_selector else {
         let signature = descriptor.resolve_signature(None);
         validate_explicit_input_types(invocation, validated, &signature)?;
         return Ok(Some(signature));
@@ -806,15 +798,13 @@ fn resolve_invocation_signature(
         let (_, generic_port) = generic_ports.first()?;
         match generic_port.cardinality {
             Cardinality::One if generic_ports.len() == 1 => stack
-                .nearest_accessible_type(frame, access, |value_type| {
-                    type_parameter.constraint.accepts(value_type)
-                })
+                .nearest_accessible_type(frame, access, |_value_type| true)
                 .or_else(|| {
                     (access == crate::program::StackAccess::Owned).then(|| {
                         stack.nearest_accessible_type(
                             frame,
                             crate::program::StackAccess::Visible,
-                            |value_type| type_parameter.constraint.accepts(value_type),
+                            |_value_type| true,
                         )
                     })?
                 }),
@@ -823,9 +813,7 @@ fn resolve_invocation_signature(
                     .iter()
                     .filter(|(index, _)| invocation.inputs[*index].is_none())
                     .count();
-                let types = stack.accessible_types(frame, access, |value_type| {
-                    type_parameter.constraint.accepts(value_type)
-                });
+                let types = stack.accessible_types(frame, access, |_value_type| true);
                 let viable = types
                     .iter()
                     .copied()
@@ -836,17 +824,13 @@ fn resolve_invocation_signature(
                 if viable.len() == 1 {
                     Some(viable[0])
                 } else if viable.is_empty() {
-                    stack.nearest_accessible_type(frame, access, |value_type| {
-                        type_parameter.constraint.accepts(value_type)
-                    })
+                    stack.nearest_accessible_type(frame, access, |_value_type| true)
                 } else {
                     None
                 }
             }
             Cardinality::Variadic { .. } => {
-                let types = stack.accessible_types(frame, access, |value_type| {
-                    type_parameter.constraint.accepts(value_type)
-                });
+                let types = stack.accessible_types(frame, access, |_value_type| true);
                 (types.len() == 1).then_some(types[0])
             }
         }
@@ -866,9 +850,7 @@ fn resolve_invocation_signature(
         (Some(selected), _) => selected,
         (None, Some(inferred)) => inferred,
         (None, None) => {
-            let types = stack.accessible_types(frame, access, |candidate| {
-                type_parameter.constraint.accepts(candidate)
-            });
+            let types = stack.accessible_types(frame, access, |_candidate| true);
             if types.len() > 1 {
                 return Err(Diagnostic::new(
                     "E_AMBIGUOUS_GENERIC_TYPE",
@@ -899,13 +881,6 @@ fn resolve_invocation_signature(
             ));
         }
     };
-    if !type_parameter.constraint.accepts(value_type) {
-        return Err(Diagnostic::new(
-            "E_TYPE_MISMATCH",
-            format!("program `{}` does not accept {value_type}", descriptor.name),
-            span.clone(),
-        ));
-    }
     let signature = descriptor.resolve_signature(Some(value_type));
     validate_explicit_input_types(invocation, validated, &signature)?;
     Ok(Some(signature))
@@ -1108,15 +1083,9 @@ fn infer_body(
                             infer_body(body, &body_locals, unit, definitions, stack, &mut child)?;
                         let body_outputs = stack.finish_body(&child);
                         if signature.is_none() {
-                            let type_parameter = definition
-                                .descriptor
-                                .type_parameter
-                                .as_ref()
-                                .expect("deferred body signature is generic");
                             let value_type = infer_body_generic_type(
                                 &invocation.name.value,
                                 &body_outputs,
-                                type_parameter.constraint,
                                 contract.count_error_code,
                                 &body.span,
                             )?;
@@ -1310,7 +1279,6 @@ fn validate_parameter_argument(
 fn infer_body_generic_type(
     program: &str,
     values: &[ValueType],
-    constraint: crate::program::ValueConstraint,
     count_error_code: &'static str,
     span: &crate::source::SourceSpan,
 ) -> Result<ValueType> {
@@ -1321,13 +1289,6 @@ fn infer_body_generic_type(
             span.clone(),
         ));
     };
-    if !constraint.accepts(first) {
-        return Err(Diagnostic::new(
-            "E_TYPE_MISMATCH",
-            format!("`{program}` body does not accept {first}"),
-            span.clone(),
-        ));
-    }
     if let Some(other) = values.iter().copied().find(|value| *value != first) {
         return Err(Diagnostic::new(
             "E_GENERIC_TYPE_MISMATCH",

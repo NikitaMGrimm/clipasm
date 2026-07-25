@@ -48,8 +48,6 @@ pub(super) fn verify_prepared_artifact(
             pixel_format,
         ),
         ValueType::Audio => verify_audio_artifact(ffprobe, path, node.audio_domain(), audio),
-        #[cfg(test)]
-        ValueType::Test => unreachable!("test values are not prepared"),
     }
 }
 

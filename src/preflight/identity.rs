@@ -6,8 +6,8 @@ use crate::diagnostic::Result;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 
 use super::{
-    CACHE_FORMAT_VERSION, PREPARED_FORMAT_VERSION, PreparedNode, PreparedNodeKind,
-    RenderMediaPolicy, ToolIdentity,
+    CACHE_FORMAT_VERSION, EXPORT_PIXEL_FORMAT, PREPARED_FORMAT_VERSION, PreparedNode,
+    PreparedNodeKind, ToolIdentity, WORKING_PIXEL_FORMAT,
 };
 
 #[derive(Serialize)]
@@ -35,7 +35,8 @@ struct CacheIdentity<'a> {
     format_version: u32,
     ffmpeg_build_fingerprint: &'a str,
     ffprobe_build_fingerprint: &'a str,
-    media_policy: RenderMediaPolicy,
+    working_pixel_format: &'static str,
+    export_pixel_format: &'static str,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -199,13 +200,13 @@ pub(super) fn prepared_semantic_hash(
 pub(super) fn cache_execution_namespace(
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
-    media_policy: RenderMediaPolicy,
 ) -> Result<String> {
     crate::compiler::fingerprint::hash_serializable(&CacheIdentity {
         format_version: CACHE_FORMAT_VERSION,
         ffmpeg_build_fingerprint: ffmpeg.build_fingerprint(),
         ffprobe_build_fingerprint: ffprobe.build_fingerprint(),
-        media_policy,
+        working_pixel_format: WORKING_PIXEL_FORMAT,
+        export_pixel_format: EXPORT_PIXEL_FORMAT,
     })
 }
 
@@ -214,10 +215,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::preflight::{ExportPixelFormat, WorkingPixelFormat};
 
     #[test]
-    fn cache_identity_includes_the_working_media_policy() {
+    fn cache_identity_includes_the_fixed_render_contract() {
         let ffmpeg = ToolIdentity {
             executable: PathBuf::from("/tools/ffmpeg"),
             version_summary: "ffmpeg test".to_owned(),
@@ -228,17 +228,7 @@ mod tests {
             version_summary: "ffprobe test".to_owned(),
             build_fingerprint: "ffprobe-build".to_owned(),
         };
-        let default = cache_execution_namespace(&ffmpeg, &ffprobe, RenderMediaPolicy::default())
-            .expect("default identity");
-        let changed = cache_execution_namespace(
-            &ffmpeg,
-            &ffprobe,
-            RenderMediaPolicy {
-                working_pixel_format: WorkingPixelFormat::Test,
-                export_pixel_format: ExportPixelFormat::Yuv420p,
-            },
-        )
-        .expect("changed identity");
-        assert_ne!(default, changed);
+        let identity = cache_execution_namespace(&ffmpeg, &ffprobe).expect("identity");
+        assert!(!identity.is_empty());
     }
 }

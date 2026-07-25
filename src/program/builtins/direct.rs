@@ -5,7 +5,7 @@ use crate::model::{FrameCount, ImageFit, ValueRef, ValueType};
 use crate::program::{
     Cardinality, InputPort, ParameterDescriptor, ParameterType, ProgramDefinition,
     ProgramDescriptor, ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess,
-    TypeParameter, ValueConstraint, ValueTypeSpec,
+    ValueTypeSpec,
 };
 use crate::semantic::GraphBuilder;
 
@@ -54,7 +54,7 @@ pub(crate) fn audio_source() -> ProgramDefinition {
             default_stack_access: StackAccess::Owned,
             inputs: vec![],
             parameters: vec![parameter("path", ParameterType::File, true)],
-            type_parameter: None,
+            type_selector: None,
             outputs: vec![ValueType::Audio.into()],
         },
         lower_audio,
@@ -73,7 +73,7 @@ pub(crate) fn extract_audio() -> ProgramDefinition {
                 cardinality: Cardinality::One,
             }],
             parameters: vec![],
-            type_parameter: None,
+            type_selector: None,
             outputs: vec![ValueType::Audio.into()],
         },
         lower_extract_audio,
@@ -99,7 +99,7 @@ pub(crate) fn set_audio() -> ProgramDefinition {
                 },
             ],
             parameters: vec![],
-            type_parameter: None,
+            type_selector: None,
             outputs: vec![ValueType::Video.into()],
         },
         lower_set_audio,
@@ -115,7 +115,6 @@ pub(crate) fn concat() -> ProgramDefinition {
             Cardinality::Variadic { min: 1 },
             vec![type_selector()],
             Some("type"),
-            ValueConstraint::Timeline,
             true,
         ),
         lower_concat,
@@ -134,7 +133,6 @@ pub(crate) fn repeat() -> ProgramDefinition {
                 type_selector(),
             ],
             Some("count"),
-            ValueConstraint::Timeline,
             true,
         ),
         lower_repeat,
@@ -153,7 +151,6 @@ pub(crate) fn trim() -> ProgramDefinition {
                 type_selector(),
             ],
             Some("range"),
-            ValueConstraint::Timeline,
             true,
         ),
         lower_trim,
@@ -169,7 +166,6 @@ pub(crate) fn drop_value() -> ProgramDefinition {
             Cardinality::One,
             vec![type_selector()],
             Some("type"),
-            ValueConstraint::Any,
             false,
         ),
         lower_drop,
@@ -231,7 +227,7 @@ fn descriptor(
         default_stack_access: StackAccess::Owned,
         inputs,
         parameters,
-        type_parameter: None,
+        type_selector: None,
         outputs: vec![ValueType::Video.into()],
     }
 }
@@ -244,7 +240,6 @@ fn generic_descriptor(
     cardinality: Cardinality,
     parameters: Vec<ParameterDescriptor>,
     _primary_parameter: Option<&str>,
-    constraint: ValueConstraint,
     has_output: bool,
 ) -> ProgramDescriptor {
     ProgramDescriptor {
@@ -257,10 +252,7 @@ fn generic_descriptor(
             cardinality,
         }],
         parameters,
-        type_parameter: Some(TypeParameter {
-            constraint,
-            selector: "type".to_owned(),
-        }),
+        type_selector: Some("type".to_owned()),
         outputs: has_output
             .then_some(ValueTypeSpec::Generic)
             .into_iter()

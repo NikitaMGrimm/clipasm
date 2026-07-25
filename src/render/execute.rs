@@ -15,7 +15,9 @@ use crate::external::EXTERNAL_PROTOCOL_VERSION;
 use crate::model::{
     AudioDomain, AudioSpec, FrameCount, ImageFit, NodeId, ValueType, VideoDomain, VideoSpec,
 };
-use crate::preflight::{PreparedNode, PreparedNodeKind, PreparedPlan, RenderMediaPolicy};
+use crate::preflight::{
+    EXPORT_PIXEL_FORMAT, PreparedNode, PreparedNodeKind, PreparedPlan, WORKING_PIXEL_FORMAT,
+};
 use crate::source::SourceSpan;
 
 use super::artifact::verify_video_artifact;
@@ -77,7 +79,6 @@ impl<'a> Executor<'a> {
             self.plan.audio(),
             result.domain(),
             result.has_audio(),
-            self.plan.media_policy(),
             self.plan.ffmpeg().executable(),
             self.plan.ffprobe().executable(),
         )
@@ -93,7 +94,6 @@ impl<'a> Executor<'a> {
         let nodes = self.plan.nodes();
         let spec = self.plan.video();
         let audio = self.plan.audio();
-        let media_policy = self.plan.media_policy();
         let ffmpeg = self.plan.ffmpeg().executable();
         let ffprobe = self.plan.ffprobe().executable();
         let extension = if node.value_type() == ValueType::Audio {
@@ -113,12 +113,12 @@ impl<'a> Executor<'a> {
                     .arg(silence_source(audio));
                 let filter = format!(
                     "[0:v]{},trim=end_frame={},setpts=PTS-STARTPTS[v];[1:a]{}[a]",
-                    image_filter(*fit, spec, media_policy),
+                    image_filter(*fit, spec),
                     frames.0,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
+                append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
             PreparedNodeKind::VideoSource { asset, fit, frames } => {
                 let samples = samples_for_video(*frames, spec, audio, &node.origin().span)?;
@@ -133,11 +133,11 @@ impl<'a> Executor<'a> {
                 };
                 let filter = format!(
                     "[0:v]{}[v];{audio_input}{}[a]",
-                    video_filter(*fit, *frames, spec, media_policy),
+                    video_filter(*fit, *frames, spec),
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
+                append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
             PreparedNodeKind::AudioSource { asset } => {
                 command.arg("-i").arg(asset.source_path());
@@ -203,14 +203,7 @@ impl<'a> Executor<'a> {
                     range.end()
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    range.frames(),
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, range.frames(), spec, audio, &temporary);
             }
             PreparedNodeKind::Repeat {
                 input,
@@ -227,7 +220,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(&mut command, *frames, spec, audio, media_policy, &temporary);
+                append_video_output(&mut command, *frames, spec, audio, &temporary);
             }
             PreparedNodeKind::Zoom { input, percent } => {
                 command
@@ -241,14 +234,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::Wobble { input, pixels } => {
                 command
@@ -262,14 +248,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::FlashJoin {
                 before,
@@ -290,14 +269,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::Concat { inputs } => {
                 for input in inputs {
@@ -317,14 +289,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::ExtractAudio { video } => {
                 command
@@ -355,14 +320,7 @@ impl<'a> Executor<'a> {
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::AudioOnBlack { audio: audio_node } => {
                 command.args(["-f", "lavfi", "-i"]).arg(format!(
@@ -380,18 +338,11 @@ impl<'a> Executor<'a> {
                 let filter = format!(
                     "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
                     node.domain().frames.0,
-                    media_policy.working_pixel_format(),
+                    WORKING_PIXEL_FORMAT,
                     normalize_audio(samples, audio)
                 );
                 command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-                append_video_output(
-                    &mut command,
-                    node.domain().frames,
-                    spec,
-                    audio,
-                    media_policy,
-                    &temporary,
-                );
+                append_video_output(&mut command, node.domain().frames, spec, audio, &temporary);
             }
             PreparedNodeKind::ExternalVideo {
                 executable,
@@ -446,7 +397,6 @@ fn stage_export(
     audio: &AudioSpec,
     domain: &VideoDomain,
     has_audio: bool,
-    media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
     ffprobe: &Path,
 ) -> Result<()> {
@@ -457,7 +407,6 @@ fn stage_export(
         audio,
         domain.frames,
         has_audio,
-        media_policy,
         ffmpeg,
     )
     .and_then(|()| {
@@ -468,7 +417,7 @@ fn stage_export(
             audio,
             has_audio,
             false,
-            media_policy.export_pixel_format(),
+            EXPORT_PIXEL_FORMAT,
         )
     });
     if let Err(error) = result {
@@ -486,7 +435,6 @@ fn export_mp4(
     audio: &AudioSpec,
     frames: FrameCount,
     has_audio: bool,
-    media_policy: RenderMediaPolicy,
     ffmpeg: &Path,
 ) -> Result<()> {
     let mut command = Command::new(ffmpeg);
@@ -494,7 +442,7 @@ fn export_mp4(
         .args(["-y", "-v", "error", "-i"])
         .arg(artifact)
         .args(["-map", "0:v:0", "-c:v", "libx264", "-pix_fmt"])
-        .arg(media_policy.export_pixel_format())
+        .arg(EXPORT_PIXEL_FORMAT)
         .arg("-r")
         .arg(format!(
             "{}/{}",
@@ -595,18 +543,11 @@ fn append_video_output(
     frames: FrameCount,
     spec: &VideoSpec,
     audio: &AudioSpec,
-    media_policy: RenderMediaPolicy,
     destination: &Path,
 ) {
     command
         .args(["-frames:v", &frames.0.to_string(), "-c:v", "ffv1"])
-        .args([
-            "-level",
-            "3",
-            "-pix_fmt",
-            media_policy.working_pixel_format(),
-            "-r",
-        ])
+        .args(["-level", "3", "-pix_fmt", WORKING_PIXEL_FORMAT, "-r"])
         .arg(format!(
             "{}/{}",
             spec.fps.numerator(),
@@ -658,7 +599,7 @@ fn normalize_audio(samples: u64, audio: &AudioSpec) -> String {
     )
 }
 
-fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy) -> String {
+fn image_filter(fit: ImageFit, spec: &VideoSpec) -> String {
     let width = spec.width;
     let height = spec.height;
     let geometry = match fit {
@@ -674,19 +615,14 @@ fn image_filter(fit: ImageFit, spec: &VideoSpec, media_policy: RenderMediaPolicy
         "{geometry},fps={}/{},setsar=1,format={}",
         spec.fps.numerator(),
         spec.fps.denominator(),
-        media_policy.working_pixel_format()
+        WORKING_PIXEL_FORMAT
     )
 }
 
-fn video_filter(
-    fit: ImageFit,
-    frames: FrameCount,
-    spec: &VideoSpec,
-    media_policy: RenderMediaPolicy,
-) -> String {
+fn video_filter(fit: ImageFit, frames: FrameCount, spec: &VideoSpec) -> String {
     format!(
         "setpts=PTS-STARTPTS,{},tpad=stop_mode=clone:stop=1,trim=end_frame={},setpts=PTS-STARTPTS",
-        image_filter(fit, spec, media_policy),
+        image_filter(fit, spec),
         frames.0
     )
 }
@@ -828,7 +764,6 @@ mod tests {
             &AudioSpec::default(),
             &domain,
             false,
-            RenderMediaPolicy::default(),
             Path::new("ffmpeg"),
             Path::new("ffprobe"),
         )

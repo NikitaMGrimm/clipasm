@@ -46,7 +46,9 @@ use lower::PreflightLowerer;
 use tools::{ExternalToolIdentity, ToolIdentity, inspect_ffmpeg, inspect_ffprobe};
 
 const PREPARED_FORMAT_VERSION: u32 = 7;
-const CACHE_FORMAT_VERSION: u32 = 5;
+const CACHE_FORMAT_VERSION: u32 = 6;
+pub(crate) const WORKING_PIXEL_FORMAT: &str = "yuv444p";
+pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";
 const REQUIRED_FFMPEG_FILTERS: &[&str] = &[
     "scale",
     "crop",
@@ -80,7 +82,6 @@ pub struct PreparedPlan {
     semantic_hash: String,
     video: VideoSpec,
     audio: AudioSpec,
-    media_policy: RenderMediaPolicy,
     nodes: Vec<PreparedNode>,
     result: NodeId,
     named_values: BTreeMap<String, NodeId>,
@@ -143,10 +144,6 @@ impl PreparedPlan {
     /// Return the manifest path published beside the output.
     pub fn manifest(&self) -> &Path {
         &self.manifest
-    }
-
-    pub(crate) const fn media_policy(&self) -> RenderMediaPolicy {
-        self.media_policy
     }
 
     pub(crate) fn ffmpeg(&self) -> &ToolIdentity {
@@ -385,51 +382,6 @@ impl PreparedAsset {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-pub(crate) struct RenderMediaPolicy {
-    working_pixel_format: WorkingPixelFormat,
-    export_pixel_format: ExportPixelFormat,
-}
-
-impl Default for RenderMediaPolicy {
-    fn default() -> Self {
-        Self {
-            working_pixel_format: WorkingPixelFormat::Yuv444p,
-            export_pixel_format: ExportPixelFormat::Yuv420p,
-        }
-    }
-}
-
-impl RenderMediaPolicy {
-    pub(crate) const fn working_pixel_format(self) -> &'static str {
-        match self.working_pixel_format {
-            WorkingPixelFormat::Yuv444p => "yuv444p",
-            #[cfg(test)]
-            WorkingPixelFormat::Test => "test",
-        }
-    }
-
-    pub(crate) const fn export_pixel_format(self) -> &'static str {
-        match self.export_pixel_format {
-            ExportPixelFormat::Yuv420p => "yuv420p",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum WorkingPixelFormat {
-    Yuv444p,
-    #[cfg(test)]
-    Test,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum ExportPixelFormat {
-    Yuv420p,
-}
-
 /// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
@@ -475,8 +427,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
 
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
-    let media_policy = RenderMediaPolicy::default();
-    let execution_namespace = cache_execution_namespace(&ffmpeg, &ffprobe, media_policy)?;
+    let execution_namespace = cache_execution_namespace(&ffmpeg, &ffprobe)?;
     let mut lowerer = PreflightLowerer {
         compiled,
         ffmpeg: &ffmpeg,
@@ -514,7 +465,6 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         semantic_hash,
         video,
         audio,
-        media_policy,
         nodes: lowerer.nodes,
         result,
         named_values,

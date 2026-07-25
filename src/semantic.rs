@@ -334,12 +334,6 @@ impl<'a> GraphBuilder<'a> {
                 SemanticNodeKind::AudioRepeat { input, count },
                 ValueType::Audio,
             ),
-            #[cfg(test)]
-            ValueType::Test => Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
-                "generic operation does not accept Test",
-                self.origin.span.clone(),
-            )),
         }
     }
 
@@ -433,12 +427,6 @@ impl<'a> GraphBuilder<'a> {
             ValueType::Audio => {
                 self.push(SemanticNodeKind::AudioConcat { inputs }, ValueType::Audio)
             }
-            #[cfg(test)]
-            ValueType::Test => Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
-                "generic operation does not accept Test",
-                self.origin.span.clone(),
-            )),
         }
     }
 
@@ -456,12 +444,6 @@ impl<'a> GraphBuilder<'a> {
                     ValueType::Audio,
                 )
             }
-            #[cfg(test)]
-            ValueType::Test => Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
-                "generic operation does not accept Test",
-                self.origin.span.clone(),
-            )),
         }
     }
 
@@ -515,18 +497,6 @@ impl<'a> GraphBuilder<'a> {
             &self.origin.construct,
             port,
             &self.origin.span,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_value(&mut self) -> Result<ValueRef> {
-        self.push(
-            SemanticNodeKind::ImageVideo {
-                path: PathBuf::from("test.value"),
-                frames: FrameCount(1),
-                fit: ImageFit::Cover,
-            },
-            ValueType::Test,
         )
     }
 }
@@ -644,9 +614,11 @@ mod tests {
         assert_eq!(empty.code, "E_EMPTY_CONCAT");
         assert!(empty.message.contains("`join`"));
 
+        let video_value = ValueRef::new(ValueId::new(0), ValueType::Video);
+        let audio_value = ValueRef::new(ValueId::new(1), ValueType::Audio);
         let wrong = builder
-            .concat(vec![ValueRef::new(ValueId::new(0), ValueType::Test)])
-            .expect_err("wrong type");
+            .concat(vec![video_value, audio_value])
+            .expect_err("mixed types");
         assert_eq!(wrong.code, "E_TYPE_MISMATCH");
         assert!(wrong.message.contains("program `join`"));
         assert_eq!(wrong.span.line, 6);

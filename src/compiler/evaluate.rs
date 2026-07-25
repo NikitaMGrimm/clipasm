@@ -729,7 +729,7 @@ mod tests {
         _call: &ResolvedCall,
         builder: &mut GraphBuilder<'_>,
     ) -> Result<Vec<ValueRef>> {
-        Ok(vec![builder.test_value()?])
+        Ok(vec![builder.audio_source(PathBuf::from("wrong.wav"))?])
     }
 
     fn lower_two(_call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
@@ -764,7 +764,7 @@ mod tests {
             _stack: Vec<ValueRef>,
             builder: &mut GraphBuilder<'_>,
         ) -> Result<Vec<ValueRef>> {
-            Ok(vec![builder.test_value()?])
+            Ok(vec![builder.audio_source(PathBuf::from("wrong.wav"))?])
         }
     }
 
@@ -814,7 +814,7 @@ mod tests {
                 default_stack_access,
                 inputs,
                 parameters: vec![],
-                type_parameter: None,
+                type_selector: None,
                 outputs: outputs.into_iter().map(Into::into).collect(),
             },
             implementation,

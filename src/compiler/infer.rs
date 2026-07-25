@@ -3,8 +3,7 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, ProgramDefinition, ProgramImplementation, StackAccess, ValueConstraint,
-    ValueTypeSpec,
+    Cardinality, ProgramDefinition, ProgramImplementation, StackAccess, ValueTypeSpec,
 };
 use crate::source::{Literal, OutputBindings, SourceSpan};
 
@@ -31,25 +30,16 @@ pub(super) struct TypeDomain(u8);
 impl TypeDomain {
     const VIDEO: u8 = 0b01;
     const AUDIO: u8 = 0b10;
-    #[cfg(test)]
-    const TEST: u8 = 0b100;
 
     #[must_use]
     pub(super) const fn from_value_type(value_type: ValueType) -> Self {
         match value_type {
             ValueType::Video => Self(Self::VIDEO),
             ValueType::Audio => Self(Self::AUDIO),
-            #[cfg(test)]
-            ValueType::Test => Self(Self::TEST),
         }
     }
 
-    #[must_use]
-    pub(super) const fn from_constraint(constraint: ValueConstraint) -> Self {
-        match constraint {
-            ValueConstraint::Timeline | ValueConstraint::Any => Self(Self::VIDEO | Self::AUDIO),
-        }
-    }
+    const TIMELINE: Self = Self(Self::VIDEO | Self::AUDIO);
 
     #[cfg(test)]
     #[must_use]
@@ -83,8 +73,6 @@ impl TypeDomain {
         match self.0 {
             Self::VIDEO => Some(ValueType::Video),
             Self::AUDIO => Some(ValueType::Audio),
-            #[cfg(test)]
-            Self::TEST => Some(ValueType::Test),
             _ => None,
         }
     }
@@ -93,12 +81,6 @@ impl TypeDomain {
 impl From<ValueType> for TypeDomain {
     fn from(value_type: ValueType) -> Self {
         Self::from_value_type(value_type)
-    }
-}
-
-impl From<ValueConstraint> for TypeDomain {
-    fn from(constraint: ValueConstraint) -> Self {
-        Self::from_constraint(constraint)
     }
 }
 
@@ -123,8 +105,8 @@ pub(super) struct TypeArena {
 
 impl TypeArena {
     #[must_use]
-    pub(super) fn allocate(&mut self, constraint: ValueConstraint) -> TypeVarId {
-        self.allocate_domain(constraint.into())
+    pub(super) fn allocate(&mut self) -> TypeVarId {
+        self.allocate_domain(TypeDomain::TIMELINE)
     }
 
     #[must_use]
@@ -297,7 +279,7 @@ pub(super) fn infer_local_types(
         let slot = match local {
             LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
             LocalType::Parameter(_) => LocalSlot::Parameter,
-            LocalType::Inferred { constraint, .. } => LocalSlot::Value(arena.allocate(*constraint)),
+            LocalType::Inferred { .. } => LocalSlot::Value(arena.allocate()),
         };
         slots.insert(name.clone(), slot);
     }
@@ -424,16 +406,15 @@ fn infer_invocation(
 
     let generic = definition
         .descriptor
-        .type_parameter
+        .type_selector
         .as_ref()
-        .map(|parameter| arena.allocate(parameter.constraint));
+        .map(|_| arena.allocate());
     if let Some(variable) = generic {
-        let selector = &definition
+        let selector = definition
             .descriptor
-            .type_parameter
+            .type_selector
             .as_ref()
-            .expect("generic definition")
-            .selector;
+            .expect("generic definition");
         let selector_index = definition
             .descriptor
             .parameters
@@ -871,28 +852,23 @@ mod tests {
 
     #[test]
     fn domains_represent_the_closed_value_type_set() {
-        let all = TypeDomain::from(ValueConstraint::Timeline);
+        let all = TypeDomain::TIMELINE;
         let video = TypeDomain::from(ValueType::Video);
         let audio = TypeDomain::from(ValueType::Audio);
 
         assert!(all.contains(ValueType::Video));
         assert!(all.contains(ValueType::Audio));
-        assert!(!all.contains(ValueType::Test));
-        assert_eq!(
-            TypeDomain::from(ValueType::Test).concrete(),
-            Some(ValueType::Test)
-        );
         assert_eq!(video.concrete(), Some(ValueType::Video));
         assert_eq!(audio.concrete(), Some(ValueType::Audio));
         assert!(video.intersection(audio).is_empty());
         assert_eq!(all.intersection(video), video);
-        assert_eq!(TypeDomain::from(ValueConstraint::Any), all);
+        assert_eq!(TypeDomain::TIMELINE, all);
     }
 
     #[test]
     fn constraints_narrow_a_variable_once() {
         let mut arena = TypeArena::default();
-        let variable = arena.allocate(ValueConstraint::Timeline);
+        let variable = arena.allocate();
         let after_allocation = arena.revision();
 
         arena
@@ -911,9 +887,9 @@ mod tests {
     #[test]
     fn equating_variables_intersects_their_domains_transitively() {
         let mut arena = TypeArena::default();
-        let first = arena.allocate(ValueConstraint::Any);
+        let first = arena.allocate();
         let second = arena.allocate_exact(ValueType::Video);
-        let third = arena.allocate(ValueConstraint::Timeline);
+        let third = arena.allocate();
 
         arena.equate(first, second).expect("domains overlap");
         arena.equate(third, first).expect("domains overlap");
@@ -949,7 +925,7 @@ mod tests {
     #[test]
     fn a_clone_can_be_narrowed_for_a_retry_without_changing_the_original() {
         let mut original = TypeArena::default();
-        let variable = original.allocate(ValueConstraint::Timeline);
+        let variable = original.allocate();
         let mut attempt = original.clone();
 
         attempt

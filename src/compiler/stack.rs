@@ -371,91 +371,6 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
             .count()
     }
 
-    #[cfg(test)]
-    pub(super) fn take_one_matching(
-        &mut self,
-        frame: &StackFrame,
-        access: StackAccess,
-        required: ValueType,
-        program: &str,
-        port: &str,
-        span: &SourceSpan,
-    ) -> Result<T, Diagnostic> {
-        let inputs = [StackBindingInput {
-            port: 0,
-            requirement: required,
-            cardinality: Cardinality::One,
-        }];
-        let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
-            StackBindingOutcome::Resolved(plan) => plan,
-            StackBindingOutcome::Deferred => {
-                unreachable!("concrete stack compatibility is never deferred")
-            }
-            StackBindingOutcome::Impossible(failure) => {
-                return Err(self.underflow(
-                    frame,
-                    access,
-                    "E_STACK_UNDERFLOW",
-                    &format!("`{program}.{port}` needs one preceding {required} value"),
-                    required,
-                    failure.available,
-                    &failure.selected,
-                    span,
-                ));
-            }
-        };
-        let bound = self.apply_binding_plan(&plan);
-        let [bound] = bound.as_slice() else {
-            unreachable!("one fixed input produces one binding")
-        };
-        let [value] = bound.values.as_slice() else {
-            unreachable!("one fixed input consumes one value")
-        };
-        Ok(*value)
-    }
-
-    #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn take_all_matching(
-        &mut self,
-        frame: &StackFrame,
-        access: StackAccess,
-        required: ValueType,
-        min: usize,
-        program: &str,
-        port: &str,
-        span: &SourceSpan,
-    ) -> Result<Vec<T>, Diagnostic> {
-        let inputs = [StackBindingInput {
-            port: 0,
-            requirement: required,
-            cardinality: Cardinality::Variadic { min },
-        }];
-        let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
-            StackBindingOutcome::Resolved(plan) => plan,
-            StackBindingOutcome::Deferred => {
-                unreachable!("concrete stack compatibility is never deferred")
-            }
-            StackBindingOutcome::Impossible(failure) => {
-                return Err(self.underflow(
-                    frame,
-                    access,
-                    "E_MISSING_REQUIRED_INPUT",
-                    &format!("`{program}.{port}` needs at least {min} {required} value(s)"),
-                    required,
-                    failure.available,
-                    &failure.selected,
-                    span,
-                ));
-            }
-        };
-        let bound = self.apply_binding_plan(&plan);
-        let [bound] = bound.as_slice() else {
-            unreachable!("one variadic input produces one binding")
-        };
-        Ok(bound.values.clone())
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub(super) fn underflow(
         &self,
@@ -509,15 +424,6 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
 }
 
 #[cfg(test)]
-fn exact_compatibility<T: Copy + StackValue>(value: T, required: ValueType) -> StackCompatibility {
-    if value.value_type() == required {
-        StackCompatibility::Definite
-    } else {
-        StackCompatibility::Incompatible
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{ValueId, ValueType};
@@ -542,6 +448,107 @@ mod tests {
 
     fn value(id: u32) -> ValueRef {
         ValueRef::new(ValueId::new(id), ValueType::Video)
+    }
+
+    trait TestStackExt {
+        fn take_one_matching(
+            &mut self,
+            frame: &StackFrame,
+            access: StackAccess,
+            required: ValueType,
+            program: &str,
+            port: &str,
+            span: &SourceSpan,
+        ) -> Result<ValueRef, Diagnostic>;
+
+        #[allow(clippy::too_many_arguments)]
+        fn take_all_matching(
+            &mut self,
+            frame: &StackFrame,
+            access: StackAccess,
+            required: ValueType,
+            min: usize,
+            program: &str,
+            port: &str,
+            span: &SourceSpan,
+        ) -> Result<Vec<ValueRef>, Diagnostic>;
+    }
+
+    impl TestStackExt for EvaluationStack<ValueRef> {
+        fn take_one_matching(
+            &mut self,
+            frame: &StackFrame,
+            access: StackAccess,
+            required: ValueType,
+            program: &str,
+            port: &str,
+            span: &SourceSpan,
+        ) -> Result<ValueRef, Diagnostic> {
+            let inputs = [StackBindingInput {
+                port: 0,
+                requirement: required,
+                cardinality: Cardinality::One,
+            }];
+            let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
+                StackBindingOutcome::Resolved(plan) => plan,
+                StackBindingOutcome::Deferred => unreachable!("exact compatibility is concrete"),
+                StackBindingOutcome::Impossible(failure) => {
+                    return Err(self.underflow(
+                        frame,
+                        access,
+                        "E_STACK_UNDERFLOW",
+                        &format!("`{program}.{port}` needs one preceding {required} value"),
+                        required,
+                        failure.available,
+                        &failure.selected,
+                        span,
+                    ));
+                }
+            };
+            Ok(self.apply_binding_plan(&plan)[0].values[0])
+        }
+
+        fn take_all_matching(
+            &mut self,
+            frame: &StackFrame,
+            access: StackAccess,
+            required: ValueType,
+            min: usize,
+            program: &str,
+            port: &str,
+            span: &SourceSpan,
+        ) -> Result<Vec<ValueRef>, Diagnostic> {
+            let inputs = [StackBindingInput {
+                port: 0,
+                requirement: required,
+                cardinality: Cardinality::Variadic { min },
+            }];
+            let plan = match self.plan_bindings(frame, access, &inputs, exact_compatibility) {
+                StackBindingOutcome::Resolved(plan) => plan,
+                StackBindingOutcome::Deferred => unreachable!("exact compatibility is concrete"),
+                StackBindingOutcome::Impossible(failure) => {
+                    return Err(self.underflow(
+                        frame,
+                        access,
+                        "E_MISSING_REQUIRED_INPUT",
+                        &format!("`{program}.{port}` needs at least {min} {required} value(s)"),
+                        required,
+                        failure.available,
+                        &failure.selected,
+                        span,
+                    ));
+                }
+            };
+            Ok(self.apply_binding_plan(&plan)[0].values.clone())
+        }
+    }
+
+    fn exact_compatibility(value: ValueRef, required: ValueType) -> StackCompatibility {
+        if value.value_type() == required {
+            StackCompatibility::Definite
+        } else {
+            StackCompatibility::Incompatible
+        }
     }
 
     fn root() -> (EvaluationStack, StackFrame) {
@@ -883,7 +890,7 @@ mod tests {
     #[test]
     fn nonmatching_values_remain_ordered_when_matching_values_are_removed() {
         let (mut stack, root) = root();
-        let test = |id| ValueRef::new(ValueId::new(id), ValueType::Test);
+        let test = |id| ValueRef::new(ValueId::new(id), ValueType::Audio);
         stack.extend(&root, [value(0), test(1), value(2), test(3)]);
         let consumed = stack
             .take_all_matching(

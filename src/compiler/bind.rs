@@ -424,7 +424,7 @@ mod tests {
                 default_stack_access: StackAccess::Owned,
                 inputs: vec![],
                 parameters: parameters(),
-                type_parameter: None,
+                type_selector: None,
                 outputs: vec![ValueType::Video.into()],
             },
             implementation: ProgramImplementation::Direct(lower_stub),
@@ -503,7 +503,7 @@ mod tests {
         let mut slots = vec![None];
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
-        let test = ValueRef::new(ValueId::new(2), ValueType::Test);
+        let test = ValueRef::new(ValueId::new(2), ValueType::Audio);
         stack.extend(&frame, [video(1), test]);
         bind_missing_inputs(
             "consume",
@@ -555,7 +555,7 @@ mod tests {
         let mut slots = vec![None];
         let (mut stack, mut frame) =
             EvaluationStack::isolated("test", SourceSpan::file_start("test.yaml"));
-        let test = ValueRef::new(ValueId::new(2), ValueType::Test);
+        let test = ValueRef::new(ValueId::new(2), ValueType::Audio);
         stack.extend(&frame, [video(1), test, video(3)]);
 
         bind_missing_inputs(

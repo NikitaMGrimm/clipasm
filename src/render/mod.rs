@@ -102,8 +102,6 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         let extension = match node.value_type() {
             ValueType::Video => "mkv",
             ValueType::Audio => "mka",
-            #[cfg(test)]
-            ValueType::Test => "bin",
         };
         let artifact = cache_directory.join(format!("{}.{}", node.fingerprint(), extension));
         match node.kind() {
@@ -141,7 +139,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 &artifact,
                 node,
                 plan.audio(),
-                plan.media_policy().working_pixel_format(),
+                crate::preflight::WORKING_PIXEL_FORMAT,
             )
             .is_ok();
         if hit {
@@ -166,7 +164,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
                 &artifact,
                 node,
                 plan.audio(),
-                plan.media_policy().working_pixel_format(),
+                crate::preflight::WORKING_PIXEL_FORMAT,
             )?;
         }
         artifacts.push(artifact);

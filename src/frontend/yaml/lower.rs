@@ -1207,7 +1207,7 @@ mod tests {
                         parameter_type: ParameterType::File,
                         required: true,
                     }],
-                    type_parameter: None,
+                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Direct(lower_synthetic_source),
@@ -1219,7 +1219,7 @@ mod tests {
                     default_stack_access: StackAccess::Owned,
                     inputs: vec![],
                     parameters: vec![],
-                    type_parameter: None,
+                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body {
@@ -1244,7 +1244,7 @@ mod tests {
                         parameter_type: ParameterType::TimeRange,
                         required: true,
                     }],
-                    type_parameter: None,
+                    type_selector: None,
                     outputs: vec![ValueType::Video.into()],
                 },
                 implementation: ProgramImplementation::Body {
