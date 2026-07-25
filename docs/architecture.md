@@ -65,12 +65,14 @@ built-ins share the resulting runtime catalog.
 
 Checked-source materialization allocates compact local and parameter identities,
 resolves graph and scalar references, parses scalar literals, and assigns
-lexical body-port identities. It consumes the resolver's concrete signatures,
-stack plans, and output types rather than recomputing them. Checked items are
-complete when constructed; no later source/checked lockstep pass repairs
-references or output bindings. Inline input bodies and lexical body-port aliases
-are represented directly in checked source. Canonical bodies and invocations
-are not retained for ordinary evaluation.
+lexical body-port identities. Inputs, parameters, stack plans, and body-port
+identities remain aligned to typed descriptor slots throughout checked source.
+It consumes the resolver's concrete signatures, stack plans, and output types
+rather than recomputing them. Checked items are complete when constructed; no
+later source/checked lockstep pass repairs references or output bindings. Inline
+input bodies and lexical body-port aliases are represented directly in checked
+source. Canonical bodies and invocations are not retained for ordinary
+evaluation.
 
 `compiler` evaluates the checked body and every nested body as a typed postfix
 stack program over one physical heterogeneous evaluation stack. Each stack
@@ -81,17 +83,26 @@ not repeat program-name lookup, reference lookup, argument classification,
 scalar conversion, effective-access resolution, output-signature discovery,
 structural body validation, or stack selection. It applies the stored stack
 plan, evaluates checked inline input bodies on isolated evaluation stacks, and
-materializes the ordinary resolved-call interface consumed by program
-implementations. Root values supplied by a CLI or another host after source
-checking use a dedicated entrypoint adapter. The type resolver resolves the
-single closed Video-or-Audio selector used by type-preserving built-ins and
-stores the resulting concrete signature in checked source. A body-inferred
-program such as bare `glue` contributes its homogeneous owned body outputs to
-that same inference, including when the result is named or referenced before
-its declaration. The evaluator does not repeat type inference. Program
-implementations therefore
-receive a fully resolved call rather than frontend-layer arguments, generic
-types, or stack-frame metadata.
+constructs one descriptor-indexed resolved call consumed by every direct, body,
+authored, and external implementation. Static names, cardinalities, and
+parameter types remain owned by the program descriptor; the resolved signature
+stores only concrete input and output types. Runtime input cardinality is
+structural, and parameters remain aligned to typed slots rather than being
+rebuilt into name maps. Named accessor methods used by built-ins resolve through
+the descriptor as convenience adapters only.
+
+Root values supplied by a CLI or another host after source checking use a
+dedicated entrypoint adapter that translates public names into the same ordered
+call ABI once. External programs likewise use the ordered call internally and
+reconstruct named input and parameter maps only at the semantic and process
+protocol boundary. The type resolver resolves the single closed Video-or-Audio
+selector used by type-preserving built-ins and stores the resulting concrete
+signature in checked source. A body-inferred program such as bare `glue`
+contributes its homogeneous owned body outputs to that same inference, including
+when the result is named or referenced before its declaration. The evaluator
+does not repeat type inference. Program implementations therefore receive a
+fully resolved call rather than frontend-layer arguments, generic types, or
+stack-frame metadata.
 
 Every program descriptor explicitly declares a default `StackAccess`. Generic
 invocation metadata may override it with `stack_access: owned|visible`.

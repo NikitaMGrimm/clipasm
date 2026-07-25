@@ -42,7 +42,7 @@ versions. Follow `CONTRIBUTING.md` and run `./scripts/check.sh` before handoff.
 | Change YAML syntax | `src/frontend/yaml` | canonical-source tests, compiler contracts, examples, [YAML frontend reference](../workflow-reference.md) |
 | Add a frontend | `src/frontend`, `src/source` | canonical equivalence tests, source locations, relative paths, CLI selection |
 | Change compiled JSON | `src/format/json.rs` | format version, compiler contracts, [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md) |
-| Change call or stack binding | `src/compiler/typecheck.rs`, `src/compiler/stack.rs`, `src/compiler/entrypoint.rs` | checked argument plans, root bindings, direct/body contracts, variadics, stack diagnostics |
+| Change call or stack binding | `src/program/call.rs`, `src/program/mod.rs`, `src/compiler/typecheck.rs`, `src/compiler/stack.rs`, `src/compiler/check.rs`, `src/compiler/evaluate.rs`, `src/compiler/entrypoint.rs` | descriptor-slot alignment, resolved input cardinality, root and authored bindings, body-port IDs, external protocol naming, stack diagnostics |
 | Add a semantic operation | `src/semantic.rs` | domain inference, fingerprinting, preflight lowering, prepared tests |
 | Change semantic identity | affected program or graph operation | [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md), semantic version, compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | [pure-compile boundary](../adr/0001-keep-compilation-pure.md), capability tests, prepared-plan identity |
