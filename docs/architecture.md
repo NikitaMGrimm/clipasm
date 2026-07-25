@@ -59,7 +59,7 @@ deterministic dependency-first order from the graph itself. `SourcePackage`
 unit storage order is therefore not semantic. Every unit is checked, including
 units the root never invokes, while checked programs remain stored by
 their `SourceUnitId` for evaluation. The compiler then links each unit's local program
-namespace. Canonical bodies first become a compiler-owned resolved draft that
+namespace. Canonical bodies first become a compiler-owned linked draft that
 records program IDs, effective stack access, descriptor-ordered input and
 parameter roles, and validated body presence once.
 Declaration collection and dependency discovery consume that draft before one
@@ -72,10 +72,11 @@ Forward references therefore participate in the same resolution path as
 ordinary stack values, while dependency cycles remain explicit errors.
 
 After the fixpoint stabilizes, the same recursive resolver performs final
-resolution and records every invocation's concrete signature and stack-binding
-plan together with the ordered output types of structural stack blocks and the
-source body. There is no separate concrete type or stack interpreter. Imported
-definitions and built-ins share the resulting runtime catalog.
+resolution. The resulting type-resolved draft owns the linked draft, every
+invocation's concrete signature and stack-binding plan, and the ordered output
+types of structural stack blocks and the source body. There is no separate
+concrete type or stack interpreter. Imported definitions and built-ins share
+the resulting runtime catalog.
 
 Checked-source materialization allocates compact local and parameter identities,
 resolves graph and scalar references, parses scalar literals, and assigns

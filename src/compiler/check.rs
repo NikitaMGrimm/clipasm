@@ -12,7 +12,10 @@ use crate::source::{
     SourceProgramImplementation, SourceUnitId, Spanned,
 };
 
-use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
+use super::draft::{
+    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, IdTable, InvocationId,
+    StackBlockId,
+};
 #[derive(Clone, Debug)]
 pub(super) enum LocalType {
     Value(ValueType),
@@ -342,43 +345,58 @@ fn check_program(
     }
     collect_body_names(&draft.body, &mut local_types, definitions)?;
     validate_local_dependencies(&local_types)?;
-    let inference = super::typecheck::resolve_program_types(&draft, &mut local_types, definitions)?;
+    let resolved = super::typecheck::resolve_program_types(draft, &mut local_types, definitions)?;
     ensure_local_types_resolved(&local_types)?;
+    resolved.into_checked(program, &local_types, definitions)
+}
 
-    let bindings = prepare_program_bindings(program, &draft, &local_types)?;
-    let lexical_types = BTreeMap::new();
-    let lexical_ids = BTreeMap::new();
-    let mut materializer = CheckedMaterializer {
-        local_types: &local_types,
-        local_ids: &bindings.local_ids,
-        parameter_ids: &bindings.parameter_ids,
-        definitions,
-        invocations: &inference.invocations,
-        stack_blocks: &inference.stack_blocks,
-        body_input_count: 0,
-    };
-    let checked_body = materializer.body(&draft.body, &lexical_types, &lexical_ids)?;
-    let body_input_count = materializer.body_input_count;
-    Ok((
-        inference.outputs,
-        CheckedProgram {
-            span: program.span().clone(),
-            stack_access: program.stack_access(),
-            inputs: program
-                .inputs()
-                .iter()
-                .map(|input| CheckedProgramInput {
-                    name: input.name.clone(),
-                    declared_at: input.declared_at.clone(),
-                    local: bindings.local_ids[&input.name],
-                })
-                .collect(),
-            locals: bindings.locals,
-            parameters: bindings.parameters,
-            body_input_count,
-            body: checked_body,
-        },
-    ))
+impl super::typecheck::ResolvedDraftProgram {
+    fn into_checked(
+        self,
+        program: &SourceProgram,
+        local_types: &BTreeMap<String, LocalType>,
+        definitions: &[ProgramDefinition],
+    ) -> Result<(Vec<ValueType>, CheckedProgram)> {
+        let bindings = prepare_program_bindings(program, &self.draft, local_types)?;
+        let Self {
+            draft,
+            invocations,
+            stack_blocks,
+            outputs,
+        } = self;
+        let mut materializer = CheckedMaterializer {
+            local_types,
+            local_ids: &bindings.local_ids,
+            parameter_ids: &bindings.parameter_ids,
+            definitions,
+            invocations,
+            stack_blocks,
+            body_input_count: 0,
+        };
+        let checked_body = materializer.body(draft.body, &BTreeMap::new())?;
+        materializer.ensure_consumed(&draft.span)?;
+        let body_input_count = materializer.body_input_count;
+        Ok((
+            outputs,
+            CheckedProgram {
+                span: program.span().clone(),
+                stack_access: program.stack_access(),
+                inputs: program
+                    .inputs()
+                    .iter()
+                    .map(|input| CheckedProgramInput {
+                        name: input.name.clone(),
+                        declared_at: input.declared_at.clone(),
+                        local: bindings.local_ids[&input.name],
+                    })
+                    .collect(),
+                locals: bindings.locals,
+                parameters: bindings.parameters,
+                body_input_count,
+                body: checked_body,
+            },
+        ))
+    }
 }
 
 struct ProgramBindings {
@@ -492,12 +510,11 @@ fn resolve_value_target(
     name: &str,
     span: &crate::source::SourceSpan,
     locals: &BTreeMap<String, ValueLocalId>,
-    lexical: &BTreeMap<String, BodyInputId>,
+    lexical: &BTreeMap<String, BodyBinding>,
 ) -> Result<ReferenceTarget> {
     lexical
         .get(name)
-        .copied()
-        .map(ReferenceTarget::BodyInput)
+        .map(|binding| ReferenceTarget::BodyInput(binding.id))
         .or_else(|| locals.get(name).copied().map(ReferenceTarget::Local))
         .ok_or_else(|| missing_reference(name, span))
 }
@@ -613,16 +630,14 @@ fn item_output_types(
 }
 
 fn checked_outputs(
-    bindings: &OutputBindings,
+    bindings: OutputBindings,
     types: &[ValueType],
     local_ids: &BTreeMap<String, ValueLocalId>,
 ) -> Result<Vec<CheckedOutput>> {
     let names = match bindings {
         OutputBindings::None => vec![None; types.len()],
-        OutputBindings::One(name) => vec![Some(name.value.clone())],
-        OutputBindings::Many(names, _) => {
-            names.iter().map(|name| Some(name.value.clone())).collect()
-        }
+        OutputBindings::One(name) => vec![Some(name.value)],
+        OutputBindings::Many(names, _) => names.into_iter().map(|name| Some(name.value)).collect(),
     };
     debug_assert_eq!(names.len(), types.len());
     names
@@ -655,9 +670,15 @@ struct CheckedMaterializer<'a> {
     local_ids: &'a BTreeMap<String, ValueLocalId>,
     parameter_ids: &'a BTreeMap<String, ParameterId>,
     definitions: &'a [ProgramDefinition],
-    invocations: &'a [super::typecheck::ResolvedInvocation],
-    stack_blocks: &'a [Vec<ValueType>],
+    invocations: IdTable<InvocationId, super::typecheck::ResolvedInvocation>,
+    stack_blocks: IdTable<StackBlockId, Vec<ValueType>>,
     body_input_count: usize,
+}
+
+#[derive(Clone, Copy)]
+struct BodyBinding {
+    value_type: ValueType,
+    id: BodyInputId,
 }
 
 struct MaterializedArguments {
@@ -669,17 +690,16 @@ impl CheckedMaterializer<'_> {
     #[allow(clippy::too_many_lines)]
     fn body(
         &mut self,
-        body: &DraftBody,
-        lexical_types: &BTreeMap<String, ValueType>,
-        lexical_ids: &BTreeMap<String, BodyInputId>,
+        body: DraftBody,
+        lexical: &BTreeMap<String, BodyBinding>,
     ) -> Result<CheckedBody> {
         let mut checked_items = Vec::with_capacity(body.items.len());
-        for item in &body.items {
-            let checked = match &item.kind {
+        for item in body.items {
+            let checked = match item.kind {
                 DraftItemKind::Reference(reference) => {
                     let output = resolved_value_type(
                         self.local_types,
-                        lexical_types,
+                        lexical,
                         &reference.value,
                         &reference.span,
                     )?;
@@ -687,22 +707,39 @@ impl CheckedMaterializer<'_> {
                         &reference.value,
                         &reference.span,
                         self.local_ids,
-                        lexical_ids,
+                        lexical,
                     )?;
                     CheckedItem {
-                        origin: item.origin.clone(),
-                        outputs: checked_outputs(&item.output_bindings, &[output], self.local_ids)?,
+                        origin: item.origin,
+                        outputs: checked_outputs(item.output_bindings, &[output], self.local_ids)?,
                         kind: CheckedItemKind::Reference { target },
                     }
                 }
                 DraftItemKind::Invocation(invocation) => {
-                    let definition = &self.definitions[invocation.program.index()];
-                    let resolved = &self.invocations[invocation.id.0];
+                    let DraftInvocation {
+                        id,
+                        name,
+                        program,
+                        access,
+                        type_argument: _,
+                        inputs,
+                        parameters,
+                        body,
+                    } = invocation;
+                    let definition = &self.definitions[program.index()];
+                    let resolved = self.invocations.take(id).ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_INTERNAL_TYPE_RESOLUTION",
+                            format!("invocation {} was consumed more than once", id.0),
+                            item.origin.span.clone(),
+                        )
+                    })?;
                     let validated = self.explicit_arguments(
-                        invocation,
+                        &name.value,
+                        inputs,
+                        parameters,
                         definition,
-                        lexical_types,
-                        lexical_ids,
+                        lexical,
                     )?;
                     let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
                     let checked_body = match definition.implementation {
@@ -710,9 +747,8 @@ impl CheckedMaterializer<'_> {
                         | ProgramImplementation::ClipAsm(_)
                         | ProgramImplementation::External(_) => None,
                         ProgramImplementation::Body { .. } => {
-                            let body = invocation.body.as_deref().expect("draft body program");
-                            let mut body_local_types = lexical_types.clone();
-                            let mut body_lexical_ids = lexical_ids.clone();
+                            let body = body.expect("draft body program");
+                            let mut body_lexical = lexical.clone();
                             for (index, (port, value_type)) in definition
                                 .descriptor
                                 .inputs
@@ -725,28 +761,30 @@ impl CheckedMaterializer<'_> {
                                 }
                                 let id = self.allocate_body_input(&item.origin.span)?;
                                 body_input_ids[index] = Some(id);
-                                body_local_types.insert(port.name.clone(), *value_type);
-                                body_lexical_ids.insert(port.name.clone(), id);
+                                body_lexical.insert(
+                                    port.name.clone(),
+                                    BodyBinding {
+                                        value_type: *value_type,
+                                        id,
+                                    },
+                                );
                             }
-                            Some(Box::new(self.body(
-                                body,
-                                &body_local_types,
-                                &body_lexical_ids,
-                            )?))
+                            Some(Box::new(self.body(*body, &body_lexical)?))
                         }
                     };
+                    let outputs = checked_outputs(
+                        item.output_bindings,
+                        &resolved.signature.outputs,
+                        self.local_ids,
+                    )?;
                     CheckedItem {
-                        origin: item.origin.clone(),
-                        outputs: checked_outputs(
-                            &item.output_bindings,
-                            &resolved.signature.outputs,
-                            self.local_ids,
-                        )?,
+                        origin: item.origin,
+                        outputs,
                         kind: CheckedItemKind::Invocation(CheckedInvocation {
-                            program: invocation.program,
-                            signature: resolved.signature.clone(),
-                            access: invocation.access,
-                            stack_plan: resolved.stack_plan.clone(),
+                            program,
+                            signature: resolved.signature,
+                            access,
+                            stack_plan: resolved.stack_plan,
                             inputs: validated.inputs,
                             parameters: validated.parameters,
                             body: checked_body,
@@ -754,24 +792,51 @@ impl CheckedMaterializer<'_> {
                         }),
                     }
                 }
-                DraftItemKind::StackBlock(block) => CheckedItem {
-                    origin: item.origin.clone(),
-                    outputs: checked_outputs(
-                        &item.output_bindings,
-                        &self.stack_blocks[block.id.0],
-                        self.local_ids,
-                    )?,
-                    kind: CheckedItemKind::StackBlock(CheckedStackBlock {
-                        access: block.access,
-                        body: Box::new(self.body(&block.body, lexical_types, lexical_ids)?),
-                    }),
-                },
+                DraftItemKind::StackBlock(block) => {
+                    let output_types = self.stack_blocks.take(block.id).ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_INTERNAL_TYPE_RESOLUTION",
+                            format!("stack block {} was consumed more than once", block.id.0),
+                            item.origin.span.clone(),
+                        )
+                    })?;
+                    CheckedItem {
+                        origin: item.origin,
+                        outputs: checked_outputs(
+                            item.output_bindings,
+                            &output_types,
+                            self.local_ids,
+                        )?,
+                        kind: CheckedItemKind::StackBlock(CheckedStackBlock {
+                            access: block.access,
+                            body: Box::new(self.body(*block.body, lexical)?),
+                        }),
+                    }
+                }
             };
             checked_items.push(checked);
         }
         Ok(CheckedBody {
             items: checked_items,
         })
+    }
+
+    fn ensure_consumed(&self, span: &crate::source::SourceSpan) -> Result<()> {
+        if let Some(index) = self.invocations.first_present() {
+            return Err(Diagnostic::new(
+                "E_INTERNAL_TYPE_RESOLUTION",
+                format!("invocation {index} was resolved but not materialized"),
+                span.clone(),
+            ));
+        }
+        if let Some(index) = self.stack_blocks.first_present() {
+            return Err(Diagnostic::new(
+                "E_INTERNAL_TYPE_RESOLUTION",
+                format!("stack block {index} was resolved but not materialized"),
+                span.clone(),
+            ));
+        }
+        Ok(())
     }
 
     fn allocate_body_input(&mut self, span: &crate::source::SourceSpan) -> Result<BodyInputId> {
@@ -791,18 +856,17 @@ impl CheckedMaterializer<'_> {
 
     fn explicit_arguments(
         &mut self,
-        invocation: &DraftInvocation,
+        program_name: &str,
+        inputs: Vec<Option<DraftInput>>,
+        parameters: Vec<Option<DraftParameter>>,
         definition: &ProgramDefinition,
-        lexical_types: &BTreeMap<String, ValueType>,
-        lexical_ids: &BTreeMap<String, BodyInputId>,
+        lexical: &BTreeMap<String, BodyBinding>,
     ) -> Result<MaterializedArguments> {
-        let inputs = invocation
-            .inputs
-            .iter()
+        let inputs = inputs
+            .into_iter()
             .map(|argument| {
                 argument
-                    .as_ref()
-                    .map(|argument| self.input_argument(argument, lexical_types, lexical_ids))
+                    .map(|argument| self.input_argument(argument, lexical))
                     .transpose()
             })
             .collect::<Result<Vec<_>>>()?;
@@ -810,13 +874,12 @@ impl CheckedMaterializer<'_> {
             .descriptor
             .parameters
             .iter()
-            .zip(&invocation.parameters)
+            .zip(parameters)
             .map(|(parameter, argument)| {
                 argument
-                    .as_ref()
                     .map(|argument| {
                         check_parameter_argument(
-                            &invocation.name.value,
+                            program_name,
                             parameter,
                             argument,
                             self.local_types,
@@ -831,24 +894,26 @@ impl CheckedMaterializer<'_> {
 
     fn input_argument(
         &mut self,
-        argument: &DraftInput,
-        lexical_types: &BTreeMap<String, ValueType>,
-        lexical_ids: &BTreeMap<String, BodyInputId>,
+        argument: DraftInput,
+        lexical: &BTreeMap<String, BodyBinding>,
     ) -> Result<CheckedInputValue> {
         match argument {
-            DraftInput::Reference(reference) => Ok(CheckedInputValue::References(
-                vec![resolve_value_target(
+            DraftInput::Reference(reference) => {
+                let target = resolve_value_target(
                     &reference.value,
                     &reference.span,
                     self.local_ids,
-                    lexical_ids,
-                )?],
-                reference.span.clone(),
-            )),
-            DraftInput::Body(body) => Ok(CheckedInputValue::Body(
-                Box::new(self.body(body, lexical_types, lexical_ids)?),
-                body.span.clone(),
-            )),
+                    lexical,
+                )?;
+                Ok(CheckedInputValue::References(vec![target], reference.span))
+            }
+            DraftInput::Body(body) => {
+                let span = body.span.clone();
+                Ok(CheckedInputValue::Body(
+                    Box::new(self.body(*body, lexical)?),
+                    span,
+                ))
+            }
         }
     }
 }
@@ -856,20 +921,21 @@ impl CheckedMaterializer<'_> {
 fn check_parameter_argument(
     program: &str,
     parameter: &ParameterDescriptor,
-    argument: &DraftParameter,
+    argument: DraftParameter,
     local_types: &BTreeMap<String, LocalType>,
     parameter_ids: &BTreeMap<String, ParameterId>,
 ) -> Result<CheckedParameterValue> {
     match argument {
         DraftParameter::Literal(literal) => {
+            let span = literal.span().clone();
             Ok(CheckedParameterValue::Literal(crate::source::Spanned::new(
                 super::parameter::from_literal(
                     program,
                     &parameter.name,
                     &parameter.parameter_type,
-                    literal,
+                    &literal,
                 )?,
-                literal.span().clone(),
+                span,
             )))
         }
         DraftParameter::Reference(reference) => match local_types.get(&reference.value) {
@@ -903,13 +969,13 @@ fn check_parameter_argument(
 
 fn resolved_value_type(
     locals: &BTreeMap<String, LocalType>,
-    lexical: &BTreeMap<String, ValueType>,
+    lexical: &BTreeMap<String, BodyBinding>,
     name: &str,
     span: &crate::source::SourceSpan,
 ) -> Result<ValueType> {
     lexical
         .get(name)
-        .copied()
+        .map(|binding| binding.value_type)
         .map_or_else(|| value_local(locals, name, span), Ok)
 }
 
