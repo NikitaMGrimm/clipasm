@@ -175,15 +175,22 @@ Every linked source program is checked even when the root does not invoke it.
 
 ## External programs
 
-Canonical source packages may contain external program specifications and
-source-unit-local aliases to them. External calls use the ordinary descriptor,
-binder, stack, reference, output, and semantic-version rules. The native
-`external "manifest.json" as alias` declaration loads the manifest before
-lowering; the compiler consumes the resulting ordinary package catalog.
+Every source program has one implementation: either a ClipAsm body or an
+`external { ... }` declaration. Both are imported through ordinary `import`
+declarations, so callers depend on the program interface rather than its
+implementation. External calls use the ordinary descriptor, binder, stack,
+reference, output, default-parameter, and semantic-version rules.
+
+An external declaration names a directly executable `command`, a positive
+`semantic_version`, and the declared Video input whose timeline contract the
+single Video output `preserve`s. External programs cannot also contain
+executable statements or imports; composition belongs in a separate ClipAsm
+wrapper program.
 
 The initial external protocol supports fixed Video or Audio inputs, Integer and
 Keyword parameters, and one Video output whose exact domain and meaningful-audio
 state preserve one declared Video input. Compilation does not resolve or run the
-command. Preflight resolves and hashes it; rendering executes it directly with a
-versioned JSON request and verifies the produced artifact. No implicit shell is
-used. External executables are trusted native code.
+command. Preflight resolves and hashes it relative to the defining source unit;
+rendering executes it directly with a versioned JSON request and verifies the
+produced artifact. JSON remains a machine protocol, not an authoring format. No
+implicit shell is used. External executables are trusted native code.

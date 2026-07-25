@@ -6,9 +6,9 @@ use crate::program::{Cardinality, InputPort, ProgramDescriptor, ProgramRegistry,
 use crate::source::{
     ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody,
     ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
-    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImport, SourceFile, SourceImport,
-    SourcePackage, SourceParameter, SourceProgram, SourceUnit, SourceUnitId, Spanned, StackBlock,
-    UnlinkedSourceUnit, VideoSettings,
+    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalImplementation, SourceFile, SourceImport,
+    SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation, SourceUnit,
+    SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
 };
 
 use super::syntax::{
@@ -19,8 +19,7 @@ use super::{parser, sugar};
 
 /// Parse and lower one in-memory native `.clipasm` source program.
 ///
-/// Imports and external manifests require [`super::parse_file`] because they
-/// need a filesystem base and package loading.
+/// Imports require [`super::parse_file`] because they need package loading.
 ///
 /// # Errors
 ///
@@ -44,12 +43,10 @@ pub(crate) fn parse_str_with_registry(
         units: vec![SourceUnit {
             source: unit.source,
             imports: Vec::new(),
-            externals: Vec::new(),
             project: unit.project,
             program: unit.program,
             output: unit.output,
         }],
-        external_programs: Vec::new(),
     })
 }
 
@@ -73,19 +70,30 @@ pub(crate) fn lower_source(
         programs,
         parameters,
     };
-    let items = lowerer.lower_statements(&syntax.statements, &lexical)?;
+    let implementation = match declarations.external {
+        Some(external) => {
+            if !syntax.statements.is_empty() {
+                return Err(Diagnostic::new(
+                    "E_EXTERNAL_WITH_BODY",
+                    "an external program cannot also contain executable statements",
+                    syntax.statements[0].span.clone(),
+                ));
+            }
+            SourceProgramImplementation::External(external)
+        }
+        None => SourceProgramImplementation::Body(ProgramBody {
+            items: lowerer.lower_statements(&syntax.statements, &lexical)?,
+            span: syntax.span.clone(),
+        }),
+    };
     Ok(UnlinkedSourceUnit {
         source,
         imports: declarations.imports,
-        externals: declarations.externals,
         project: declarations.project,
         program: SourceProgram {
             inputs: declarations.inputs,
             parameters: declarations.parameters,
-            body: ProgramBody {
-                items,
-                span: syntax.span.clone(),
-            },
+            implementation,
             span: syntax.version.span,
             stack_access: SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
         },
@@ -168,14 +176,10 @@ fn reject_file_backed_declarations(syntax: &SourceFileSyntax) -> Result<()> {
                     import.path.span.clone(),
                 ));
             }
-            Declaration::External(external) => {
-                return Err(Diagnostic::new(
-                    "E_EXTERNAL_REQUIRES_FILE",
-                    "external program manifests require file-backed package loading",
-                    external.path.span.clone(),
-                ));
-            }
-            Declaration::Config(_) | Declaration::Input(_) | Declaration::Parameter(_) => {}
+            Declaration::Config(_)
+            | Declaration::External(_)
+            | Declaration::Input(_)
+            | Declaration::Parameter(_) => {}
         }
     }
     Ok(())
@@ -183,7 +187,7 @@ fn reject_file_backed_declarations(syntax: &SourceFileSyntax) -> Result<()> {
 
 struct LoweredDeclarations {
     imports: Vec<SourceImport>,
-    externals: Vec<SourceExternalImport>,
+    external: Option<SourceExternalImplementation>,
     project: Option<Spanned<ProjectSettings>>,
     output: Option<Spanned<PathBuf>>,
     inputs: Vec<InputPort>,
@@ -192,7 +196,7 @@ struct LoweredDeclarations {
 
 fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarations> {
     let mut imports = Vec::new();
-    let mut externals = Vec::new();
+    let mut external = None;
     let mut project = None;
     let mut output = None;
     let mut inputs = Vec::new();
@@ -233,9 +237,16 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
             Declaration::Import(import) => imports.push(SourceImport {
                 alias: import.alias,
             }),
-            Declaration::External(external) => externals.push(SourceExternalImport {
-                alias: external.alias,
-            }),
+            Declaration::External(declaration) => {
+                if external.is_some() {
+                    return Err(Diagnostic::new(
+                        "E_DUPLICATE_EXTERNAL",
+                        "a source file may declare at most one `external` block",
+                        declaration.span,
+                    ));
+                }
+                external = Some(lower_external_declaration(declaration)?);
+            }
             Declaration::Input(input) => inputs.push(InputPort {
                 name: input.name.value,
                 value_type: input.value_type.value.into(),
@@ -251,11 +262,63 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
 
     Ok(LoweredDeclarations {
         imports,
-        externals,
+        external,
         project,
         output,
         inputs,
         parameters,
+    })
+}
+
+fn lower_external_declaration(
+    declaration: super::syntax::ExternalDeclaration,
+) -> Result<SourceExternalImplementation> {
+    let command = declaration.command.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_EXTERNAL_FIELD",
+            "external program requires `command`",
+            declaration.span.clone(),
+        )
+    })?;
+    if command.value.is_empty() {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "external `command` must not be empty",
+            command.span,
+        ));
+    }
+    let semantic_version = declaration.semantic_version.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_EXTERNAL_FIELD",
+            "external program requires `semantic_version`",
+            declaration.span.clone(),
+        )
+    })?;
+    let semantic_version_value = semantic_version.value.parse::<u32>().map_err(|_| {
+        Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "external `semantic_version` must be a positive unsigned integer",
+            semantic_version.span.clone(),
+        )
+    })?;
+    if semantic_version_value == 0 {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            "external `semantic_version` must be greater than zero",
+            semantic_version.span,
+        ));
+    }
+    let preserve = declaration.preserve.ok_or_else(|| {
+        Diagnostic::new(
+            "E_MISSING_EXTERNAL_FIELD",
+            "external program requires `preserve`",
+            declaration.span,
+        )
+    })?;
+    Ok(SourceExternalImplementation {
+        command: Spanned::new(PathBuf::from(command.value), command.span),
+        semantic_version: Spanned::new(semantic_version_value, semantic_version.span),
+        preserve,
     })
 }
 
@@ -697,20 +760,13 @@ mod tests {
     }
 
     #[test]
-    fn string_parsing_rejects_file_backed_declarations() {
+    fn string_parsing_rejects_imports_that_require_package_loading() {
         let import = parse_str(
             Path::new("program.clipasm"),
             "clipasm 1\nimport \"effect.clipasm\" as effect\n",
         )
         .expect_err("file-backed import");
         assert_eq!(import.code, "E_IMPORT_REQUIRES_FILE");
-
-        let external = parse_str(
-            Path::new("program.clipasm"),
-            "clipasm 1\nexternal \"effect.json\" as effect\n",
-        )
-        .expect_err("file-backed external");
-        assert_eq!(external.code, "E_EXTERNAL_REQUIRES_FILE");
     }
 
     #[test]

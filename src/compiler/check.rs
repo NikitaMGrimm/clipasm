@@ -3,10 +3,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
-    ProgramId, ProgramImplementation, ProgramRegistry, ValueTypeSpec, builtin_programs,
+    Cardinality, InputSlot, ParameterDescriptor, ParameterType, ProgramDefinition,
+    ProgramDescriptor, ProgramId, ProgramImplementation, ProgramRegistry, ValueTypeSpec,
+    builtin_programs,
 };
-use crate::source::{OutputBindings, SourcePackage, SourceProgram, SourceUnitId};
+use crate::source::{
+    OutputBindings, SourcePackage, SourceProgram, SourceProgramImplementation, SourceUnitId,
+    Spanned,
+};
 
 use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
 #[derive(Clone, Debug)]
@@ -40,13 +44,12 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let external_programs = register_external_programs(package, &mut definitions);
     let mut unit_programs = vec![None; package.units().len()];
     let mut programs = vec![None; package.units().len()];
 
     for unit_id in unit_order {
         let unit = &package.units()[unit_id.index()];
-        let mut namespace = unit
+        let namespace = unit
             .imports
             .iter()
             .map(|import| {
@@ -63,25 +66,24 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
                 Ok((import.alias.value.clone(), program))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
-        for external in &unit.externals {
-            let program = external_programs[&external.target];
-            if namespace
-                .insert(external.alias.value.clone(), program)
-                .is_some()
-            {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_PROGRAM_IMPORT",
-                    format!("duplicate program import alias `{}`", external.alias.value),
-                    external.alias.span.clone(),
-                ));
-            }
-        }
         let id = ProgramId::new(
             u32::try_from(definitions.len()).expect("linked program catalog fits in u32"),
         );
-        let (outputs, checked_program) =
-            check_program(id, unit.program(), &definitions, &builtin_names, &namespace)?;
-        definitions.push(authored_definition(unit_id, unit.program(), outputs)?);
+        let (definition, checked_program) = match unit.program().implementation() {
+            SourceProgramImplementation::Body(_) => {
+                let (outputs, checked) =
+                    check_program(id, unit.program(), &definitions, &builtin_names, &namespace)?;
+                (
+                    clipasm_definition(unit_id, unit.program(), outputs)?,
+                    checked,
+                )
+            }
+            SourceProgramImplementation::External(external) => (
+                external_definition(unit_id, unit.program(), external)?,
+                external_checked_program(id, unit.program())?,
+            ),
+        };
+        definitions.push(definition);
         unit_programs[unit_id.index()] = Some(id);
         programs[unit_id.index()] = Some(checked_program);
     }
@@ -96,27 +98,6 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         registry,
         programs,
     })
-}
-
-fn register_external_programs(
-    package: &SourcePackage,
-    definitions: &mut Vec<ProgramDefinition>,
-) -> BTreeMap<crate::external::ExternalProgramId, ProgramId> {
-    package
-        .external_programs()
-        .iter()
-        .enumerate()
-        .map(|(index, external)| {
-            let external_id = crate::external::ExternalProgramId::new(
-                u32::try_from(index).expect("external program catalog fits in u32"),
-            );
-            let program_id = ProgramId::new(
-                u32::try_from(definitions.len()).expect("program catalog fits in u32"),
-            );
-            definitions.push(external.definition(format!("external_program_{index}")));
-            (external_id, program_id)
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -146,7 +127,7 @@ pub(super) fn check_with_registry(
         &names,
         &BTreeMap::new(),
     )?;
-    definitions.push(authored_definition(
+    definitions.push(clipasm_definition(
         package.root,
         package.root().program(),
         outputs,
@@ -158,7 +139,7 @@ pub(super) fn check_with_registry(
     })
 }
 
-fn authored_definition(
+fn clipasm_definition(
     unit: SourceUnitId,
     program: &SourceProgram,
     outputs: Vec<ValueType>,
@@ -184,8 +165,164 @@ fn authored_definition(
             parameters,
             outputs: outputs.into_iter().map(Into::into).collect(),
         },
-        implementation: ProgramImplementation::Authored(unit),
+        implementation: ProgramImplementation::ClipAsm(unit),
     })
+}
+
+fn external_definition(
+    unit: SourceUnitId,
+    program: &SourceProgram,
+    external: &crate::source::SourceExternalImplementation,
+) -> Result<ProgramDefinition> {
+    let parameters = parameter_descriptors(program)?;
+    let parameter_defaults = parameter_defaults(program, "external program")?;
+    let preserve_index = program
+        .inputs()
+        .iter()
+        .position(|input| input.name == external.preserve.value)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INVALID_EXTERNAL_PROGRAM",
+                format!(
+                    "external output preserves unknown input `{}`",
+                    external.preserve.value
+                ),
+                external.preserve.span.clone(),
+            )
+        })?;
+    let preserved = &program.inputs()[preserve_index];
+    if preserved.value_type.exact() != Some(ValueType::Video) {
+        return Err(Diagnostic::new(
+            "E_INVALID_EXTERNAL_PROGRAM",
+            format!(
+                "external preserve input `{}` must be Video",
+                external.preserve.value
+            ),
+            external.preserve.span.clone(),
+        ));
+    }
+    for parameter in program.parameters() {
+        if !matches!(
+            parameter.parameter_type,
+            ParameterType::Integer | ParameterType::Keyword(_)
+        ) {
+            return Err(Diagnostic::new(
+                "E_INVALID_EXTERNAL_PROGRAM",
+                format!(
+                    "external parameter `{}` uses unsupported type {:?}",
+                    parameter.name.value, parameter.parameter_type
+                ),
+                parameter.name.span.clone(),
+            ));
+        }
+    }
+    Ok(ProgramDefinition {
+        descriptor: ProgramDescriptor {
+            name: format!("source_program_{}", unit.index()),
+            semantic_version: external.semantic_version.value,
+            default_stack_access: program.stack_access(),
+            inputs: program.inputs().to_vec(),
+            parameters,
+            outputs: vec![ValueType::Video.into()],
+        },
+        implementation: ProgramImplementation::External(crate::external::ExternalRuntime::new(
+            external.command.clone(),
+            InputSlot::new(preserve_index),
+            parameter_defaults,
+        )),
+    })
+}
+
+fn external_checked_program(
+    definition: ProgramId,
+    program: &SourceProgram,
+) -> Result<CheckedProgram> {
+    let mut locals = Vec::new();
+    let inputs = program
+        .inputs()
+        .iter()
+        .enumerate()
+        .map(|(index, input)| {
+            let value_type = input
+                .value_type
+                .exact()
+                .expect("source program inputs are concrete");
+            locals.push(CheckedLocal {
+                name: input.name.clone(),
+                declared_at: program.span().clone(),
+                value_type,
+            });
+            CheckedProgramInput {
+                name: input.name.clone(),
+                value_type,
+                local: ValueLocalId(u32::try_from(index).expect("source input count fits in u32")),
+            }
+        })
+        .collect();
+    let defaults = parameter_defaults(program, "external program")?;
+    let parameters = program
+        .parameters()
+        .iter()
+        .zip(defaults)
+        .map(|(parameter, default)| {
+            Ok(CheckedParameter {
+                name: parameter.name.value.clone(),
+                parameter_type: parameter.parameter_type.clone(),
+                declared_at: parameter.name.span.clone(),
+                default,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(CheckedProgram {
+        definition,
+        span: program.span().clone(),
+        stack_access: program.stack_access(),
+        inputs,
+        locals,
+        parameters,
+        body_input_count: 0,
+        body: None,
+    })
+}
+
+fn parameter_defaults(
+    program: &SourceProgram,
+    owner: &str,
+) -> Result<Vec<Option<Spanned<crate::program::ParameterValue>>>> {
+    program
+        .parameters()
+        .iter()
+        .map(|parameter| {
+            parameter
+                .default
+                .as_ref()
+                .map(|default| {
+                    super::parameter::from_literal(
+                        owner,
+                        &parameter.name.value,
+                        &parameter.parameter_type,
+                        default,
+                    )
+                    .map(|value| Spanned::new(value, default.span().clone()))
+                })
+                .transpose()
+        })
+        .collect()
+}
+
+fn parameter_descriptors(program: &SourceProgram) -> Result<Vec<ParameterDescriptor>> {
+    program
+        .parameters()
+        .iter()
+        .map(|parameter| {
+            validate_parameter_default(parameter)?;
+            Ok(ParameterDescriptor {
+                name: parameter.name.value.clone(),
+                parameter_type: parameter.parameter_type.clone(),
+                required: parameter.default.is_none(),
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -261,7 +398,7 @@ fn check_program(
             locals: bindings.locals,
             parameters: bindings.parameters,
             body_input_count,
-            body: checked_body,
+            body: Some(checked_body),
         },
     ))
 }
@@ -590,7 +727,7 @@ fn materialize_body(
                 let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
                 let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_)
-                    | ProgramImplementation::Authored(_)
+                    | ProgramImplementation::ClipAsm(_)
                     | ProgramImplementation::External(_) => None,
                     ProgramImplementation::Body { .. } => {
                         let body = invocation.body.as_deref().expect("draft body program");

@@ -14,9 +14,17 @@ pub(crate) struct SourceFileSyntax {
 pub(crate) enum Declaration {
     Config(ConfigDeclaration),
     Import(PathDeclaration),
-    External(PathDeclaration),
+    External(ExternalDeclaration),
     Input(InputDeclaration),
     Parameter(ParameterDeclaration),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ExternalDeclaration {
+    pub(crate) command: Option<Spanned<String>>,
+    pub(crate) semantic_version: Option<Spanned<String>>,
+    pub(crate) preserve: Option<Spanned<String>>,
+    pub(crate) span: SourceSpan,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

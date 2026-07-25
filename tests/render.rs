@@ -735,22 +735,14 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     permissions.set_mode(0o755);
     fs::set_permissions(&script, permissions).expect("executable script");
     fs::write(
-        directory.path().join("effect.json"),
-        r#"{
-  "format_version": 2,
-  "protocol_version": 1,
-  "semantic_version": 1,
-  "command": "./effect.py",
-  "inputs": [{"name": "video", "type": "Video"}],
-  "parameters": [{"name": "amount", "type": "Integer", "required": true}],
-  "output": {"type": "Video", "preserve": "video"}
-}"#,
+        directory.path().join("effect.clipasm"),
+        "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./effect.py\"\n  semantic_version = 1\n  preserve = video\n}\n",
     )
-    .expect("manifest");
+    .expect("external program");
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nexternal \"effect.json\" as effect\nimage(\"card.ppm\", 1s)\neffect(7)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s)\neffect(7)\n",
     )
     .expect("workflow");
 

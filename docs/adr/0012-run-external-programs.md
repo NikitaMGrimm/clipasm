@@ -22,10 +22,11 @@ compiler, preflight, renderer, and cache all need the validated specification.
 
 ## Decision
 
-Canonical `SourcePackage` data owns external program specifications. Each source
-unit maps local aliases to those specifications. The native loader reads the
-manifest before compilation, and manifest paths resolve relative to the
-declaring `.clipasm` source.
+Every source unit owns one program implementation: either a ClipAsm body or a
+native `external { ... }` declaration. External programs are ordinary
+`.clipasm` source units and are imported with the same `import "..." as alias`
+syntax as body programs. This keeps callers dependent on the program interface
+rather than its implementation.
 
 An external specification becomes an ordinary runtime `ProgramDefinition` with
 `ProgramImplementation::External`. It uses the shared descriptor validator,
@@ -33,9 +34,13 @@ argument binder, exact typed inputs, scalar parameters, stack access, output
 checks, and semantic version. External aliases remain local to the source unit
 and may not collide with built-ins or authored imports.
 
-The initial manifest and protocol are deliberately closed:
+The native declaration requires a directly executable `command`, a positive
+`semantic_version`, and a `preserve` field naming one declared Video input.
+External implementation files cannot also contain executable statements or
+imports; composition belongs in a separate ClipAsm wrapper program.
 
-- JSON manifest format version 2;
+The initial process protocol is deliberately closed:
+
 - process protocol version 1;
 - fixed Video or Audio inputs;
 - Integer and Keyword parameters;
@@ -48,7 +53,7 @@ Compilation reads the already loaded specification but never resolves or runs
 its command. Evaluation emits a pure `ExternalVideo` semantic node containing
 the authored command, bound parameters, named graph inputs, and preserved input.
 
-Preflight resolves the command relative to its manifest or from `PATH`, requires
+Preflight resolves the command relative to its defining source unit or from `PATH`, requires
 an executable regular file, hashes its bytes, lowers every input dependency,
 and copies the exact domain and meaningful-audio state from the preserved Video
 input. The executable content hash participates in the prepared node identity.
@@ -61,9 +66,9 @@ Video and Audio settings, and resolved FFmpeg and FFprobe paths. A zero exit
 status indicates that the process wrote the output. ClipAsm then applies its
 ordinary prepared-artifact verification before committing the cache entry.
 
-External code is trusted native code. Importing a manifest is explicit, but
-rendering an unfamiliar project can execute that program and should only be done
-for trusted sources. Validation and compilation do not execute it. ClipAsm does
+External code is trusted native code. Importing an external `.clipasm` program
+is explicit, but rendering an unfamiliar project can execute that program and
+should only be done for trusted sources. Validation and compilation do not execute it. ClipAsm does
 not sandbox external programs, impose an execution timeout, or attempt to prove
 that they terminate or behave deterministically. An external process may hang,
 crash, consume arbitrary machine resources, access the network or filesystem,
@@ -74,7 +79,7 @@ parameters, upstream artifacts, project settings, and provided FFmpeg/FFprobe
 identities. It cannot automatically discover interpreter versions, imported
 modules, environment variables, clocks, random input, network responses, or
 undeclared files. Authors must change the executable bytes or increment the
-manifest semantic version whenever such dependencies change output semantics.
+declared semantic version whenever such dependencies change output semantics.
 
 ## Consequences
 
@@ -83,7 +88,8 @@ manifest semantic version whenever such dependencies change output semantics.
 - External programs share the same canonical catalog as built-ins and imported
   authored programs.
 - Scripts can be authored in any language that produces an executable and can
-  read JSON from standard input.
+  read JSON from standard input, while their callable interface remains native
+  ClipAsm source.
 - Script bytes, parameters, and upstream artifacts invalidate cache identity.
 - Nondeterministic or environmentally dependent external programs may reuse a
   cached prior result; reproducibility remains the external author's contract.

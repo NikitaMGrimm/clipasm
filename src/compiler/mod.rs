@@ -382,8 +382,8 @@ mod tests {
     use crate::program::StackAccess;
     use crate::source::{
         ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
-        ProgramBody, ProjectSettings, SourcePackage, SourceProgram, SourceUnit, SourceUnitId,
-        StackBlock,
+        ProgramBody, ProjectSettings, SourcePackage, SourceProgram, SourceProgramImplementation,
+        SourceUnit, SourceUnitId, StackBlock,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -417,12 +417,11 @@ mod tests {
             units: vec![SourceUnit {
                 source,
                 imports: Vec::new(),
-                externals: Vec::new(),
                 project: None,
                 program: SourceProgram {
                     inputs: Vec::new(),
                     parameters: Vec::new(),
-                    body: ProgramBody {
+                    implementation: SourceProgramImplementation::Body(ProgramBody {
                         items: vec![Item {
                             kind: ItemKind::Invocation(Invocation {
                                 program: Spanned::new("image".to_owned(), item_span.clone()),
@@ -435,13 +434,12 @@ mod tests {
                             origin: ItemOrigin::authored("image", item_span),
                         }],
                         span: SourceSpan::at(program_span.source().clone(), 1, 1),
-                    },
+                    }),
                     span: program_span,
                     stack_access: StackAccess::Owned,
                 },
                 output: None,
             }],
-            external_programs: Vec::new(),
         };
 
         assert_eq!(
@@ -481,12 +479,11 @@ mod tests {
             units: vec![SourceUnit {
                 source,
                 imports: Vec::new(),
-                externals: Vec::new(),
                 project: Some(Spanned::new(ProjectSettings::default(), span.clone())),
                 program: SourceProgram {
                     inputs: Vec::new(),
                     parameters: Vec::new(),
-                    body: ProgramBody {
+                    implementation: SourceProgramImplementation::Body(ProgramBody {
                         items: vec![Item {
                             kind: ItemKind::StackBlock(StackBlock {
                                 stack_access: StackAccess::Owned,
@@ -511,13 +508,12 @@ mod tests {
                             origin: ItemOrigin::authored("stack block", span.clone()),
                         }],
                         span: span.clone(),
-                    },
+                    }),
                     span,
                     stack_access: StackAccess::Owned,
                 },
                 output: None,
             }],
-            external_programs: Vec::new(),
         };
 
         let compiled = compile(&package).expect("stack block compile");

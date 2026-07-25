@@ -220,18 +220,23 @@ produce zero, one, or multiple ordered outputs. Publication finds exactly one
 Video among them and permits any number of auxiliary Audio outputs.
 
 The native package loader resolves import paths relative to the importing file,
-deduplicates source units and external manifests by canonical path, rejects
-cycles, and lowers each file only after its dependencies expose their callable
-input and parameter shapes. The resulting imports and source-program
-interfaces are canonical source data; compilation never opens source files.
+deduplicates source units by canonical path, rejects cycles, and lowers each
+file only after its dependencies expose their callable input and parameter
+shapes. The resulting imports, source-program interfaces, and implementation
+kinds are canonical source data; compilation never opens source files.
 
 ### External programs
 
-A canonical source package may carry external program specifications and local
-source-unit aliases. The native loader obtains them from JSON manifests, while
-the compiler consumes the lowered package catalog. Each specification is
-converted into an ordinary runtime program definition, so checking and binding
-remain shared with every other implementation.
+A source unit owns either a ClipAsm body or one native `external { ... }`
+implementation. Both are linked through ordinary source imports. Canonical
+source retains the external command, semantic version, and preserved input;
+the compiler converts that implementation into an ordinary runtime program
+definition, so checking, defaults, binding, and stack behavior remain shared.
+
+External implementation files have no executable body and cannot import other
+programs. Composition uses a separate ClipAsm wrapper, keeping the external
+runtime contract small while leaving ordinary ClipAsm responsible for graph
+composition.
 
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves the executable, verifies executable permissions, hashes its bytes, and
@@ -243,7 +248,8 @@ verifies the resulting working artifact before cache commit.
 The renderer starts the executable directly with `Command`; it does not construct
 a shell command. Executable content belongs to prepared identity, while the
 authored command, parameters, and graph inputs belong to compiled semantic
-identity.
+identity. JSON is only the process protocol; it is not an authored source
+format.
 
 ## Preflight
 

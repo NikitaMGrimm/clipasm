@@ -320,7 +320,7 @@ impl DraftInvocation {
 
         let body = match definition.implementation {
             ProgramImplementation::Direct(_)
-            | ProgramImplementation::Authored(_)
+            | ProgramImplementation::ClipAsm(_)
             | ProgramImplementation::External(_) => {
                 if source.body.is_some() {
                     return Err(Diagnostic::new(

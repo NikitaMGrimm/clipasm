@@ -5,9 +5,9 @@ use crate::source::{SourceFile, SourceSpan, Spanned};
 
 use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
-    Argument, Block, ConfigDeclaration, Declaration, Expression, InputDeclaration, Invocation,
-    OutputBindings, ParameterDeclaration, PathDeclaration, Scalar, SourceFileSyntax, Statement,
-    VideoConfigDeclaration,
+    Argument, Block, ConfigDeclaration, Declaration, Expression, ExternalDeclaration,
+    InputDeclaration, Invocation, OutputBindings, ParameterDeclaration, PathDeclaration, Scalar,
+    SourceFileSyntax, Statement, VideoConfigDeclaration,
 };
 
 pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
@@ -96,9 +96,7 @@ impl Parser {
             Some("import") => self
                 .parse_path_declaration("import")
                 .map(Declaration::Import),
-            Some("external") => self
-                .parse_path_declaration("external")
-                .map(Declaration::External),
+            Some("external") => self.parse_external().map(Declaration::External),
             Some("input") => self.parse_input().map(Declaration::Input),
             Some("param") => self.parse_parameter().map(Declaration::Parameter),
             _ => Err(self.expected("a file declaration")),
@@ -212,6 +210,71 @@ impl Parser {
         )?;
         let alias = self.expect_identifier("an import alias")?;
         Ok(PathDeclaration { path, alias, span })
+    }
+
+    fn parse_external(&mut self) -> Result<ExternalDeclaration> {
+        let span = self.current().span.clone();
+        self.expect_keyword("external", "E_EXPECTED_TOKEN", "expected `external`")?;
+        self.expect(&TokenKind::LeftBrace, "`{` after `external`")?;
+        self.skip_newlines();
+
+        let mut command = None;
+        let mut semantic_version = None;
+        let mut preserve = None;
+        while !self.at(&TokenKind::RightBrace) {
+            if self.at(&TokenKind::End) {
+                return Err(Diagnostic::new(
+                    "E_UNTERMINATED_EXTERNAL",
+                    "external block is missing its closing `}`",
+                    span,
+                ));
+            }
+            let field = self.expect_identifier("an external field")?;
+            self.expect(&TokenKind::Equal, "`=` after the external field")?;
+            match field.value.as_str() {
+                "command" => {
+                    if command.is_some() {
+                        return Err(duplicate_declaration_field(
+                            "external", "command", field.span,
+                        ));
+                    }
+                    command = Some(self.expect_string("an executable path or name")?);
+                }
+                "semantic_version" => {
+                    if semantic_version.is_some() {
+                        return Err(duplicate_declaration_field(
+                            "external",
+                            "semantic_version",
+                            field.span,
+                        ));
+                    }
+                    semantic_version = Some(self.expect_scalar_text("an unsigned integer")?);
+                }
+                "preserve" => {
+                    if preserve.is_some() {
+                        return Err(duplicate_declaration_field(
+                            "external", "preserve", field.span,
+                        ));
+                    }
+                    preserve = Some(self.expect_identifier("an input name")?);
+                }
+                _ => {
+                    return Err(Diagnostic::new(
+                        "E_UNKNOWN_EXTERNAL_FIELD",
+                        format!("unknown external field `{}`", field.value),
+                        field.span,
+                    ));
+                }
+            }
+            self.expect_statement_end("external field")?;
+        }
+        self.advance();
+        Ok(ExternalDeclaration {
+            command,
+            semantic_version,
+            preserve,
+            span,
+        })
     }
 
     fn parse_input(&mut self) -> Result<InputDeclaration> {
@@ -789,7 +852,7 @@ mod tests {
     #[test]
     fn parses_file_declarations_before_execution() {
         let syntax = parse_text(
-            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal \"programs/brighten.json\" as brighten\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n\n$source\n",
+            "clipasm 1\n\nconfig {\n  video {\n    width = 1920\n    height = 1080\n    fps = 30000/1001\n  }\n  output = \"generated/final.mp4\"\n}\n\nimport \"programs/polish.clipasm\" as polish\nexternal {\n  command = \"./brighten.py\"\n  semantic_version = 1\n  preserve = source\n}\ninput source: Video\nparam title: File = \"assets/title.png\"\nparam duration: Duration = 2s\nparam fit: Keyword(contain, cover, stretch) = contain\n",
         );
         assert_eq!(syntax.declarations.len(), 7);
         let Declaration::Config(config) = &syntax.declarations[0] else {
@@ -821,7 +884,7 @@ mod tests {
             ])
         );
         assert!(matches!(parameter.default, Some(Scalar::Atom(_))));
-        assert_eq!(syntax.statements.len(), 1);
+        assert!(syntax.statements.is_empty());
     }
 
     #[test]

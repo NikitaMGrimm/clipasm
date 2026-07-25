@@ -174,7 +174,6 @@ mod tests {
         SourcePackage {
             root: SourceUnitId(old_to_new[package.root.index()]),
             units,
-            external_programs: package.external_programs.clone(),
         }
     }
 

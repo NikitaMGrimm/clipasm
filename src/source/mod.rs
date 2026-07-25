@@ -10,7 +10,6 @@ mod name;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::external::{ExternalProgram, ExternalProgramId};
 use crate::program::{InputPort, ParameterType, StackAccess};
 
 pub(crate) use location::Spanned;
@@ -37,7 +36,6 @@ impl SourceUnitId {
 pub struct SourcePackage {
     pub(crate) root: SourceUnitId,
     pub(crate) units: Vec<SourceUnit>,
-    pub(crate) external_programs: Vec<ExternalProgram>,
 }
 
 impl SourcePackage {
@@ -50,11 +48,6 @@ impl SourcePackage {
     pub(crate) fn units(&self) -> &[SourceUnit] {
         &self.units
     }
-
-    #[must_use]
-    pub(crate) fn external_programs(&self) -> &[ExternalProgram] {
-        &self.external_programs
-    }
 }
 
 /// One opaque linked authored source unit.
@@ -62,7 +55,6 @@ impl SourcePackage {
 pub struct SourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<ResolvedImport>,
-    pub(crate) externals: Vec<ResolvedExternalImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
     pub(crate) program: SourceProgram,
     pub(crate) output: Option<Spanned<PathBuf>>,
@@ -72,7 +64,6 @@ pub struct SourceUnit {
 pub(crate) struct UnlinkedSourceUnit {
     pub(crate) source: SourceFile,
     pub(crate) imports: Vec<SourceImport>,
-    pub(crate) externals: Vec<SourceExternalImport>,
     pub(crate) project: Option<Spanned<ProjectSettings>>,
     pub(crate) program: SourceProgram,
     pub(crate) output: Option<Spanned<PathBuf>>,
@@ -106,17 +97,6 @@ pub(crate) struct SourceImport {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SourceExternalImport {
-    pub(crate) alias: Spanned<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ResolvedExternalImport {
-    pub(crate) alias: Spanned<String>,
-    pub(crate) target: ExternalProgramId,
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct ResolvedImport {
     pub(crate) alias: Spanned<String>,
     pub(crate) target: SourceUnitId,
@@ -127,7 +107,7 @@ pub(crate) struct ResolvedImport {
 pub struct SourceProgram {
     pub(crate) inputs: Vec<InputPort>,
     pub(crate) parameters: Vec<SourceParameter>,
-    pub(crate) body: ProgramBody,
+    pub(crate) implementation: SourceProgramImplementation,
     pub(crate) span: SourceSpan,
     pub(crate) stack_access: StackAccess,
 }
@@ -144,8 +124,16 @@ impl SourceProgram {
     }
 
     #[must_use]
-    pub(crate) const fn body(&self) -> &ProgramBody {
-        &self.body
+    pub(crate) const fn implementation(&self) -> &SourceProgramImplementation {
+        &self.implementation
+    }
+
+    #[must_use]
+    pub(crate) fn body(&self) -> &ProgramBody {
+        let SourceProgramImplementation::Body(body) = &self.implementation else {
+            panic!("external source programs do not have ClipAsm bodies");
+        };
+        body
     }
 
     #[must_use]
@@ -157,6 +145,19 @@ impl SourceProgram {
     pub(crate) const fn stack_access(&self) -> StackAccess {
         self.stack_access
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum SourceProgramImplementation {
+    Body(ProgramBody),
+    External(SourceExternalImplementation),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SourceExternalImplementation {
+    pub(crate) command: Spanned<PathBuf>,
+    pub(crate) semantic_version: Spanned<u32>,
+    pub(crate) preserve: Spanned<String>,
 }
 
 #[derive(Clone, Debug)]

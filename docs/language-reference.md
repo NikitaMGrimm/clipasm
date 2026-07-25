@@ -67,17 +67,47 @@ the source program.
 
 Only the root file may set project video configuration or an output path.
 
-## Imports and external programs
+## Imports
 
 ```clipasm
 import "programs/polish.clipasm" as polish
-external "programs/brighten.json" as brighten
+import "programs/brighten.clipasm" as brighten
 ```
 
 Aliases are required. Paths resolve relative to the declaring source file.
 Imported source files are ordinary callable programs with isolated local stacks
-and names. Import cycles are errors. External manifests use the JSON protocol
-described by the external-program example.
+and names. Import cycles are errors. Callers use the same import syntax whether
+the imported program is implemented in ClipAsm or by an external executable.
+
+## External implementations
+
+A source file may replace its executable ClipAsm body with one external
+implementation:
+
+```clipasm
+clipasm 1
+
+input video: Video
+param amount: Integer = 15
+
+external {
+    command = "./brighten.py"
+    semantic_version = 1
+    preserve = video
+}
+```
+
+`command` is executed directly without a shell and resolves relative to this
+source file when it contains a path. `semantic_version` must be positive and is
+part of semantic identity. `preserve` names the declared Video input whose exact
+timeline domain and meaningful-audio state the single Video output preserves.
+
+External programs currently accept fixed Video or Audio inputs and Integer or
+Keyword parameters. Native defaults are applied before execution. An external
+program cannot also contain executable statements or imports; use a separate
+ClipAsm wrapper program for composition. Compilation remains pure. Preflight
+resolves and hashes the executable, and rendering sends a versioned JSON request
+over standard input.
 
 ## Statements
 

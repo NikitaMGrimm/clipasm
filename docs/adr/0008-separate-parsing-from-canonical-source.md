@@ -14,7 +14,7 @@ read authored files or interpret surface syntax.
 
 Every source location retains its source unit and filesystem base. Relative
 paths therefore resolve from the file that authored them, including imported
-program defaults and external manifests.
+program defaults and external executable commands.
 
 Canonical source is not a public construction API. Its purpose is to keep
 language concerns out of linking, type inference, stack binding, semantic

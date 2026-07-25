@@ -19,9 +19,9 @@ is prefix-only. Explicit `Video` or `Audio` type arguments constrain ordinary
 compiler inference rather than replacing it.
 
 File declarations precede executable statements. They cover the language
-version, root configuration, imports, external manifests, graph inputs, and
+version, root configuration, imports, external implementations, graph inputs, and
 scalar parameters. One callable source program is defined per file. Imports and
-external manifests require a local alias.
+imported programs require a local alias regardless of implementation.
 
 Positional graph-producing expressions lower to preceding stack items in source
 order. Positional scalar expressions bind scalar parameters in descriptor

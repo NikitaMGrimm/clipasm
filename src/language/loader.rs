@@ -4,9 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::external::{ExternalProgram, ExternalProgramId, load_manifest};
 use crate::source::{
-    ResolvedExternalImport, ResolvedImport, SourceFile, SourcePackage, SourceSpan, SourceUnit,
+    ResolvedImport, SourceFile, SourcePackage, SourceProgramImplementation, SourceSpan, SourceUnit,
     SourceUnitId,
 };
 
@@ -18,19 +17,17 @@ const MAX_IMPORT_DEPTH: usize = 128;
 
 /// Parse, load, and link a native `.clipasm` package rooted at `path`.
 ///
-/// Relative imports and external manifests resolve from the file that declares
-/// them. Repeated canonical paths are loaded once.
+/// Relative imports resolve from the file that declares them. Repeated
+/// canonical paths are loaded once.
 ///
 /// # Errors
 ///
-/// Returns a source-located diagnostic for I/O, syntax, import, manifest, or
+/// Returns a source-located diagnostic for I/O, syntax, import, or
 /// lowering failures.
 pub fn parse_file(path: &Path) -> Result<SourcePackage> {
     let mut loader = Loader {
         builtins: builtin_shapes(),
         units: Vec::new(),
-        external_programs: Vec::new(),
-        loaded_externals: BTreeMap::new(),
         loaded: BTreeMap::new(),
         visiting: Vec::new(),
         visiting_positions: BTreeMap::new(),
@@ -39,21 +36,12 @@ pub fn parse_file(path: &Path) -> Result<SourcePackage> {
     Ok(SourcePackage {
         root,
         units: loader.units,
-        external_programs: loader.external_programs,
     })
-}
-
-#[derive(Clone)]
-struct LoadedExternal {
-    id: ExternalProgramId,
-    shape: CallableShape,
 }
 
 struct Loader {
     builtins: BTreeMap<String, CallableShape>,
     units: Vec<SourceUnit>,
-    external_programs: Vec<ExternalProgram>,
-    loaded_externals: BTreeMap<PathBuf, LoadedExternal>,
     loaded: BTreeMap<PathBuf, SourceUnitId>,
     visiting: Vec<PathBuf>,
     visiting_positions: BTreeMap<PathBuf, usize>,
@@ -110,7 +98,6 @@ impl Loader {
         let mut aliases = BTreeSet::new();
         let mut callables = self.builtins.clone();
         let mut import_targets = Vec::new();
-        let mut external_targets = Vec::new();
 
         for declaration in &syntax.declarations {
             match declaration {
@@ -124,19 +111,25 @@ impl Loader {
                     debug_assert!(replaced.is_none());
                     import_targets.push(target);
                 }
-                Declaration::External(external) => {
-                    self.reserve_alias(&mut aliases, &external.alias.value, &external.alias.span)?;
-                    let manifest_path = resolve_from(&canonical, Path::new(&external.path.value));
-                    let loaded = self.load_external(&manifest_path)?;
-                    let replaced = callables.insert(external.alias.value.clone(), loaded.shape);
-                    debug_assert!(replaced.is_none());
-                    external_targets.push(loaded.id);
-                }
-                Declaration::Config(_) | Declaration::Input(_) | Declaration::Parameter(_) => {}
+                Declaration::Config(_)
+                | Declaration::External(_)
+                | Declaration::Input(_)
+                | Declaration::Parameter(_) => {}
             }
         }
 
         let unit = lower_source(source, syntax, &callables)?;
+        if matches!(
+            unit.program.implementation(),
+            SourceProgramImplementation::External(_)
+        ) && let Some(import) = unit.imports.first()
+        {
+            return Err(Diagnostic::new(
+                "E_EXTERNAL_WITH_IMPORTS",
+                "an external program cannot import other programs; use a separate ClipAsm wrapper program for composition",
+                import.alias.span.clone(),
+            ));
+        }
         if !is_root {
             if let Some(project) = &unit.project {
                 return Err(Diagnostic::new(
@@ -155,7 +148,6 @@ impl Loader {
         }
 
         debug_assert_eq!(unit.imports.len(), import_targets.len());
-        debug_assert_eq!(unit.externals.len(), external_targets.len());
         let imports = unit
             .imports
             .into_iter()
@@ -165,16 +157,6 @@ impl Loader {
                 target,
             })
             .collect();
-        let externals = unit
-            .externals
-            .into_iter()
-            .zip(external_targets)
-            .map(|(external, target)| ResolvedExternalImport {
-                alias: external.alias,
-                target,
-            })
-            .collect();
-
         let popped = self.visiting.pop().expect("active source loading frame");
         debug_assert_eq!(popped, canonical);
         self.visiting_positions.remove(&canonical);
@@ -183,7 +165,6 @@ impl Loader {
         self.units.push(SourceUnit {
             source: unit.source,
             imports,
-            externals,
             project: unit.project,
             program: unit.program,
             output: unit.output,
@@ -221,24 +202,6 @@ impl Loader {
         }
         Ok(())
     }
-
-    fn load_external(&mut self, path: &Path) -> Result<LoadedExternal> {
-        let canonical = fs::canonicalize(path)
-            .map_err(|error| Diagnostic::io("E_EXTERNAL_MANIFEST_IO", path, &error))?;
-        if let Some(loaded) = self.loaded_externals.get(&canonical) {
-            return Ok(loaded.clone());
-        }
-        let program = load_manifest(&canonical)?;
-        let shape = CallableShape::from_descriptor(&program.descriptor("external".to_owned()));
-        let id = ExternalProgramId::new(
-            u32::try_from(self.external_programs.len())
-                .expect("external program catalog fits in u32"),
-        );
-        self.external_programs.push(program);
-        let loaded = LoadedExternal { id, shape };
-        self.loaded_externals.insert(canonical, loaded.clone());
-        Ok(loaded)
-    }
 }
 
 fn resolve_from(source: &Path, authored: &Path) -> PathBuf {
@@ -275,22 +238,6 @@ mod tests {
         path
     }
 
-    fn write_manifest(directory: &Path) {
-        fs::write(
-            directory.join("effect.json"),
-            r#"{
-  "format_version": 2,
-  "protocol_version": 1,
-  "semantic_version": 1,
-  "command": "./missing-script",
-  "inputs": [{"name": "video", "type": "Video"}],
-  "parameters": [{"name": "amount", "type": "Integer", "required": true}],
-  "output": {"type": "Video", "preserve": "video"}
-}"#,
-        )
-        .expect("write external manifest");
-    }
-
     #[test]
     fn loads_and_compiles_transitive_native_imports() {
         let directory = tempfile::tempdir().expect("temporary directory");
@@ -320,23 +267,26 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_repeated_source_and_external_paths() {
+    fn deduplicates_repeated_clipasm_import_paths() {
         let directory = tempfile::tempdir().expect("temporary directory");
         write(
             directory.path(),
             "effect.clipasm",
             "clipasm 1\ninput video: Video\nrepeat($video, 1)\n",
         );
-        write_manifest(directory.path());
+        write(
+            directory.path(),
+            "external.clipasm",
+            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        );
         let root = write(
             directory.path(),
             "root.clipasm",
-            "clipasm 1\nimport \"effect.clipasm\" as first\nimport \"./effect.clipasm\" as second\nexternal \"effect.json\" as external_one\nexternal \"./effect.json\" as external_two\nimage(\"card.png\", 1s)\nfirst\nsecond\nexternal_one(1)\nexternal_two(2)\n",
+            "clipasm 1\nimport \"effect.clipasm\" as first\nimport \"./effect.clipasm\" as second\nimport \"external.clipasm\" as external_one\nimport \"./external.clipasm\" as external_two\nimage(\"card.png\", 1s)\nfirst\nsecond\nexternal_one(1)\nexternal_two(2)\n",
         );
 
         let package = parse_file(&root).expect("deduplicated package");
-        assert_eq!(package.units().len(), 2);
-        assert_eq!(package.external_programs().len(), 1);
+        assert_eq!(package.units().len(), 3);
         compiler::compile(&package).expect("compiled package");
     }
 
@@ -420,13 +370,17 @@ mod tests {
     }
 
     #[test]
-    fn loads_external_manifests_for_native_calls() {
+    fn loads_external_clipasm_programs_for_native_calls() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        write_manifest(directory.path());
+        write(
+            directory.path(),
+            "effect.clipasm",
+            "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  command = \"./missing-script\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        );
         let root = write(
             directory.path(),
             "root.clipasm",
-            "clipasm 1\nexternal \"effect.json\" as effect\nimage(\"card.png\", 1s)\neffect(12)\n",
+            "clipasm 1\nimport \"effect.clipasm\" as effect\nimage(\"card.png\", 1s)\neffect(12)\n",
         );
 
         let package = parse_file(&root).expect("external package");

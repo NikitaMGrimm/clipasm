@@ -54,7 +54,7 @@ pub(super) struct CheckedProgram {
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
     pub(super) body_input_count: usize,
-    pub(super) body: CheckedBody,
+    pub(super) body: Option<CheckedBody>,
 }
 
 #[derive(Clone, Debug)]

@@ -247,7 +247,7 @@ pub(crate) enum ProgramImplementation {
         prepare: BodyPrepareFn,
         contract: BodyContract,
     },
-    Authored(SourceUnitId),
+    ClipAsm(SourceUnitId),
     External(crate::external::ExternalRuntime),
 }
 
@@ -256,7 +256,7 @@ impl std::fmt::Debug for ProgramImplementation {
         formatter.write_str(match self {
             Self::Direct(_) => "Direct",
             Self::Body { .. } => "Body",
-            Self::Authored(_) => "Authored",
+            Self::ClipAsm(_) => "ClipAsm",
             Self::External(_) => "External",
         })
     }

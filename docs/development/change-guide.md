@@ -26,7 +26,7 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | --- | --- | --- |
 | Change `.clipasm` grammar | `src/language/lexer.rs`, `parser.rs`, `syntax.rs` | lowering, diagnostics, language reference, examples, parser tests |
 | Change lowering or sugar | `src/language/lower.rs`, `sugar.rs` | surface provenance, canonical source, semantic equivalence tests |
-| Change package loading | `src/language/loader.rs`, `src/source` | path bases, deduplication, cycles, aliases, external manifests, imported-program tests |
+| Change package loading | `src/language/loader.rs`, `src/source` | path bases, deduplication, cycles, aliases, external implementations, imported-program tests |
 | Change canonical source | `src/source`, compiler | draft/checked IR, every traversal, semantic identity |
 | Change checked-source construction | `src/compiler/draft.rs`, `typecheck.rs`, `check.rs`, `checked.rs` | dependencies, signatures, stack plans, evaluator interface |
 | Add or change a direct program | matching `src/program/builtins` module | descriptor order, semantic version, domains, prepared lowering, rendering, identities, language reference |

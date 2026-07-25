@@ -70,7 +70,27 @@ pub(super) fn evaluate(
         &mut evaluator.nodes,
         context.video,
     )?;
-    let outputs = evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?;
+    let root_program = &context.programs[context.root.index()];
+    let root_definition = context.registry.definition(root_program.definition);
+    let outputs = match &root_definition.implementation {
+        ProgramImplementation::ClipAsm(_) => {
+            evaluator.evaluate_program(&context, context.root, Some(&root_call), true)?
+        }
+        ProgramImplementation::External(external) => {
+            let origin = SourceOrigin::new("root program", root_program.span.clone());
+            let invocation = external.invocation(&root_call)?;
+            let mut builder = GraphBuilder::for_program(
+                &mut evaluator.nodes,
+                context.video,
+                root_definition.descriptor.semantic_version,
+                origin,
+            );
+            vec![builder.external_video(invocation)?]
+        }
+        ProgramImplementation::Direct(_) | ProgramImplementation::Body { .. } => {
+            unreachable!("source unit definitions are ClipAsm or external")
+        }
+    };
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
@@ -192,7 +212,10 @@ impl Evaluator {
         );
         self.evaluate_body(
             context,
-            &checked_program.body,
+            checked_program
+                .body
+                .as_ref()
+                .expect("ClipAsm implementation has a checked body"),
             &mut scope,
             &mut stack,
             &mut body_frame,
@@ -516,7 +539,7 @@ impl Evaluator {
                 );
                 plan.finalizer.finish(owned, &mut builder)?
             }
-            ProgramImplementation::Authored(unit) => {
+            ProgramImplementation::ClipAsm(unit) => {
                 self.evaluate_program(context, *unit, Some(&call), false)?
             }
             ProgramImplementation::External(external) => {

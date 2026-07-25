@@ -56,9 +56,10 @@ cargo run -- render examples/imported-program.clipasm
 
 ## External program
 
-`examples/external-brighten.clipasm` registers a JSON manifest and calls a small
-Python/FFmpeg program through the ordinary typed binder. External programs are
-trusted native code and execute during rendering.
+`examples/external-brighten.clipasm` imports a native `.clipasm` program whose
+implementation is a small Python/FFmpeg executable. It uses the ordinary typed
+binder and a native parameter default. External programs are trusted native code
+and execute during rendering.
 
 ```console
 cargo run -- validate examples/external-brighten.clipasm

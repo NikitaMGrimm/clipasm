@@ -1,0 +1,10 @@
+clipasm 1
+
+input video: Video
+param amount: Integer = 15
+
+external {
+    command = "./brighten.py"
+    semantic_version = 1
+    preserve = video
+}
