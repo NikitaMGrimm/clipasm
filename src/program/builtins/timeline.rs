@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn a_million_repeats_have_bounded_graph_and_json_size() {
         let compiled = compile_repeat(1_000_000);
-        let json = compiled.canonical_json().expect("compiled JSON");
+        let json = compiled.compiled_json().expect("compiled JSON");
 
         assert_eq!(compiled.value_count(), 2);
         assert!(json.len() < 10_000, "compact plan was {} bytes", json.len());

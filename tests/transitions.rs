@@ -101,7 +101,7 @@ fn crossfade_normalizes_duration_and_shortens_the_domain() {
         15
     );
     let document: serde_json::Value =
-        serde_json::from_str(&default.canonical_json().expect("compiled JSON"))
+        serde_json::from_str(&default.compiled_json().expect("compiled JSON"))
             .expect("compiled document");
     let transition = document["nodes"]
         .as_array()

@@ -46,7 +46,7 @@ fn compilation_registers_external_programs_without_resolving_the_executable() {
     let package = language::parse_file(&workflow).expect("parse external registration");
     let compiled = compiler::compile(&package).expect("pure external compilation");
     let document: serde_json::Value =
-        serde_json::from_str(&compiled.canonical_json().expect("compiled JSON"))
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))
             .expect("JSON document");
     assert_eq!(document["nodes"][1]["kind"]["operation"], "external_video");
     assert_eq!(document["nodes"][1]["kind"]["parameters"]["amount"], 12);

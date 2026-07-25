@@ -196,8 +196,8 @@ mod tests {
         let root_first = crate::compiler::compile(&root_first).expect("root-first compile");
         assert_eq!(ordered.structure_hash(), root_first.structure_hash());
         assert_eq!(
-            ordered.canonical_json().expect("ordered JSON"),
-            root_first.canonical_json().expect("root-first JSON")
+            ordered.compiled_json().expect("ordered JSON"),
+            root_first.compiled_json().expect("root-first JSON")
         );
     }
 

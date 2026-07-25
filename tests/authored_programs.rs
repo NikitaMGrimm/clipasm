@@ -212,7 +212,7 @@ fn file_parameter_origins_follow_the_authored_value() {
         let package = language::parse_file(&directory.path().join(file)).expect("package");
         let compiled = compiler::compile(&package).expect("compile");
         let document: serde_json::Value =
-            serde_json::from_str(&compiled.canonical_json().expect("JSON")).expect("document");
+            serde_json::from_str(&compiled.compiled_json().expect("JSON")).expect("document");
         document["nodes"][0]["origin"]["span"]["file"]
             .as_str()
             .expect("origin file")
@@ -266,7 +266,7 @@ fn imported_local_references_serialize_resolved_targets() {
         .expect("linked native package");
     let compiled = compiler::compile(&package).expect("compiled local references");
     let document: serde_json::Value =
-        serde_json::from_str(&compiled.canonical_json().expect("JSON")).expect("document");
+        serde_json::from_str(&compiled.compiled_json().expect("JSON")).expect("document");
     let reference = document["nodes"]
         .as_array()
         .expect("nodes")

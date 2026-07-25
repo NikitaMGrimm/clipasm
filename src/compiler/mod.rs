@@ -68,7 +68,7 @@ impl CompiledProgram {
     /// # Errors
     ///
     /// Returns a diagnostic if serialization fails.
-    pub fn canonical_json(&self) -> Result<String> {
+    pub fn compiled_json(&self) -> Result<String> {
         crate::format::json::compiled_program(self)
     }
 

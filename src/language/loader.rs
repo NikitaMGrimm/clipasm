@@ -432,7 +432,7 @@ mod tests {
         let package = parse_file(&root).expect("external package");
         let compiled = compiler::compile(&package).expect("compiled external package");
         let document: serde_json::Value =
-            serde_json::from_str(&compiled.canonical_json().expect("compiled JSON"))
+            serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))
                 .expect("JSON document");
         assert_eq!(document["nodes"][1]["kind"]["operation"], "external_video");
         assert_eq!(document["nodes"][1]["kind"]["parameters"]["amount"], 12);

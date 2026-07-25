@@ -144,7 +144,7 @@ fn compiled_program_serializes_ordered_outputs() {
     )
     .expect("compiled program");
     let document: serde_json::Value =
-        serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
     assert_eq!(document["format_version"], 12);
@@ -355,7 +355,7 @@ fn video_sources_compile_purely_with_a_deferred_media_domain() {
     let compiled = compile_file(&workflow).expect("pure compile");
     assert!(compiled.result_domain().is_none());
     let document: serde_json::Value =
-        serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON");
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
     assert_eq!(document["nodes"][0]["kind"]["operation"], "video_source");
     assert_eq!(document["nodes"][0]["kind"]["fit"], "cover");
     assert!(document["nodes"][0]["domain"].is_null());

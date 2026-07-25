@@ -25,7 +25,7 @@ fn project(source: &str) -> (TempDir, clipasm::source::SourcePackage) {
 }
 
 fn compiled_json(compiled: &compiler::CompiledProgram) -> serde_json::Value {
-    serde_json::from_str(&compiled.canonical_json().expect("compiled JSON")).expect("JSON value")
+    serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON value")
 }
 
 #[test]

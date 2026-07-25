@@ -110,7 +110,7 @@ fn execute(cli: Cli) -> Result<()> {
             let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
-            let json = compiled.canonical_json()?;
+            let json = compiled.compiled_json()?;
             if let Some(output) = output {
                 write_new_plan(&output, json.as_bytes())?;
             } else {
