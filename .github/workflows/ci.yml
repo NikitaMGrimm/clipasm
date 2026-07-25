@@ -27,5 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.95.0
-      - run: cargo check --all-targets
-      - run: cargo test --lib
+      - name: Check all targets
+        run: cargo check --all-targets
+      - name: Run portable tests
+        run: >-
+          cargo test
+          --lib
+          --test authored_programs
+          --test cli
+          --test compiler_contract
+          --test external_programs
+          --test render
+          --test semantics
+          --test transitions
+      - name: Run doctests
+        run: cargo test --doc

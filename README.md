@@ -21,7 +21,7 @@ render caching.
 
 - Rust 1.95 or newer
 - FFmpeg and FFprobe on `PATH` for rendering
-- Python 3 only for the external-program example
+- Python 3 on Unix only for the external-program example
 
 Compilation and validation do not open media files or invoke external tools.
 Rendering a source file with registered external programs executes trusted code

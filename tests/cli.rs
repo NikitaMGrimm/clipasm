@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
 use std::process::Command;
 
@@ -247,6 +249,10 @@ fn root_cli_bindings_reject_unknown_and_duplicate_names() {
 
 #[test]
 fn render_accepts_caller_relative_input_and_output_bindings() {
+    if !common::media_tools_available() {
+        eprintln!("skipping CLI render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("template.clipasm");
     fs::write(

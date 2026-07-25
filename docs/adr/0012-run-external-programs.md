@@ -53,10 +53,13 @@ Compilation reads the already loaded specification but never resolves or runs
 its command. Evaluation emits a pure `ExternalVideo` semantic node containing
 the authored command, bound parameters, named graph inputs, and preserved input.
 
-Preflight resolves the command relative to its defining source unit or from `PATH`, requires
-an executable regular file, hashes its bytes, lowers every input dependency,
-and copies the exact domain and meaningful-audio state from the preserved Video
-input. The executable content hash participates in the prepared node identity.
+Preflight resolves the command relative to its defining source unit or from
+`PATH`, requires an executable regular file, hashes its bytes, lowers every input
+dependency, and copies the exact domain and meaningful-audio state from the
+preserved Video input. On Windows, extensionless paths and bare names consider
+native `.COM` and `.EXE` entries from `PATHEXT`; batch and script entries are not
+selected because Rust would route some of them through a shell, contrary to this
+protocol. The executable content hash participates in the prepared node identity.
 
 Rendering re-hashes the executable before accepting cache entries or executing
 the node. It launches the executable directly, writes one versioned JSON request
@@ -90,9 +93,10 @@ declared semantic version whenever such dependencies change output semantics.
   second call language.
 - External programs share the same canonical catalog as built-ins and imported
   authored programs.
-- Scripts can be authored in any language that produces an executable and can
-  read JSON from standard input, while their callable interface remains native
-  ClipAsm source.
+- Scripts can be authored in any language that produces a directly executable
+  file and can read JSON from standard input, while their callable interface
+  remains native ClipAsm source. Shebang-based scripts are Unix-specific under
+  protocol version 1; Windows implementations use native executables.
 - Script bytes, parameters, and upstream artifacts invalidate cache identity.
 - Nondeterministic or environmentally dependent external programs may reuse a
   cached prior result; reproducibility remains the external author's contract.

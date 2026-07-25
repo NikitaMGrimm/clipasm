@@ -1,5 +1,7 @@
 #![allow(missing_docs)]
 
+mod common;
+
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -249,10 +251,12 @@ fn pure_compile_does_not_require_assets_to_exist() {
         "pure compile unexpectedly accessed the asset: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let package = clipasm::language::parse_file(&workflow).expect("native source");
-    let compiled = clipasm::compiler::compile(&package).expect("pure compile");
-    let error = clipasm::preflight::preflight(&compiled).expect_err("missing asset preflight");
-    assert_eq!(error.code, "E_MISSING_IMAGE_FILE");
+    if common::media_tools_available() {
+        let package = clipasm::language::parse_file(&workflow).expect("native source");
+        let compiled = clipasm::compiler::compile(&package).expect("pure compile");
+        let error = clipasm::preflight::preflight(&compiled).expect_err("missing asset preflight");
+        assert_eq!(error.code, "E_MISSING_IMAGE_FILE");
+    }
 }
 
 #[test]

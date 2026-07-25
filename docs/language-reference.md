@@ -98,9 +98,13 @@ external {
 ```
 
 `command` is executed directly without a shell and resolves relative to this
-source file when it contains a path. `semantic_version` must be positive and is
-part of semantic identity. `preserve` names the declared Video input whose exact
-timeline domain and meaningful-audio state the single Video output preserves.
+source file when it contains a path. The `brighten.py` form assumes a Unix
+executable shebang. On Windows, extensionless paths and bare names resolve native
+`.COM` and `.EXE` candidates in `PATHEXT` order; batch and script extensions are
+not selected because they require a shell or interpreter. `semantic_version`
+must be positive and is part of semantic identity. `preserve` names the declared
+Video input whose exact timeline domain and meaningful-audio state the single
+Video output preserves.
 
 External programs currently accept fixed Video or Audio inputs and Integer,
 File, or Keyword parameters. File values resolve from the source that supplied

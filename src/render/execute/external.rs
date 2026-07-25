@@ -201,3 +201,76 @@ fn run_external(
         span.clone(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::process::Command;
+
+    use super::*;
+
+    #[test]
+    fn native_external_process_receives_protocol_and_reports_failure() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let source = directory.path().join("external-helper.rs");
+        let executable = directory.path().join(if cfg!(windows) {
+            "external-helper.exe"
+        } else {
+            "external-helper"
+        });
+        fs::write(
+            &source,
+            r#"
+use std::io::Read as _;
+
+fn main() {
+    let mut request = String::new();
+    std::io::stdin().read_to_string(&mut request).expect("request");
+    if !request.contains("\"protocol_version\":1") {
+        eprintln!("missing protocol version");
+        std::process::exit(22);
+    }
+    eprintln!("native helper received request");
+    std::process::exit(23);
+}
+"#,
+        )
+        .expect("helper source");
+        let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+        let status = Command::new(rustc)
+            .arg(&source)
+            .args(["--edition", "2024", "-o"])
+            .arg(&executable)
+            .status()
+            .expect("compile external helper");
+        assert!(status.success());
+
+        let video = VideoSpec::default();
+        let audio = AudioSpec::default();
+        let output = directory.path().join("output.mkv");
+        let request = ExternalRunRequest {
+            protocol_version: EXTERNAL_PROTOCOL_VERSION,
+            inputs: BTreeMap::new(),
+            parameters: BTreeMap::new(),
+            output: &output,
+            project: ExternalRunProject {
+                video: &video,
+                audio: &audio,
+            },
+            tools: ExternalRunTools {
+                ffmpeg: Path::new("ffmpeg"),
+                ffprobe: Path::new("ffprobe"),
+            },
+        };
+
+        let error = run_external(
+            &executable,
+            &request,
+            &SourceSpan::file_start("external-test.clipasm"),
+        )
+        .expect_err("external helper failure");
+        assert_eq!(error.code, "E_EXTERNAL_EXECUTION");
+        assert!(error.message.contains("native helper received request"));
+        assert!(error.message.contains("23"));
+    }
+}

@@ -50,7 +50,11 @@ pub(crate) fn inspect_external_tool(
     span: &SourceSpan,
 ) -> Result<ExternalToolIdentity> {
     let candidate = if authored.is_absolute() || authored.components().count() > 1 {
-        super::assets::resolve_authored_path(authored, span)?
+        let resolved = super::assets::resolve_authored_path(authored, span)?;
+        executable_candidates(&resolved)
+            .into_iter()
+            .find(|candidate| is_executable_file(candidate))
+            .unwrap_or(resolved)
     } else {
         resolve_executable(
             authored.to_str().ok_or_else(|| {
@@ -207,7 +211,7 @@ pub(super) fn inspect_ffprobe() -> Result<ToolIdentity> {
 fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
     let authored = Path::new(name);
     let candidates = if authored.components().count() > 1 {
-        vec![authored.to_path_buf()]
+        executable_candidates(authored)
     } else {
         let path = std::env::var_os("PATH").ok_or_else(|| {
             Diagnostic::new(
@@ -217,7 +221,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             )
         })?;
         std::env::split_paths(&path)
-            .flat_map(|directory| executable_candidates(&directory, name))
+            .flat_map(|directory| executable_candidates(&directory.join(name)))
             .collect()
     };
     candidates
@@ -246,26 +250,70 @@ fn is_executable_file(path: &Path) -> bool {
 
         metadata.permissions().mode() & 0o111 != 0
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_has_native_executable_extension(path)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         true
     }
 }
 
-fn executable_candidates(directory: &Path, name: &str) -> Vec<PathBuf> {
-    let candidate = directory.join(name);
+#[cfg(any(windows, test))]
+fn windows_has_native_executable_extension(path: &Path) -> bool {
+    path.extension().is_none_or(|extension| {
+        extension.to_str().is_some_and(|extension| {
+            ["COM", "EXE"]
+                .iter()
+                .any(|native| native.eq_ignore_ascii_case(extension))
+        })
+    })
+}
+
+fn executable_candidates(path: &Path) -> Vec<PathBuf> {
     #[cfg(windows)]
     {
-        let mut candidates = vec![candidate.clone()];
-        if candidate.extension().is_none() {
-            candidates.push(candidate.with_extension("exe"));
-        }
-        candidates
+        let path_extensions = std::env::var("PATHEXT").ok();
+        windows_native_executable_candidates(path, path_extensions.as_deref())
     }
     #[cfg(not(windows))]
     {
-        vec![candidate]
+        vec![path.to_path_buf()]
     }
+}
+
+#[cfg(any(windows, test))]
+fn windows_native_executable_candidates(
+    path: &Path,
+    path_extensions: Option<&str>,
+) -> Vec<PathBuf> {
+    const DEFAULT_PATHEXT: &str = ".COM;.EXE";
+    const NATIVE_EXTENSIONS: &[&str] = &["COM", "EXE"];
+
+    let mut candidates = vec![path.to_path_buf()];
+    if path.extension().is_some() {
+        return candidates;
+    }
+    let path_extensions = path_extensions
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(DEFAULT_PATHEXT);
+    let mut extensions = Vec::<String>::new();
+    for extension in path_extensions.split(';') {
+        let extension = extension.trim().trim_start_matches('.');
+        if !NATIVE_EXTENSIONS
+            .iter()
+            .any(|native| native.eq_ignore_ascii_case(extension))
+            || extensions
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(extension))
+        {
+            continue;
+        }
+        extensions.push(extension.to_owned());
+        candidates.push(path.with_extension(extension));
+    }
+    candidates
 }
 
 fn inspect_tool_identity(tool: &Path, code: &'static str) -> Result<ToolIdentity> {
@@ -510,6 +558,45 @@ mod tests {
 
         assert_eq!(error.code, "E_TOOL_CHANGED");
         assert!(error.message.contains("prepare the program again"));
+    }
+
+    #[test]
+    fn windows_rejects_shell_and_interpreter_command_extensions() {
+        assert!(windows_has_native_executable_extension(Path::new("effect")));
+        assert!(windows_has_native_executable_extension(Path::new(
+            "effect.exe"
+        )));
+        assert!(windows_has_native_executable_extension(Path::new(
+            "effect.COM"
+        )));
+        assert!(!windows_has_native_executable_extension(Path::new(
+            "effect.cmd"
+        )));
+        assert!(!windows_has_native_executable_extension(Path::new(
+            "effect.bat"
+        )));
+        assert!(!windows_has_native_executable_extension(Path::new(
+            "effect.py"
+        )));
+    }
+
+    #[test]
+    fn windows_executable_lookup_honors_native_pathext_order() {
+        assert_eq!(
+            windows_native_executable_candidates(
+                Path::new("tools/ffmpeg"),
+                Some(".CMD;.COM;.EXE;.cmd;.exe"),
+            ),
+            [
+                PathBuf::from("tools/ffmpeg"),
+                PathBuf::from("tools/ffmpeg.COM"),
+                PathBuf::from("tools/ffmpeg.EXE"),
+            ]
+        );
+        assert_eq!(
+            windows_native_executable_candidates(Path::new("tools/ffmpeg.exe"), Some(".COM;.EXE"),),
+            [PathBuf::from("tools/ffmpeg.exe")]
+        );
     }
 
     #[test]
