@@ -42,7 +42,7 @@ pub use plan::{
 pub use tools::ExternalToolIdentity;
 use tools::{inspect_ffmpeg, inspect_ffprobe};
 
-const PREPARED_FORMAT_VERSION: u32 = 7;
+const PREPARED_FORMAT_VERSION: u32 = 8;
 const CACHE_FORMAT_VERSION: u32 = 8;
 pub(crate) const WORKING_PIXEL_FORMAT: &str = "yuv444p";
 pub(crate) const EXPORT_PIXEL_FORMAT: &str = "yuv420p";

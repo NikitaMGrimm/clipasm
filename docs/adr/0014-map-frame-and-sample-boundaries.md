@@ -34,6 +34,12 @@ times must still be exactly sample-aligned. Coverage conversion is used only
 where an operation explicitly requires enough frames or samples to contain a
 native duration.
 
+Standalone audio sources use their stream timeline duration when available. That
+rational duration is mapped to the project sample grid with the same covering
+policy. Decoded source-sample counts divided by the source sample rate are a
+fallback only when stream duration metadata is absent; codec priming or discard
+padding therefore does not redefine an otherwise declared timeline.
+
 This changes execution behavior but not compiled or prepared semantics. The
 cache execution format is therefore bumped, while compiled and prepared format
 versions and semantic hashes remain unchanged.

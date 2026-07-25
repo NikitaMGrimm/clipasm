@@ -275,6 +275,9 @@ fingerprinting remain centralized.
 Audio is normalized to 48 kHz stereo. Working Video artifacts always contain
 one lossless normalized audio stream, using silence for semantically silent
 Videos, while semantic audio presence controls final MP4 publication.
+Standalone source-audio duration comes from its declared stream timeline where
+available and is converted to covering samples on that 48 kHz project grid. A
+decoded-count/source-rate duration is used only when timeline metadata is absent.
 
 Video and Audio retain their native duration grids rather than sharing a
 least-common-denominator tick type. One exact rational timeline mapper converts

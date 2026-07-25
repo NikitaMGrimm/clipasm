@@ -2,6 +2,9 @@ use std::num::{NonZeroU8, NonZeroU32};
 
 use serde::{Serialize, Serializer};
 
+use crate::diagnostic::{Diagnostic, Result};
+use crate::source::SourceSpan;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 /// Canonical project audio properties used by compilation and rendering.
 ///
@@ -60,6 +63,39 @@ impl AudioDomain {
     #[must_use]
     pub const fn new(samples: u64, spec: AudioSpec) -> Self {
         Self { samples, spec }
+    }
+
+    /// Return the smallest project-audio domain covering an exact rational duration.
+    ///
+    /// `duration_numerator / duration_denominator` is measured in seconds.
+    pub(crate) fn covering_duration(
+        duration_numerator: u128,
+        duration_denominator: u128,
+        spec: AudioSpec,
+        span: &SourceSpan,
+    ) -> Result<Self> {
+        let overflow = || {
+            Diagnostic::new(
+                "E_AUDIO_DURATION_OVERFLOW",
+                "audio duration exceeds the supported range",
+                span.clone(),
+            )
+        };
+        let numerator = duration_numerator
+            .checked_mul(u128::from(spec.sample_rate()))
+            .ok_or_else(&overflow)?;
+        let denominator = (duration_denominator != 0)
+            .then_some(duration_denominator)
+            .ok_or_else(&overflow)?;
+        let quotient = numerator / denominator;
+        let samples = if numerator.is_multiple_of(denominator) {
+            quotient
+        } else {
+            quotient.checked_add(1).ok_or_else(overflow)?
+        };
+        u64::try_from(samples)
+            .map(|samples| Self::new(samples, spec))
+            .map_err(|_| overflow())
     }
 
     /// Return the exact number of samples per channel.
@@ -131,6 +167,23 @@ mod tests {
                 "sample_rate": 48000,
                 "channels": 2,
             })
+        );
+    }
+    #[test]
+    fn covering_duration_uses_the_project_sample_grid() {
+        let spec = AudioSpec::new(48_000, 2).expect("audio spec");
+        let span = SourceSpan::file_start("audio.clipasm");
+        assert_eq!(
+            AudioDomain::covering_duration(44_100, 44_100, spec, &span)
+                .expect("44.1 kHz second")
+                .samples(),
+            48_000
+        );
+        assert_eq!(
+            AudioDomain::covering_duration(1, 44_100, spec, &span)
+                .expect("fractional project sample")
+                .samples(),
+            2
         );
     }
 }

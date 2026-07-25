@@ -220,6 +220,7 @@ struct VideoProbeStream {
     duration_ts: Option<ProbeInteger>,
     time_base: Option<String>,
     avg_frame_rate: Option<String>,
+    sample_rate: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -274,8 +275,19 @@ pub(crate) fn verify_audio_decodable(
                 span.clone(),
             )
         })?;
-    let _ = stream;
-    let samples = decoded_audio_samples(ffprobe.executable(), path, span, "E_SOURCE_CONTRACT")?;
+    let decoded_samples =
+        decoded_audio_samples(ffprobe.executable(), path, span, "E_SOURCE_CONTRACT")?;
+    let (duration_numerator, duration_denominator) = audio_duration(stream, decoded_samples)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_SOURCE_CONTRACT",
+                format!(
+                    "audio `{}` does not expose a usable stream duration or sample rate",
+                    path.display()
+                ),
+                span.clone(),
+            )
+        })?;
     let decode = Command::new(ffmpeg.executable())
         .args(["-v", "error", "-xerror", "-i"])
         .arg(path)
@@ -299,7 +311,7 @@ pub(crate) fn verify_audio_decodable(
             span.clone(),
         ));
     }
-    Ok(AudioDomain::new(samples, audio))
+    AudioDomain::covering_duration(duration_numerator, duration_denominator, audio, span)
 }
 
 fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
@@ -321,7 +333,7 @@ fn probe_video(
             "error",
             "-count_frames",
             "-show_entries",
-            "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate",
+            "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate,sample_rate",
             "-of",
             "json",
         ])
@@ -439,25 +451,36 @@ fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> 
     Ok(())
 }
 
-fn video_duration(stream: &VideoProbeStream) -> Option<(u128, u128)> {
+fn audio_duration(stream: &VideoProbeStream, decoded_samples: u64) -> Option<(u128, u128)> {
+    stream_duration(stream).or_else(|| {
+        let sample_rate = stream.sample_rate.as_deref()?.parse::<u128>().ok()?;
+        (sample_rate > 0).then_some((u128::from(decoded_samples), sample_rate))
+    })
+}
+
+fn stream_duration(stream: &VideoProbeStream) -> Option<(u128, u128)> {
     stream
         .duration_ts
         .as_ref()
         .and_then(ProbeInteger::get)
+        .filter(|duration| *duration > 0)
         .zip(stream.time_base.as_deref().and_then(parse_positive_ratio))
         .and_then(|(duration, (time_numerator, time_denominator))| {
             duration
                 .checked_mul(time_numerator)
                 .map(|numerator| (numerator, time_denominator))
         })
-        .or_else(|| {
-            let frames = stream.nb_read_frames.as_deref()?.parse::<u128>().ok()?;
-            let (rate_numerator, rate_denominator) =
-                parse_positive_ratio(stream.avg_frame_rate.as_deref()?)?;
-            frames
-                .checked_mul(rate_denominator)
-                .map(|numerator| (numerator, rate_numerator))
-        })
+}
+
+fn video_duration(stream: &VideoProbeStream) -> Option<(u128, u128)> {
+    stream_duration(stream).or_else(|| {
+        let frames = stream.nb_read_frames.as_deref()?.parse::<u128>().ok()?;
+        let (rate_numerator, rate_denominator) =
+            parse_positive_ratio(stream.avg_frame_rate.as_deref()?)?;
+        frames
+            .checked_mul(rate_denominator)
+            .map(|numerator| (numerator, rate_numerator))
+    })
 }
 
 fn parse_positive_ratio(value: &str) -> Option<(u128, u128)> {

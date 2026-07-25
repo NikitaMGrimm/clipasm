@@ -136,10 +136,32 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
             "operation": "external_video",
             "executable_content_hash": executable.content_hash(),
             "input_names": inputs.keys().collect::<Vec<_>>(),
-            "parameters": parameters,
+            "parameters": external_parameter_identity(parameters),
             "preserve_input": preserve_input,
         }),
     }
+}
+
+fn external_parameter_identity(
+    parameters: &BTreeMap<String, super::PreparedExternalParameterValue>,
+) -> BTreeMap<&str, serde_json::Value> {
+    parameters
+        .iter()
+        .map(|(name, value)| {
+            let identity = match value {
+                super::PreparedExternalParameterValue::Integer(value) => {
+                    serde_json::json!(value)
+                }
+                super::PreparedExternalParameterValue::Keyword(value) => {
+                    serde_json::json!(value)
+                }
+                super::PreparedExternalParameterValue::File(asset) => serde_json::json!({
+                    "content_hash": asset.content_hash(),
+                }),
+            };
+            (name.as_str(), identity)
+        })
+        .collect()
 }
 
 fn audio_identity(kind: &PreparedAudioKind) -> serde_json::Value {

@@ -34,7 +34,7 @@ fn prepared_plan_serializes_one_distinguished_result() {
     let document = serde_json::to_value(&plan).expect("prepared JSON");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 7);
+    assert_eq!(document["format_version"], 8);
     assert_eq!(
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
@@ -128,53 +128,59 @@ fn unreachable_auxiliary_audio_is_not_preflighted() {
 }
 
 #[test]
-fn audio_preflight_counts_exact_decoded_samples() {
+fn audio_preflight_maps_source_timelines_to_project_samples() {
     if !common::media_tools_available() {
-        eprintln!("skipping exact audio test because FFmpeg/FFprobe are unavailable");
+        eprintln!("skipping audio timeline test because FFmpeg/FFprobe are unavailable");
         return;
     }
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let audio = directory.path().join("exact.mka");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "anullsrc=r=48000:cl=stereo",
-            "-af",
-            "atrim=end_sample=12345,asetpts=PTS-STARTPTS",
-            "-c:a",
-            "flac",
-        ])
-        .arg(&audio)
-        .status()
-        .expect("create exact audio fixture");
-    assert!(status.success());
+    for (name, sample_rate, codec, extension) in [
+        ("pcm-44100", 44_100_u32, "pcm_s16le", "wav"),
+        ("pcm-48000", 48_000_u32, "pcm_s16le", "wav"),
+        ("pcm-96000", 96_000_u32, "pcm_s16le", "wav"),
+        ("aac-48000", 48_000_u32, "aac", "m4a"),
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        write_image(directory.path(), "card.ppm", "255 0 0");
+        let audio = directory.path().join(format!("{name}.{extension}"));
+        let source = format!("anullsrc=r={sample_rate}:cl=stereo:d=1");
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y", "-v", "error", "-f", "lavfi", "-i", &source, "-c:a", codec,
+            ])
+            .arg(&audio)
+            .status()
+            .expect("create audio fixture");
+        assert!(status.success(), "failed fixture {name}");
 
-    let source = directory.path().join("program.clipasm");
-    fs::write(
-        &source,
-        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\naudio(\"exact.mka\")\nset_audio\n",
-    )
-    .expect("source program");
+        let workflow = directory.path().join("program.clipasm");
+        fs::write(
+            &workflow,
+            format!(
+                "clipasm 1\nconfig {{ output = \"final.mp4\" }}\nimage(\"card.ppm\", 1s)\naudio(\"{}\")\nset_audio\n",
+                audio.file_name().expect("audio name").to_string_lossy()
+            ),
+        )
+        .expect("source program");
 
-    let compiled = compile_file(&source).expect("compile");
-    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let audio = plan
-        .nodes()
-        .iter()
-        .find(|node| {
-            matches!(
-                node.audio_kind(),
-                Some(PreparedAudioKind::AudioSource { .. })
-            )
-        })
-        .expect("prepared audio source");
-    assert_eq!(audio.audio_domain().expect("Audio node").samples(), 12_345);
+        let compiled = compile_file(&workflow).expect("compile");
+        let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+        let prepared_audio = plan
+            .nodes()
+            .iter()
+            .find(|node| {
+                matches!(
+                    node.audio_kind(),
+                    Some(PreparedAudioKind::AudioSource { .. })
+                )
+            })
+            .expect("prepared audio source");
+        assert_eq!(
+            prepared_audio.audio_domain().expect("Audio node").samples(),
+            48_000,
+            "wrong project duration for {name}"
+        );
+        clipasm::render::render(&plan).expect("render normalized audio");
+    }
 }
 
 #[test]
@@ -186,6 +192,39 @@ fn relocated_identical_projects_have_equal_semantic_hashes() {
         fs::write(
             directory.join("workflow.clipasm"),
             "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+        )
+        .expect("workflow");
+    }
+
+    let first_compiled = compile_file(&first.path().join("workflow.clipasm")).expect("compile");
+    let second_compiled = compile_file(&second.path().join("workflow.clipasm")).expect("compile");
+    let first_prepared = clipasm::preflight::preflight(&first_compiled).expect("preflight");
+    let second_prepared = clipasm::preflight::preflight(&second_compiled).expect("preflight");
+    assert_eq!(
+        first_prepared.semantic_hash(),
+        second_prepared.semantic_hash()
+    );
+}
+
+#[test]
+fn relocated_external_file_parameters_have_equal_semantic_hashes() {
+    if !common::media_tools_available() {
+        eprintln!("skipping external relocation test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let first = tempfile::tempdir().expect("first directory");
+    let second = tempfile::tempdir().expect("second directory");
+    for directory in [first.path(), second.path()] {
+        write_image(directory, "card.ppm", "255 0 0");
+        fs::write(directory.join("lut.bin"), b"identical lookup table").expect("file parameter");
+        fs::write(
+            directory.join("effect.clipasm"),
+            "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  command = \"ffmpeg\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        )
+        .expect("external program");
+        fs::write(
+            directory.join("workflow.clipasm"),
+            "clipasm 1\nconfig { output = \"final.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s)\neffect\n",
         )
         .expect("workflow");
     }
