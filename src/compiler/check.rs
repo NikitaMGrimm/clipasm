@@ -9,16 +9,14 @@ use crate::program::{
     ValueConstraint, ValueTypeSpec, builtin_programs,
 };
 use crate::source::{
-    ArgumentValue, Item, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage,
-    SourceProgram, SourceUnitId,
+    ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourcePackage, SourceProgram,
+    SourceUnitId,
 };
 
 use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
 };
-
-const MAX_BODY_NESTING: usize = 256;
 
 #[derive(Clone, Debug)]
 pub(super) enum LocalType {
@@ -212,26 +210,10 @@ fn check_program(
             &clip.span,
         )?;
     }
-    for clip in program.clips() {
-        collect_body_names(
-            &clip.body,
-            &mut locals,
-            unit,
-            definitions,
-            builtins,
-            namespace,
-            0,
-        )?;
+    for clip in &draft.clips {
+        collect_body_names(&clip.body, &mut locals, definitions)?;
     }
-    collect_body_names(
-        &program.body,
-        &mut locals,
-        unit,
-        definitions,
-        builtins,
-        namespace,
-        0,
-    )?;
+    collect_body_names(&draft.body, &mut locals, definitions)?;
     super::infer::infer_local_types(&draft, &mut locals, definitions)?;
     ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
 
@@ -633,27 +615,15 @@ fn resolve_body_references(
 }
 
 fn collect_body_names(
-    body: &ProgramBody,
+    body: &DraftBody,
     locals: &mut BTreeMap<String, LocalType>,
-    unit: SourceUnitId,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    depth: usize,
 ) -> Result<()> {
-    if depth > MAX_BODY_NESTING {
-        return Err(Diagnostic::new(
-            "E_BODY_NESTING_DEPTH",
-            format!("program body nesting exceeds the supported depth of {MAX_BODY_NESTING}"),
-            body.span.clone(),
-        ));
-    }
     for item in &body.items {
         match &item.output_bindings {
             OutputBindings::None => {}
             OutputBindings::One(name) => {
-                let output_types =
-                    item_output_types(item, locals, unit, definitions, builtins, namespace)?;
+                let output_types = item_output_types(item, definitions)?;
                 let [output] = output_types.as_slice() else {
                     return Err(binding_count_error(
                         item,
@@ -665,8 +635,7 @@ fn collect_body_names(
                 insert_local(locals, &name.value, output.clone(), &name.span)?;
             }
             OutputBindings::Many(names, span) => {
-                let output_types =
-                    item_output_types(item, locals, unit, definitions, builtins, namespace)?;
+                let output_types = item_output_types(item, definitions)?;
                 if output_types.len() <= 1 || output_types.len() != names.len() {
                     return Err(binding_count_error(
                         item,
@@ -680,29 +649,13 @@ fn collect_body_names(
                 }
             }
         }
-        if let ItemKind::Invocation(invocation) = &item.kind {
-            if let Some(body) = &invocation.body {
-                collect_body_names(
-                    body,
-                    locals,
-                    unit,
-                    definitions,
-                    builtins,
-                    namespace,
-                    depth + 1,
-                )?;
+        if let DraftItemKind::Invocation(invocation) = &item.kind {
+            if let Some(body) = invocation.body.as_deref() {
+                collect_body_names(body, locals, definitions)?;
             }
-            for argument in invocation.arguments.values() {
-                if let ArgumentValue::Body(body) = argument {
-                    collect_body_names(
-                        body,
-                        locals,
-                        unit,
-                        definitions,
-                        builtins,
-                        namespace,
-                        depth + 1,
-                    )?;
+            for input in invocation.inputs.iter().flatten() {
+                if let DraftInput::Body(body) = input {
+                    collect_body_names(body, locals, definitions)?;
                 }
             }
         }
@@ -711,37 +664,25 @@ fn collect_body_names(
 }
 
 fn item_output_types(
-    item: &Item,
-    _locals: &BTreeMap<String, LocalType>,
-    _unit: SourceUnitId,
+    item: &super::draft::DraftItem,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<Vec<LocalType>> {
     match &item.kind {
-        ItemKind::Reference(reference) => Ok(vec![LocalType::Inferred {
+        DraftItemKind::Reference(reference) => Ok(vec![LocalType::Inferred {
             constraint: ValueConstraint::Any,
-            dependencies: BTreeSet::from([reference.name.value.clone()]),
+            dependencies: BTreeSet::from([reference.value.clone()]),
             span: item.span.clone(),
         }]),
-        ItemKind::Invocation(invocation) => {
-            let program = program_id_for(
-                &invocation.program.value,
-                builtins,
-                namespace,
-                &invocation.program.span,
-            )?;
-            let definition = &definitions[program.index()];
-            let selected = selected_generic_type_source(definition, invocation)?;
+        DraftItemKind::Invocation(invocation) => {
+            let definition = &definitions[invocation.program.index()];
+            let selected = selected_generic_type(definition, invocation)?;
             let mut dependencies = BTreeSet::new();
             collect_invocation_dependencies(
                 invocation,
                 definitions,
-                builtins,
-                namespace,
                 &BTreeSet::new(),
                 &mut dependencies,
-            )?;
+            );
             Ok(definition
                 .descriptor
                 .outputs
@@ -766,35 +707,6 @@ fn item_output_types(
                 .collect())
         }
     }
-}
-
-fn selected_generic_type_source(
-    definition: &ProgramDefinition,
-    invocation: &crate::source::Invocation,
-) -> Result<Option<ValueType>> {
-    let Some(type_parameter) = &definition.descriptor.type_parameter else {
-        return Ok(None);
-    };
-    invocation
-        .arguments
-        .get(&type_parameter.selector)
-        .map(|argument| match argument {
-            ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
-                Ok(ValueType::Video)
-            }
-            ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
-                Ok(ValueType::Audio)
-            }
-            _ => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_VALUE",
-                format!(
-                    "parameter `{}.{}` must be `Video` or `Audio`",
-                    definition.descriptor.name, type_parameter.selector
-                ),
-                argument.span().clone(),
-            )),
-        })
-        .transpose()
 }
 
 fn selected_generic_type(
@@ -1485,25 +1397,6 @@ fn validate_body_outputs(
     Ok(())
 }
 
-fn program_id_for(
-    name: &str,
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    span: &crate::source::SourceSpan,
-) -> Result<ProgramId> {
-    builtins
-        .get(name)
-        .or_else(|| namespace.get(name))
-        .copied()
-        .ok_or_else(|| {
-            Diagnostic::new(
-                "E_UNKNOWN_PROGRAM",
-                format!("unknown program `{name}`"),
-                span.clone(),
-            )
-        })
-}
-
 fn insert_local(
     locals: &mut BTreeMap<String, LocalType>,
     name: &str,
@@ -1616,91 +1509,61 @@ fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagno
 }
 
 fn collect_body_dependencies(
-    body: &ProgramBody,
+    body: &DraftBody,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
     shadows: &BTreeSet<String>,
     dependencies: &mut BTreeSet<String>,
-) -> Result<()> {
+) {
     for item in &body.items {
         match &item.kind {
-            ItemKind::Reference(reference) => {
-                if !shadows.contains(&reference.name.value) {
-                    dependencies.insert(reference.name.value.clone());
-                }
-            }
-            ItemKind::Invocation(invocation) => collect_invocation_dependencies(
-                invocation,
-                definitions,
-                builtins,
-                namespace,
-                shadows,
-                dependencies,
-            )?,
-        }
-    }
-    Ok(())
-}
-
-fn collect_invocation_dependencies(
-    invocation: &crate::source::Invocation,
-    definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    shadows: &BTreeSet<String>,
-    dependencies: &mut BTreeSet<String>,
-) -> Result<()> {
-    for argument in invocation.arguments.values() {
-        match argument {
-            ArgumentValue::Literal(_) => {}
-            ArgumentValue::Reference(reference) => {
+            DraftItemKind::Reference(reference) => {
                 if !shadows.contains(&reference.value) {
                     dependencies.insert(reference.value.clone());
                 }
             }
-            ArgumentValue::References(references, _) => {
+            DraftItemKind::Invocation(invocation) => {
+                collect_invocation_dependencies(invocation, definitions, shadows, dependencies);
+            }
+        }
+    }
+}
+
+fn collect_invocation_dependencies(
+    invocation: &DraftInvocation,
+    definitions: &[ProgramDefinition],
+    shadows: &BTreeSet<String>,
+    dependencies: &mut BTreeSet<String>,
+) {
+    for input in invocation.inputs.iter().flatten() {
+        match input {
+            DraftInput::Reference(reference) => {
+                if !shadows.contains(&reference.value) {
+                    dependencies.insert(reference.value.clone());
+                }
+            }
+            DraftInput::References(references, _) => {
                 for reference in references {
                     if !shadows.contains(&reference.value) {
                         dependencies.insert(reference.value.clone());
                     }
                 }
             }
-            ArgumentValue::Body(body) => collect_body_dependencies(
-                body,
-                definitions,
-                builtins,
-                namespace,
-                shadows,
-                dependencies,
-            )?,
+            DraftInput::Body(body) => {
+                collect_body_dependencies(body, definitions, shadows, dependencies);
+            }
         }
     }
 
-    if let Some(body) = &invocation.body {
-        let program = program_id_for(
-            &invocation.program.value,
-            builtins,
-            namespace,
-            &invocation.program.span,
-        )?;
-        let definition = &definitions[program.index()];
+    if let Some(body) = invocation.body.as_deref() {
+        let definition = &definitions[invocation.program.index()];
         let mut body_shadows = shadows.clone();
         for input in &definition.descriptor.inputs {
             if matches!(input.cardinality, Cardinality::One) {
                 body_shadows.insert(input.name.clone());
             }
         }
-        collect_body_dependencies(
-            body,
-            definitions,
-            builtins,
-            namespace,
-            &body_shadows,
-            dependencies,
-        )?;
+        collect_body_dependencies(body, definitions, &body_shadows, dependencies);
     }
-    Ok(())
 }
 
 fn value_local(
@@ -1761,14 +1624,14 @@ fn missing_reference(name: &str, span: &crate::source::SourceSpan) -> Diagnostic
 }
 
 fn binding_count_error(
-    item: &Item,
+    item: &super::draft::DraftItem,
     output_count: usize,
     binding: &str,
     span: &crate::source::SourceSpan,
 ) -> Diagnostic {
     let construct = match &item.kind {
-        ItemKind::Reference(_) => "reference",
-        ItemKind::Invocation(invocation) => &invocation.program.value,
+        DraftItemKind::Reference(_) => "reference",
+        DraftItemKind::Invocation(invocation) => &invocation.name.value,
     };
     Diagnostic::new(
         "E_OUTPUT_BINDING_COUNT",
