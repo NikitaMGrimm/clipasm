@@ -224,6 +224,25 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     };
     assert_eq!(asset.source_path(), directory.path().join("lut.bin"));
     assert!(!asset.content_hash().is_empty());
+    let document: serde_json::Value =
+        serde_json::from_str(&prepared.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
+    let external = document["nodes"]
+        .as_array()
+        .expect("prepared nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "external_video")
+        .expect("external prepared node");
+    assert_eq!(
+        external["kind"]["parameters"]["lut"]["content_hash"],
+        asset.content_hash()
+    );
+    assert_eq!(
+        external["kind"]["parameters"]["lut"]["source_path"],
+        directory.path().join("lut.bin").to_string_lossy().as_ref()
+    );
+    assert!(external["kind"]["executable"]["executable"].is_string());
+    assert!(external["kind"]["executable"]["content_hash"].is_string());
 
     fs::write(directory.path().join("lut.bin"), b"changed lookup table")
         .expect("change file parameter");

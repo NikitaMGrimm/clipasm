@@ -2,9 +2,6 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
-use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
-
 use crate::diagnostic::Result;
 use crate::model::{
     AudioDomain, AudioSpec, FrameCount, FrameRange, ImageFit, NodeId, ValueType, VideoDomain,
@@ -15,8 +12,7 @@ use crate::source::SourceFile;
 
 use super::tools::{self, ExternalToolIdentity, ToolIdentity};
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 /// One external-program parameter after preflight resolution.
 pub enum PreparedExternalParameterValue {
@@ -28,7 +24,7 @@ pub enum PreparedExternalParameterValue {
     File(PreparedAsset),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// An exact, media-verified plan consumed by [`crate::render::render`].
 ///
 /// Every Video node has an exact [`VideoDomain`], every Audio node has an
@@ -48,7 +44,6 @@ pub struct PreparedPlan {
     ffmpeg: ToolIdentity,
     ffprobe: ToolIdentity,
     execution_namespace: String,
-    #[serde(skip)]
     entrypoint_source: SourceFile,
 }
 
@@ -86,6 +81,27 @@ impl PreparedPlan {
             execution_namespace,
             entrypoint_source,
         }
+    }
+
+    pub(crate) const fn format_version(&self) -> u32 {
+        self.format_version
+    }
+
+    pub(crate) fn engine_version(&self) -> &str {
+        &self.engine_version
+    }
+
+    /// Serialize the explicit prepared-plan inspection document.
+    ///
+    /// This local inspection format includes resolved paths, tool identities,
+    /// renderer primitives, and cache metadata. It is distinct from the
+    /// path-free render manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns `E_PREPARED_JSON` when a field cannot be represented as JSON.
+    pub fn prepared_json(&self) -> Result<String> {
+        crate::format::prepared_json::prepared_plan(self)
     }
 
     #[must_use]
@@ -317,41 +333,7 @@ impl PreparedNode {
     }
 }
 
-impl Serialize for PreparedNode {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("PreparedNode", 8)?;
-        state.serialize_field("id", &self.id)?;
-        match &self.media {
-            PreparedMedia::Video {
-                kind,
-                domain,
-                has_audio,
-            } => {
-                state.serialize_field("kind", kind)?;
-                state.serialize_field("value_type", &ValueType::Video)?;
-                state.serialize_field("domain", &Some(domain))?;
-                state.serialize_field("audio_domain", &Option::<&AudioDomain>::None)?;
-                state.serialize_field("has_audio", has_audio)?;
-            }
-            PreparedMedia::Audio { kind, domain } => {
-                state.serialize_field("kind", kind)?;
-                state.serialize_field("value_type", &ValueType::Audio)?;
-                state.serialize_field("domain", &Option::<&VideoDomain>::None)?;
-                state.serialize_field("audio_domain", &Some(domain))?;
-                state.serialize_field("has_audio", &false)?;
-            }
-        }
-        state.serialize_field("origin", &self.origin)?;
-        state.serialize_field("fingerprint", &self.fingerprint)?;
-        state.end()
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 /// The closed set of exact Video primitives understood by the renderer.
 pub enum PreparedVideoKind {
@@ -476,8 +458,7 @@ impl PreparedVideoKind {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 /// The closed set of exact Audio primitives understood by the renderer.
 pub enum PreparedAudioKind {
@@ -523,7 +504,7 @@ impl PreparedAudioKind {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// A source file verified during preflight and bound to its content hash.
 pub struct PreparedAsset {
     source_path: PathBuf,

@@ -19,7 +19,7 @@ fn write_image(directory: &Path, name: &str, color: &str) {
 }
 
 #[test]
-fn prepared_plan_serializes_one_distinguished_result() {
+fn prepared_json_serializes_one_distinguished_result() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
     let source = directory.path().join("program.clipasm");
@@ -31,10 +31,19 @@ fn prepared_plan_serializes_one_distinguished_result() {
 
     let compiled = compile_file(&source).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let document = serde_json::to_value(&plan).expect("prepared JSON");
+    let document: serde_json::Value =
+        serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
 
     assert!(document.get("result").is_some());
     assert_eq!(document["format_version"], 8);
+    assert_eq!(document["semantic_hash"], plan.semantic_hash());
+    assert!(document["output"].is_string());
+    assert!(document["manifest"].is_string());
+    assert!(document["ffmpeg"]["executable"].is_string());
+    assert!(document["ffmpeg"]["build_fingerprint"].is_string());
+    assert!(document["ffprobe"]["executable"].is_string());
+    assert!(document["execution_namespace"].is_string());
     assert_eq!(
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
@@ -88,7 +97,9 @@ fn prepared_media_is_structurally_typed_without_changing_json_shape() {
     assert!(audio.video_kind().is_none());
     assert!(audio.audio_kind().is_some());
 
-    let document = serde_json::to_value(&plan).expect("prepared JSON");
+    let document: serde_json::Value =
+        serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
     let nodes = document["nodes"].as_array().expect("prepared nodes");
     let video_json = nodes
         .iter()

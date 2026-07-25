@@ -24,7 +24,7 @@ struct ToolBuildIdentity<'a> {
     version_stderr: &'a str,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// One resolved external executable and the content hash verified by preflight.
 pub struct ExternalToolIdentity {
     executable: PathBuf,
@@ -112,7 +112,7 @@ pub(crate) fn verify_external_tool(
     ))
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct ToolIdentity {
     pub(super) executable: PathBuf,
     pub(super) version_summary: String,

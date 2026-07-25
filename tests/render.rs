@@ -763,6 +763,10 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     );
     let compiled = compiler::compile_with_bindings(&package, &bindings).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
+    let inspection_error = plan
+        .prepared_json()
+        .expect_err("non-UTF local path cannot be represented in prepared JSON");
+    assert_eq!(inspection_error.code, "E_PREPARED_JSON");
     let report = render::render(&plan).expect("render non-UTF output");
 
     assert_eq!(report.output, output);

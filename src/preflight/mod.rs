@@ -3,7 +3,9 @@
 //! Preflight is the first pipeline phase that performs I/O. It resolves
 //! result-reachable assets, verifies source contracts and tool capabilities,
 //! derives exact media domains, and lowers semantic operations into a
-//! [`PreparedPlan`] containing renderer primitives.
+//! [`PreparedPlan`] containing renderer primitives. The plan remains directly
+//! inspectable through Rust getters and [`PreparedPlan::prepared_json`], whose
+//! explicit adapter is separate from the renderer's private representation.
 //!
 //! ```no_run
 //! use std::path::Path;

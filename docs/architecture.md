@@ -263,9 +263,11 @@ carries a Video primitive, exact frame domain, and attached-audio state; an
 Audio variant always carries an Audio primitive and exact sample domain. Wrong-
 media operations and missing domains are therefore not representable in a
 prepared node. Each prepared variant owns its canonical input order, which
-prepared fingerprinting reuses. The serialized prepared-plan adapter preserves
-the existing `kind`, `value_type`, `domain`, `audio_domain`, and `has_audio`
-fields.
+prepared fingerprinting reuses. `PreparedPlan::prepared_json` owns the explicit,
+versioned local inspection document and preserves the `kind`, `value_type`,
+`domain`, `audio_domain`, and `has_audio` fields. Renderer-owned plan, node,
+operation, asset, and tool types do not implement `Serialize`; adding private
+execution state therefore cannot silently change the inspection format.
 
 Preflight keeps one exhaustive semantic-operation dispatcher. Media, timeline,
 effect, transition, and external modules implement the individual preparation
