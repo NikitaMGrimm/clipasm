@@ -4,7 +4,6 @@
 //! references, infers source-independent video domains, and computes semantic
 //! identity. It never reads media files or invokes external tools.
 
-mod bind;
 mod check;
 mod checked;
 mod draft;
@@ -12,6 +11,7 @@ mod entrypoint;
 mod evaluate;
 pub(crate) mod fingerprint;
 mod infer;
+mod parameter;
 mod resolve;
 mod stack;
 pub(crate) mod traversal;
@@ -300,7 +300,7 @@ fn compile_checked(
 ) -> Result<CompiledProgram> {
     let entrypoint = package.root();
     let video = resolve_video_spec(entrypoint)?;
-    let evaluation = evaluate::evaluate(package, &video, checked, bindings)?;
+    let evaluation = evaluate::evaluate(&video, checked, bindings)?;
     let output = bindings.output.as_ref().or_else(|| entrypoint.output());
     validate_publication_output(entrypoint, output, &evaluation)?;
     resolve::finalize(

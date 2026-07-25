@@ -31,7 +31,7 @@ pub(super) enum LocalType {
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedClip, CheckedInputValue, CheckedItem, CheckedItemKind,
     CheckedLocal, CheckedPackage, CheckedParameter, CheckedParameterValue, CheckedProgram,
-    CheckedReferenceTarget, ParameterId, ValueLocalId,
+    CheckedProgramInput, CheckedReferenceTarget, ParameterId, ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -47,16 +47,7 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut external_programs = BTreeMap::new();
-    for (index, external) in package.external_programs().iter().enumerate() {
-        let external_id = crate::external::ExternalProgramId::new(
-            u32::try_from(index).expect("external program catalog fits in u32"),
-        );
-        let program_id =
-            ProgramId::new(u32::try_from(definitions.len()).expect("program catalog fits in u32"));
-        definitions.push(external.definition(format!("external_program_{index}")));
-        external_programs.insert(external_id, program_id);
-    }
+    let external_programs = register_external_programs(package, &mut definitions);
     let mut unit_programs = BTreeMap::new();
     let mut programs = Vec::with_capacity(package.units().len());
 
@@ -132,8 +123,33 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
         programs.push(Arc::new(checked_program));
     }
 
-    let registry = ProgramRegistry::from_linked(definitions, builtin_count, unit_programs)?;
-    Ok(CheckedPackage { registry, programs })
+    let registry = ProgramRegistry::from_linked(definitions, builtin_count)?;
+    Ok(CheckedPackage {
+        root: package.root,
+        registry,
+        programs,
+    })
+}
+
+fn register_external_programs(
+    package: &SourcePackage,
+    definitions: &mut Vec<ProgramDefinition>,
+) -> BTreeMap<crate::external::ExternalProgramId, ProgramId> {
+    package
+        .external_programs()
+        .iter()
+        .enumerate()
+        .map(|(index, external)| {
+            let external_id = crate::external::ExternalProgramId::new(
+                u32::try_from(index).expect("external program catalog fits in u32"),
+            );
+            let program_id = ProgramId::new(
+                u32::try_from(definitions.len()).expect("program catalog fits in u32"),
+            );
+            definitions.push(external.definition(format!("external_program_{index}")));
+            (external_id, program_id)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -162,6 +178,7 @@ pub(super) fn check_with_registry(
         &BTreeMap::new(),
     )?;
     Ok(CheckedPackage {
+        root: package.root,
         registry,
         programs: vec![Arc::new(program)],
     })
@@ -287,7 +304,17 @@ fn check_program(
         CheckedProgram {
             span: program.span().clone(),
             stack_access: program.stack_access(),
-            inputs: program.inputs().to_vec(),
+            inputs: program
+                .inputs()
+                .iter()
+                .map(|input| CheckedProgramInput {
+                    name: input.name.clone(),
+                    value_type: input
+                        .value_type
+                        .exact()
+                        .expect("authored program inputs are concrete"),
+                })
+                .collect(),
             locals,
             parameters,
             body_input_count,
@@ -321,7 +348,7 @@ fn assign_local_ids(
             .default
             .as_ref()
             .map(|literal| {
-                super::bind::bind_literal_value(
+                super::parameter::from_literal(
                     "authored program",
                     &parameter.name.value,
                     &parameter.parameter_type,
@@ -332,6 +359,7 @@ fn assign_local_ids(
             .transpose()?;
         parameters.push(CheckedParameter {
             name: parameter.name.value.clone(),
+            parameter_type: parameter.parameter_type.clone(),
             declared_at: parameter.name.span.clone(),
             default,
         });
@@ -551,7 +579,7 @@ fn resolve_body_references(
                         let value = match argument {
                             ArgumentValue::Literal(literal) => {
                                 CheckedParameterValue::Literal(crate::source::Spanned::new(
-                                    super::bind::bind_literal_value(
+                                    super::parameter::from_literal(
                                         &definition.descriptor.name,
                                         &descriptor.name,
                                         &descriptor.parameter_type,
@@ -1552,7 +1580,7 @@ fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Res
     let Some(default) = parameter.default.as_ref() else {
         return Ok(());
     };
-    super::bind::bind_literal_value(
+    super::parameter::from_literal(
         "authored program",
         &parameter.name.value,
         &parameter.parameter_type,
@@ -1565,7 +1593,6 @@ fn literal_matches(parameter_type: &ParameterType, literal: &Literal) -> bool {
     matches!(
         (parameter_type, literal),
         (ParameterType::Integer, Literal::Integer(_, _))
-            | (ParameterType::File, Literal::File(_, _))
             | (
                 ParameterType::File
                     | ParameterType::Duration

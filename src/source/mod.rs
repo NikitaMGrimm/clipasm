@@ -236,7 +236,6 @@ pub(crate) enum ArgumentValue {
 pub(crate) enum Literal {
     String(String, SourceSpan),
     Integer(i64, SourceSpan),
-    File(PathBuf, SourceSpan),
 }
 
 impl ArgumentValue {
@@ -255,7 +254,7 @@ impl Literal {
     #[must_use]
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
-            Self::String(_, span) | Self::Integer(_, span) | Self::File(_, span) => span,
+            Self::String(_, span) | Self::Integer(_, span) => span,
         }
     }
 }

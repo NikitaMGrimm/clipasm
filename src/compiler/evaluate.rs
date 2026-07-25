@@ -8,7 +8,7 @@ use crate::program::{
     ResolvedSignature,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId, require_value_type};
-use crate::source::{SourcePackage, SourceSpan, SourceUnitId, Spanned};
+use crate::source::{SourceSpan, SourceUnitId, Spanned};
 
 use super::EntrypointBindings;
 use super::checked::{
@@ -49,13 +49,12 @@ pub(super) struct Evaluation {
 }
 
 pub(super) fn evaluate(
-    package: &SourcePackage,
     video: &VideoSpec,
     checked: CheckedPackage,
     bindings: &EntrypointBindings,
 ) -> Result<Evaluation> {
+    let root = checked.root;
     let mut evaluator = Evaluator {
-        package,
         video,
         checked,
         nodes: Vec::new(),
@@ -65,7 +64,7 @@ pub(super) fn evaluate(
         surface: Vec::new(),
     };
     let root_call = evaluator.bind_entrypoint_call(bindings)?;
-    let outputs = evaluator.evaluate_program(package.root, Some(&root_call), true)?;
+    let outputs = evaluator.evaluate_program(root, Some(&root_call), true)?;
     Ok(Evaluation {
         nodes: evaluator.nodes,
         symbols: evaluator.symbols,
@@ -77,7 +76,6 @@ pub(super) fn evaluate(
 }
 
 struct Evaluator<'a> {
-    package: &'a SourcePackage,
     video: &'a VideoSpec,
     checked: CheckedPackage,
     nodes: Vec<DraftNode>,
@@ -96,10 +94,14 @@ struct EvalScope {
 
 impl Evaluator<'_> {
     fn bind_entrypoint_call(&mut self, bindings: &EntrypointBindings) -> Result<ResolvedCall> {
-        let registry = self.checked.registry.clone();
-        super::entrypoint::bind_root_call(self.package, &registry, bindings, |binding| {
-            super::entrypoint::lower_video_binding(&registry, binding, &mut self.nodes, self.video)
-        })
+        let root = Arc::clone(&self.checked.programs[self.checked.root.0]);
+        super::entrypoint::bind_root_call(
+            &root,
+            &self.checked.registry,
+            bindings,
+            &mut self.nodes,
+            self.video,
+        )
     }
 
     #[allow(clippy::too_many_lines)]
