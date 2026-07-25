@@ -13,6 +13,7 @@ use crate::source::{
     SourceProgram, SourceUnitId,
 };
 
+use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter};
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
 };
@@ -180,6 +181,7 @@ fn check_program(
     builtins: &BTreeMap<String, ProgramId>,
     namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<(Vec<ValueType>, CheckedProgram)> {
+    let draft = super::draft::DraftProgram::build(program, definitions, builtins, namespace)?;
     let mut locals = BTreeMap::new();
     for input in program.inputs() {
         insert_local(
@@ -230,11 +232,11 @@ fn check_program(
         namespace,
         0,
     )?;
-    super::infer::infer_local_types(program, &mut locals, definitions, builtins, namespace)?;
+    super::infer::infer_local_types(&draft, &mut locals, definitions)?;
     ensure_local_types_resolved(&mut locals, unit, definitions, builtins, namespace)?;
 
-    let mut checked_clips = Vec::with_capacity(program.clips().len());
-    for clip in program.clips() {
+    let mut checked_clips = Vec::with_capacity(draft.clips.len());
+    for clip in &draft.clips {
         let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
             format!("named clip `{}` inference", clip.name),
             clip.span.clone(),
@@ -244,8 +246,6 @@ fn check_program(
             &locals,
             unit,
             definitions,
-            builtins,
-            namespace,
             &mut stack,
             &mut frame,
         )?;
@@ -278,12 +278,10 @@ fn check_program(
         program.span().clone(),
     );
     let mut checked_body = infer_body(
-        &program.body,
+        &draft.body,
         &locals,
         unit,
         definitions,
-        builtins,
-        namespace,
         &mut stack,
         &mut frame,
     )?;
@@ -734,7 +732,7 @@ fn item_output_types(
                 &invocation.program.span,
             )?;
             let definition = &definitions[program.index()];
-            let selected = selected_generic_type(definition, invocation)?;
+            let selected = selected_generic_type_source(definition, invocation)?;
             let mut dependencies = BTreeSet::new();
             collect_invocation_dependencies(
                 invocation,
@@ -770,7 +768,7 @@ fn item_output_types(
     }
 }
 
-fn selected_generic_type(
+fn selected_generic_type_source(
     definition: &ProgramDefinition,
     invocation: &crate::source::Invocation,
 ) -> Result<Option<ValueType>> {
@@ -799,10 +797,52 @@ fn selected_generic_type(
         .transpose()
 }
 
+fn selected_generic_type(
+    definition: &ProgramDefinition,
+    invocation: &DraftInvocation,
+) -> Result<Option<ValueType>> {
+    let Some(type_parameter) = &definition.descriptor.type_parameter else {
+        return Ok(None);
+    };
+    let index = definition
+        .descriptor
+        .parameters
+        .iter()
+        .position(|parameter| parameter.name == type_parameter.selector)
+        .expect("validated type selector exists");
+    invocation.parameters[index]
+        .as_ref()
+        .map(|argument| match argument {
+            DraftParameter::Literal(Literal::String(value, _)) if value == "Video" => {
+                Ok(ValueType::Video)
+            }
+            DraftParameter::Literal(Literal::String(value, _)) if value == "Audio" => {
+                Ok(ValueType::Audio)
+            }
+            DraftParameter::Literal(literal) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_VALUE",
+                format!(
+                    "parameter `{}.{}` must be `Video` or `Audio`",
+                    definition.descriptor.name, type_parameter.selector
+                ),
+                literal.span().clone(),
+            )),
+            DraftParameter::Reference(reference) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_VALUE",
+                format!(
+                    "parameter `{}.{}` must be `Video` or `Audio`",
+                    definition.descriptor.name, type_parameter.selector
+                ),
+                reference.span.clone(),
+            )),
+        })
+        .transpose()
+}
+
 #[allow(clippy::too_many_lines)]
 fn resolve_invocation_signature(
     definition: &ProgramDefinition,
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     validated: &ValidatedArguments,
     stack: &EvaluationStack<ValueType>,
     frame: &super::stack::StackFrame,
@@ -819,11 +859,11 @@ fn resolve_invocation_signature(
     let selected = selected_generic_type(definition, invocation)?;
 
     let mut explicit = Vec::new();
-    for port in &descriptor.inputs {
+    for (index, port) in descriptor.inputs.iter().enumerate() {
         if !matches!(port.value_type, ValueTypeSpec::Generic) {
             continue;
         }
-        if let Some(values) = validated.input_types.get(&port.name) {
+        if let Some(values) = &validated.input_types[index] {
             for value_type in values {
                 if !explicit.contains(value_type) {
                     explicit.push(*value_type);
@@ -851,9 +891,10 @@ fn resolve_invocation_signature(
         let generic_ports = descriptor
             .inputs
             .iter()
-            .filter(|port| matches!(port.value_type, ValueTypeSpec::Generic))
+            .enumerate()
+            .filter(|(_, port)| matches!(port.value_type, ValueTypeSpec::Generic))
             .collect::<Vec<_>>();
-        let generic_port = generic_ports.first()?;
+        let (_, generic_port) = generic_ports.first()?;
         match generic_port.cardinality {
             Cardinality::One if generic_ports.len() == 1 => stack
                 .nearest_accessible_type(frame, access, |value_type| {
@@ -871,7 +912,7 @@ fn resolve_invocation_signature(
             Cardinality::One => {
                 let missing = generic_ports
                     .iter()
-                    .filter(|port| !invocation.arguments.contains_key(&port.name))
+                    .filter(|(index, _)| invocation.inputs[*index].is_none())
                     .count();
                 let types = stack.accessible_types(frame, access, |value_type| {
                     type_parameter.constraint.accepts(value_type)
@@ -960,12 +1001,12 @@ fn resolve_invocation_signature(
 }
 
 fn validate_explicit_input_types(
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     validated: &ValidatedArguments,
     signature: &ResolvedSignature,
 ) -> Result<()> {
-    for port in &signature.inputs {
-        let Some(values) = validated.input_types.get(&port.name) else {
+    for (index, port) in signature.inputs.iter().enumerate() {
+        let Some(values) = &validated.input_types[index] else {
             continue;
         };
         for value in values {
@@ -982,11 +1023,10 @@ fn validate_explicit_input_types(
                 "E_TYPE_MISMATCH",
                 format!(
                     "program `{}` input `{}` expected {}, but found {value}",
-                    invocation.program.value, port.name, port.value_type
+                    invocation.name.value, port.name, port.value_type
                 ),
-                invocation
-                    .arguments
-                    .get(&port.name)
+                invocation.inputs[index]
+                    .as_ref()
                     .expect("validated explicit input")
                     .span()
                     .clone(),
@@ -1009,7 +1049,7 @@ fn output_names(bindings: &OutputBindings, count: usize) -> Vec<Option<String>> 
 fn checked_stack_plan(
     program: &str,
     signature: &ResolvedSignature,
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     stack: &EvaluationStack<ValueType>,
     frame: &super::stack::StackFrame,
     access: crate::program::StackAccess,
@@ -1019,7 +1059,7 @@ fn checked_stack_plan(
         .inputs
         .iter()
         .enumerate()
-        .filter(|(_, port)| !invocation.arguments.contains_key(&port.name))
+        .filter(|(index, _)| invocation.inputs[*index].is_none())
         .map(|(index, port)| StackBindingInput {
             port: index,
             requirement: port.value_type,
@@ -1071,20 +1111,18 @@ fn checked_stack_plan(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_body(
-    body: &ProgramBody,
+    body: &DraftBody,
     locals: &BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
     stack: &mut EvaluationStack<ValueType>,
     frame: &mut super::stack::StackFrame,
 ) -> Result<CheckedBody> {
     let mut checked_items = Vec::with_capacity(body.items.len());
     for item in &body.items {
         let checked = match &item.kind {
-            ItemKind::Reference(reference) => {
-                let output = value_local(locals, &reference.name.value, &reference.name.span)?;
+            DraftItemKind::Reference(reference) => {
+                let output = value_local(locals, &reference.value, &reference.span)?;
                 stack.extend(frame, [output]);
                 CheckedItem {
                     span: item.span.clone(),
@@ -1095,35 +1133,18 @@ fn infer_body(
                     kind: CheckedItemKind::Reference { target: None },
                 }
             }
-            ItemKind::Invocation(invocation) => {
-                let program = program_id_for(
-                    &invocation.program.value,
-                    builtins,
-                    namespace,
-                    &invocation.program.span,
-                )?;
+            DraftItemKind::Invocation(invocation) => {
+                let program = invocation.program;
                 let definition = &definitions[program.index()];
-                let mut validated = validate_explicit_arguments(
-                    invocation,
-                    definition,
-                    locals,
-                    unit,
-                    definitions,
-                    builtins,
-                    namespace,
-                )?;
-                let access = invocation
-                    .stack_access
-                    .as_ref()
-                    .map_or(definition.descriptor.default_stack_access, |access| {
-                        access.value
-                    });
+                let validated =
+                    validate_explicit_arguments(invocation, definition, locals, unit, definitions)?;
+                let access = invocation.access;
                 let mut signature = resolve_invocation_signature(
                     definition, invocation, &validated, stack, frame, access, &item.span,
                 )?;
                 let stack_plan = if let Some(resolved) = &signature {
                     let plan = checked_stack_plan(
-                        &invocation.program.value,
+                        &invocation.name.value,
                         resolved,
                         invocation,
                         stack,
@@ -1140,30 +1161,9 @@ fn infer_body(
                 let checked_body = match definition.implementation {
                     ProgramImplementation::Direct(_)
                     | ProgramImplementation::Authored(_)
-                    | ProgramImplementation::External(_) => {
-                        if invocation.body.is_some() {
-                            return Err(Diagnostic::new(
-                                "E_UNEXPECTED_PROGRAM_BODY",
-                                format!(
-                                    "program `{}` does not accept a caller-supplied body",
-                                    invocation.program.value
-                                ),
-                                invocation.program.span.clone(),
-                            ));
-                        }
-                        None
-                    }
+                    | ProgramImplementation::External(_) => None,
                     ProgramImplementation::Body(_) => {
-                        let body = invocation.body.as_ref().ok_or_else(|| {
-                            Diagnostic::new(
-                                "E_MISSING_PROGRAM_BODY",
-                                format!(
-                                    "body program `{}` requires a `body`",
-                                    invocation.program.value
-                                ),
-                                invocation.program.span.clone(),
-                            )
-                        })?;
+                        let body = invocation.body.as_deref().expect("draft body program");
                         let contract = definition
                             .body_contract
                             .as_ref()
@@ -1171,8 +1171,8 @@ fn infer_body(
                         let mut child = EvaluationStack::<ValueType>::enter_body(
                             frame,
                             access,
-                            invocation.program.value.clone(),
-                            invocation.program.span.clone(),
+                            invocation.name.value.clone(),
+                            invocation.name.span.clone(),
                         );
                         let initial_values = signature.as_ref().map_or_else(
                             || {
@@ -1194,16 +1194,8 @@ fn infer_body(
                                 }
                             }
                         }
-                        let checked_body = infer_body(
-                            body,
-                            &body_locals,
-                            unit,
-                            definitions,
-                            builtins,
-                            namespace,
-                            stack,
-                            &mut child,
-                        )?;
+                        let checked_body =
+                            infer_body(body, &body_locals, unit, definitions, stack, &mut child)?;
                         let body_outputs = stack.finish_body(&child);
                         if signature.is_none() {
                             let type_parameter = definition
@@ -1212,7 +1204,7 @@ fn infer_body(
                                 .as_ref()
                                 .expect("deferred body signature is generic");
                             let value_type = infer_body_generic_type(
-                                &invocation.program.value,
+                                &invocation.name.value,
                                 &body_outputs,
                                 type_parameter.constraint,
                                 contract.count_error_code,
@@ -1224,7 +1216,7 @@ fn infer_body(
                         let resolved_contract = contract
                             .resolve(signature.as_ref().expect("body signature resolved").generic);
                         validate_body_outputs(
-                            &invocation.program.value,
+                            &invocation.name.value,
                             &body_outputs,
                             &resolved_contract.outputs,
                             contract.count_error_code,
@@ -1236,25 +1228,22 @@ fn infer_body(
                 let signature = signature.expect("invocation signature resolved");
                 let output_types = signature.outputs.clone();
                 stack.extend(frame, output_types.iter().copied());
-                let inputs = signature
-                    .inputs
-                    .iter()
-                    .map(|port| {
-                        validated.input_bodies.remove(&port.name).map(|body| {
-                            let span = invocation
-                                .arguments
-                                .get(&port.name)
-                                .expect("checked input body has a source argument")
-                                .span()
-                                .clone();
-                            CheckedInputValue::Body(Box::new(body), span)
+                let inputs = validated
+                    .input_bodies
+                    .into_iter()
+                    .zip(&invocation.inputs)
+                    .map(|(body, input)| {
+                        body.map(|body| {
+                            CheckedInputValue::Body(
+                                Box::new(body),
+                                input.as_ref().expect("checked input body").span().clone(),
+                            )
                         })
                     })
                     .collect();
-                debug_assert!(validated.input_bodies.is_empty());
                 CheckedItem {
                     span: item.span.clone(),
-                    construct: invocation.program.value.clone(),
+                    construct: invocation.name.value.clone(),
                     output_names: output_names(&item.output_bindings, output_types.len()),
                     output_types,
                     output_bindings: Vec::new(),
@@ -1279,70 +1268,38 @@ fn infer_body(
 }
 
 struct ValidatedArguments {
-    input_bodies: BTreeMap<String, CheckedBody>,
-    input_types: BTreeMap<String, Vec<ValueType>>,
+    input_bodies: Vec<Option<CheckedBody>>,
+    input_types: Vec<Option<Vec<ValueType>>>,
 }
 
 fn validate_explicit_arguments(
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     definition: &ProgramDefinition,
     locals: &BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<ValidatedArguments> {
-    let mut input_bodies = BTreeMap::new();
-    let mut input_types = BTreeMap::new();
-    for (name, argument) in &invocation.arguments {
-        if let Some(port) = definition
-            .descriptor
-            .inputs
-            .iter()
-            .find(|port| port.name == *name)
-        {
-            let (values, body) = validate_input_argument(
-                invocation,
-                port,
-                argument,
-                locals,
-                unit,
-                definitions,
-                builtins,
-                namespace,
-            )?;
-            input_types.insert(name.clone(), values);
-            if let Some(body) = body {
-                input_bodies.insert(name.clone(), body);
-            }
-        } else if let Some(parameter) = definition
-            .descriptor
-            .parameters
-            .iter()
-            .find(|parameter| parameter.name == *name)
-        {
-            validate_parameter_argument(&invocation.program.value, parameter, argument, locals)?;
-        } else {
-            return Err(Diagnostic::new(
-                "E_UNKNOWN_PROGRAM_ARGUMENT",
-                format!(
-                    "unknown argument `{name}` for program `{}`",
-                    invocation.program.value
-                ),
-                argument.span().clone(),
-            ));
-        }
+    let mut input_bodies = Vec::with_capacity(invocation.inputs.len());
+    let mut input_types = Vec::with_capacity(invocation.inputs.len());
+    for (port, argument) in definition.descriptor.inputs.iter().zip(&invocation.inputs) {
+        let Some(argument) = argument else {
+            input_bodies.push(None);
+            input_types.push(None);
+            continue;
+        };
+        let (values, body) =
+            validate_input_argument(invocation, port, argument, locals, unit, definitions)?;
+        input_bodies.push(body);
+        input_types.push(Some(values));
     }
-    for parameter in &definition.descriptor.parameters {
-        if parameter.required && !invocation.arguments.contains_key(&parameter.name) {
-            return Err(Diagnostic::new(
-                "E_MISSING_ARGUMENT",
-                format!(
-                    "missing required parameter `{}.{}`",
-                    invocation.program.value, parameter.name
-                ),
-                invocation.program.span.clone(),
-            ));
+    for (parameter, argument) in definition
+        .descriptor
+        .parameters
+        .iter()
+        .zip(&invocation.parameters)
+    {
+        if let Some(argument) = argument {
+            validate_parameter_argument(&invocation.name.value, parameter, argument, locals)?;
         }
     }
     Ok(ValidatedArguments {
@@ -1351,67 +1308,39 @@ fn validate_explicit_arguments(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn validate_input_argument(
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     port: &InputPort,
-    argument: &ArgumentValue,
+    argument: &DraftInput,
     locals: &BTreeMap<String, LocalType>,
     unit: SourceUnitId,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<(Vec<ValueType>, Option<CheckedBody>)> {
-    if matches!(port.cardinality, Cardinality::Variadic { .. })
-        && !matches!(
-            argument,
-            ArgumentValue::Reference(_) | ArgumentValue::References(_, _)
-        )
-    {
-        return Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT_TYPE",
-            format!(
-                "explicit variadic input `{}.{}` must use `$name` references",
-                invocation.program.value, port.name
-            ),
-            argument.span().clone(),
-        ));
-    }
-
     let mut checked_body = None;
     let values = match argument {
-        ArgumentValue::Reference(reference) => {
+        DraftInput::Reference(reference) => {
             vec![value_local(locals, &reference.value, &reference.span)?]
         }
-        ArgumentValue::References(references, _) => references
+        DraftInput::References(references, _) => references
             .iter()
             .map(|reference| value_local(locals, &reference.value, &reference.span))
             .collect::<Result<Vec<_>>>()?,
-        ArgumentValue::Body(body) => {
+        DraftInput::Body(body) => {
             let (mut stack, mut frame) = EvaluationStack::<ValueType>::isolated(
                 format!(
                     "inline input body for `{}.{}` inference",
-                    invocation.program.value, port.name
+                    invocation.name.value, port.name
                 ),
                 body.span.clone(),
             );
-            let checked = infer_body(
-                body,
-                locals,
-                unit,
-                definitions,
-                builtins,
-                namespace,
-                &mut stack,
-                &mut frame,
-            )?;
+            let checked = infer_body(body, locals, unit, definitions, &mut stack, &mut frame)?;
             checked_body = Some(checked);
             let [value] = stack.values() else {
                 return Err(Diagnostic::new(
                     "E_INPUT_BODY_OUTPUT_COUNT",
                     format!(
                         "inline input body for `{}.{}` must leave exactly one value, but {} values remain",
-                        invocation.program.value,
+                        invocation.name.value,
                         port.name,
                         stack.len()
                     ),
@@ -1420,42 +1349,52 @@ fn validate_input_argument(
             };
             vec![*value]
         }
-        ArgumentValue::Literal(_) => {
-            return Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "input `{}.{}` requires a graph value",
-                    invocation.program.value, port.name
-                ),
-                argument.span().clone(),
-            ));
-        }
     };
+    Ok((values, checked_body))
+}
 
-    match port.cardinality {
-        Cardinality::One if values.len() != 1 => {
-            return Err(Diagnostic::new(
+fn validate_parameter_argument(
+    program: &str,
+    parameter: &ParameterDescriptor,
+    argument: &DraftParameter,
+    locals: &BTreeMap<String, LocalType>,
+) -> Result<()> {
+    match argument {
+        DraftParameter::Literal(literal) => {
+            if literal_matches(&parameter.parameter_type, literal) {
+                Ok(())
+            } else {
+                Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    format!(
+                        "parameter `{program}.{}` has the wrong value type",
+                        parameter.name
+                    ),
+                    literal.span().clone(),
+                ))
+            }
+        }
+        DraftParameter::Reference(reference) => match locals.get(&reference.value) {
+            Some(LocalType::Parameter(actual)) if actual == &parameter.parameter_type => Ok(()),
+            Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
-                    "input `{}.{}` requires exactly one value",
-                    invocation.program.value, port.name
+                    "parameter `${}` is not compatible with `{program}.{}`",
+                    reference.value, parameter.name
                 ),
-                argument.span().clone(),
-            ));
-        }
-        Cardinality::Variadic { min } if values.len() < min => {
-            return Err(Diagnostic::new(
-                "E_MISSING_REQUIRED_INPUT",
+                reference.span.clone(),
+            )),
+            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
                 format!(
-                    "input `{}.{}` requires at least {min} value(s)",
-                    invocation.program.value, port.name
+                    "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
+                    reference.value, parameter.name
                 ),
-                argument.span().clone(),
-            ));
-        }
-        _ => {}
+                reference.span.clone(),
+            )),
+            None => Err(missing_reference(&reference.value, &reference.span)),
+        },
     }
-    Ok((values, checked_body))
 }
 
 fn infer_body_generic_type(
@@ -1544,58 +1483,6 @@ fn validate_body_outputs(
         }
     }
     Ok(())
-}
-
-fn validate_parameter_argument(
-    program: &str,
-    parameter: &ParameterDescriptor,
-    argument: &ArgumentValue,
-    locals: &BTreeMap<String, LocalType>,
-) -> Result<()> {
-    match argument {
-        ArgumentValue::Literal(literal) => {
-            if literal_matches(&parameter.parameter_type, literal) {
-                Ok(())
-            } else {
-                Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    format!(
-                        "parameter `{program}.{}` has the wrong value type",
-                        parameter.name
-                    ),
-                    literal.span().clone(),
-                ))
-            }
-        }
-        ArgumentValue::Reference(reference) => match locals.get(&reference.value) {
-            Some(LocalType::Parameter(actual)) if actual == &parameter.parameter_type => Ok(()),
-            Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "parameter `${}` is not compatible with `{program}.{}`",
-                    reference.value, parameter.name
-                ),
-                reference.span.clone(),
-            )),
-            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
-                    reference.value, parameter.name
-                ),
-                reference.span.clone(),
-            )),
-            None => Err(missing_reference(&reference.value, &reference.span)),
-        },
-        ArgumentValue::References(_, _) | ArgumentValue::Body(_) => Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT_TYPE",
-            format!(
-                "parameter `{program}.{}` requires a scalar value",
-                parameter.name
-            ),
-            argument.span().clone(),
-        )),
-    }
 }
 
 fn program_id_for(

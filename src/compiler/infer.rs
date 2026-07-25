@@ -3,14 +3,15 @@ use std::collections::BTreeMap;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
-    Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess, ValueConstraint,
+    Cardinality, ProgramDefinition, ProgramImplementation, StackAccess, ValueConstraint,
     ValueTypeSpec,
 };
-use crate::source::{
-    ArgumentValue, ItemKind, Literal, OutputBindings, ProgramBody, SourceProgram, SourceSpan,
-};
+use crate::source::{Literal, OutputBindings, SourceSpan};
 
 use super::check::LocalType;
+use super::draft::{
+    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, DraftProgram,
+};
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackCompatibility, StackFrame,
 };
@@ -285,11 +286,9 @@ impl PassState {
 }
 
 pub(super) fn infer_local_types(
-    program: &SourceProgram,
+    program: &DraftProgram,
     locals: &mut BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
 ) -> Result<()> {
     let mut arena = TypeArena::default();
     let mut slots = BTreeMap::new();
@@ -308,7 +307,7 @@ pub(super) fn infer_local_types(
         let mut attempt = arena.clone();
         let mut state = PassState::default();
 
-        for clip in program.clips() {
+        for clip in &program.clips {
             let (mut stack, mut frame) = EvaluationStack::isolated(
                 format!("named clip `{}` type inference", clip.name),
                 clip.span.clone(),
@@ -318,8 +317,6 @@ pub(super) fn infer_local_types(
                 &slots,
                 &BTreeMap::new(),
                 definitions,
-                builtins,
-                namespace,
                 &mut attempt,
                 &mut stack,
                 &mut frame,
@@ -328,14 +325,12 @@ pub(super) fn infer_local_types(
         }
 
         let (mut stack, mut frame) =
-            EvaluationStack::isolated("source program type inference", program.span().clone());
+            EvaluationStack::isolated("source program type inference", program.span.clone());
         infer_body(
-            program.body(),
+            &program.body,
             &slots,
             &BTreeMap::new(),
             definitions,
-            builtins,
-            namespace,
             &mut attempt,
             &mut stack,
             &mut frame,
@@ -346,7 +341,7 @@ pub(super) fn infer_local_types(
             if let LocalSlot::Value(variable) = slot {
                 arena
                     .constrain_domain(variable, attempt.domain(variable))
-                    .map_err(|_| type_mismatch(program.span()))?;
+                    .map_err(|_| type_mismatch(&program.span))?;
             }
         }
 
@@ -355,7 +350,7 @@ pub(super) fn infer_local_types(
                 return Err(Diagnostic::new(
                     "E_TYPE_INFERENCE_DEPENDENCY",
                     "generic type inference depends on an unresolved stack selection; add `type: Video` or `type: Audio`",
-                    program.span().clone(),
+                    program.span.clone(),
                 ));
             }
             break;
@@ -376,12 +371,10 @@ pub(super) fn infer_local_types(
 
 #[allow(clippy::too_many_arguments)]
 fn infer_body(
-    body: &ProgramBody,
+    body: &DraftBody,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
@@ -389,21 +382,19 @@ fn infer_body(
 ) -> Result<()> {
     for item in &body.items {
         let outputs = match &item.kind {
-            ItemKind::Reference(reference) => {
+            DraftItemKind::Reference(reference) => {
                 vec![lookup_value(
                     globals,
                     lexical,
-                    &reference.name.value,
-                    &reference.name.span,
+                    &reference.value,
+                    &reference.span,
                 )?]
             }
-            ItemKind::Invocation(invocation) => infer_invocation(
+            DraftItemKind::Invocation(invocation) => infer_invocation(
                 invocation,
                 globals,
                 lexical,
                 definitions,
-                builtins,
-                namespace,
                 arena,
                 stack,
                 frame,
@@ -418,31 +409,18 @@ fn infer_body(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn infer_invocation(
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
     state: &mut PassState,
 ) -> Result<Vec<TypeVarId>> {
     let deferred_before = state.deferred;
-    let program = program_id_for(
-        &invocation.program.value,
-        builtins,
-        namespace,
-        &invocation.program.span,
-    )?;
-    let definition = &definitions[program.index()];
-    let access = invocation
-        .stack_access
-        .as_ref()
-        .map_or(definition.descriptor.default_stack_access, |value| {
-            value.value
-        });
+    let definition = &definitions[invocation.program.index()];
+    let access = invocation.access;
 
     let generic = definition
         .descriptor
@@ -456,14 +434,16 @@ fn infer_invocation(
             .as_ref()
             .expect("generic definition")
             .selector;
-        if let Some(argument) = invocation.arguments.get(selector) {
+        let selector_index = definition
+            .descriptor
+            .parameters
+            .iter()
+            .position(|parameter| parameter.name == *selector)
+            .expect("validated generic selector");
+        if let Some(DraftParameter::Literal(argument)) = &invocation.parameters[selector_index] {
             let selected = match argument {
-                ArgumentValue::Literal(Literal::String(value, _)) if value == "Video" => {
-                    ValueType::Video
-                }
-                ArgumentValue::Literal(Literal::String(value, _)) if value == "Audio" => {
-                    ValueType::Audio
-                }
+                Literal::String(value, _) if value == "Video" => ValueType::Video,
+                Literal::String(value, _) if value == "Audio" => ValueType::Audio,
                 _ => return Ok(Vec::new()),
             };
             constrain(arena, variable, selected, argument.span())?;
@@ -471,20 +451,17 @@ fn infer_invocation(
     }
 
     let mut slots = vec![None; definition.descriptor.inputs.len()];
-    for (index, port) in definition.descriptor.inputs.iter().enumerate() {
-        let Some(argument) = invocation.arguments.get(&port.name) else {
+    for (index, (port, argument)) in definition
+        .descriptor
+        .inputs
+        .iter()
+        .zip(&invocation.inputs)
+        .enumerate()
+    {
+        let Some(argument) = argument else {
             continue;
         };
-        let values = explicit_values(
-            argument,
-            globals,
-            lexical,
-            definitions,
-            builtins,
-            namespace,
-            arena,
-            state,
-        )?;
+        let values = explicit_values(argument, globals, lexical, definitions, arena, state)?;
         if let (Some(variable), ValueTypeSpec::Generic) = (generic, port.value_type) {
             for value in &values {
                 equate(arena, variable, *value, argument.span())?;
@@ -517,13 +494,13 @@ fn infer_invocation(
     }
 
     if let ProgramImplementation::Body(_) = definition.implementation {
-        let body = invocation.body.as_ref().expect("checked later");
+        let body = invocation.body.as_deref().expect("draft body program");
         let contract = definition.body_contract.as_ref().expect("body contract");
         let mut child = EvaluationStack::<TypeVarId>::enter_body(
             frame,
             access,
-            invocation.program.value.clone(),
-            invocation.program.span.clone(),
+            invocation.name.value.clone(),
+            invocation.name.span.clone(),
         );
         for initial in &contract.initial_values {
             let variable = match initial {
@@ -537,8 +514,6 @@ fn infer_invocation(
             globals,
             &lexical_body,
             definitions,
-            builtins,
-            namespace,
             arena,
             stack,
             &mut child,
@@ -609,27 +584,25 @@ fn invocation_outputs(
 
 #[allow(clippy::too_many_arguments)]
 fn explicit_values(
-    argument: &ArgumentValue,
+    argument: &DraftInput,
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
     arena: &mut TypeArena,
     state: &mut PassState,
 ) -> Result<Vec<TypeVarId>> {
     match argument {
-        ArgumentValue::Reference(reference) => Ok(vec![lookup_value(
+        DraftInput::Reference(reference) => Ok(vec![lookup_value(
             globals,
             lexical,
             &reference.value,
             &reference.span,
         )?]),
-        ArgumentValue::References(references, _) => references
+        DraftInput::References(references, _) => references
             .iter()
             .map(|reference| lookup_value(globals, lexical, &reference.value, &reference.span))
             .collect(),
-        ArgumentValue::Body(body) => {
+        DraftInput::Body(body) => {
             let (mut stack, mut frame) =
                 EvaluationStack::isolated("inline input type inference", body.span.clone());
             infer_body(
@@ -637,8 +610,6 @@ fn explicit_values(
                 globals,
                 lexical,
                 definitions,
-                builtins,
-                namespace,
                 arena,
                 &mut stack,
                 &mut frame,
@@ -646,14 +617,13 @@ fn explicit_values(
             )?;
             Ok(stack.values().to_vec())
         }
-        ArgumentValue::Literal(_) => Ok(Vec::new()),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn infer_generic_from_stack(
     definition: &ProgramDefinition,
-    invocation: &crate::source::Invocation,
+    invocation: &DraftInvocation,
     generic: TypeVarId,
     arena: &mut TypeArena,
     stack: &EvaluationStack<TypeVarId>,
@@ -692,7 +662,7 @@ fn infer_generic_from_stack(
                     arena,
                     generic,
                     stack.values()[selected],
-                    &invocation.program.span,
+                    &invocation.name.span,
                 )?;
             }
             StackBindingOutcome::Deferred => state.mark_deferred(),
@@ -729,13 +699,13 @@ fn infer_generic_from_stack(
             "E_AMBIGUOUS_GENERIC_TYPE",
             format!(
                 "program `{}` can bind both Video and Audio; set `type: Video` or `type: Audio`",
-                invocation.program.value
+                invocation.name.value
             ),
-            invocation.program.span.clone(),
+            invocation.name.span.clone(),
         ));
     }
     if possible.len() == 1 && !saw_deferred {
-        constrain(arena, generic, possible[0], &invocation.program.span)?;
+        constrain(arena, generic, possible[0], &invocation.name.span)?;
     } else if possible.len() != 1 || saw_deferred {
         state.mark_deferred();
     }
@@ -894,25 +864,6 @@ fn type_mismatch(span: &SourceSpan) -> Diagnostic {
         "generic inputs and outputs must resolve to one value type",
         span.clone(),
     )
-}
-
-fn program_id_for(
-    name: &str,
-    builtins: &BTreeMap<String, ProgramId>,
-    namespace: &BTreeMap<String, ProgramId>,
-    span: &SourceSpan,
-) -> Result<ProgramId> {
-    builtins
-        .get(name)
-        .or_else(|| namespace.get(name))
-        .copied()
-        .ok_or_else(|| {
-            Diagnostic::new(
-                "E_UNKNOWN_PROGRAM",
-                format!("unknown program `{name}`"),
-                span.clone(),
-            )
-        })
 }
 
 #[cfg(test)]
