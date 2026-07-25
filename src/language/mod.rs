@@ -5,4 +5,5 @@
 mod lexer;
 mod lower;
 mod parser;
+mod sugar;
 mod syntax;

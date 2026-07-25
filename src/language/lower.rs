@@ -10,11 +10,11 @@ use crate::source::{
     SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
 };
 
-use super::parser;
 use super::syntax::{
     Argument, Block, Declaration, Expression, OutputBindings as SyntaxOutputBindings, Scalar,
     SourceFileSyntax, Statement,
 };
+use super::{parser, sugar};
 
 pub(crate) fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
     let source = SourceFile::new(path.to_path_buf(), text.to_owned());
@@ -268,6 +268,9 @@ impl Lowerer<'_> {
         output_bindings: OutputBindings,
         lexical: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
+        if let Some(sugar) = sugar::resolve(&invocation.name.value) {
+            return self.lower_sugar(sugar, invocation, output_bindings, lexical);
+        }
         let descriptor = self.programs.get(&invocation.name.value).ok_or_else(|| {
             Diagnostic::new(
                 "E_UNKNOWN_PROGRAM",
@@ -368,6 +371,81 @@ impl Lowerer<'_> {
             origin: ItemOrigin::authored(invocation.name.value.clone(), invocation.span.clone()),
         });
         Ok(preceding)
+    }
+
+    fn lower_sugar(
+        &self,
+        sugar: sugar::Sugar,
+        invocation: &super::syntax::Invocation,
+        output_bindings: OutputBindings,
+        lexical: &BTreeSet<String>,
+    ) -> Result<Vec<Item>> {
+        match sugar {
+            sugar::Sugar::Clip => self.lower_clip(invocation, output_bindings, lexical),
+        }
+    }
+
+    fn lower_clip(
+        &self,
+        invocation: &super::syntax::Invocation,
+        output_bindings: OutputBindings,
+        lexical: &BTreeSet<String>,
+    ) -> Result<Vec<Item>> {
+        if let Some(argument) = invocation.arguments.first() {
+            let span = match argument {
+                Argument::Positional(value) => value.span(),
+                Argument::Named { name, .. } => &name.span,
+            };
+            return Err(Diagnostic::new(
+                "E_UNEXPECTED_SUGAR_ARGUMENT",
+                "`clip` does not accept arguments; put operations inside its body",
+                span.clone(),
+            ));
+        }
+        let body = invocation.body.as_ref().ok_or_else(|| {
+            Diagnostic::new(
+                "E_MISSING_PROGRAM_BODY",
+                "`clip` requires a body",
+                invocation.name.span.clone(),
+            )
+        })?;
+        let body = self.lower_program_body(body, lexical)?;
+        let expansion = sugar::Expansion::new(sugar::Sugar::Clip, invocation.span.clone());
+        let access = invocation
+            .access
+            .as_ref()
+            .map_or(StackAccess::Owned, |access| access.value);
+        let access_span = invocation.access.as_ref().map_or_else(
+            || invocation.name.span.clone(),
+            |access| access.span.clone(),
+        );
+
+        Ok(vec![
+            expansion.visible(
+                "result",
+                ItemKind::Invocation(Invocation {
+                    program: Spanned::new("glue".to_owned(), invocation.name.span.clone()),
+                    type_argument: invocation.type_argument.clone(),
+                    stack_access: Some(Spanned::new(access, access_span)),
+                    arguments: BTreeMap::new(),
+                    body: Some(body),
+                }),
+                output_bindings,
+            ),
+            expansion.hidden(
+                "cleanup",
+                ItemKind::Invocation(Invocation {
+                    program: Spanned::new("drop".to_owned(), invocation.name.span.clone()),
+                    type_argument: None,
+                    stack_access: Some(Spanned::new(
+                        StackAccess::Owned,
+                        invocation.name.span.clone(),
+                    )),
+                    arguments: BTreeMap::new(),
+                    body: None,
+                }),
+            ),
+        ])
     }
 
     fn lower_scalar_argument(
@@ -499,6 +577,7 @@ mod tests {
     use super::*;
     use crate::compiler;
     use crate::model::ValueType;
+    use crate::source::SurfaceVisibility;
 
     #[test]
     fn lowers_and_compiles_native_positional_graph_expressions() {
@@ -548,5 +627,111 @@ mod tests {
         )
         .expect_err("file-backed external");
         assert_eq!(external.code, "E_EXTERNAL_REQUIRES_FILE");
+    }
+
+    #[test]
+    fn clip_expands_with_surface_provenance_and_hidden_cleanup() {
+        let package = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\n@visible clip<Audio> {\n  audio(\"sound.wav\")\n} as soundtrack\n$soundtrack\n",
+        )
+        .expect("native clip");
+        let items = &package.root().program().body().items;
+        assert_eq!(items.len(), 3);
+
+        let ItemKind::Invocation(glue) = &items[0].kind else {
+            panic!("generated glue");
+        };
+        assert_eq!(glue.program.value, "glue");
+        assert_eq!(
+            glue.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Visible)
+        );
+        assert_eq!(
+            glue.type_argument.as_ref().map(|argument| argument.value),
+            Some(ValueType::Audio)
+        );
+        assert_eq!(items[0].origin.construct, "clip");
+        assert_eq!(items[0].origin.visibility, SurfaceVisibility::Visible);
+        assert_eq!(items[0].origin.expansion.len(), 1);
+        assert_eq!(items[0].origin.expansion[0].sugar, "clip");
+        assert_eq!(items[0].origin.expansion[0].role, "result");
+
+        let ItemKind::Invocation(drop) = &items[1].kind else {
+            panic!("generated drop");
+        };
+        assert_eq!(drop.program.value, "drop");
+        assert_eq!(
+            drop.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Owned)
+        );
+        assert_eq!(items[1].origin.construct, "clip");
+        assert_eq!(items[1].origin.visibility, SurfaceVisibility::Hidden);
+        assert_eq!(items[1].origin.expansion[0].role, "cleanup");
+
+        let compiled = compiler::compile(&package).expect("compiled clip");
+        assert_eq!(compiled.outputs().len(), 1);
+        assert_eq!(compiled.outputs()[0].value_type(), ValueType::Audio);
+        let constructs = compiled
+            .explain()
+            .iter()
+            .map(crate::compiler::ExplainEntry::construct)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            constructs
+                .iter()
+                .filter(|construct| **construct == "clip")
+                .count(),
+            1
+        );
+        assert!(!constructs.contains(&"drop"));
+    }
+
+    #[test]
+    fn clip_is_semantically_equal_to_explicit_glue_and_drop() {
+        let sugar = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\nclip {\n  image(\"card.png\", 1s)\n} as opening\n$opening\n",
+        )
+        .expect("sugar source");
+        let explicit = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\n@owned glue {\n  image(\"card.png\", 1s)\n} as opening\n@owned drop\n$opening\n",
+        )
+        .expect("explicit source");
+        assert_eq!(
+            compiler::compile(&sugar)
+                .expect("compiled sugar")
+                .structure_hash(),
+            compiler::compile(&explicit)
+                .expect("compiled explicit form")
+                .structure_hash()
+        );
+    }
+
+    #[test]
+    fn clip_reports_generated_body_errors_as_clip() {
+        let package = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\nclip {\n  image(\"card.png\", 1s)\n  audio(\"sound.wav\")\n}\n",
+        )
+        .expect("native clip");
+        let error = compiler::compile(&package).expect_err("mixed clip body");
+        assert!(error.message.contains("`clip`"), "{}", error.message);
+        assert!(!error.message.contains("`glue`"), "{}", error.message);
+    }
+
+    #[test]
+    fn clip_requires_a_body_and_rejects_arguments() {
+        let missing = parse_str(Path::new("program.clipasm"), "clipasm 1\nclip\n")
+            .expect_err("missing clip body");
+        assert_eq!(missing.code, "E_MISSING_PROGRAM_BODY");
+
+        let argument = parse_str(
+            Path::new("program.clipasm"),
+            "clipasm 1\nclip(1) {\n  image(\"card.png\", 1s)\n}\n",
+        )
+        .expect_err("clip argument");
+        assert_eq!(argument.code, "E_UNEXPECTED_SUGAR_ARGUMENT");
     }
 }
