@@ -16,7 +16,15 @@ use super::syntax::{
 };
 use super::{parser, sugar};
 
-pub(crate) fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
+/// Parse and lower one in-memory native `.clipasm` source program.
+///
+/// Imports and external manifests require [`super::parse_file`] because they
+/// need a filesystem base and package loading.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic for syntax or lowering failures.
+pub fn parse_str(path: &Path, text: &str) -> Result<SourcePackage> {
     let source = SourceFile::new(path.to_path_buf(), text.to_owned());
     let syntax = parser::parse(source.clone())?;
     reject_file_backed_declarations(&syntax)?;

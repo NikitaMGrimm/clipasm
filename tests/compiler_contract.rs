@@ -257,10 +257,10 @@ fn variadic_inputs_remain_reference_only() {
 #[test]
 fn pure_compile_does_not_require_assets_to_exist() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    output: final.mp4\n\n\n- glue:\n    - image:\n        path: missing.png\n        duration: 1s",
+        "clipasm 1\nconfig {\n  output = \"final.mp4\"\n}\nglue {\n  image(\"missing.png\", 1s)\n}\n",
     )
     .expect("workflow");
 
@@ -270,26 +270,23 @@ fn pure_compile_does_not_require_assets_to_exist() {
         "pure compile unexpectedly accessed the asset: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let compiled = compile_yaml(&workflow).expect("pure compile");
+    let package = clipasm::language::parse_file(&workflow).expect("native source");
+    let compiled = clipasm::compiler::compile(&package).expect("pure compile");
     let error = clipasm::preflight::preflight(&compiled).expect_err("missing asset preflight");
     assert_eq!(error.code, "E_MISSING_IMAGE_FILE");
 }
 
 #[test]
-fn sibling_program_parameters_are_rejected() {
+fn unknown_named_program_arguments_are_rejected() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
-    fs::write(
-        &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - image: card.ppm\n      duration: 1s\n  ",
-    )
-    .expect("workflow");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(&workflow, "clipasm 1\nimage(\"card.ppm\", 1s, sibling=1)\n").expect("workflow");
 
     let output = run(&["validate", workflow.to_str().expect("UTF-8 fixture path")]);
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_INVOCATION_FIELD]"),
+        String::from_utf8_lossy(&output.stderr).contains("[E_UNKNOWN_PROGRAM_ARGUMENT]"),
         "unexpected diagnostic: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -299,10 +296,10 @@ fn sibling_program_parameters_are_rejected() {
 fn unknown_program_reports_a_diagnostic() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- not_registered_program:\n    - image: {path: card.ppm, duration: 1s}\n",
+        "clipasm 1\nnot_registered_program {\n  image(\"card.ppm\", 1s)\n}\n",
     )
     .expect("workflow");
 
@@ -315,10 +312,10 @@ fn unknown_program_reports_a_diagnostic() {
 fn references_are_explained_as_references() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    clips:\n      card:\n        image:\n          path: card.ppm\n          duration: 1s\n\n- glue:\n    - $card\n  ",
+        "clipasm 1\nclip {\n  image(\"card.ppm\", 1s)\n} as card\nglue {\n  $card\n}\n",
     )
     .expect("workflow");
 
@@ -336,10 +333,10 @@ fn references_are_explained_as_references() {
 fn reducible_frame_rate_is_canonical() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    project:\n      video: {width: 64, height: 64, fps: 60/2}\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
+        "clipasm 1\nconfig {\n  video {\n    width = 64\n    height = 64\n    fps = 60/2\n  }\n}\nglue {\n  image(\"card.ppm\", 1s)\n}\n",
     )
     .expect("workflow");
 

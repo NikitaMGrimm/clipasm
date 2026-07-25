@@ -8,7 +8,7 @@
 //! ```no_run
 //! use std::path::Path;
 //!
-//! let source = clipasm::frontend::yaml::parse_file(Path::new("program.yaml"))?;
+//! let source = clipasm::language::parse_file(Path::new("program.clipasm"))?;
 //! let compiled = clipasm::compiler::compile(&source)?;
 //! let plan = clipasm::preflight::preflight(&compiled)?;
 //! let result = &plan.nodes()[plan.result().get() as usize];

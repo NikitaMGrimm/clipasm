@@ -7,14 +7,14 @@
 //! ```
 //! use std::path::Path;
 //!
-//! let error = clipasm::frontend::yaml::parse_str(
-//!     Path::new("program.yaml"),
-//!     "- program:\n    version: 1\n\n- glue:\n    body: not-a-sequence\n",
+//! let error = clipasm::language::parse_str(
+//!     Path::new("program.clipasm"),
+//!     "clipasm 1\nimage(unknown=1)\n",
 //! )
 //! .expect_err("invalid source program");
 //!
-//! assert_eq!(error.code, "E_EXPECTED_SEQUENCE");
-//! assert_eq!(error.span.line, 5);
+//! assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
+//! assert_eq!(error.span.line, 2);
 //! ```
 
 use std::fmt;

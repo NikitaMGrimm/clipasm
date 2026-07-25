@@ -16,7 +16,16 @@ use super::{parser, sugar};
 
 const MAX_IMPORT_DEPTH: usize = 128;
 
-pub(crate) fn parse_file(path: &Path) -> Result<SourcePackage> {
+/// Parse, load, and link a native `.clipasm` package rooted at `path`.
+///
+/// Relative imports and external manifests resolve from the file that declares
+/// them. Repeated canonical paths are loaded once.
+///
+/// # Errors
+///
+/// Returns a source-located diagnostic for I/O, syntax, import, manifest, or
+/// lowering failures.
+pub fn parse_file(path: &Path) -> Result<SourcePackage> {
     let mut loader = Loader {
         builtins: builtin_shapes(),
         units: Vec::new(),

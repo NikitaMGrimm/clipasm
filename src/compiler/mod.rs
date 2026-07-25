@@ -102,9 +102,9 @@ impl CompiledProgram {
     /// ```
     /// use std::path::Path;
     ///
-    /// let program = clipasm::frontend::yaml::parse_str(
-    ///     Path::new("program.yaml"),
-    ///     "- program:\n    version: 1\n\n- image: {path: missing.png, duration: 1s}\n",
+    /// let program = clipasm::language::parse_str(
+    ///     Path::new("program.clipasm"),
+    ///     "clipasm 1\nimage(\"missing.png\", 1s)\n",
     /// )?;
     /// let compiled = clipasm::compiler::compile(&program)?;
     ///
@@ -238,9 +238,9 @@ impl ExplainOutput {
 /// ```
 /// use std::path::Path;
 ///
-/// let program = clipasm::frontend::yaml::parse_str(
-///     Path::new("program.yaml"),
-///     "- program:\n    version: 1\n\n- video: unavailable.mp4\n",
+/// let program = clipasm::language::parse_str(
+///     Path::new("program.clipasm"),
+///     "clipasm 1\nvideo(\"unavailable.mp4\")\n",
 /// )?;
 /// let compiled = clipasm::compiler::compile(&program)?;
 ///

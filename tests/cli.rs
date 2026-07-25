@@ -10,10 +10,10 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
         b"P3\n1 1\n255\n255 0 0\n",
     )
     .expect("image");
-    let workflow = directory.path().join("workflow.yaml");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - image:\n        path: card.ppm\n        duration: 1s\n  ",
+        "clipasm 1\nglue {\n  image(\"card.ppm\", 1s)\n}\n",
     )
     .expect("workflow");
     (directory, workflow)
@@ -92,11 +92,7 @@ fn compile_preserves_an_existing_plan_destination() {
 #[test]
 fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
-    fs::write(
-        &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - repeat: 2\n  ",
-    )
-    .expect("invalid workflow");
+    fs::write(&workflow, "clipasm 1\nglue {\n  repeat(2)\n}\n").expect("invalid workflow");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])
         .output()
@@ -107,12 +103,26 @@ fn diagnostics_produce_a_failure_exit_code() {
 }
 
 #[test]
-fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
+fn cli_rejects_non_clipasm_source_paths() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("workflow.yaml");
+    fs::write(&workflow, "clipasm 1\n").expect("source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args(["validate", workflow.to_str().expect("UTF-8 path")])
+        .output()
+        .expect("run clipasm");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_SOURCE_EXTENSION]"));
+}
+
+#[test]
+fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n\n- glue:\n    - video: missing.mp4\n  ",
+        "clipasm 1\nglue {\n  video(\"missing.mp4\")\n}\n",
     )
     .expect("workflow");
 
@@ -131,10 +141,10 @@ fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
 #[test]
 fn compile_binds_root_video_inputs_and_typed_parameters() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("template.yaml");
+    let workflow = directory.path().join("template.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      range: TimeRange\n      count: Integer\n\n- trim:\n    value: $source\n    range: $range\n- repeat: $count\n",
+        "clipasm 1\ninput source: Video\nparam range: TimeRange\nparam count: Integer\ntrim($source, $range)\nrepeat($count)\n",
     )
     .expect("template");
 
@@ -142,7 +152,7 @@ fn compile_binds_root_video_inputs_and_typed_parameters() {
         .current_dir(directory.path())
         .args([
             "compile",
-            "template.yaml",
+            "template.clipasm",
             "--input",
             "source=footage.mp4",
             "--arg",
@@ -174,16 +184,17 @@ fn compile_binds_root_video_inputs_and_typed_parameters() {
 #[test]
 fn root_cli_bindings_reject_unknown_and_duplicate_names() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("template.yaml");
-    fs::write(
-        &workflow,
-        "- program:\n    version: 1\n    inputs:\n      - source: Video\n\n- $source\n",
-    )
-    .expect("template");
+    let workflow = directory.path().join("template.clipasm");
+    fs::write(&workflow, "clipasm 1\ninput source: Video\n$source\n").expect("template");
 
     let unknown = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .current_dir(directory.path())
-        .args(["validate", "template.yaml", "--input", "other=footage.mp4"])
+        .args([
+            "validate",
+            "template.clipasm",
+            "--input",
+            "other=footage.mp4",
+        ])
         .output()
         .expect("run clipasm");
     assert!(!unknown.status.success());
@@ -193,7 +204,7 @@ fn root_cli_bindings_reject_unknown_and_duplicate_names() {
         .current_dir(directory.path())
         .args([
             "validate",
-            "template.yaml",
+            "template.clipasm",
             "--input",
             "source=first.mp4",
             "--input",
@@ -208,10 +219,10 @@ fn root_cli_bindings_reject_unknown_and_duplicate_names() {
 #[test]
 fn render_accepts_caller_relative_input_and_output_bindings() {
     let directory = tempfile::tempdir().expect("temporary directory");
-    let workflow = directory.path().join("template.yaml");
+    let workflow = directory.path().join("template.clipasm");
     fs::write(
         &workflow,
-        "- program:\n    version: 1\n    inputs:\n      - source: Video\n    parameters:\n      count: Integer\n      overlay: File\n\n- repeat:\n    value: $source\n    count: $count\n- image:\n    path: $overlay\n    duration: 1s\n- concat\n",
+        "clipasm 1\ninput source: Video\nparam count: Integer\nparam overlay: File\nrepeat($source, $count)\nimage($overlay, 1s)\nconcat\n",
     )
     .expect("template");
     fs::copy(
@@ -229,7 +240,7 @@ fn render_accepts_caller_relative_input_and_output_bindings() {
         .current_dir(directory.path())
         .args([
             "render",
-            "template.yaml",
+            "template.clipasm",
             "--input",
             "source=input.mkv",
             "--arg",

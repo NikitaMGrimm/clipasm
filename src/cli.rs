@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand};
 
 use clipasm::diagnostic::{Diagnostic, Result};
 use clipasm::source::{SourceFile, SourceSpan};
-use clipasm::{compiler, frontend, preflight, render};
+use clipasm::{compiler, language, preflight, render};
 
 #[derive(Debug, Parser)]
 #[command(name = "clipasm", version, about)]
@@ -21,14 +21,14 @@ struct Cli {
 enum Command {
     /// Parse, type-check, and infer source-independent video domains.
     Validate {
-        /// Source program YAML file.
+        /// Native `.clipasm` source program.
         source: PathBuf,
         #[command(flatten)]
         bindings: BindingArgs,
     },
     /// Emit the canonical pure semantic compiled program.
     Compile {
-        /// Source program YAML file.
+        /// Native `.clipasm` source program.
         source: PathBuf,
         /// Write compiled JSON to a new path instead of stdout. Existing files are preserved.
         #[arg(short, long)]
@@ -38,7 +38,7 @@ enum Command {
     },
     /// Compile and render the source program using `FFmpeg`.
     Render {
-        /// Source program YAML file. Authored relative paths resolve from its directory.
+        /// Native `.clipasm` source program. Relative paths resolve from its directory.
         source: PathBuf,
         /// Override `program.output`. Relative paths resolve from the caller's working directory.
         #[arg(short, long)]
@@ -72,7 +72,7 @@ pub(crate) fn run() -> ExitCode {
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Validate { source, bindings } => {
-            let authored = frontend::yaml::parse_file(&source)?;
+            let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             if let [output] = compiled.outputs() {
@@ -107,7 +107,7 @@ fn execute(cli: Cli) -> Result<()> {
             output,
             bindings,
         } => {
-            let authored = frontend::yaml::parse_file(&source)?;
+            let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let json = compiled.canonical_json()?;
@@ -122,7 +122,7 @@ fn execute(cli: Cli) -> Result<()> {
             output,
             bindings,
         } => {
-            let authored = frontend::yaml::parse_file(&source)?;
+            let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, output)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let prepared = preflight::preflight(&compiled)?;

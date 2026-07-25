@@ -1,8 +1,8 @@
 # Architecture
 
 ```text
-authoring representation
-  -> frontend parsing and desugaring
+native .clipasm source
+  -> lexing, parsing, package loading, and structural lowering
 Canonical source package + linked source programs
   -> program catalog linking and checked-source construction
 Self-contained checked source
@@ -33,9 +33,10 @@ disappear before compilation. The source structs remain intentionally opaque;
 the project does not promise a stable alternate-frontend or external builder
 API.
 
-The current YAML parser remains temporary migration scaffolding while native
-language support and tests are implemented. It will be removed rather than
-maintained as a second frontend.
+The CLI and public Rust API use the native language loader. The current YAML
+parser remains temporary internal migration scaffolding for tests that have not
+yet been converted. It will be removed rather than maintained as a second
+frontend.
 
 `StackBlock` is a structural canonical-source item rather than a registered
 program. It evaluates a nested body in a child stack frame and returns every
@@ -76,9 +77,9 @@ ordinary stack values, while dependency cycles remain explicit errors.
 
 After the fixpoint stabilizes, the same recursive resolver performs final
 resolution and records every invocation's concrete signature and stack-binding
-plan together with the ordered output types of clips and the source body. There
-is no separate concrete type or stack interpreter. Imported definitions and
-built-ins share the resulting runtime catalog.
+plan together with the ordered output types of structural stack blocks and the
+source body. There is no separate concrete type or stack interpreter. Imported
+definitions and built-ins share the resulting runtime catalog.
 
 Checked-source materialization allocates compact local and parameter identities,
 resolves graph and scalar references, parses scalar literals, and assigns
@@ -216,25 +217,25 @@ on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
 implementations. See [ADR 0014](adr/0014-keep-native-operations-phase-owned.md).
 
-The YAML `program` header is frontend syntax, not a registered invocation.
-The evaluator treats its body uniformly without granting any registered
+Native file declarations are language syntax, not registered invocations. The
+evaluator treats the executable body uniformly without granting any registered
 program, including `glue`, a privileged source-file role. Pure compilation may
 produce zero, one, or multiple ordered outputs. Publication finds exactly one
 Video among them and permits any number of auxiliary Audio outputs.
 
-`frontend::yaml` also owns file-backed package loading for the current
-representation: import paths are resolved relative to the importing file,
-parsed source units are deduplicated by canonical path, and import cycles are
-rejected. The resulting imports and source-program interfaces are canonical
-source data; compilation does not branch on YAML or open files.
+The native package loader resolves import paths relative to the importing file,
+deduplicates source units and external manifests by canonical path, rejects
+cycles, and lowers each file only after its dependencies expose their callable
+input and parameter shapes. The resulting imports and source-program
+interfaces are canonical source data; compilation never opens source files.
 
 ### External programs
 
 A canonical source package may carry external program specifications and local
-source-unit aliases. The YAML loader obtains them from JSON manifests, but the
-compiler consumes the representation-neutral package catalog. Each specification
-is converted into an ordinary runtime program definition, so checking and
-binding remain shared with every other implementation.
+source-unit aliases. The native loader obtains them from JSON manifests, while
+the compiler consumes the lowered package catalog. Each specification is
+converted into an ordinary runtime program definition, so checking and binding
+remain shared with every other implementation.
 
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves the executable, verifies executable permissions, hashes its bytes, and
@@ -328,15 +329,15 @@ blocking unrelated fingerprints. Output and manifest files are staged as
 temporary siblings and committed under a destination-specific file lock through
 one rollback-capable publication transaction after verification.
 
-The YAML frontend, import loader, and compiler enforce explicit nesting limits
+The native parser, package loader, and compiler enforce explicit nesting limits
 for authored structures. Semantic graph dependency, hashing, and domain passes
 remain iterative so graph depth is not limited by the Rust call stack.
 
 ## Ownership rules
 
-- Canonical source owns representation-neutral authored structures and source
-  locations.
-- Each frontend owns its surface grammar, reserved syntax, and desugaring.
+- Canonical source owns lowered authored structures and source locations.
+- The native language layer owns surface grammar, package loading, callable
+  argument elaboration, and structural sugar.
 - The entrypoint adapter owns validation and conversion of root values supplied
   after source checking.
 - Checked-source construction owns linked program resolution, reference and

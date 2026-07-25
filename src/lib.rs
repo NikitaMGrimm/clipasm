@@ -2,8 +2,8 @@
 
 //! Embed the `ClipAsm` typed video compiler and renderer.
 //!
-//! `ClipAsm` separates authoring from execution. Parse a
-//! [`source::SourcePackage`] through a frontend,
+//! `ClipAsm` separates authoring from execution. Parse a native `.clipasm`
+//! [`source::SourcePackage`] through [`language`],
 //! compile it into a pure [`compiler::CompiledProgram`], resolve media and
 //! tools into a [`preflight::PreparedPlan`], then execute that plan with
 //! [`render::render`].
@@ -16,7 +16,7 @@
 //! ```no_run
 //! use std::path::Path;
 //!
-//! let program = clipasm::frontend::yaml::parse_file(Path::new("program.yaml"))?;
+//! let program = clipasm::language::parse_file(Path::new("program.clipasm"))?;
 //! let compiled = clipasm::compiler::compile(&program)?;
 //! let prepared = clipasm::preflight::preflight(&compiled)?;
 //! let report = clipasm::render::render(&prepared)?;
@@ -24,7 +24,7 @@
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 //!
-//! The canonical language, YAML frontend, programs, and stack behavior are
+//! The native language, programs, and stack behavior are
 //! documented in the project guide rather than duplicated in this Rust API
 //! reference.
 
@@ -33,7 +33,7 @@ pub mod diagnostic;
 pub(crate) mod external;
 pub(crate) mod format;
 pub mod frontend;
-pub(crate) mod language;
+pub mod language;
 pub mod model;
 pub mod preflight;
 pub(crate) mod program;
