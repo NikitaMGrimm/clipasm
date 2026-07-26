@@ -248,11 +248,20 @@
         });
         fileInput.addEventListener("change", () => addUploads(fileInput.files));
         folderInput.addEventListener("change", () => addUploads(folderInput.files));
+        assets.addEventListener("toggle", () => {
+            if (!assets.open) {
+                closeFileMenus();
+            }
+        });
         renameCancel.addEventListener("click", () => renameDialog.close());
         renameForm.addEventListener("submit", renameFile);
         filePreviewClose.addEventListener("click", () => filePreviewDialog.close());
         filePreviewDialog.addEventListener("close", clearFilePreview);
+        document.addEventListener("click", closeFileMenusOnOutsideClick);
+        document.addEventListener("keydown", closeFileMenusOnEscape);
         window.addEventListener("pagehide", () => {
+            document.removeEventListener("click", closeFileMenusOnOutsideClick);
+            document.removeEventListener("keydown", closeFileMenusOnEscape);
             cancelWork();
             clearPreview();
             clearFilePreview();
@@ -537,8 +546,13 @@
                     const menu = document.createElement("details");
                     menu.className = "clipasm-playground__file-menu";
                     const menuSummary = document.createElement("summary");
-                    menuSummary.textContent = "…";
+                    menuSummary.textContent = "Actions";
                     menuSummary.setAttribute("aria-label", `File actions for ${path}`);
+                    menuSummary.addEventListener("click", () => {
+                        if (!menu.open) {
+                            closeFileMenus(menu);
+                        }
+                    });
                     const menuActions = document.createElement("div");
                     menuActions.className = "clipasm-playground__file-menu-actions";
                     if (previewKind(file)) {
@@ -570,11 +584,55 @@
                         }, "danger"),
                     );
                     menu.append(menuSummary, menuActions);
+                    menu.addEventListener("toggle", () => {
+                        if (!menu.open) {
+                            menu.classList.remove("clipasm-playground__file-menu--above");
+                            return;
+                        }
+                        positionFileMenu(menu, menuActions);
+                    });
                     item.append(filePath, menu);
                     return item;
                 }),
             );
             selectedFiles.hidden = uploadedFiles.size === 0;
+        }
+
+        function closeFileMenus(except) {
+            for (const menu of selectedFiles.querySelectorAll(
+                ".clipasm-playground__file-menu[open]",
+            )) {
+                if (menu !== except) {
+                    menu.open = false;
+                }
+            }
+        }
+
+        function closeFileMenusOnOutsideClick(event) {
+            const menu =
+                event.target instanceof Element
+                    ? event.target.closest(".clipasm-playground__file-menu")
+                    : undefined;
+            if (!menu || !playground.contains(menu)) {
+                closeFileMenus();
+            }
+        }
+
+        function closeFileMenusOnEscape(event) {
+            if (event.key === "Escape") {
+                closeFileMenus();
+            }
+        }
+
+        function positionFileMenu(menu, menuActions) {
+            menu.classList.remove("clipasm-playground__file-menu--above");
+            const playgroundBounds = playground.getBoundingClientRect();
+            const menuBounds = menu.getBoundingClientRect();
+            const spaceAbove = menuBounds.top - playgroundBounds.top;
+            const spaceBelow = playgroundBounds.bottom - menuBounds.bottom;
+            if (menuActions.offsetHeight > spaceBelow && spaceAbove > spaceBelow) {
+                menu.classList.add("clipasm-playground__file-menu--above");
+            }
         }
 
         function fileAction(label, action, kind) {

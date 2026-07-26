@@ -128,8 +128,21 @@ try {
     await renameDialog.getByRole("button", { name: "Rename" }).click();
     fileRow = page.locator(".clipasm-playground__file-row");
     await fileRow.getByText("assets/renamed.png", { exact: true }).waitFor();
-    await fileRow.locator("summary").click();
-    await fileRow.getByRole("button", { name: "Copy path" }).click();
+    const fileActions = fileRow.locator("summary");
+    if ((await fileActions.textContent())?.trim() !== "Actions") {
+        throw new Error("The virtual-file menu trigger does not have a visible label.");
+    }
+    await fileActions.click();
+    const copyPath = fileRow.getByRole("button", { name: "Copy path" });
+    const renameAction = fileRow.getByRole("button", { name: "Rename" });
+    const [copyPathHeight, renameHeight] = await Promise.all([
+        copyPath.evaluate((element) => element.getBoundingClientRect().height),
+        renameAction.evaluate((element) => element.getBoundingClientRect().height),
+    ]);
+    if (Math.abs(copyPathHeight - renameHeight) > 1) {
+        throw new Error("Virtual-file menu labels wrap onto multiple lines.");
+    }
+    await copyPath.click();
     await status
         .getByText("Copied `assets/renamed.png` to the clipboard.", { exact: true })
         .waitFor();
@@ -142,6 +155,49 @@ try {
     if (await page.locator(".clipasm-playground__file-list").isVisible()) {
         throw new Error("Deleting the final virtual file left the file list visible.");
     }
+
+    await fileInput.setInputFiles(
+        ["a.png", "b.png", "c.png", "d.png", "z.png"].map((name) => ({
+            name,
+            mimeType: "image/png",
+            buffer: Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+                "base64",
+            ),
+        })),
+    );
+    const fileMenus = page.locator(".clipasm-playground__file-menu");
+    await fileMenus.first().locator("summary").click();
+    await fileMenus.last().locator("summary").click();
+    await page.waitForFunction(
+        () => document.querySelectorAll(".clipasm-playground__file-menu[open]").length === 1,
+    );
+    await fileMenus.last().evaluate(
+        () => new Promise((resolveFrame) => requestAnimationFrame(resolveFrame)),
+    );
+    if ((await fileMenus.first().getAttribute("open")) !== null) {
+        throw new Error("Opening a virtual-file menu left the previous menu open.");
+    }
+    const [menuBox, playgroundBox] = await Promise.all([
+        fileMenus
+            .last()
+            .locator(".clipasm-playground__file-menu-actions")
+            .evaluate((element) => element.getBoundingClientRect().toJSON()),
+        playground.evaluate((element) => element.getBoundingClientRect().toJSON()),
+    ]);
+    if (
+        menuBox.top < playgroundBox.top - 1 ||
+        menuBox.right > playgroundBox.right + 1 ||
+        menuBox.bottom > playgroundBox.bottom + 1 ||
+        menuBox.left < playgroundBox.left - 1
+    ) {
+        throw new Error("The final virtual-file menu is clipped by the playground.");
+    }
+    await status.click();
+    if ((await page.locator(".clipasm-playground__file-menu[open]").count()) !== 0) {
+        throw new Error("Clicking outside a virtual-file menu did not close it.");
+    }
+    await page.getByRole("button", { name: "Reset" }).click();
 
     const render = page.getByRole("button", { name: "Render video" });
     await render.click();
