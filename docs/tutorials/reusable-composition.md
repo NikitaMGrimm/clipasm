@@ -152,19 +152,15 @@ describes the general binding rules.
 Validate the committed source:
 
 ```console
-clipasm validate examples/reusable-composition.clipasm
-```
-
-Success ends with:
-
-```text
+$ clipasm validate examples/reusable-composition.clipasm
 valid: 10 semantic value(s), 96 frame(s)
+
 ```
 
 Inspect the compiled JSON document if you want to trace the named values,
 references, and final output:
 
-```console
+```console,ignore
 clipasm inspect examples/reusable-composition.clipasm
 ```
 
@@ -174,7 +170,7 @@ instead of copying incidental fields.
 
 Render the program:
 
-```console
+```console,ignore
 clipasm render examples/reusable-composition.clipasm
 ```
 
@@ -186,7 +182,7 @@ per second. Cache counts may vary between runs.
 
 Make an ignored practice copy:
 
-```console
+```console,ignore
 mkdir -p local
 cp -R examples local/reusable-practice
 ```
@@ -194,7 +190,7 @@ cp -R examples local/reusable-practice
 In `local/reusable-practice/reusable-composition.clipasm`, change `frames=5` to
 `frames=8`. Validate the change:
 
-```console
+```console,ignore
 clipasm validate local/reusable-practice/reusable-composition.clipasm
 ```
 
@@ -202,7 +198,7 @@ The program still validates to 96 frames because the change affects the flash
 within the same overall composition. Render the practice copy and compare the
 transition:
 
-```console
+```console,ignore
 clipasm render local/reusable-practice/reusable-composition.clipasm
 ```
 

@@ -58,15 +58,16 @@ and `10` overrides the `percent` default.
 ## Validate and render the wrapper
 
 ```console
-clipasm validate examples/imported-program.clipasm
-clipasm render examples/imported-program.clipasm
+$ clipasm validate examples/imported-program.clipasm
+valid: 4 semantic value(s), duration resolves during preflight
+
 ```
 
-Validation links and checks the source package before rendering. Success ends
-with:
+Validation links and checks the source package without rendering. Then render
+it:
 
-```text
-valid: 4 semantic value(s), duration resolves during preflight
+```console,ignore
+clipasm render examples/imported-program.clipasm
 ```
 
 The render command publishes the two-second source as

@@ -73,6 +73,24 @@ For every command:
 Use `clipasm` fences for ClipAsm source and `console` fences for terminal
 sessions. Do not commit generated media, render output, manifests, or caches.
 
+### Keep exact CLI output executable
+
+When a page promises exact CLI output, write the command and output as one
+terminal transcript beginning with `$`. Register the page in
+`tests/documented_cli.rs`; normal `cargo test` then runs the command and rejects
+stale output. Mark command-only blocks on a registered page as
+`console,ignore` so the transcript test does not execute them.
+
+Update registered transcripts after an intentional CLI change with:
+
+```console
+TRYCMD=overwrite cargo test --locked --test documented_cli
+```
+
+Review the Markdown diff before committing it. Register only deterministic,
+side-effect-free commands; do not execute installation, rendering, or file
+mutation from a documentation test.
+
 ## Link and navigate
 
 Use relative links within the published book. Use stable repository links for

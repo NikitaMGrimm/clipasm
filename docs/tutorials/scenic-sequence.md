@@ -98,13 +98,9 @@ tutorial as a complete signature listing.
 Validate the program:
 
 ```console
-clipasm validate examples/scenic-sequence.clipasm
-```
-
-Success ends with:
-
-```text
+$ clipasm validate examples/scenic-sequence.clipasm
 valid: 4 semantic value(s), 108 frame(s)
+
 ```
 
 The 108 frames are the three 1.5-second sections on a 24-frame-per-second
@@ -112,7 +108,7 @@ project timeline.
 
 Now inspect the compiled JSON document:
 
-```console
+```console,ignore
 clipasm inspect examples/scenic-sequence.clipasm
 ```
 
@@ -126,7 +122,7 @@ incidental fields.
 
 Render once you are satisfied with validation:
 
-```console
+```console,ignore
 clipasm render examples/scenic-sequence.clipasm
 ```
 
@@ -139,7 +135,7 @@ its sibling manifest and reusable cache entries.
 Keep the committed example unchanged by copying the examples tree into the
 ignored `local/` directory:
 
-```console
+```console,ignore
 mkdir -p local
 cp -R examples local/scenic-practice
 ```
@@ -147,14 +143,14 @@ cp -R examples local/scenic-practice
 In `local/scenic-practice/scenic-sequence.clipasm`, change the meadow duration
 from `1500ms` to `1s`. Then validate the practice copy:
 
-```console
+```console,ignore
 clipasm validate local/scenic-practice/scenic-sequence.clipasm
 ```
 
 The result is now 96 frames: four seconds at 24 frames per second. Render it
 with:
 
-```console
+```console,ignore
 clipasm render local/scenic-practice/scenic-sequence.clipasm
 ```
 

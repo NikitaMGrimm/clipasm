@@ -29,25 +29,23 @@ Use `--video-input` for the graph input and one `--arg` for each scalar
 parameter:
 
 ```console
-clipasm validate examples/root-bindings.clipasm \
-  --video-input video=examples/assets/gentle-motion.mkv \
-  --arg range=500ms..1500ms \
-  --arg count=2
+$ clipasm validate examples/root-bindings.clipasm
+> --video-input video=examples/assets/gentle-motion.mkv
+> --arg range=500ms..1500ms
+> --arg count=2
+valid: 4 semantic value(s), 48 frame(s)
+
 ```
 
 Binding names must match their declarations. The input value must have the
 declared graph type, and each scalar value must parse as its declared parameter
-type. Success ends with:
-
-```text
-valid: 4 semantic value(s), 48 frame(s)
-```
+type.
 
 ## Render and choose the output
 
 The example does not declare an output path, so provide one to `render`:
 
-```console
+```console,ignore
 clipasm render examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \

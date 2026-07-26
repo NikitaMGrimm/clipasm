@@ -17,7 +17,7 @@ You need:
 
 Check the tools before continuing:
 
-```console
+```console,ignore
 git --version
 rustc --version
 cargo --version
@@ -33,7 +33,7 @@ for this guide.
 
 Clone ClipAsm and enter the repository:
 
-```console
+```console,ignore
 git clone https://github.com/NikitaMGrimm/clipasm.git
 cd clipasm
 ```
@@ -43,7 +43,7 @@ remaining command on this page from that root.
 
 Install ClipAsm:
 
-```console
+```console,ignore
 cargo install clipasm --locked
 clipasm --version
 ```
@@ -60,13 +60,9 @@ The first program is already committed at
 Validate it before rendering:
 
 ```console
-clipasm validate examples/scenic-sequence.clipasm
-```
-
-The final line should be:
-
-```text
+$ clipasm validate examples/scenic-sequence.clipasm
 valid: 4 semantic value(s), 108 frame(s)
+
 ```
 
 Validation parses and checks the source, builds its pure semantic graph, and
@@ -78,7 +74,7 @@ editing a program.
 
 Render the same source:
 
-```console
+```console,ignore
 clipasm render examples/scenic-sequence.clipasm
 ```
 
@@ -103,7 +99,7 @@ that order. Generated outputs, manifests, and caches are ignored by Git.
 The source declares its normal output path, but the CLI can override it. Try a
 second publication under the repository's ignored `local/` area:
 
-```console
+```console,ignore
 clipasm render examples/scenic-sequence.clipasm \
   --output local/scenic-sequence.mp4
 ```

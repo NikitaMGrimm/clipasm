@@ -12,8 +12,12 @@ readme = "README.md"
 keywords = ["video-editing", "audio", "ffmpeg", "compiler", "dsl"]
 categories = ["command-line-utilities", "multimedia::video"]
 include = [
+    "/book.toml",
+    "/docs/**",
     "/src/**",
     "/tests/**",
+    "/examples/?*.clipasm",
+    "/examples/programs/**/*.clipasm",
     "/examples/assets/gentle-motion.mkv",
     "/examples/assets/morning.png",
     "/Cargo.lock",
@@ -29,6 +33,10 @@ path = "src/lib.rs"
 name = "clipasm"
 path = "src/main.rs"
 
+[[test]]
+name = "documented_cli"
+path = "tests/documented_cli.rs"
+
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
 hex = "0.4"
@@ -36,6 +44,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
+
+[dev-dependencies]
+trycmd = { version = "1.2.1", default-features = false, features = ["diff"] }
 
 
 [lints.rust]
