@@ -299,12 +299,14 @@ verified media contract. Export-only policy changes reuse compatible working
 artifacts because publication is always performed afresh.
 
 Native preflight supplies filesystem assets, media probes, and tool identities.
-Browser preflight supplies normalized virtual image assets and their host-
-computed hashes without opening media or invoking tools. It reuses the same
-prepared lowering for operations reachable from still images. The browser
-renderer turns that plan into the versioned execution document. Video-file
-sources, Audio-file sources, imports, and external programs are explicitly
-unsupported in the browser.
+Browser preflight accepts normalized virtual assets and their host-computed
+hashes without opening media or invoking tools. For video-file sources, the
+browser worker probes and checks the same immutable blob it will mount;
+browser preflight validates the returned stream document and derives the exact
+project-frame domain. It reuses the same prepared lowering for operations
+reachable from still images and video files. The browser renderer turns that
+plan into the versioned execution document. Audio-file sources, imports, and
+external programs are explicitly unsupported in the browser.
 
 Audio is normalized to the configured stereo project sample rate, which
 defaults to 48 kHz. Working Video artifacts always contain one lossless

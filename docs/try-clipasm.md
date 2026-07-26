@@ -8,17 +8,19 @@ browser; source and project files are not uploaded.
 {{#include ../examples/scenic-sequence.clipasm}}
 ```
 
-<div data-clipasm-playground data-clipasm-assets-base="playground/example-assets/"></div>
+<div data-clipasm-playground
+     data-clipasm-assets-base="playground/example-assets/"
+     data-clipasm-assets='["assets/morning.png","assets/meadow.png","assets/evening.png"]'></div>
 
-The scenic assets are bundled, so the example renders immediately. Use
-**Virtual project files** to replace them or supply paths used by another
-program. The playground accepts one source file up to 256 KiB, individual
+The scenic assets begin as ordinary **Virtual project files**, so you can
+preview, rename, replace, or delete them. **Reset** restores the original source
+and files. The playground accepts one source file up to 256 KiB, individual
 assets up to 128 MiB, and 256 MiB of assets in total. Browser rendering uses a
 single-threaded WebAssembly FFmpeg runtime, loaded on demand, and applies a
 bounded operation/work budget.
 
-Still-image sources and every native operation reachable from them are
-supported. Video-file sources, Audio-file sources, imports, and external
+Still-image and video-file sources, plus every native operation reachable from
+them, are supported. Standalone Audio-file sources, imports, and external
 programs remain unavailable in the browser. The installed CLI supports complete
 source packages and unrestricted native preflight and rendering; continue with
 [Install and render ClipAsm](getting-started/first-render.md) when you want to

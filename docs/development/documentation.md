@@ -132,13 +132,17 @@ To provide bundled files for rendering, add a project-relative base:
 
 ```html
 <div data-clipasm-playground
-     data-clipasm-assets-base="playground/example-assets/"></div>
+     data-clipasm-assets-base="playground/example-assets/"
+     data-clipasm-assets='["assets/morning.png"]'></div>
 ```
 
-The base is optional. Readers may upload individual files or a directory, and
-uploads with matching virtual paths override bundled files. The adapter accepts
-one source unit and still-image sources; it does not resolve imports, probe
-Video or Audio files, or run external programs. Rendering uses a pinned,
+Both attributes are optional, but they are used together: the JSON path list is
+loaded relative to the base. Bundled files begin as ordinary virtual project
+files, so readers may preview, rename, replace, or delete them; reset restores
+the original set. Readers may also upload individual files or a directory. The
+adapter accepts one source unit plus still-image and video-file sources. It
+probes videos in the browser, but does not resolve imports, accept standalone
+Audio-file sources, or run external programs. Rendering uses a pinned,
 separately licensed FFmpeg WebAssembly runtime loaded on demand.
 
 Changes to compilation/preparation responses must update the response version

@@ -1,10 +1,11 @@
 //! Browser preparation for virtual, in-memory media projects.
 //!
 //! This module performs no filesystem or process I/O. A browser host supplies
-//! content hashes for the requested virtual assets, then executes the returned
-//! render plan through its own `FFmpeg` runtime.
+//! content hashes for requested virtual assets and `FFprobe` metadata for video
+//! blobs, then executes the returned render plan through its own `FFmpeg`
+//! runtime.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,8 @@ use super::{PreparedAsset, PreparedNode, RenderPolicy};
 pub enum BrowserAssetKind {
     /// A still image used by the `image` program.
     Image,
+    /// A video file that must be probed before browser preparation.
+    Video,
 }
 
 /// One virtual asset required by the result-reachable semantic graph.
@@ -54,6 +57,8 @@ impl BrowserAssetRequest {
 pub struct BrowserAsset {
     path: String,
     content_hash: String,
+    #[serde(default)]
+    video_probe: Option<String>,
 }
 
 impl BrowserAsset {
@@ -63,7 +68,15 @@ impl BrowserAsset {
         Self {
             path: path.into(),
             content_hash: content_hash.into(),
+            video_probe: None,
         }
+    }
+
+    /// Attach the raw `FFprobe` stream document produced from this video blob.
+    #[must_use]
+    pub fn with_video_probe(mut self, video_probe: impl Into<String>) -> Self {
+        self.video_probe = Some(video_probe.into());
+        self
     }
 
     /// Return the browser-visible project-relative path.
@@ -119,9 +132,9 @@ impl BrowserPreparedPlan {
 
 /// Discover virtual assets required for browser rendering.
 ///
-/// Browser rendering currently accepts result-reachable `image` assets and
-/// every native operation that can be prepared from them. Video files, Audio
-/// files, and external programs return an explicit unsupported diagnostic.
+/// Browser rendering accepts result-reachable still-image and video-file
+/// assets, plus every native operation that can be prepared from them. Audio
+/// files and external programs return an explicit unsupported diagnostic.
 ///
 /// # Errors
 ///
@@ -135,25 +148,32 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
         compiled.symbol_values(),
         [output],
     )?;
-    let mut paths = BTreeSet::new();
+    let mut paths = BTreeMap::new();
     let mut requests = Vec::new();
     for value in order {
         let node = &compiled.nodes()[value.id().get() as usize];
         match node.kind() {
             SemanticNodeKind::ImageVideo { path, .. } => {
                 let path = virtual_path(path, &node.origin().span)?;
-                if paths.insert(path.clone()) {
+                if !paths.contains_key(&path) {
+                    paths.insert(path.clone(), requests.len());
                     requests.push(BrowserAssetRequest {
                         path,
                         kind: BrowserAssetKind::Image,
                     });
                 }
             }
-            SemanticNodeKind::VideoSource { .. } => {
-                return Err(browser_unsupported(
-                    "video-file sources are not yet supported in the browser",
-                    &node.origin().span,
-                ));
+            SemanticNodeKind::VideoSource { path, .. } => {
+                let path = virtual_path(path, &node.origin().span)?;
+                if let Some(index) = paths.get(&path) {
+                    requests[*index].kind = BrowserAssetKind::Video;
+                } else {
+                    paths.insert(path.clone(), requests.len());
+                    requests.push(BrowserAssetRequest {
+                        path,
+                        kind: BrowserAssetKind::Video,
+                    });
+                }
             }
             SemanticNodeKind::AudioSource { .. } => {
                 return Err(browser_unsupported(
@@ -201,7 +221,7 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
     let supplied = supplied_assets(assets)?;
     let mut prepared_assets = BTreeMap::new();
     for request in requests {
-        let Some(content_hash) = supplied.get(request.path()) else {
+        let Some(facts) = supplied.get(request.path()) else {
             return Err(Diagnostic::new(
                 "E_BROWSER_MISSING_ASSET",
                 format!("browser asset `{}` has not been supplied", request.path()),
@@ -210,7 +230,13 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
         };
         prepared_assets.insert(
             PathBuf::from(request.path()),
-            PreparedAsset::new(PathBuf::from(request.path()), content_hash.clone()),
+            BrowserPreparedAsset {
+                asset: PreparedAsset::new(
+                    PathBuf::from(request.path()),
+                    facts.content_hash.clone(),
+                ),
+                video_probe: facts.video_probe.clone(),
+            },
         );
     }
 
@@ -261,7 +287,13 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
     })
 }
 
-fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, String>> {
+#[derive(Clone)]
+struct BrowserAssetFacts {
+    content_hash: String,
+    video_probe: Option<String>,
+}
+
+fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, BrowserAssetFacts>> {
     let mut supplied = BTreeMap::new();
     for asset in assets {
         let span = SourceSpan::file_start(&asset.path);
@@ -279,7 +311,13 @@ fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, String>> 
             ));
         }
         if supplied
-            .insert(path.clone(), asset.content_hash.to_ascii_lowercase())
+            .insert(
+                path.clone(),
+                BrowserAssetFacts {
+                    content_hash: asset.content_hash.to_ascii_lowercase(),
+                    video_probe: asset.video_probe.clone(),
+                },
+            )
             .is_some()
         {
             return Err(Diagnostic::new(
@@ -362,31 +400,53 @@ fn browser_unsupported(message: &str, span: &SourceSpan) -> Diagnostic {
 }
 
 struct BrowserPreparationHost {
-    assets: BTreeMap<PathBuf, PreparedAsset>,
+    assets: BTreeMap<PathBuf, BrowserPreparedAsset>,
+}
+
+struct BrowserPreparedAsset {
+    asset: PreparedAsset,
+    video_probe: Option<String>,
 }
 
 impl PreparationHost for BrowserPreparationHost {
     fn prepare_image(&mut self, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset> {
         let path = PathBuf::from(virtual_path(authored, &origin.span)?);
-        self.assets.get(&path).cloned().ok_or_else(|| {
+        self.assets
+            .get(&path)
+            .map(|asset| asset.asset.clone())
+            .ok_or_else(|| {
+                Diagnostic::new(
+                    "E_BROWSER_MISSING_ASSET",
+                    format!("browser asset `{}` has not been supplied", path.display()),
+                    origin.span.clone(),
+                )
+            })
+    }
+
+    fn prepare_video(
+        &mut self,
+        authored: &Path,
+        video: &VideoSpec,
+        origin: &SourceOrigin,
+    ) -> Result<(PreparedAsset, FrameCount, bool)> {
+        let path = PathBuf::from(virtual_path(authored, &origin.span)?);
+        let prepared = self.assets.get(&path).ok_or_else(|| {
             Diagnostic::new(
                 "E_BROWSER_MISSING_ASSET",
                 format!("browser asset `{}` has not been supplied", path.display()),
                 origin.span.clone(),
             )
-        })
-    }
-
-    fn prepare_video(
-        &mut self,
-        _authored: &Path,
-        _video: &VideoSpec,
-        origin: &SourceOrigin,
-    ) -> Result<(PreparedAsset, FrameCount, bool)> {
-        Err(browser_unsupported(
-            "video-file sources are not yet supported in the browser",
-            &origin.span,
-        ))
+        })?;
+        let probe = prepared.video_probe.as_deref().ok_or_else(|| {
+            Diagnostic::new(
+                "E_BROWSER_ASSET_PROBE",
+                format!("browser video `{}` has not been probed", path.display()),
+                origin.span.clone(),
+            )
+        })?;
+        let (frames, has_audio) =
+            super::tools::validate_video_probe_json(&path, video, &origin.span, probe)?;
+        Ok((prepared.asset.clone(), frames, has_audio))
     }
 
     fn prepare_audio(
@@ -430,6 +490,7 @@ mod tests {
 
     use super::*;
     use crate::model::ValueType;
+    use crate::preflight::{PreparedNodeMedia, PreparedVideoKind};
 
     fn compiled(source: &str) -> CompiledProgram {
         let package =
@@ -446,6 +507,62 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].path(), "assets/still.png");
         assert_eq!(requests[0].kind(), BrowserAssetKind::Image);
+    }
+
+    #[test]
+    fn requests_video_sources_for_browser_probing() {
+        let compiled = compiled("clipasm 1\nvideo(\"clips/scene.mkv\")\n");
+        let requests = required_assets(&compiled).expect("requests");
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path(), "clips/scene.mkv");
+        assert_eq!(requests[0].kind(), BrowserAssetKind::Video);
+    }
+
+    #[test]
+    fn prepares_video_sources_from_validated_browser_probe_metadata() {
+        let compiled = compiled(
+            "clipasm 1\nconfig {\nvideo {\nwidth = 320\nheight = 180\nfps = 24\n}\n}\nvideo(\"scene.mkv\")\n",
+        );
+        let asset = BrowserAsset::new("scene.mkv", "ab".repeat(32)).with_video_probe(
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+        );
+        let plan = prepare(&compiled, &[asset]).expect("browser plan");
+
+        match plan.nodes[plan.result.get() as usize].media() {
+            PreparedNodeMedia::Video {
+                kind: PreparedVideoKind::VideoSource { frames, .. },
+                has_audio,
+                ..
+            } => {
+                assert_eq!(*frames, FrameCount(48));
+                assert!(has_audio);
+            }
+            media => panic!("unexpected prepared media: {media:?}"),
+        }
+    }
+
+    #[test]
+    fn video_sources_require_probe_metadata() {
+        let compiled = compiled("clipasm 1\nvideo(\"scene.mkv\")\n");
+        let error = prepare(
+            &compiled,
+            &[BrowserAsset::new("scene.mkv", "ab".repeat(32))],
+        )
+        .expect_err("missing video probe");
+
+        assert_eq!(error.code, "E_BROWSER_ASSET_PROBE");
+    }
+
+    #[test]
+    fn rejects_invalid_browser_video_probe_metadata() {
+        let compiled = compiled("clipasm 1\nvideo(\"scene.mkv\")\n");
+        let asset =
+            BrowserAsset::new("scene.mkv", "ab".repeat(32)).with_video_probe(r#"{"streams":[]}"#);
+        let error = prepare(&compiled, &[asset]).expect_err("invalid video probe");
+
+        assert_eq!(error.code, "E_SOURCE_CONTRACT");
+        assert!(error.message.contains("exactly one video stream"));
     }
 
     #[test]
@@ -519,17 +636,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_external_and_media_file_sources_explicitly() {
-        for (source, message) in [
-            ("clipasm 1\nvideo(\"clip.mp4\")\n", "video-file sources"),
-            (
-                "clipasm 1\nset_audio(audio=audio(\"sound.wav\"), video=image(\"still.png\", 1s))\n",
-                "audio-file sources",
-            ),
-        ] {
-            let error = required_assets(&compiled(source)).expect_err("unsupported source");
-            assert_eq!(error.code, "E_BROWSER_RENDER_UNSUPPORTED");
-            assert!(error.message.contains(message));
-        }
+    fn rejects_external_and_audio_file_sources_explicitly() {
+        let source =
+            "clipasm 1\nset_audio(audio=audio(\"sound.wav\"), video=image(\"still.png\", 1s))\n";
+        let error = required_assets(&compiled(source)).expect_err("unsupported source");
+
+        assert_eq!(error.code, "E_BROWSER_RENDER_UNSUPPORTED");
+        assert!(error.message.contains("audio-file sources"));
     }
 }

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import process from "node:process";
@@ -93,16 +93,19 @@ try {
 
     await page.locator(".clipasm-playground__assets > summary").click();
     const fileInput = page.getByLabel("Add project files");
-    await fileInput.setInputFiles({
-        name: "morning.png",
-        mimeType: "image/png",
-        buffer: Buffer.from(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
-            "base64",
-        ),
-    });
-    let fileRow = page.locator(".clipasm-playground__file-row");
-    await fileRow.getByText("morning.png", { exact: true }).waitFor();
+    const fileRows = page.locator(".clipasm-playground__file-row");
+    if ((await fileRows.count()) !== 3) {
+        throw new Error("The three bundled scenic assets did not begin as project files.");
+    }
+    for (const path of [
+        "assets/evening.png",
+        "assets/meadow.png",
+        "assets/morning.png",
+    ]) {
+        await fileRows.getByText(path, { exact: true }).waitFor();
+    }
+
+    let fileRow = fileRows.filter({ hasText: "assets/morning.png" });
     const playgroundHeight = await playground.evaluate(
         (element) => element.getBoundingClientRect().height,
     );
@@ -126,7 +129,7 @@ try {
     await renameDialog.getByRole("alert").getByText(/not a safe relative path/).waitFor();
     await renameDialog.getByLabel("Path").fill("assets/renamed.png");
     await renameDialog.getByRole("button", { name: "Rename" }).click();
-    fileRow = page.locator(".clipasm-playground__file-row");
+    fileRow = fileRows.filter({ hasText: "assets/renamed.png" });
     await fileRow.getByText("assets/renamed.png", { exact: true }).waitFor();
     const fileActions = fileRow.locator("summary");
     if ((await fileActions.textContent())?.trim() !== "Actions") {
@@ -152,8 +155,20 @@ try {
     }
     await fileRow.locator("summary").click();
     await fileRow.getByRole("button", { name: "Delete" }).click();
+    if ((await fileRows.count()) !== 2) {
+        throw new Error("Deleting a bundled project file did not remove it.");
+    }
+    while ((await fileRows.count()) > 0) {
+        const row = fileRows.first();
+        await row.locator("summary").click();
+        await row.getByRole("button", { name: "Delete" }).click();
+    }
     if (await page.locator(".clipasm-playground__file-list").isVisible()) {
         throw new Error("Deleting the final virtual file left the file list visible.");
+    }
+    await page.getByRole("button", { name: "Reset" }).click();
+    if ((await fileRows.count()) !== 3) {
+        throw new Error("Reset did not restore the bundled project files.");
     }
 
     await fileInput.setInputFiles(
@@ -217,34 +232,8 @@ try {
         timeout: 5 * 60 * 1000,
     });
 
-    const media = await page.locator(".clipasm-playground__preview video").evaluate(
-        (video) =>
-            new Promise((resolveMedia, reject) => {
-                let timeout;
-                const inspect = () => {
-                    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-                        window.clearTimeout(timeout);
-                        resolveMedia({
-                            duration: video.duration,
-                            readyState: video.readyState,
-                        });
-                    }
-                };
-                timeout = window.setTimeout(
-                    () => reject(new Error("The rendered MP4 did not load metadata.")),
-                    30_000,
-                );
-                video.addEventListener(
-                    "loadedmetadata",
-                    () => {
-                        window.clearTimeout(timeout);
-                        inspect();
-                    },
-                    { once: true },
-                );
-                inspect();
-            }),
-    );
+    const previewVideo = page.locator(".clipasm-playground__preview video");
+    const media = await readVideoMetadata(previewVideo);
     if (Math.abs(media.duration - 4.5) > 0.01) {
         throw new Error(`Expected a 4.5-second MP4, found ${String(media.duration)} seconds.`);
     }
@@ -259,12 +248,63 @@ try {
     if (await page.locator(".clipasm-playground__preview").isVisible()) {
         throw new Error("Cancellation retained a stale preview.");
     }
+
+    await editor.fill(
+        'clipasm 1\n\nconfig {\n    video {\n        width = 320\n        height = 180\n        fps = 24\n    }\n}\n\nvideo("gentle-motion.mkv")\n',
+    );
+    await fileInput.setInputFiles({
+        name: "gentle-motion.mkv",
+        mimeType: "video/x-matroska",
+        buffer: await readFile(resolve(bookRoot, "../../examples/assets/gentle-motion.mkv")),
+    });
+    await render.click();
+    await status.getByText("Rendered 48 frames at 320×180.", { exact: true }).waitFor({
+        timeout: 5 * 60 * 1000,
+    });
+    const videoSourceMedia = await readVideoMetadata(previewVideo);
+    if (Math.abs(videoSourceMedia.duration - 2) > 0.01) {
+        throw new Error(
+            `Expected a 2-second video-source render, found ${String(videoSourceMedia.duration)} seconds.`,
+        );
+    }
+
     if (pageErrors.length > 0) {
         throw new Error(`Browser console errors:\n${pageErrors.join("\n")}`);
     }
 } finally {
     await browser?.close();
     await new Promise((resolveClose) => server.close(resolveClose));
+}
+
+function readVideoMetadata(video) {
+    return video.evaluate(
+        (element) =>
+            new Promise((resolveMedia, reject) => {
+                let timeout;
+                const inspect = () => {
+                    if (element.readyState >= HTMLMediaElement.HAVE_METADATA) {
+                        window.clearTimeout(timeout);
+                        resolveMedia({
+                            duration: element.duration,
+                            readyState: element.readyState,
+                        });
+                    }
+                };
+                timeout = window.setTimeout(
+                    () => reject(new Error("The rendered MP4 did not load metadata.")),
+                    30_000,
+                );
+                element.addEventListener(
+                    "loadedmetadata",
+                    () => {
+                        window.clearTimeout(timeout);
+                        inspect();
+                    },
+                    { once: true },
+                );
+                inspect();
+            }),
+    );
 }
 
 async function serveBook(request, response) {

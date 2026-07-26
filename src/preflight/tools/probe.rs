@@ -207,13 +207,19 @@ pub(crate) fn verify_video_decodable(
     ffprobe: &ToolIdentity,
 ) -> Result<(FrameCount, bool)> {
     let document = probe_video(path, span, ffprobe)?;
-    let frames = validate_video_contract(path, video, span, &document)?;
+    let result = validate_video_document(path, video, span, &document)?;
     decode_video_frame(path, span, ffmpeg)?;
-    let has_audio = document
-        .streams
-        .iter()
-        .any(|stream| stream.codec_type.as_deref() == Some("audio"));
-    Ok((frames, has_audio))
+    Ok(result)
+}
+
+pub(crate) fn validate_video_probe_json(
+    path: &Path,
+    video: &VideoSpec,
+    span: &SourceSpan,
+    probe_json: &str,
+) -> Result<(FrameCount, bool)> {
+    let document = parse_video_probe(path, span, probe_json.as_bytes())?;
+    validate_video_document(path, video, span, &document)
 }
 
 pub(crate) fn verify_audio_decodable(
@@ -293,7 +299,15 @@ fn probe_video(
             format!("could not inspect video `{}`", path.display()),
         )
     })?;
-    serde_json::from_slice(&output.stdout).map_err(|error| {
+    parse_video_probe(path, span, &output.stdout)
+}
+
+fn parse_video_probe(
+    path: &Path,
+    span: &SourceSpan,
+    document: &[u8],
+) -> Result<VideoProbeDocument> {
+    serde_json::from_slice(document).map_err(|error| {
         Diagnostic::new(
             "E_SOURCE_DECODABILITY",
             format!(
@@ -305,12 +319,12 @@ fn probe_video(
     })
 }
 
-fn validate_video_contract(
+fn validate_video_document(
     path: &Path,
     video: &VideoSpec,
     span: &SourceSpan,
     document: &VideoProbeDocument,
-) -> Result<FrameCount> {
+) -> Result<(FrameCount, bool)> {
     let videos = document
         .streams
         .iter()
@@ -352,12 +366,17 @@ fn validate_video_contract(
             span.clone(),
         ));
     };
-    FrameCount::covering_duration(
+    let frames = FrameCount::covering_duration(
         available_numerator,
         available_denominator,
         video.fps(),
         span,
-    )
+    )?;
+    let has_audio = document
+        .streams
+        .iter()
+        .any(|stream| stream.codec_type.as_deref() == Some("audio"));
+    Ok((frames, has_audio))
 }
 
 fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {

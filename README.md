@@ -11,8 +11,8 @@ FFprobe to verify it.
 
 You can
 [edit, validate, inspect, and render the scenic example in your browser](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
-without installing ClipAsm. Browser rendering supports uploaded still images;
-the native CLI remains the complete workflow.
+without installing ClipAsm. Browser rendering supports uploaded still images
+and video files; the native CLI remains the complete workflow.
 
 ## Install
 

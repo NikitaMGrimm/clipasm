@@ -29,9 +29,11 @@ WebAssembly runtime in a worker, verifies exact artifact contracts, and returns
 the final MP4 without a persistent cache.
 
 Browser preparation remains pure. The host supplies normalized virtual asset
-paths and SHA-256 facts for the immutable blobs it will mount. Video-file and
-Audio-file sources are unsupported until browser media probing is designed.
-External programs remain native-only trusted executables.
+paths and SHA-256 facts for the immutable blobs it will mount. For a video-file
+source, the browser worker also checks decodability and returns bounded FFprobe
+stream metadata; Rust validates that document and derives the exact project
+frame domain before constructing the plan. Standalone Audio-file sources remain
+unsupported. External programs remain native-only trusted executables.
 
 The browser plan identifies its recipe contract, runtime versions, and encoding
 policy. Browser work, file sizes, elapsed time, and retained logs are bounded;
@@ -43,6 +45,8 @@ cancellation discards the render worker and its virtual filesystem.
   frame/sample mapping.
 - Browser rendering downloads about 31 MiB on first use and is slower than
   native rendering because the selected runtime is single-threaded.
+- A video-file source loads that runtime during probing, before recipe
+  construction.
 - The FFmpeg WebAssembly core is separately distributed under
   GPL-2.0-or-later; its version, integrity, license, and source information must
   remain visible and pinned.
@@ -55,7 +59,7 @@ The prepared-primitive dispatcher and recipe argument enum remain exhaustive.
 Native recipe tests assert exact materialization, browser preparation tests
 assert the versioned plan and artifact contracts, and CI builds the pinned
 WebAssembly playground. Browser behavior is exercised against the scenic
-sequence before release.
+sequence and an uploaded video source before release.
 
 ## Related decisions
 

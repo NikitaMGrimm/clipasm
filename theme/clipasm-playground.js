@@ -1,7 +1,7 @@
 (async () => {
     "use strict";
 
-    const RESPONSE_VERSION = 2;
+    const RESPONSE_VERSION = 3;
     const MAX_SOURCE_BYTES = 256 * 1024;
     const MAX_ASSET_BYTES = 128 * 1024 * 1024;
     const MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;
@@ -56,13 +56,22 @@
             console.error("A ClipAsm playground must follow a ClipAsm code block.");
             continue;
         }
-        enhance(mount, sourceBlock, sourceCode.textContent);
+        try {
+            await enhance(mount, sourceBlock, sourceCode.textContent);
+        } catch (error) {
+            console.error(error);
+            mount.textContent = "The interactive project files could not be loaded.";
+        }
     }
 
-    function enhance(mount, sourceBlock, initialSource) {
+    async function enhance(mount, sourceBlock, initialSource) {
         const bundledAssetBase = mount.dataset.clipasmAssetsBase
             ? new URL(mount.dataset.clipasmAssetsBase, document.baseURI)
             : undefined;
+        const initialProjectFiles = await loadBundledAssets(
+            bundledAssetBase,
+            mount.dataset.clipasmAssets,
+        );
         const playground = document.createElement("section");
         playground.className = "clipasm-playground";
         playground.setAttribute("aria-label", "ClipAsm playground");
@@ -208,9 +217,10 @@
         let filePreviewUrl;
         let renamePath;
         let displayedLineCount;
-        const uploadedFiles = new Map();
+        const projectFiles = new Map(initialProjectFiles);
 
         updateLineNumbers();
+        renderFileList();
         validateButton.addEventListener("click", () => runCompile("validate"));
         inspectButton.addEventListener("click", () => runCompile("inspect"));
         renderButton.addEventListener("click", runRender);
@@ -225,7 +235,10 @@
             updateLineNumbers();
             syncLineNumbers();
             compileCache = undefined;
-            uploadedFiles.clear();
+            projectFiles.clear();
+            for (const [path, file] of initialProjectFiles) {
+                projectFiles.set(path, file);
+            }
             renderFileList();
             clearOutput();
             clearPreview();
@@ -316,6 +329,39 @@
                 if (!isActive(token)) {
                     return;
                 }
+                const videoRequests = compiled.render.assets.filter(
+                    (request) => request.kind === "video",
+                );
+                let runtimeAvailable;
+                if (videoRequests.length > 0) {
+                    runtimeAvailable = await assetsAvailable([
+                        renderWorkerUrl,
+                        ffmpegWrapperUrl,
+                        ffmpegCoreUrl,
+                        ffmpegWasmUrl,
+                    ]);
+                    if (!isActive(token)) {
+                        return;
+                    }
+                    if (!runtimeAvailable) {
+                        throw new Error(
+                            "The browser FFmpeg runtime is unavailable in this documentation build.",
+                        );
+                    }
+                    const probes = await probeVideos(videoRequests, resolvedFiles, token);
+                    if (!isActive(token)) {
+                        return;
+                    }
+                    const probesByPath = new Map(
+                        probes.map((probe) => [probe.path, probe.video_probe]),
+                    );
+                    for (const fact of facts) {
+                        const videoProbe = probesByPath.get(fact.path);
+                        if (videoProbe) {
+                            fact.video_probe = videoProbe;
+                        }
+                    }
+                }
                 setStatus("Building exact browser render recipes…");
                 const prepared = await compilerRequest("prepare_render", editor.value, facts);
                 if (!isActive(token)) {
@@ -326,7 +372,7 @@
                     showDiagnostic(prepared.diagnostic);
                     return;
                 }
-                const runtimeAvailable = await assetsAvailable([
+                runtimeAvailable ??= await assetsAvailable([
                     renderWorkerUrl,
                     ffmpegWrapperUrl,
                     ffmpegCoreUrl,
@@ -405,6 +451,30 @@
         }
 
         function render(plan, files, token) {
+            return renderWorkerRequest(
+                {
+                    operation: "render",
+                    plan,
+                    files: files.map(({ path, file }) => ({ path, file })),
+                },
+                token,
+                "Browser rendering exceeded the 15-minute safety limit.",
+            ).then((response) => response.buffer);
+        }
+
+        function probeVideos(requests, files, token) {
+            return renderWorkerRequest(
+                {
+                    operation: "probe",
+                    requests,
+                    files: files.map(({ path, file }) => ({ path, file })),
+                },
+                token,
+                "Browser video inspection exceeded the 15-minute safety limit.",
+            ).then((response) => response.probes);
+        }
+
+        function renderWorkerRequest(message, token, timeoutMessage) {
             stopRenderRequest();
             renderWorker ??= new Worker(renderWorkerUrl, { type: "module" });
             const id = nextRequestId++;
@@ -414,17 +484,13 @@
                         return;
                     }
                     finishRenderRequest();
-                    reject(new Error("Browser rendering exceeded the 15-minute safety limit."));
+                    reject(new Error(timeoutMessage));
                     stopRenderWorker();
                 }, RENDER_TIMEOUT_MS);
                 activeRender = { id, token, resolve, reject, timeout };
                 renderWorker.addEventListener("message", receiveRender);
                 renderWorker.addEventListener("error", failRender);
-                renderWorker.postMessage({
-                    id,
-                    plan,
-                    files: files.map(({ path, file }) => ({ path, file })),
-                });
+                renderWorker.postMessage({ id, ...message });
             });
         }
 
@@ -438,8 +504,8 @@
             }
             const { resolve, reject } = activeRender;
             finishRenderRequest();
-            if (data.status === "success") {
-                resolve(data.buffer);
+            if (data.status === "success" || data.status === "probed") {
+                resolve(data);
             } else {
                 reject(new Error(data.error || "Browser rendering failed."));
                 stopRenderWorker();
@@ -460,14 +526,9 @@
             const files = [];
             const missing = [];
             for (const request of requests) {
-                const uploaded = uploadedFiles.get(request.path);
-                if (uploaded) {
-                    files.push({ path: request.path, file: uploaded });
-                    continue;
-                }
-                const bundled = await bundledAsset(request.path);
-                if (bundled) {
-                    files.push({ path: request.path, file: bundled });
+                const file = projectFiles.get(request.path);
+                if (file) {
+                    files.push({ path: request.path, file });
                 } else {
                     missing.push(request.path);
                 }
@@ -479,15 +540,6 @@
                 );
             }
             return files;
-        }
-
-        async function bundledAsset(path) {
-            if (!bundledAssetBase) {
-                return undefined;
-            }
-            const relative = path.split("/").map(encodeURIComponent).join("/");
-            const response = await fetch(new URL(relative, bundledAssetBase), { cache: "force-cache" });
-            return response.ok ? response.blob() : undefined;
         }
 
         async function hashAssets(files) {
@@ -511,7 +563,7 @@
             let error;
             for (const file of list || []) {
                 try {
-                    uploadedFiles.set(uploadPath(file), file);
+                    projectFiles.set(uploadPath(file), file);
                 } catch (caught) {
                     error = caught;
                 }
@@ -524,7 +576,7 @@
             if (error) {
                 showUnhandled(error);
             } else {
-                setStatus(`${uploadedFiles.size} virtual project file(s) ready.`);
+                setStatus(`${projectFiles.size} virtual project file(s) ready.`);
             }
         }
 
@@ -534,7 +586,7 @@
 
         function renderFileList() {
             selectedFiles.replaceChildren(
-                ...[...uploadedFiles.entries()]
+                ...[...projectFiles.entries()]
                     .sort(([left], [right]) => left.localeCompare(right))
                     .map(([path, file]) => {
                     const item = document.createElement("li");
@@ -579,7 +631,7 @@
                         }),
                         fileAction("Delete", () => {
                             menu.open = false;
-                            uploadedFiles.delete(path);
+                            projectFiles.delete(path);
                             filesChanged(`Removed \`${path}\`.`);
                         }, "danger"),
                     );
@@ -595,7 +647,11 @@
                     return item;
                 }),
             );
-            selectedFiles.hidden = uploadedFiles.size === 0;
+            selectedFiles.hidden = projectFiles.size === 0;
+            assetsSummary.textContent =
+                projectFiles.size === 0
+                    ? "Virtual project files"
+                    : `Virtual project files (${projectFiles.size})`;
         }
 
         function closeFileMenus(except) {
@@ -659,19 +715,19 @@
             event.preventDefault();
             try {
                 const path = normalizeVirtualPath(renameInput.value, "Virtual path");
-                if (path !== renamePath && uploadedFiles.has(path)) {
+                if (path !== renamePath && projectFiles.has(path)) {
                     throw new Error(`A virtual file already exists at \`${path}\`.`);
                 }
                 if (path === renamePath) {
                     renameDialog.close();
                     return;
                 }
-                const file = uploadedFiles.get(renamePath);
+                const file = projectFiles.get(renamePath);
                 if (!file) {
                     throw new Error("The virtual file is no longer available.");
                 }
-                uploadedFiles.delete(renamePath);
-                uploadedFiles.set(path, file);
+                projectFiles.delete(renamePath);
+                projectFiles.set(path, file);
                 const previousPath = renamePath;
                 renameDialog.close();
                 filesChanged(`Renamed \`${previousPath}\` to \`${path}\`.`);
@@ -901,6 +957,65 @@
         wrapper.className = "clipasm-playground__file-button";
         wrapper.append(label, input);
         return wrapper;
+    }
+
+    async function loadBundledAssets(base, encodedPaths) {
+        if (!base && !encodedPaths) {
+            return new Map();
+        }
+        if (!base || !encodedPaths) {
+            throw new Error(
+                "Bundled playground files require both an asset base and a JSON path list.",
+            );
+        }
+
+        let paths;
+        try {
+            paths = JSON.parse(encodedPaths);
+        } catch {
+            throw new Error("The bundled playground file list is not valid JSON.");
+        }
+        if (
+            !Array.isArray(paths) ||
+            paths.some((path) => typeof path !== "string")
+        ) {
+            throw new Error("The bundled playground file list must be an array of paths.");
+        }
+
+        const normalizedPaths = paths.map((path) =>
+            normalizeVirtualPath(path, "Bundled path"),
+        );
+        if (new Set(normalizedPaths).size !== normalizedPaths.length) {
+            throw new Error("The bundled playground file list contains duplicate paths.");
+        }
+
+        let total = 0;
+        const entries = await Promise.all(
+            normalizedPaths.map(async (path) => {
+                const relative = path.split("/").map(encodeURIComponent).join("/");
+                const response = await fetch(new URL(relative, base), {
+                    cache: "force-cache",
+                });
+                if (!response.ok) {
+                    throw new Error(`Could not load bundled virtual file \`${path}\`.`);
+                }
+                const blob = await response.blob();
+                if (blob.size > MAX_ASSET_BYTES) {
+                    throw new Error(
+                        `Bundled virtual file \`${path}\` exceeds the 128 MiB browser limit.`,
+                    );
+                }
+                total += blob.size;
+                if (total > MAX_TOTAL_ASSET_BYTES) {
+                    throw new Error(
+                        "Bundled virtual project files exceed the 256 MiB browser limit.",
+                    );
+                }
+                const name = path.slice(path.lastIndexOf("/") + 1);
+                return [path, new File([blob], name, { type: blob.type })];
+            }),
+        );
+        return new Map(entries);
     }
 
     function normalizeVirtualPath(candidate, label) {

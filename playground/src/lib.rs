@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-const RESPONSE_VERSION: u32 = 2;
+const RESPONSE_VERSION: u32 = 3;
 const SOURCE_NAME: &str = "playground.clipasm";
 
 #[derive(Serialize)]
@@ -135,7 +135,8 @@ pub fn compile_source(source: &str) -> String {
 /// Prepare versioned browser render recipes for supplied virtual asset facts.
 ///
 /// `assets_json` must be an array of objects containing `path` and
-/// `content_hash`. The function does not open media or invoke external code.
+/// `content_hash`; video assets additionally carry the browser worker's bounded
+/// `video_probe` JSON. The function does not open media or invoke external code.
 ///
 /// # Panics
 ///
@@ -199,6 +200,18 @@ mod tests {
     }
 
     #[test]
+    fn requests_video_sources_for_browser_probing() {
+        let response = response("clipasm 1\nvideo(\"scene.mkv\")\n");
+
+        assert_eq!(response["status"], "success");
+        assert_eq!(response["render"]["status"], "ready");
+        assert_eq!(
+            response["render"]["assets"],
+            serde_json::json!([{"path": "scene.mkv", "kind": "video"}])
+        );
+    }
+
+    #[test]
     fn returns_structured_source_diagnostics() {
         let response = response("clipasm 1\nunknown()\n");
 
@@ -257,5 +270,38 @@ mod tests {
         assert_eq!(plan["export"]["contract"]["height"], 180);
         assert_eq!(plan["export"]["contract"]["sample_rate"], 48_000);
         assert_eq!(plan["export"]["contract"]["channels"], 2);
+    }
+
+    #[test]
+    fn prepares_browser_video_source_recipes_from_probe_metadata() {
+        let source = "clipasm 1\nconfig {\nvideo {\nwidth = 320\nheight = 180\nfps = 24\n}\n}\nvideo(\"scene.mkv\")\n";
+        let assets = serde_json::json!([{
+            "path": "scene.mkv",
+            "content_hash": "11".repeat(32),
+            "video_probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+        }]);
+        let response: serde_json::Value =
+            serde_json::from_str(&prepare_render(source, &assets.to_string()))
+                .expect("response JSON");
+
+        assert_eq!(response["status"], "success");
+        assert_eq!(response["version"], RESPONSE_VERSION);
+        let plan: serde_json::Value =
+            serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
+                .expect("valid plan JSON");
+        assert_eq!(plan["assets"][0]["path"], "scene.mkv");
+        assert_eq!(plan["steps"][0]["contract"]["frames"], 48);
+        assert_eq!(plan["steps"][0]["contract"]["audio"], true);
+        assert!(
+            plan["steps"][0]["arguments"]
+                .as_array()
+                .expect("arguments")
+                .iter()
+                .any(|argument| argument
+                    .as_str()
+                    .is_some_and(|value| value.contains("[0:a:0]")))
+        );
+        assert_eq!(plan["export"]["contract"]["frames"], 48);
+        assert_eq!(plan["export"]["contract"]["audio"], true);
     }
 }

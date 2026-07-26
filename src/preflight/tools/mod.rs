@@ -1,7 +1,10 @@
 mod probe;
 
 pub(crate) use probe::decoded_audio_samples;
-pub(super) use probe::{verify_audio_decodable, verify_image_decodable, verify_video_decodable};
+pub(super) use probe::{
+    validate_video_probe_json, verify_audio_decodable, verify_image_decodable,
+    verify_video_decodable,
+};
 
 use std::collections::BTreeSet;
 use std::fs;

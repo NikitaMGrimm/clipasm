@@ -7,6 +7,8 @@ const CORE_VERSION = "0.12.10";
 const RUNTIME_POLICY = "ffv1-flac-matroska-v1";
 const EXECUTION_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_LOG_LINES = 24;
+const MAX_PROBE_JSON_BYTES = 256 * 1024;
+const MAX_TOTAL_PROBE_JSON_BYTES = 1024 * 1024;
 const coreUrl = new URL("./ffmpeg/core/ffmpeg-core.js", import.meta.url).href;
 const wasmUrl = new URL("./ffmpeg/core/ffmpeg-core.wasm", import.meta.url).href;
 
@@ -17,10 +19,20 @@ let logTail = [];
 let probeSequence = 0;
 
 self.addEventListener("message", async ({ data }) => {
-    const { id, plan, files } = data;
+    const { id, operation = "render", files } = data;
     try {
-        validatePlan(plan);
         const fileMap = validateFiles(files);
+        if (operation === "probe") {
+            await ensureRuntime(id);
+            const probes = await probeVideoAssets(data.requests, fileMap, id);
+            self.postMessage({ id, status: "probed", probes });
+            return;
+        }
+        if (operation !== "render") {
+            throw new Error("The browser render worker received an unknown operation.");
+        }
+        const { plan } = data;
+        validatePlan(plan);
         await ensureRuntime(id);
         const mounts = await mountAssets(plan.assets, fileMap);
         try {
@@ -89,21 +101,130 @@ async function mountAssets(assets, files) {
         if (!file) {
             throw new Error(`The required browser asset \`${asset.path}\` is missing.`);
         }
-        const separator = asset.virtual_path.lastIndexOf("/");
-        const mountPoint = asset.virtual_path.slice(0, separator);
-        const name = asset.virtual_path.slice(separator + 1);
-        await ffmpeg.createDir(mountPoint);
-        const mounted = await ffmpeg.mount(
-            FFFSType.WORKERFS,
-            { blobs: [{ name, data: file }] },
-            mountPoint,
-        );
-        if (!mounted) {
-            throw new Error(`Could not mount browser asset ${index + 1}.`);
-        }
-        mounts.push(mountPoint);
+        mounts.push(await mountBlob(file, asset.virtual_path, `browser asset ${index + 1}`));
     }
     return mounts;
+}
+
+async function mountBlob(file, virtualPath, label) {
+    const separator = virtualPath.lastIndexOf("/");
+    const mountPoint = virtualPath.slice(0, separator);
+    const name = virtualPath.slice(separator + 1);
+    await ffmpeg.createDir(mountPoint);
+    const mounted = await ffmpeg.mount(
+        FFFSType.WORKERFS,
+        { blobs: [{ name, data: file }] },
+        mountPoint,
+    );
+    if (!mounted) {
+        throw new Error(`Could not mount ${label}.`);
+    }
+    return mountPoint;
+}
+
+async function probeVideoAssets(requests, files, id) {
+    const validated = validateProbeRequests(requests);
+    const probes = [];
+    const mounts = [];
+    let probeBytes = 0;
+    try {
+        for (const [index, request] of validated.entries()) {
+            const file = files.get(request.path);
+            if (!file) {
+                throw new Error(`The required browser video \`${request.path}\` is missing.`);
+            }
+            progress(id, `Inspecting browser video ${index + 1} of ${validated.length}…`);
+            const virtualPath = `/inputs/probe-${index}/asset${safeExtension(request.path)}`;
+            mounts.push(await mountBlob(file, virtualPath, `browser video ${index + 1}`));
+            const videoProbe = await probeVideo(virtualPath);
+            probeBytes += videoProbe.length;
+            if (probeBytes > MAX_TOTAL_PROBE_JSON_BYTES) {
+                throw new Error("FFprobe returned excessive source-video metadata.");
+            }
+            await execute(
+                [
+                    "-v",
+                    "error",
+                    "-xerror",
+                    "-i",
+                    virtualPath,
+                    "-map",
+                    "0:v:0",
+                    "-frames:v",
+                    "1",
+                    "-an",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                `source video ${index + 1}`,
+            );
+            probes.push({ path: request.path, video_probe: videoProbe });
+        }
+        return probes;
+    } finally {
+        await unmountAssets(mounts);
+    }
+}
+
+async function probeVideo(path) {
+    const output = `/work/source-probe-${probeSequence++}.json`;
+    try {
+        logTail = [];
+        await ffmpeg.ffprobe(
+            [
+                "-v",
+                "error",
+                "-count_frames",
+                "-show_entries",
+                "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate,sample_rate",
+                "-of",
+                "json",
+                "-o",
+                output,
+                path,
+            ],
+            EXECUTION_TIMEOUT_MS,
+        );
+        const document = await ffmpeg.readFile(output, "utf8");
+        if (typeof document !== "string" || document.length > MAX_PROBE_JSON_BYTES) {
+            throw new Error("FFprobe returned invalid or excessive source-video metadata.");
+        }
+        JSON.parse(document);
+        return document;
+    } finally {
+        await deleteFiles([output]);
+    }
+}
+
+function validateProbeRequests(requests) {
+    if (!Array.isArray(requests)) {
+        throw new Error("Browser video probe requests are malformed.");
+    }
+    const paths = new Set();
+    for (const request of requests) {
+        if (
+            !request ||
+            request.kind !== "video" ||
+            typeof request.path !== "string" ||
+            paths.has(request.path)
+        ) {
+            throw new Error("Browser video probe requests are malformed or duplicated.");
+        }
+        paths.add(request.path);
+    }
+    return requests;
+}
+
+function safeExtension(path) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const separator = name.lastIndexOf(".");
+    const extension = separator < 0 ? "" : name.slice(separator + 1);
+    return extension.length > 0 &&
+        extension.length <= 12 &&
+        [...extension].every((character) => /[a-z0-9]/i.test(character))
+        ? `.${extension}`
+        : "";
 }
 
 async function unmountAssets(mounts) {
