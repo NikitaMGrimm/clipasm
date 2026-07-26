@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::marker::PhantomData;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::ValueType;
@@ -16,7 +17,63 @@ pub(super) struct InvocationId(pub(super) usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct StackBlockId(pub(super) usize);
 
-#[derive(Clone, Debug)]
+pub(super) trait TableId: Copy {
+    fn index(self) -> usize;
+}
+
+impl TableId for InvocationId {
+    fn index(self) -> usize {
+        self.0
+    }
+}
+
+impl TableId for StackBlockId {
+    fn index(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct IdTable<I, T> {
+    slots: Vec<Option<T>>,
+    id: PhantomData<fn(I) -> I>,
+}
+
+impl<I: TableId, T> IdTable<I, T> {
+    pub(super) fn with_slot_count(len: usize) -> Self {
+        Self {
+            slots: std::iter::repeat_with(|| None).take(len).collect(),
+            id: PhantomData,
+        }
+    }
+
+    pub(super) fn get(&self, id: I) -> Option<&T> {
+        self.slots[id.index()].as_ref()
+    }
+
+    pub(super) fn insert(&mut self, id: I, value: T) {
+        let previous = self.slots[id.index()].replace(value);
+        assert!(previous.is_none(), "draft ID table slot was filled twice");
+    }
+
+    pub(super) fn take(&mut self, id: I) -> Option<T> {
+        self.slots[id.index()].take()
+    }
+
+    pub(super) fn values(&self) -> impl Iterator<Item = &T> {
+        self.slots.iter().flatten()
+    }
+
+    pub(super) fn first_missing(&self) -> Option<usize> {
+        self.slots.iter().position(Option::is_none)
+    }
+
+    pub(super) fn first_present(&self) -> Option<usize> {
+        self.slots.iter().position(Option::is_some)
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct DraftProgram {
     pub(super) span: SourceSpan,
     pub(super) body: DraftBody,
@@ -24,34 +81,34 @@ pub(super) struct DraftProgram {
     pub(super) stack_block_count: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct DraftBody {
     pub(super) span: SourceSpan,
     pub(super) items: Vec<DraftItem>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct DraftItem {
     pub(super) origin: ItemOrigin,
     pub(super) output_bindings: OutputBindings,
     pub(super) kind: DraftItemKind,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) enum DraftItemKind {
     Reference(Spanned<String>),
     Invocation(DraftInvocation),
     StackBlock(DraftStackBlock),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct DraftStackBlock {
     pub(super) id: StackBlockId,
     pub(super) access: StackAccess,
     pub(super) body: Box<DraftBody>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct DraftInvocation {
     pub(super) id: InvocationId,
     pub(super) name: Spanned<String>,
@@ -63,7 +120,7 @@ pub(super) struct DraftInvocation {
     pub(super) body: Option<Box<DraftBody>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) enum DraftInput {
     Reference(Spanned<String>),
     Body(Box<DraftBody>),
@@ -78,7 +135,7 @@ impl DraftInput {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) enum DraftParameter {
     Literal(Literal),
     Reference(Spanned<String>),
@@ -213,8 +270,12 @@ impl DraftInvocation {
             .map_or(definition.descriptor.default_stack_access, |access| {
                 access.value
             });
-        let mut inputs = vec![None; definition.descriptor.inputs.len()];
-        let mut parameters = vec![None; definition.descriptor.parameters.len()];
+        let mut inputs = std::iter::repeat_with(|| None)
+            .take(definition.descriptor.inputs.len())
+            .collect::<Vec<_>>();
+        let mut parameters = std::iter::repeat_with(|| None)
+            .take(definition.descriptor.parameters.len())
+            .collect::<Vec<_>>();
 
         for (name, argument) in &source.arguments {
             if let Some(slot) = definition.descriptor.input_slot(name) {
@@ -416,4 +477,25 @@ fn program_id_for(
                 span.clone(),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_id_table_consumes_entries_by_id() {
+        let mut table = IdTable::<InvocationId, &str>::with_slot_count(3);
+        assert_eq!(table.first_missing(), Some(0));
+        table.insert(InvocationId(2), "third");
+        table.insert(InvocationId(0), "first");
+        table.insert(InvocationId(1), "second");
+        assert_eq!(table.first_missing(), None);
+
+        assert_eq!(table.take(InvocationId(1)), Some("second"));
+        assert_eq!(table.take(InvocationId(1)), None);
+        assert_eq!(table.take(InvocationId(2)), Some("third"));
+        assert_eq!(table.take(InvocationId(0)), Some("first"));
+        assert_eq!(table.first_present(), None);
+    }
 }

@@ -51,6 +51,7 @@ impl<'a> Executor<'a> {
             self.plan.audio(),
             domain,
             has_audio,
+            self.plan.render_policy(),
             self.plan.ffmpeg().executable(),
             self.plan.ffprobe().executable(),
         )
@@ -59,12 +60,12 @@ impl<'a> Executor<'a> {
     pub(in crate::render) fn render_node(
         &self,
         node: &PreparedNode,
-        artifacts: &[PathBuf],
+        artifacts: &[Option<PathBuf>],
         destination: &Path,
     ) -> Result<StagedArtifact> {
         let extension = match node.value_type() {
-            crate::model::ValueType::Audio => "mka",
-            crate::model::ValueType::Video => "mkv",
+            crate::model::ValueType::Audio => self.plan.render_policy().working_audio_extension(),
+            crate::model::ValueType::Video => self.plan.render_policy().working_video_extension(),
         };
         let staged = StagedArtifact::new(destination, extension)?;
         let context = RenderContext::new(self.plan, node, artifacts, staged.path());

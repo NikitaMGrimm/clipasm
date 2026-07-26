@@ -152,7 +152,7 @@ describes the general binding rules.
 Validate the committed source:
 
 ```console
-cargo run -- validate examples/reusable-composition.clipasm
+clipasm validate examples/reusable-composition.clipasm
 ```
 
 Success ends with:
@@ -165,7 +165,7 @@ Inspect the compiled JSON document if you want to trace the named values,
 references, and final output:
 
 ```console
-cargo run -- inspect examples/reusable-composition.clipasm
+clipasm inspect examples/reusable-composition.clipasm
 ```
 
 The JSON includes diagnostic source metadata and identity hashes. Use the
@@ -175,7 +175,7 @@ instead of copying incidental fields.
 Render the program:
 
 ```console
-cargo run -- render examples/reusable-composition.clipasm
+clipasm render examples/reusable-composition.clipasm
 ```
 
 The output is
@@ -195,7 +195,7 @@ In `local/reusable-practice/reusable-composition.clipasm`, change `frames=5` to
 `frames=8`. Validate the change:
 
 ```console
-cargo run -- validate local/reusable-practice/reusable-composition.clipasm
+clipasm validate local/reusable-practice/reusable-composition.clipasm
 ```
 
 The program still validates to 96 frames because the change affects the flash
@@ -203,7 +203,7 @@ within the same overall composition. Render the practice copy and compare the
 transition:
 
 ```console
-cargo run -- render local/reusable-practice/reusable-composition.clipasm
+clipasm render local/reusable-practice/reusable-composition.clipasm
 ```
 
 The copied assets, generated output, manifest, and cache remain under the

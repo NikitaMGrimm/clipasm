@@ -4,7 +4,7 @@ use std::process::Command;
 
 use crate::diagnostic::Result;
 use crate::model::{AudioSpec, VideoDomain, VideoSpec};
-use crate::preflight::EXPORT_PIXEL_FORMAT;
+use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
 
 use super::super::artifact::verify_video_artifact;
@@ -18,10 +18,20 @@ pub(super) fn stage_export(
     audio: &AudioSpec,
     domain: &VideoDomain,
     has_audio: bool,
+    render_policy: RenderPolicy,
     ffmpeg: &Path,
     ffprobe: &Path,
 ) -> Result<()> {
-    let result = export_mp4(artifact, staged, spec, audio, has_audio, ffmpeg).and_then(|()| {
+    let result = export_video(
+        artifact,
+        staged,
+        spec,
+        audio,
+        has_audio,
+        render_policy,
+        ffmpeg,
+    )
+    .and_then(|()| {
         verify_video_artifact(
             ffprobe,
             staged,
@@ -29,7 +39,7 @@ pub(super) fn stage_export(
             audio,
             has_audio,
             false,
-            EXPORT_PIXEL_FORMAT,
+            render_policy.export_pixel_format(),
         )
     });
     if let Err(error) = result {
@@ -40,20 +50,27 @@ pub(super) fn stage_export(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn export_mp4(
+fn export_video(
     artifact: &Path,
     output: &Path,
     spec: &VideoSpec,
     audio: &AudioSpec,
     has_audio: bool,
+    render_policy: RenderPolicy,
     ffmpeg: &Path,
 ) -> Result<()> {
     let mut command = Command::new(ffmpeg);
     command
         .args(["-y", "-v", "error", "-i"])
         .arg(artifact)
-        .args(["-map", "0:v:0", "-c:v", "libx264", "-pix_fmt"])
-        .arg(EXPORT_PIXEL_FORMAT)
+        .args([
+            "-map",
+            "0:v:0",
+            "-c:v",
+            render_policy.export_video_encoder(),
+            "-pix_fmt",
+        ])
+        .arg(render_policy.export_pixel_format())
         .arg("-r")
         .arg(format!(
             "{}/{}",
@@ -65,7 +82,7 @@ fn export_mp4(
             "-map",
             "0:a:0",
             "-c:a",
-            "aac",
+            render_policy.export_audio_encoder(),
             "-ar",
             &audio.sample_rate().to_string(),
             "-ac",
@@ -75,7 +92,12 @@ fn export_mp4(
         command.arg("-an");
     }
     command
-        .args(["-movflags", "+faststart", "-f", "mp4"])
+        .args([
+            "-movflags",
+            render_policy.export_movflags(),
+            "-f",
+            render_policy.export_container(),
+        ])
         .arg(output);
     run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
 }
@@ -110,6 +132,7 @@ mod tests {
             &AudioSpec::default(),
             &domain,
             false,
+            RenderPolicy::CURRENT,
             Path::new("ffmpeg"),
             Path::new("ffprobe"),
         )

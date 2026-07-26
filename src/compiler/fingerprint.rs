@@ -93,7 +93,7 @@ fn value_hashes(
             continue;
         }
         let upstream = upstream_hashes(node.kind(), &hashes);
-        let operation = operation_identity(node.kind());
+        let operation = operation_identity(node.kind())?;
         hashes[index] = Some(hash_serializable(&ValueIdentity {
             semantic_version: node.semantic_version(),
             value_type: node.value_type(),
@@ -118,70 +118,101 @@ fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<St
     upstream
 }
 
-fn operation_identity(kind: &SemanticNodeKind) -> serde_json::Value {
+fn operation_identity(kind: &SemanticNodeKind) -> Result<serde_json::Value> {
     match kind {
-        SemanticNodeKind::ImageVideo { path, frames, fit } => serde_json::json!({
-            "operation": "image_video", "path": path, "frames": frames, "fit": fit,
-        }),
-        SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
-            "operation": "video_source", "path": path, "fit": fit,
-        }),
+        SemanticNodeKind::ImageVideo { path, frames, fit } => {
+            let path = identity_value(path)?;
+            Ok(serde_json::json!({
+                "operation": "image_video", "path": path, "frames": frames, "fit": fit,
+            }))
+        }
+        SemanticNodeKind::VideoSource { path, fit } => {
+            let path = identity_value(path)?;
+            Ok(serde_json::json!({
+                "operation": "video_source", "path": path, "fit": fit,
+            }))
+        }
         SemanticNodeKind::AudioSource { path } => {
-            serde_json::json!({"operation": "audio_source", "path": path})
+            let path = identity_value(path)?;
+            Ok(serde_json::json!({"operation": "audio_source", "path": path}))
         }
         SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
         SemanticNodeKind::Repeat { count, .. } => {
-            serde_json::json!({"operation": "repeat", "count": count})
+            Ok(serde_json::json!({"operation": "repeat", "count": count}))
         }
         SemanticNodeKind::AudioRepeat { count, .. } => {
-            serde_json::json!({"operation": "audio_repeat", "count": count})
+            Ok(serde_json::json!({"operation": "audio_repeat", "count": count}))
         }
         SemanticNodeKind::Zoom { percent, .. } => {
-            serde_json::json!({"operation": "zoom", "percent": percent})
+            Ok(serde_json::json!({"operation": "zoom", "percent": percent}))
         }
         SemanticNodeKind::Wobble { pixels, .. } => {
-            serde_json::json!({"operation": "wobble", "pixels": pixels})
+            Ok(serde_json::json!({"operation": "wobble", "pixels": pixels}))
         }
         SemanticNodeKind::FlashJoin { frames, .. } => {
-            serde_json::json!({"operation": "flash_join", "frames": frames})
+            Ok(serde_json::json!({"operation": "flash_join", "frames": frames}))
         }
         SemanticNodeKind::Crossfade { frames, .. } => {
-            serde_json::json!({"operation": "crossfade", "frames": frames})
+            Ok(serde_json::json!({"operation": "crossfade", "frames": frames}))
         }
-        SemanticNodeKind::Concat { .. } => serde_json::json!({"operation": "concat"}),
-        SemanticNodeKind::AudioConcat { .. } => serde_json::json!({"operation": "audio_concat"}),
+        SemanticNodeKind::Concat { .. } => Ok(serde_json::json!({"operation": "concat"})),
+        SemanticNodeKind::AudioConcat { .. } => {
+            Ok(serde_json::json!({"operation": "audio_concat"}))
+        }
         SemanticNodeKind::Slice { range, .. } => {
-            serde_json::json!({"operation": "slice", "range": range})
+            Ok(serde_json::json!({"operation": "slice", "range": range}))
         }
         SemanticNodeKind::AudioSlice { range, .. } => {
-            serde_json::json!({"operation": "audio_slice", "range": range})
+            Ok(serde_json::json!({"operation": "audio_slice", "range": range}))
         }
         SemanticNodeKind::ReplaceRange { range, .. } => {
-            serde_json::json!({"operation": "replace_range", "range": range})
+            Ok(serde_json::json!({"operation": "replace_range", "range": range}))
         }
         SemanticNodeKind::ExtractAudio { .. } => {
-            serde_json::json!({"operation": "extract_audio"})
+            Ok(serde_json::json!({"operation": "extract_audio"}))
         }
-        SemanticNodeKind::SetAudio { .. } => serde_json::json!({"operation": "set_audio"}),
+        SemanticNodeKind::SetAudio { .. } => Ok(serde_json::json!({"operation": "set_audio"})),
         SemanticNodeKind::AudioOnBlack { .. } => {
-            serde_json::json!({"operation": "audio_on_black"})
+            Ok(serde_json::json!({"operation": "audio_on_black"}))
         }
-        SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
-            "operation": "external_video",
-            "executable": invocation.executable.value,
-            "arguments": invocation.arguments.iter().map(|argument| match argument {
-                crate::external::ExternalArgumentValue::Text { value } => {
-                    serde_json::json!({"kind": "text", "value": value})
-                }
-                crate::external::ExternalArgumentValue::File { path } => {
-                    serde_json::json!({"kind": "file", "path": path.value})
-                }
-            }).collect::<Vec<_>>(),
-            "preserve_input": invocation.preserve_input,
-            "input_names": invocation.inputs.keys().collect::<Vec<_>>(),
-            "parameters": invocation.parameters,
-        }),
+        SemanticNodeKind::ExternalVideo { invocation } => {
+            let executable = identity_value(&invocation.executable.value)?;
+            let arguments = invocation
+                .arguments
+                .iter()
+                .map(|argument| match argument {
+                    crate::external::ExternalArgumentValue::Text { value } => {
+                        Ok(serde_json::json!({"kind": "text", "value": value}))
+                    }
+                    crate::external::ExternalArgumentValue::File { path } => {
+                        let path = identity_value(&path.value)?;
+                        Ok(serde_json::json!({"kind": "file", "path": path}))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let parameters = identity_value(&invocation.parameters)?;
+            Ok(serde_json::json!({
+                "operation": "external_video",
+                "executable": executable,
+                "arguments": arguments,
+                "preserve_input": invocation.preserve_input,
+                "input_names": invocation.inputs.keys().collect::<Vec<_>>(),
+                "parameters": parameters,
+            }))
+        }
     }
+}
+
+fn identity_value(value: &impl Serialize) -> Result<serde_json::Value> {
+    serde_json::to_value(value).map_err(|error| fingerprint_error(&error))
+}
+
+fn fingerprint_error(error: &serde_json::Error) -> Diagnostic {
+    Diagnostic::new(
+        "E_FINGERPRINT",
+        format!("could not serialize semantic identity: {error}"),
+        SourceSpan::file_start("<fingerprint>"),
+    )
 }
 
 fn node_hash(value: ValueRef, hashes: &[Option<String>]) -> &str {
@@ -191,13 +222,7 @@ fn node_hash(value: ValueRef, hashes: &[Option<String>]) -> &str {
 }
 
 pub(crate) fn hash_serializable(value: &impl Serialize) -> Result<String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| {
-        Diagnostic::new(
-            "E_FINGERPRINT",
-            format!("could not serialize semantic identity: {error}"),
-            SourceSpan::file_start("<fingerprint>"),
-        )
-    })?;
+    let bytes = serde_json::to_vec(value).map_err(|error| fingerprint_error(&error))?;
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 

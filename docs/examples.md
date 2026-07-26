@@ -10,8 +10,8 @@ pure; rendering additionally requires FFmpeg and FFprobe.
 body.
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 ## Exact crossfade
@@ -20,8 +20,8 @@ cargo run -- render examples/scenic-sequence.clipasm
 The Video and attached Audio timelines use the same exact frame boundaries.
 
 ```console
-cargo run -- validate examples/crossfade.clipasm
-cargo run -- render examples/crossfade.clipasm
+clipasm validate examples/crossfade.clipasm
+clipasm render examples/crossfade.clipasm
 ```
 
 ## Gentle motion edit
@@ -30,8 +30,8 @@ cargo run -- render examples/crossfade.clipasm
 through `during`.
 
 ```console
-cargo run -- validate examples/gentle-motion-edit.clipasm
-cargo run -- render examples/gentle-motion-edit.clipasm
+clipasm validate examples/gentle-motion-edit.clipasm
+clipasm render examples/gentle-motion-edit.clipasm
 ```
 
 ## Reusable composition
@@ -40,8 +40,8 @@ cargo run -- render examples/gentle-motion-edit.clipasm
 references, named graph inputs, and final concatenation.
 
 ```console
-cargo run -- validate examples/reusable-composition.clipasm
-cargo run -- render examples/reusable-composition.clipasm
+clipasm validate examples/reusable-composition.clipasm
+clipasm render examples/reusable-composition.clipasm
 ```
 
 ## Imported program
@@ -50,8 +50,8 @@ cargo run -- render examples/reusable-composition.clipasm
 `examples/programs/polish.clipasm` as an ordinary typed program.
 
 ```console
-cargo run -- validate examples/imported-program.clipasm
-cargo run -- render examples/imported-program.clipasm
+clipasm validate examples/imported-program.clipasm
+clipasm render examples/imported-program.clipasm
 ```
 
 ## External program
@@ -63,9 +63,9 @@ parameter default. External programs are trusted code and execute during
 rendering; this example requires `python3` on `PATH`.
 
 ```console
-cargo run -- validate examples/external-brighten.clipasm
-cargo run -- inspect examples/external-brighten.clipasm
-cargo run -- render examples/external-brighten.clipasm
+clipasm validate examples/external-brighten.clipasm
+clipasm inspect examples/external-brighten.clipasm
+clipasm render examples/external-brighten.clipasm
 ```
 
 ## Root bindings
@@ -74,12 +74,12 @@ cargo run -- render examples/external-brighten.clipasm
 scalar parameters.
 
 ```console
-cargo run -- validate examples/root-bindings.clipasm \
+clipasm validate examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2
 
-cargo run -- render examples/root-bindings.clipasm \
+clipasm render examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2 \

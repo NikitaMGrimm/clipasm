@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::media_tool::{self, CapturedOutput};
+use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
 
 #[derive(Serialize)]
@@ -62,6 +63,8 @@ pub(crate) fn inspect_external_tool(
             "E_EXTERNAL_EXECUTABLE",
         )?
     };
+    #[cfg(windows)]
+    let candidate = windows_command_candidate(&candidate);
     let executable = fs::canonicalize(&candidate).map_err(|error| {
         Diagnostic::new(
             "E_EXTERNAL_EXECUTABLE",
@@ -136,14 +139,27 @@ pub(super) struct FfmpegRequirements {
 }
 
 impl FfmpegRequirements {
-    pub(super) fn for_render(result_has_audio: bool) -> Self {
+    pub(super) fn for_export(render_policy: RenderPolicy, result_has_audio: bool) -> Self {
         let mut requirements = Self::default();
-        requirements.require_encoders(["libx264", "ffv1", "flac"]);
+        requirements.require_encoders([render_policy.export_video_encoder()]);
         if result_has_audio {
-            requirements.require_encoders(["aac"]);
+            requirements.require_encoders([render_policy.export_audio_encoder()]);
         }
-        requirements.require_muxers(["mp4", "matroska"]);
+        requirements.require_muxers([render_policy.export_container()]);
         requirements
+    }
+
+    pub(super) fn require_native_video_output(&mut self, render_policy: RenderPolicy) {
+        self.require_encoders([
+            render_policy.native_video_encoder(),
+            render_policy.native_audio_encoder(),
+        ]);
+        self.require_muxers([render_policy.native_container()]);
+    }
+
+    pub(super) fn require_native_audio_output(&mut self, render_policy: RenderPolicy) {
+        self.require_encoders([render_policy.native_audio_encoder()]);
+        self.require_muxers([render_policy.native_container()]);
     }
 
     pub(super) fn require_encoders(&mut self, encoders: impl IntoIterator<Item = &'static str>) {
@@ -266,8 +282,9 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
     let authored = Path::new(name);
     #[cfg(windows)]
     {
-        if is_executable_file(authored) {
-            return fs::canonicalize(authored).map_err(|error| {
+        let direct = windows_command_candidate(authored);
+        if is_executable_file(&direct) {
+            return fs::canonicalize(&direct).map_err(|error| {
                 Diagnostic::new(
                     code,
                     format!("could not resolve executable `{name}`: {error}"),
@@ -283,6 +300,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(PathBuf::from)
+            .map(|candidate| windows_command_candidate(&candidate))
             .find(|candidate| is_executable_file(candidate))
             .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
@@ -323,6 +341,30 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
     }
 }
 
+#[cfg(windows)]
+fn windows_command_candidate(candidate: &Path) -> PathBuf {
+    windows_command_candidate_with(candidate, is_executable_file)
+}
+
+#[cfg(any(windows, test))]
+fn windows_command_candidate_with(
+    candidate: &Path,
+    mut is_file: impl FnMut(&Path) -> bool,
+) -> PathBuf {
+    let encoded = candidate.as_os_str().as_encoded_bytes();
+    if encoded.len() >= 4 && encoded[encoded.len() - 4..].eq_ignore_ascii_case(b".exe") {
+        return candidate.to_path_buf();
+    }
+    let mut suffixed = candidate.as_os_str().to_os_string();
+    suffixed.push(".exe");
+    let suffixed = PathBuf::from(suffixed);
+    if is_file(&suffixed) {
+        suffixed
+    } else {
+        candidate.to_path_buf()
+    }
+}
+
 fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -343,14 +385,18 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 fn inspect_tool_identity(tool: &Path, code: &'static str) -> Result<ToolIdentity> {
-    let executable = fs::canonicalize(tool).map_err(|error| {
+    #[cfg(windows)]
+    let tool = windows_command_candidate(tool);
+    #[cfg(not(windows))]
+    let tool = tool.to_path_buf();
+    let executable = fs::canonicalize(&tool).map_err(|error| {
         Diagnostic::new(
             code,
             format!(
                 "could not resolve executable `{}` for identity: {error}",
                 tool.display()
             ),
-            SourceSpan::file_start(tool),
+            SourceSpan::file_start(&tool),
         )
     })?;
     let version = tool_command_output(&executable, &["-version"], code)?;
@@ -444,6 +490,30 @@ mod tests {
 
     static FAKE_TOOL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    #[test]
+    fn windows_command_candidate_matches_rust_executable_suffix_resolution() {
+        let candidate = Path::new("tools/ffmpeg");
+        let resolved =
+            windows_command_candidate_with(candidate, |path| path == Path::new("tools/ffmpeg.exe"));
+        assert_eq!(resolved, Path::new("tools/ffmpeg.exe"));
+
+        let explicit = Path::new("tools/ffmpeg.EXE");
+        let resolved = windows_command_candidate_with(explicit, |_| {
+            panic!("an explicit .exe path must not probe a sibling")
+        });
+        assert_eq!(resolved, explicit);
+
+        let non_exe_extension = Path::new("tools/runner.cmd");
+        let resolved = windows_command_candidate_with(non_exe_extension, |path| {
+            path == Path::new("tools/runner.cmd.exe")
+        });
+        assert_eq!(resolved, Path::new("tools/runner.cmd.exe"));
+
+        let extensionless = Path::new("tools/custom-tool");
+        let resolved = windows_command_candidate_with(extensionless, |_| false);
+        assert_eq!(resolved, extensionless);
+    }
+
     fn fake_tool_test_lock() -> MutexGuard<'static, ()> {
         FAKE_TOOL_TEST_LOCK
             .lock()
@@ -484,7 +554,8 @@ mod tests {
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo mp4; else echo none; fi\n",
         );
         let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
-        let requirements = FfmpegRequirements::for_render(false);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
+        requirements.require_native_video_output(RenderPolicy::CURRENT);
         let error = validate_ffmpeg_capabilities(&identity, &requirements)
             .expect_err("missing Matroska muxer");
         assert_eq!(error.code, "E_FFMPEG_CAPABILITY");
@@ -500,7 +571,8 @@ mod tests {
             "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo scale; else echo none; fi\n",
         );
         let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
-        let mut requirements = FfmpegRequirements::for_render(false);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
+        requirements.require_native_video_output(RenderPolicy::CURRENT);
         requirements.require_filters(["scale"]);
         validate_ffmpeg_capabilities(&identity, &requirements)
             .expect("requested capabilities are available");

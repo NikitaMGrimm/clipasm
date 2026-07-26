@@ -8,8 +8,7 @@ date: YYYY-MM-DD
 Use this lightweight template for a new ClipAsm architecture decision. Replace
 `NNNN` with the next record number and use a descriptive kebab-case filename.
 Use a verified decision date; omit the `date` field rather than inventing one.
-Keep the status current, for example `proposed`, `accepted`, `rejected`, or
-`superseded by ADR NNNN`.
+Keep the status current, for example `proposed`, `accepted`, or `rejected`.
 
 ## Context and problem statement
 
@@ -52,15 +51,11 @@ accepted consequence.
 
 How will the repository keep this decision true? Name the applicable tests,
 exhaustive phase dispatch, invariant-owning type, review step, semantic version,
-compiled or prepared format version, cache execution version, or documentation
-owner. Use only mechanisms that actually apply.
+compiled or prepared format version, cache compatibility revision, or
+documentation owner. Use only mechanisms that actually apply.
 
-## Related decisions and supersession (optional)
+## Related decisions (optional)
 
-- Supersedes ADR NNNN
-- Superseded by ADR NNNN
 - Related to ADR NNNN
 
-Link each listed record. When this decision supersedes an earlier one, update
-the earlier record's status or relationship explicitly without rewriting its
-historical decision.
+Link active records only. Git history retains obsolete decisions.

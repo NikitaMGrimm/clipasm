@@ -98,7 +98,7 @@ tutorial as a complete signature listing.
 Validate the program:
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
 ```
 
 Success ends with:
@@ -113,7 +113,7 @@ project timeline.
 Now inspect the compiled JSON document:
 
 ```console
-cargo run -- inspect examples/scenic-sequence.clipasm
+clipasm inspect examples/scenic-sequence.clipasm
 ```
 
 The command writes JSON to standard output. At a high level, its `nodes` show
@@ -127,7 +127,7 @@ incidental fields.
 Render once you are satisfied with validation:
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 The expected result is `examples/generated/scenic-sequence.mp4`: morning,
@@ -148,14 +148,14 @@ In `local/scenic-practice/scenic-sequence.clipasm`, change the meadow duration
 from `1500ms` to `1s`. Then validate the practice copy:
 
 ```console
-cargo run -- validate local/scenic-practice/scenic-sequence.clipasm
+clipasm validate local/scenic-practice/scenic-sequence.clipasm
 ```
 
 The result is now 96 frames: four seconds at 24 frames per second. Render it
 with:
 
 ```console
-cargo run -- render local/scenic-practice/scenic-sequence.clipasm
+clipasm render local/scenic-practice/scenic-sequence.clipasm
 ```
 
 Because authored asset and output paths resolve from the copied source, its

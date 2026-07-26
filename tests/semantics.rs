@@ -1018,6 +1018,62 @@ fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
 }
 
 #[test]
+fn nested_invocation_resolutions_are_consumed_by_id() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nset_audio(\n  audio={ audio(\"missing.wav\")\nrepeat(3) },\n  video={ image(\"a.ppm\", 1s)\nrepeat(2) },\n)\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("nested invocation resolutions");
+    assert_eq!(
+        compiled.result_domain().expect("Video result").frames().0,
+        20
+    );
+    let document = compiled_json(&compiled);
+    let nodes = document["nodes"].as_array().expect("nodes");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node["kind"]["operation"] == "repeat" && node["kind"]["count"] == 2)
+    );
+    assert!(
+        nodes.iter().any(|node| {
+            node["kind"]["operation"] == "audio_repeat" && node["kind"]["count"] == 3
+        })
+    );
+}
+
+#[test]
+fn nested_stack_blocks_keep_distinct_resolved_output_sequences() {
+    let (_directory, workflow) = project(
+        "clipasm 1\n@owned {\n  @owned {\n    image(\"a.ppm\", 1s)\n    audio(\"missing.wav\")\n  }\n  image(\"b.ppm\", 1s)\n} as (first, sound, last)\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("nested stack-block resolutions");
+    assert_eq!(
+        compiled
+            .outputs()
+            .iter()
+            .map(|output| output.value_type())
+            .collect::<Vec<_>>(),
+        vec![
+            clipasm::model::ValueType::Video,
+            clipasm::model::ValueType::Audio,
+            clipasm::model::ValueType::Video,
+        ]
+    );
+}
+
+#[test]
+fn body_input_ids_preserve_same_typed_descriptor_slots() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 2s)\njoin {\n  drop\n  drop\n  $before\n  repeat(2)\n  $after\n  repeat(3)\n  concat\n}\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("ordered body-input identities");
+    assert_eq!(
+        compiled.result_domain().expect("Video result").frames().0,
+        80
+    );
+}
+
+#[test]
 fn bare_concat_rejects_mixed_timeline_types() {
     let (_directory, workflow) =
         project("clipasm 1\nimage(\"a.ppm\", 1s)\naudio(\"missing.wav\")\nconcat\n");

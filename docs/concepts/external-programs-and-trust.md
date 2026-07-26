@@ -80,6 +80,13 @@ Cache identity covers the declared semantic version, executable and
 `file(...)` bytes, File parameters, bound scalar parameters, upstream artifacts,
 project settings, and the provided FFmpeg and FFprobe identities.
 
+External protocol version 1 receives the resolved paths of declared File
+values. Preflight hashes those files, and rendering re-hashes them when the
+external node is reached. This detects ordinary changes between preparation and
+execution without treating the filesystem as an immutable store.
+The final hash and the process opening a file are separate operations, so a
+concurrent mutation can still change the bytes observed by the process.
+
 It cannot automatically discover:
 
 - imported modules or undeclared files opened by the executable

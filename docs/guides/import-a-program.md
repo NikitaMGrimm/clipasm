@@ -58,8 +58,8 @@ and `10` overrides the `percent` default.
 ## Validate and render the wrapper
 
 ```console
-cargo run -- validate examples/imported-program.clipasm
-cargo run -- render examples/imported-program.clipasm
+clipasm validate examples/imported-program.clipasm
+clipasm render examples/imported-program.clipasm
 ```
 
 Validation links and checks the source package before rendering. Success ends

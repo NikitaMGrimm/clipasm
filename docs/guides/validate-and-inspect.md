@@ -11,7 +11,7 @@ repository root.
 ## Validate the source package
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
 ```
 
 Validation parses and checks the complete source package, evaluates its stack
@@ -26,7 +26,7 @@ Fix that error before inspecting or rendering the program.
 ## Inspect the compiled JSON document
 
 ```console
-cargo run -- inspect examples/scenic-sequence.clipasm
+clipasm inspect examples/scenic-sequence.clipasm
 ```
 
 Inspection prints a downstream serialization of compiled semantics as JSON.
@@ -49,7 +49,7 @@ rendered media.
 Run `render` only when you are ready for preflight to resolve assets and tools:
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 For the phase boundaries, read

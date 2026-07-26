@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::io;
 use std::io::{Read as _, Write as _};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 use serde::Serialize;
 
@@ -178,14 +179,15 @@ fn run_external(
             span.clone(),
         ));
     }
-    let status = child.wait().map_err(|error| {
+    let status = wait_external_with(&mut child, Child::wait);
+    let (stderr, truncated) = stderr_reader.join().unwrap_or_default();
+    let status = status.map_err(|error| {
         Diagnostic::new(
             "E_EXTERNAL_EXECUTION",
             format!("could not wait for external program: {error}"),
             span.clone(),
         )
     })?;
-    let (stderr, truncated) = stderr_reader.join().unwrap_or_default();
     if status.success() {
         return Ok(());
     }
@@ -210,12 +212,46 @@ fn run_external(
     ))
 }
 
+fn wait_external_with(
+    child: &mut Child,
+    wait: impl FnOnce(&mut Child) -> io::Result<ExitStatus>,
+) -> io::Result<ExitStatus> {
+    match wait(child) {
+        Ok(status) => Ok(status),
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::process::Command;
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_failure_kills_and_reaps_the_external_process() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 60"])
+            .spawn()
+            .expect("sleeping child");
+
+        let error = wait_external_with(&mut child, |_| {
+            Err(io::Error::other("injected wait failure"))
+        })
+        .expect_err("injected wait failure");
+
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(
+            child.try_wait().expect("reaped child status").is_some(),
+            "child must be reaped before returning"
+        );
+    }
 
     #[test]
     fn native_external_process_receives_protocol_and_reports_failure() {

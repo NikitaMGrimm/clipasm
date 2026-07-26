@@ -1,6 +1,6 @@
-# Build and render ClipAsm
+# Install and render ClipAsm
 
-This guide builds ClipAsm from its repository and renders the committed scenic
+This guide installs ClipAsm and renders the repository's committed scenic
 sequence. At the end, you will have a 4.5-second, 320x180 MP4 assembled from
 three included images.
 
@@ -41,17 +41,15 @@ cd clipasm
 If you already have a checkout, enter its repository root instead. Run every
 remaining command on this page from that root.
 
-Build the development binary:
+Install ClipAsm:
 
 ```console
-cargo build
+cargo install clipasm --locked
+clipasm --version
 ```
 
-Cargo downloads the Rust dependencies on the first build. A successful command
-ends with a `Finished` line.
-
-ClipAsm does not currently document a packaged installation workflow, so these
-pages use `cargo run --` to run the binary from the checkout.
+Cargo downloads and builds the Rust dependencies. The second command should
+print the installed ClipAsm version.
 
 ## Validate the source
 
@@ -62,7 +60,7 @@ The first program is already committed at
 Validate it before rendering:
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
 ```
 
 The final line should be:
@@ -81,7 +79,7 @@ editing a program.
 Render the same source:
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 This time ClipAsm performs preflight, where it resolves the images and media
@@ -106,7 +104,7 @@ The source declares its normal output path, but the CLI can override it. Try a
 second publication under the repository's ignored `local/` area:
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm \
+clipasm render examples/scenic-sequence.clipasm \
   --output local/scenic-sequence.mp4
 ```
 
@@ -117,7 +115,7 @@ sibling manifest move to `local/`.
 
 You have:
 
-- built ClipAsm from its repository;
+- installed ClipAsm;
 - validated a source program without opening its media;
 - rendered committed assets through preflight and FFmpeg;
 - located the MP4, manifest, and render cache;

@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::Command;
 
 use clipasm::{compiler, preflight, render};
+use sha2::{Digest, Sha256};
 
 fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
     let source = clipasm::language::parse_file(path)?;
@@ -72,10 +73,64 @@ fn renders_and_reuses_verified_cache() {
     assert!(manifest.get("execution_namespace").is_none());
     assert_eq!(first.cache_hits, 0);
     assert_eq!(first.cache_misses, plan.nodes().len());
+    let upstream = common::cache_artifact(directory.path(), plan.nodes()[0].fingerprint(), "mkv");
+    fs::remove_file(&upstream).expect("remove upstream artifact");
+    fs::remove_file(common::cache_metadata(&upstream)).expect("remove upstream metadata");
+    fs::write(directory.path().join("card.ppm"), b"P3\n1 1\n255\n0 0 0\n")
+        .expect("change authored image after preflight");
     let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits, plan.nodes().len());
+    assert_eq!(second.cache_hits, 1);
     assert_eq!(second.cache_misses, 0);
+    assert!(!upstream.exists(), "pruned upstream cache was recreated");
     assert!(second.manifest.is_file());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&second.manifest).expect("cached manifest"))
+            .expect("cached manifest JSON");
+    assert_eq!(manifest["cache"]["hits"], 1);
+    assert_eq!(manifest["cache"]["misses"], 0);
+}
+
+#[test]
+fn invalid_downstream_cache_expands_to_its_valid_input() {
+    if !common::media_tools_available() {
+        eprintln!("skipping cache frontier test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s, stretch)\nrepeat(2)\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 2);
+    render::render(&plan).expect("initial render");
+    let input = common::cache_artifact(directory.path(), plan.nodes()[0].fingerprint(), "mkv");
+    let result = common::cache_artifact(directory.path(), plan.nodes()[1].fingerprint(), "mkv");
+    let substituted = fs::read(&input).expect("input artifact");
+    fs::write(&result, &substituted).expect("replace result with shorter input");
+    let metadata_path = common::cache_metadata(&result);
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(&metadata_path).expect("result metadata"))
+            .expect("cache metadata JSON");
+    metadata["content_hash"] = serde_json::Value::String(hex::encode(Sha256::digest(&substituted)));
+    fs::write(
+        &metadata_path,
+        serde_json::to_vec(&metadata).expect("cache metadata"),
+    )
+    .expect("update result metadata hash");
+
+    let report = render::render(&plan).expect("repair invalid result cache");
+    assert_eq!(report.cache_hits, 1);
+    assert_eq!(report.cache_misses, 1);
 }
 
 #[test]
@@ -238,7 +293,7 @@ fn renders_and_normalizes_a_video_source() {
         1
     );
     let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits, plan.nodes().len());
+    assert_eq!(second.cache_hits, 1);
     assert_eq!(second.cache_misses, 0);
 }
 
@@ -736,7 +791,7 @@ fn renders_native_audio_trim_repeat_and_concat() {
     assert!(report.output.is_file());
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn renders_non_utf8_output_without_serializing_local_paths() {
     use std::os::unix::ffi::OsStringExt as _;
@@ -784,9 +839,7 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
 #[cfg(unix)]
 #[test]
 fn renders_an_external_video_program() {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    if !common::media_tools_available() || !common::executable_available("python3") {
+    if !common::media_tools_available() || !common::executable_available("python3", "--version") {
         eprintln!("skipping external render test because a required tool is unavailable");
         return;
     }
@@ -799,23 +852,19 @@ fn renders_an_external_video_program() {
     let script = directory.path().join("effect.py");
     fs::write(
         &script,
-        r#"#!/usr/bin/env python3
-import json, subprocess, sys
+        r#"import json, pathlib, subprocess, sys
 r = json.load(sys.stdin)
 assert r["protocol_version"] == 1
 assert r["parameters"]["amount"] == 7
+assert pathlib.Path(r["parameters"]["lut"]).read_bytes() == b"original lookup"
 subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
 "#,
     )
     .expect("script");
-    let mut permissions = fs::metadata(&script)
-        .expect("script metadata")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&script, permissions).expect("executable script");
+    fs::write(directory.path().join("lut.bin"), b"original lookup").expect("lookup file");
     fs::write(
         directory.path().join("effect.clipasm"),
-        "clipasm 1\ninput video: Video\nparam amount: Integer\nexternal {\n  executable = \"./effect.py\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        "clipasm 1\ninput video: Video\nparam amount: Integer\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"python3\"\n  arguments = [file(\"effect.py\")]\n  semantic_version = 1\n  preserve = video\n}\n",
     )
     .expect("external program");
     let workflow = directory.path().join("workflow.clipasm");
@@ -830,4 +879,68 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let report = render::render(&plan).expect("render external program");
     assert!(report.output.is_file());
     assert_eq!(report.cache_misses, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn cached_downstream_node_prunes_a_changed_external_executable() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if !common::media_tools_available() || !common::executable_available("python3", "--version") {
+        eprintln!("skipping external cache frontier test because a required tool is unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let executable = directory.path().join("effect.py");
+    fs::write(
+        &executable,
+        r#"#!/usr/bin/env python3
+import json, subprocess, sys
+r = json.load(sys.stdin)
+subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
+"#,
+    )
+    .expect("external executable");
+    let mut permissions = fs::metadata(&executable)
+        .expect("external metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&executable, permissions).expect("executable permissions");
+    fs::write(
+        directory.path().join("effect.clipasm"),
+        "clipasm 1\ninput video: Video\nexternal {\n  executable = \"./effect.py\"\n  arguments = []\n  semantic_version = 1\n  preserve = video\n}\n",
+    )
+    .expect("external program");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s, stretch)\neffect\nzoom(10)\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 3);
+    let first = render::render(&plan).expect("initial render");
+    assert_eq!(first.cache_misses, 3);
+
+    fs::write(&executable, "#!/bin/sh\nexit 1\n").expect("change external executable");
+    let cached = render::render(&plan).expect("cached downstream prunes external executable");
+    assert_eq!(cached.cache_hits, 1);
+    assert_eq!(cached.cache_misses, 0);
+
+    let result = common::cache_artifact(
+        directory.path(),
+        plan.nodes()[plan.result().get() as usize].fingerprint(),
+        "mkv",
+    );
+    fs::remove_file(&result).expect("remove downstream cache artifact");
+    fs::remove_file(common::cache_metadata(&result)).expect("remove downstream cache metadata");
+    let error = render::render(&plan).expect_err("reached changed external executable");
+    assert_eq!(error.code, "E_EXTERNAL_CHANGED");
 }

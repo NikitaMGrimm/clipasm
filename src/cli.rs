@@ -26,7 +26,7 @@ enum Command {
         #[command(flatten)]
         bindings: BindingArgs,
     },
-    /// Inspect the canonical pure semantic program as JSON.
+    /// Inspect the compiled semantic program as JSON.
     Inspect {
         /// Native `.clipasm` source program.
         source: PathBuf,
@@ -40,7 +40,7 @@ enum Command {
     Render {
         /// Native `.clipasm` source program. Relative paths resolve from its directory.
         source: PathBuf,
-        /// Override `program.output`. Relative paths resolve from the caller's working directory.
+        /// Override `config.output`. Relative paths resolve from the caller's working directory.
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[command(flatten)]

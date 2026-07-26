@@ -49,10 +49,6 @@ Working-artifact and final-export commands do not impose a separate
 and sample counts. This avoids truncating a coverage-rounded Audio tail at the
 last Video timestamp.
 
-The renderer policy change invalidates old cached artifacts, so cache execution
-format version 8 records it. Compiled and prepared semantic formats do not
-change for existing workflows.
-
 ## Consequences
 
 - Crossfade duration, picture overlap, Audio overlap, and output shortening use

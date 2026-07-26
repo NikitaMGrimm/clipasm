@@ -105,20 +105,22 @@ external {
 `executable` resolves relative to this source file when it contains a path, or
 through the platform command lookup for a bare name. `arguments` is an ordered
 list of literal strings and `file("...")` values. File arguments resolve from
-this source file, are content-hashed during preflight, and are passed as resolved
-paths. ClipAsm passes the executable and arguments separately rather than
-constructing a shell command string; normal platform process semantics still
-apply. `semantic_version` must be positive and is part of semantic identity.
-`preserve` names the declared Video input whose exact timeline domain and
-meaningful-audio state the single Video output preserves.
+this source file and are hashed during preflight. External protocol version 1
+passes their resolved paths. Rendering rehashes declared files when the
+external node is reached, but does not snapshot them or prevent a concurrent
+change after that check. ClipAsm passes the executable and arguments separately
+rather than constructing a shell command string; normal platform process
+semantics still apply. `semantic_version` must be positive and is part of
+semantic identity. `preserve` names the declared Video input whose exact
+timeline domain and meaningful-audio state the single Video output preserves.
 
 External programs currently accept fixed Video or Audio inputs and Integer,
 File, or Keyword parameters. File values resolve from the source that supplied
-them and are content-hashed during preflight. Native defaults are applied before execution. An external
-program cannot also contain executable statements or imports; use a separate
-ClipAsm wrapper program for composition. Compilation remains pure. Preflight
-resolves and hashes the executable, and rendering sends a versioned JSON request
-over standard input.
+them and are hashed during preflight. Native defaults are applied before
+execution. An external program cannot also contain executable statements or
+imports; use a separate ClipAsm wrapper program for composition. Compilation
+remains pure. Preflight resolves and hashes the executable, and rendering sends
+a versioned JSON request over standard input.
 
 ## Statements
 

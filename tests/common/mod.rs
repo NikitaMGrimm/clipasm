@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub fn executable_available(name: &str) -> bool {
+pub fn executable_available(name: &str, version_argument: &str) -> bool {
     Command::new(name)
-        .arg("-version")
+        .arg(version_argument)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -14,7 +14,7 @@ pub fn executable_available(name: &str) -> bool {
 }
 
 pub fn media_tools_available() -> bool {
-    executable_available("ffmpeg") && executable_available("ffprobe")
+    executable_available("ffmpeg", "-version") && executable_available("ffprobe", "-version")
 }
 
 pub fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> PathBuf {
@@ -36,4 +36,13 @@ pub fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> P
         "unexpected cache namespaces: {namespaces:?}"
     );
     namespaces[0].join(format!("{fingerprint}.{extension}"))
+}
+
+pub fn cache_metadata(artifact: &Path) -> PathBuf {
+    let mut name = artifact
+        .file_name()
+        .expect("cache artifact file name")
+        .to_os_string();
+    name.push(".cache.json");
+    artifact.parent().expect("cache artifact parent").join(name)
 }

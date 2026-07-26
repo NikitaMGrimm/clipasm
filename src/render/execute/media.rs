@@ -1,11 +1,10 @@
 use crate::diagnostic::Result;
 use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain};
-use crate::preflight::{PreparedAsset, WORKING_PIXEL_FORMAT};
+use crate::preflight::PreparedAsset;
 
 use super::context::RenderContext;
 use super::filters::{
-    append_video_output, image_filter, normalize_audio, samples_for_video, silence_source,
-    video_filter,
+    image_filter, normalize_audio, samples_for_video, silence_source, video_filter,
 };
 
 pub(super) fn image(
@@ -17,22 +16,26 @@ pub(super) fn image(
     let samples = samples_for_video(frames, context.video(), context.audio(), context.span())?;
     let mut command = context.command();
     command.args(["-loop", "1", "-i"]).arg(asset.source_path());
-    command
-        .args(["-f", "lavfi", "-i"])
-        .arg(silence_source(context.audio()));
+    command.args(["-f", "lavfi", "-i"]).arg(silence_source(
+        context.audio(),
+        context.policy().working_channel_layout(),
+    ));
     let filter = format!(
         "[0:v]{},trim=end_frame={},setpts=PTS-STARTPTS[v];[1:a]{}[a]",
-        image_filter(fit, context.video()),
+        image_filter(
+            fit,
+            context.video(),
+            context.policy().working_pixel_format(),
+        ),
         frames.0,
-        normalize_audio(samples, context.audio())
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -49,23 +52,28 @@ pub(super) fn video_source(
     let audio_input = if has_audio {
         "[0:a:0]".to_owned()
     } else {
-        command
-            .args(["-f", "lavfi", "-i"])
-            .arg(silence_source(context.audio()));
+        command.args(["-f", "lavfi", "-i"]).arg(silence_source(
+            context.audio(),
+            context.policy().working_channel_layout(),
+        ));
         "[1:a]".to_owned()
     };
     let filter = format!(
         "[0:v]{}[v];{audio_input}{}[a]",
-        video_filter(fit, frames, context.video()),
-        normalize_audio(samples, context.audio())
+        video_filter(
+            fit,
+            frames,
+            context.video(),
+            context.policy().working_pixel_format(),
+        ),
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -87,15 +95,14 @@ pub(super) fn set_audio(
     let filter = format!(
         "[1:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{}[a]",
         domain.frames().0,
-        normalize_audio(samples, context.audio())
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }
 
@@ -120,16 +127,16 @@ pub(super) fn audio_on_black(
     ));
     command.arg("-i").arg(context.artifact(audio_node)?);
     let filter = format!(
-        "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={WORKING_PIXEL_FORMAT}[v];[1:a]{}[a]",
+        "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
         domain.frames().0,
-        normalize_audio(samples, context.audio())
+        context.policy().working_pixel_format(),
+        normalize_audio(
+            samples,
+            context.audio(),
+            context.policy().working_channel_layout(),
+        )
     );
     command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    append_video_output(
-        &mut command,
-        context.video(),
-        context.audio(),
-        context.temporary(),
-    );
+    context.append_video_output(&mut command);
     context.finish_ffmpeg(command)
 }

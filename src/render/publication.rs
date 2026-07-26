@@ -8,7 +8,7 @@ use crate::source::SourceSpan;
 use super::staging::StagingDirectory;
 
 pub(super) struct PublicationTransaction {
-    _staging: StagingDirectory,
+    staging: Option<StagingDirectory>,
     output: PublicationFile,
     manifest: PublicationFile,
 }
@@ -38,7 +38,7 @@ impl PublicationTransaction {
                 staging.path("manifest.json"),
                 staging.path("manifest.bak"),
             ),
-            _staging: staging,
+            staging: Some(staging),
         })
     }
 
@@ -152,6 +152,17 @@ impl PublicationTransaction {
                     )),
                 }
             }
+        }
+        if self.output.backed_up || self.manifest.backed_up {
+            let recovery = self
+                .staging
+                .take()
+                .expect("active publication transaction owns its staging directory")
+                .keep();
+            notes.push(format!(
+                "publication recovery files were retained in `{}`",
+                recovery.display()
+            ));
         }
         notes.into_iter().fold(error, Diagnostic::note)
     }
@@ -434,6 +445,53 @@ mod tests {
         drop(publication);
         assert_pair(directory.path(), b"old output", b"old manifest");
         assert_no_residue(directory.path());
+    }
+
+    #[test]
+    fn failed_backup_restore_retains_recovery_files() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        write_old_pair(directory.path());
+        let mut publication = transaction(directory.path());
+        fs::write(publication.staged_output(), b"new output").expect("staged output");
+        publication
+            .stage_manifest(b"new manifest")
+            .expect("staged manifest");
+        let manifest_stage = publication.manifest.staged.clone();
+        let output_backup = publication.output.backup.clone();
+
+        let error = publication
+            .commit_with(|source, destination| {
+                if source == manifest_stage {
+                    Err(io::Error::other("injected manifest publication failure"))
+                } else if source == output_backup {
+                    Err(io::Error::other("injected output restore failure"))
+                } else {
+                    fs::rename(source, destination)
+                }
+            })
+            .expect_err("injected publication and rollback failures");
+        assert!(
+            error
+                .notes
+                .iter()
+                .any(|note| note.contains("could not restore previous output"))
+        );
+        assert!(error.notes.iter().any(|note| {
+            note.contains("publication recovery files were retained")
+                && note.contains(
+                    output_backup
+                        .parent()
+                        .expect("backup directory")
+                        .to_string_lossy()
+                        .as_ref(),
+                )
+        }));
+
+        drop(publication);
+        assert_eq!(
+            fs::read(&output_backup).expect("retained output backup"),
+            b"old output"
+        );
     }
 
     #[test]

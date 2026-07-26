@@ -1,20 +1,24 @@
 use crate::model::{ImageFit, NodeId};
 
 use super::tools::FfmpegRequirements;
-use super::{PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind};
+use super::{PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind, RenderPolicy};
 
-pub(super) fn ffmpeg_requirements(nodes: &[PreparedNode], result: NodeId) -> FfmpegRequirements {
+pub(super) fn ffmpeg_requirements(
+    render_policy: RenderPolicy,
+    nodes: &[PreparedNode],
+    result: NodeId,
+) -> FfmpegRequirements {
     let result = nodes
         .get(result.get() as usize)
         .expect("prepared result identifies an existing node");
-    let mut requirements = FfmpegRequirements::for_render(result.has_audio());
+    let mut requirements = FfmpegRequirements::for_export(render_policy, result.has_audio());
     for node in nodes {
         match node.media() {
             PreparedNodeMedia::Video {
                 kind, has_audio, ..
-            } => add_video_requirements(kind, has_audio, &mut requirements),
+            } => add_video_requirements(render_policy, kind, has_audio, &mut requirements),
             PreparedNodeMedia::Audio { kind, .. } => {
-                add_audio_requirements(kind, &mut requirements);
+                add_audio_requirements(render_policy, kind, &mut requirements);
             }
         }
     }
@@ -22,10 +26,14 @@ pub(super) fn ffmpeg_requirements(nodes: &[PreparedNode], result: NodeId) -> Ffm
 }
 
 fn add_video_requirements(
+    render_policy: RenderPolicy,
     kind: &PreparedVideoKind,
     has_audio: bool,
     requirements: &mut FfmpegRequirements,
 ) {
+    if !matches!(kind, PreparedVideoKind::ExternalVideo { .. }) {
+        requirements.require_native_video_output(render_policy);
+    }
     match kind {
         PreparedVideoKind::ImageVideo { fit, .. } => {
             require_image_filter(*fit, requirements);
@@ -82,7 +90,12 @@ fn add_video_requirements(
     }
 }
 
-fn add_audio_requirements(kind: &PreparedAudioKind, requirements: &mut FfmpegRequirements) {
+fn add_audio_requirements(
+    render_policy: RenderPolicy,
+    kind: &PreparedAudioKind,
+    requirements: &mut FfmpegRequirements,
+) {
+    requirements.require_native_audio_output(render_policy);
     match kind {
         PreparedAudioKind::AudioSource { .. }
         | PreparedAudioKind::AudioRepeat { .. }
@@ -124,9 +137,19 @@ mod tests {
     }
 
     #[test]
+    fn export_only_requirements_do_not_assume_native_artifact_encoders() {
+        let requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
+        assert!(requirements.requires_encoder("libx264"));
+        assert!(!requirements.requires_encoder("ffv1"));
+        assert!(!requirements.requires_encoder("flac"));
+        assert!(!requirements.requires_encoder("aac"));
+    }
+
+    #[test]
     fn simple_image_requirements_exclude_unreachable_operations() {
-        let mut requirements = FfmpegRequirements::for_render(false);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);
         add_video_requirements(
+            RenderPolicy::CURRENT,
             &PreparedVideoKind::ImageVideo {
                 asset: asset(),
                 frames: FrameCount(1),
@@ -146,8 +169,9 @@ mod tests {
 
     #[test]
     fn crossfade_and_audio_export_add_their_own_capabilities() {
-        let mut requirements = FfmpegRequirements::for_render(true);
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, true);
         add_video_requirements(
+            RenderPolicy::CURRENT,
             &PreparedVideoKind::Crossfade {
                 before: NodeId::new(0),
                 after: NodeId::new(1),

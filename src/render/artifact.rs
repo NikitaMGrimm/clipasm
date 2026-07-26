@@ -245,11 +245,21 @@ fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: &AudioSpec) -> 
 }
 
 fn verify_zero_start(path: &Path, stream: &ProbeStream) -> Result<()> {
-    let start = stream
-        .start_time
-        .as_deref()
-        .and_then(|value| value.parse::<f64>().ok())
-        .unwrap_or(0.0);
+    let Some(encoded) = stream.start_time.as_deref() else {
+        return Err(contract_error(path, "stream start timestamp is missing"));
+    };
+    let Ok(start) = encoded.parse::<f64>() else {
+        return Err(contract_error(
+            path,
+            &format!("stream start timestamp is not numeric: {encoded:?}"),
+        ));
+    };
+    if !start.is_finite() {
+        return Err(contract_error(
+            path,
+            &format!("stream start timestamp is not finite: {encoded:?}"),
+        ));
+    }
     if start.abs() > 0.000_001 {
         return Err(contract_error(
             path,
@@ -268,4 +278,45 @@ fn contract_error(path: &Path, message: &str) -> Diagnostic {
         ),
         SourceSpan::file_start(path),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stream_with_start(start_time: Option<&str>) -> ProbeStream {
+        ProbeStream {
+            codec_type: None,
+            width: None,
+            height: None,
+            pix_fmt: None,
+            r_frame_rate: None,
+            nb_read_frames: None,
+            start_time: start_time.map(str::to_owned),
+            sample_aspect_ratio: None,
+            sample_rate: None,
+            channels: None,
+        }
+    }
+
+    #[test]
+    fn zero_start_requires_present_finite_numeric_metadata() {
+        let path = Path::new("artifact.mkv");
+        for start in [None, Some("N/A"), Some("NaN"), Some("inf")] {
+            let error = verify_zero_start(path, &stream_with_start(start))
+                .expect_err("invalid start time must be rejected");
+            assert_eq!(error.code, "E_ARTIFACT_CONTRACT");
+        }
+    }
+
+    #[test]
+    fn zero_start_accepts_only_values_within_tolerance() {
+        let path = Path::new("artifact.mkv");
+        for start in ["0", "-0.000001", "0.000001"] {
+            verify_zero_start(path, &stream_with_start(Some(start)))
+                .expect("zero start within tolerance");
+        }
+        verify_zero_start(path, &stream_with_start(Some("0.000002")))
+            .expect_err("nonzero start must be rejected");
+    }
 }

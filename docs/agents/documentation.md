@@ -21,8 +21,8 @@ worktree changes and follow any narrower scope the user assigns.
 
 Tutorials, guides, landing pages, and explanations may summarize canonical
 material for a reader. Link to the owner for exact detail instead of creating a
-competing definition. ADRs preserve decision history and may contain historical
-syntax; they do not override the current language reference.
+competing definition. ADRs describe active durable decisions; Git preserves
+superseded history. ADRs do not override the current language reference.
 
 ## Give each page one primary job
 
@@ -46,7 +46,7 @@ When a task excludes implementation review:
   code structure
 - do not use implementation code to settle a contradiction between canonical
   documents
-- do not silently redesign an accepted ADR or overwrite its history
+- do not silently redesign an accepted ADR
 - do not invent features, compatibility or support promises, performance
   claims, security guarantees, output, or error messages
 - do not treat canonical source or compiled JSON as a public authoring format

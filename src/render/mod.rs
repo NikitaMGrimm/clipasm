@@ -1,13 +1,14 @@
 //! Verified execution, caching, and rollback-capable publication of prepared plans.
 //!
 //! Rendering accepts only [`PreparedPlan`],
-//! re-verifies source content, reuses compatible cached artifacts, executes
-//! `FFmpeg` primitives, and publishes the MP4 and manifest as one in-process
-//! transaction.
+//! re-verifies source content reached by cache-aware execution, reuses
+//! compatible cached artifacts, executes `FFmpeg` primitives, and publishes the
+//! MP4 and manifest as one in-process transaction.
 
 mod artifact;
 mod cache;
 mod execute;
+mod execution_plan;
 mod lock;
 mod manifest;
 mod publication;
@@ -19,12 +20,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::preflight::tools::verify_external_tool;
-use crate::preflight::{
-    PreparedAudioKind, PreparedNodeMedia, PreparedPlan, PreparedVideoKind, verify_prepared_asset,
-};
+use crate::preflight::PreparedPlan;
 use crate::source::SourceSpan;
-use artifact::verify_prepared_artifact;
+use execution_plan::ExecutionPlan;
 use lock::{FileLock, sibling_lock_path};
 use publication::PublicationTransaction;
 
@@ -35,9 +33,13 @@ pub struct RenderReport {
     pub output: PathBuf,
     /// Published JSON manifest path.
     pub manifest: PathBuf,
-    /// Number of prepared-node artifacts reused from verified cache entries.
+    /// Number of verified cache artifacts actually reused.
+    ///
+    /// Nodes pruned behind a downstream cache hit are not counted.
     pub cache_hits: usize,
-    /// Number of prepared-node artifacts rendered during this execution.
+    /// Number of prepared-node artifacts actually rendered.
+    ///
+    /// Nodes pruned behind a downstream cache hit are not counted.
     pub cache_misses: usize,
 }
 
@@ -55,9 +57,8 @@ pub struct RenderReport {
 ///
 /// # Errors
 ///
-/// Returns a diagnostic for changed assets, rendering/cache failures, contract
-/// violations, or publication failures.
-#[allow(clippy::too_many_lines)]
+/// Returns a diagnostic for changed execution-frontier assets,
+/// rendering/cache failures, contract violations, or publication failures.
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
     let source_directory = plan.entrypoint_source().base_directory().ok_or_else(|| {
@@ -82,103 +83,9 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         )
     })?;
 
-    let executor = execute::Executor::new(plan);
-    let mut artifacts = Vec::<PathBuf>::with_capacity(plan.nodes().len());
-    let mut cache_hits = 0;
-    let mut cache_misses = 0;
-    for node in plan.nodes() {
-        if node.id().get() as usize != artifacts.len() {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
-                "prepared nodes are not in stable topological order",
-                node.origin().span.clone(),
-            ));
-        }
-        let extension = match node.media() {
-            PreparedNodeMedia::Video { .. } => "mkv",
-            PreparedNodeMedia::Audio { .. } => "mka",
-        };
-        let artifact = cache_directory.join(format!("{}.{}", node.fingerprint(), extension));
-        match node.media() {
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::ImageVideo { asset, .. }
-                    | PreparedVideoKind::VideoSource { asset, .. },
-                ..
-            }
-            | PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioSource { asset },
-                ..
-            } => verify_prepared_asset(asset, &node.origin().span)?,
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::ExternalVideo {
-                        executable,
-                        arguments,
-                        parameters,
-                        ..
-                    },
-                ..
-            } => {
-                verify_external_tool(executable, &node.origin().span)?;
-                for asset in arguments.iter().filter_map(|argument| match argument {
-                    crate::preflight::PreparedExternalArgument::File(asset) => Some(asset),
-                    crate::preflight::PreparedExternalArgument::Text(_) => None,
-                }) {
-                    verify_prepared_asset(asset, &node.origin().span)?;
-                }
-                for asset in parameters.values().filter_map(|value| match value {
-                    crate::preflight::PreparedExternalParameterValue::File(asset) => Some(asset),
-                    crate::preflight::PreparedExternalParameterValue::Integer(_)
-                    | crate::preflight::PreparedExternalParameterValue::Keyword(_) => None,
-                }) {
-                    verify_prepared_asset(asset, &node.origin().span)?;
-                }
-            }
-            PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => {}
-        }
-        let lock_path = sibling_lock_path(&artifact, "cache");
-        let _lock = FileLock::acquire(
-            &lock_path,
-            "E_CACHE_LOCK",
-            "cache artifact",
-            &node.origin().span,
-        )?;
-        let hit = cache::verify_entry(&artifact, node.fingerprint()).is_ok()
-            && verify_prepared_artifact(
-                plan.ffprobe().executable(),
-                &artifact,
-                node,
-                plan.audio(),
-                crate::preflight::WORKING_PIXEL_FORMAT,
-            )
-            .is_ok();
-        if hit {
-            cache_hits += 1;
-        } else {
-            cache_misses += 1;
-            cache::remove_entry(&artifact)?;
-            let staged = executor.render_node(node, &artifacts, &artifact)?;
-            verify_prepared_artifact(
-                plan.ffprobe().executable(),
-                staged.path(),
-                node,
-                plan.audio(),
-                crate::preflight::WORKING_PIXEL_FORMAT,
-            )?;
-            staged.commit(node.fingerprint())?;
-        }
-        artifacts.push(artifact);
-    }
-
+    let execution = ExecutionPlan::build(plan, &cache_directory)?.execute(plan)?;
     let result_node = &plan.nodes()[plan.result().get() as usize];
-    let result_artifact = artifacts.get(plan.result().get() as usize).ok_or_else(|| {
-        Diagnostic::new(
-            "E_INVALID_PLAN",
-            "prepared result does not identify a primitive artifact",
-            SourceSpan::source_start(plan.entrypoint_source().clone()),
-        )
-    })?;
+    let result_artifact = execution.artifact(plan.result(), &result_node.origin().span)?;
     if let Some(parent) = plan.output().parent() {
         fs::create_dir_all(parent).map_err(|error| {
             Diagnostic::new(
@@ -200,16 +107,22 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         &SourceSpan::file_start(plan.output()),
     )?;
     let publication = PublicationTransaction::new(plan.output(), plan.manifest())?;
+    let executor = execute::Executor::new(plan);
     executor.stage_export(result_artifact, publication.staged_output(), result_node)?;
 
-    let manifest_json = manifest::serialize(plan, result_node, cache_hits, cache_misses)?;
+    let manifest_json = manifest::serialize(
+        plan,
+        result_node,
+        execution.cache_hits(),
+        execution.cache_misses(),
+    )?;
     publication.stage_manifest(&manifest_json)?;
     publication.commit()?;
 
     Ok(RenderReport {
         output: plan.output().to_path_buf(),
         manifest: plan.manifest().to_path_buf(),
-        cache_hits,
-        cache_misses,
+        cache_hits: execution.cache_hits(),
+        cache_misses: execution.cache_misses(),
     })
 }

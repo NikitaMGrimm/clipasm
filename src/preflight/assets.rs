@@ -13,28 +13,23 @@ use crate::source::{SourceFile, SourceSpan};
 use super::tools::{
     ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
 };
-use super::{PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind};
+use super::{
+    PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind,
+    RenderPolicy,
+};
 
-pub(super) fn prepare_output_path(compiled: &CompiledProgram) -> Result<PathBuf> {
+pub(super) fn prepare_output_path(
+    compiled: &CompiledProgram,
+    render_policy: RenderPolicy,
+) -> Result<PathBuf> {
     let output = compiled.output().ok_or_else(|| {
         Diagnostic::new(
             "E_MISSING_OUTPUT",
-            "`render` requires `program.output`",
+            "`render` requires `config.output`",
             SourceSpan::source_start(compiled.entrypoint_source().clone()),
         )
     })?;
-    if output
-        .value
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_none_or(|extension| !extension.eq_ignore_ascii_case("mp4"))
-    {
-        return Err(Diagnostic::new(
-            "E_INVALID_OUTPUT_EXTENSION",
-            "the foundation export profile requires an `.mp4` output path",
-            output.span.clone(),
-        ));
-    }
+    render_policy.validate_output_path(&output.value, &output.span)?;
     resolve_authored_path(&output.value, &output.span)
 }
 

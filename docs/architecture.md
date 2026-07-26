@@ -59,7 +59,7 @@ deterministic dependency-first order from the graph itself. `SourcePackage`
 unit storage order is therefore not semantic. Every unit is checked, including
 units the root never invokes, while checked programs remain stored by
 their `SourceUnitId` for evaluation. The compiler then links each unit's local program
-namespace. Canonical bodies first become a compiler-owned resolved draft that
+namespace. Canonical bodies first become a compiler-owned linked draft that
 records program IDs, effective stack access, descriptor-ordered input and
 parameter roles, and validated body presence once.
 Declaration collection and dependency discovery consume that draft before one
@@ -72,10 +72,11 @@ Forward references therefore participate in the same resolution path as
 ordinary stack values, while dependency cycles remain explicit errors.
 
 After the fixpoint stabilizes, the same recursive resolver performs final
-resolution and records every invocation's concrete signature and stack-binding
-plan together with the ordered output types of structural stack blocks and the
-source body. There is no separate concrete type or stack interpreter. Imported
-definitions and built-ins share the resulting runtime catalog.
+resolution. The resulting resolved draft owns the linked draft, every
+invocation's concrete signature and stack-binding plan, and the ordered output
+types of structural stack blocks and the source body. There is no separate
+concrete type or stack interpreter. Imported definitions and built-ins share
+the resulting runtime catalog.
 
 Checked-source materialization allocates compact local and parameter identities,
 resolves graph and scalar references, parses scalar literals, and assigns
@@ -188,7 +189,7 @@ directory without rewriting authored source.
 Registered programs are:
 
 - direct: `image`, `video`, `audio`, `extract_audio`, `set_audio`, `concat`,
-  `repeat`, `trim`, `zoom`, `wobble`, `flash`, `crossfade`
+  `repeat`, `trim`, `drop`, `zoom`, `wobble`, `flash`, `crossfade`
 - body: `join`, `glue`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
@@ -240,9 +241,10 @@ programs. Composition uses a ClipAsm wrapper.
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves and hashes the executable and turns the node into an exact prepared
 primitive. File arguments and File parameters follow the same source-relative
-resolution, hashing, collision, and re-verification rules as other assets.
-Rendering reverifies those hashes, passes executable and argv separately, sends
-the versioned JSON request, and verifies the artifact before cache commit.
+resolution, hashing, and collision rules as other data assets. Rendering
+re-hashes reached dependencies, passes resolved paths, executable, and argv
+separately, sends the versioned JSON request, and verifies the artifact before
+cache commit.
 Executable and file-argument bytes belong to prepared identity; authored
 executable, arguments, parameters, and graph inputs belong to compiled semantic
 identity.
@@ -252,11 +254,13 @@ identity.
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
 - resolves each authored path relative to the source unit that contains it
-- hashes reachable source files
+- resolves and hashes reachable data assets
 - validates image and video contracts
 - resolves video-source durations
 - verifies FFmpeg identity and only the capabilities required by the reachable
   prepared operations and final export
+- selects one renderer policy whose artifact-cache profile defines cache
+  compatibility and whose export profile defines publication
 - lowers reachable semantic nodes, including `replace_range`, to compact
   renderer primitives
 - assigns content fingerprints and an execution namespace
@@ -280,7 +284,13 @@ fingerprinting remain centralized. FFmpeg discovery records the executable build
 identity before media inspection. After lowering, an exhaustive prepared-primitive
 pass derives the encoders, muxers, and filters required by that graph and its final
 export. Missing capabilities for unreachable operations do not reject the plan;
-external programs remain responsible for extra FFmpeg features they invoke.
+external programs remain responsible for extra FFmpeg features they invoke. The
+artifact-cache profile and its contract revision join the FFmpeg and FFprobe
+build identities in the execution namespace. Native encoders and the native
+working container are required only when the prepared graph contains native
+nodes; external artifacts may use other encodings when they satisfy the
+verified media contract. Export-only policy changes reuse compatible working
+artifacts because publication is always performed afresh.
 
 Audio is normalized to the configured stereo project sample rate, which
 defaults to 48 kHz. Working Video artifacts always contain one lossless
@@ -306,10 +316,11 @@ input to global output boundaries. See
 
 ## Rendering
 
-`render` verifies the prepared FFmpeg and FFprobe build identities and source
-hashes again, reuses only verified cached artifacts, renders missing
-FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, and
-exports one H.264/yuv420p MP4 with AAC when the result Video has audio.
+`render` verifies the prepared FFmpeg and FFprobe build identities and reached
+source assets, reuses only verified cached artifacts, renders missing native
+FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, verifies
+external-program artifacts against the same prepared media shape, and exports
+one H.264/yuv420p MP4 with AAC when the result Video has audio.
 FFmpeg/FFprobe metadata and capability output is captured with fixed limits,
 long-running commands retain only bounded diagnostic stderr, and exact Audio
 sample counts are consumed as a bounded line stream rather than one complete
@@ -322,8 +333,24 @@ Cache and publication orchestration remain in `render`. The native executor
 keeps one exhaustive prepared-primitive dispatcher and delegates media, Audio,
 timeline, effect, transition, external-process, and export work to focused
 modules. One shared render context owns FFmpeg command initialization, upstream
-artifact lookup, temporary output naming, failure cleanup, and atomic cache
-replacement, so operation modules cannot diverge on execution lifecycle.
+artifact lookup, policy-driven native output construction, temporary output
+naming, failure cleanup, and atomic cache replacement, so native operation
+modules cannot diverge on execution lifecycle or artifact encoding. External
+programs use the versioned process protocol and must satisfy artifact
+verification rather than the native encoding policy.
+
+Before execution, a private execution plan walks backward from the prepared
+result. A cache entry becomes a dependency barrier only after both its sidecar
+content hash and exact prepared media contract have been verified. A miss
+expands to the node's canonical prepared inputs. Actions then run in stable
+topological order, rechecking planned misses under their per-artifact lock so a
+concurrent renderer can satisfy them without duplicate work. Source assets,
+external executables, and declared external files are rehashed when their node
+is reached; a verified downstream artifact makes the pruned upstream subtree
+irrelevant. FFmpeg/FFprobe identity verification and final export remain
+unconditional.
+Rehashing detects ordinary changes but does not snapshot files or make the
+check atomic with a renderer or external process opening the path.
 
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated

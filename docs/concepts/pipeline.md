@@ -80,11 +80,13 @@ can execute.
 
 ## Rendering executes and publishes
 
-Rendering verifies the prepared tool identities and source hashes again, reuses
-only verified cache artifacts, and executes missing renderer primitives. It
-also executes any reachable
-[external programs](external-programs-and-trust.md), which are trusted native
-code. Produced artifacts are checked before they enter the cache or publication
+Rendering verifies the prepared tool identities, then plans backward from the
+result. A verified cache artifact satisfies that node and prunes its upstream
+subtree; a miss makes the node's inputs part of the execution frontier. Source
+files and external executables are rehashed when their node is reached, and
+missing renderer primitives are executed in topological order. Reached
+[external programs](external-programs-and-trust.md) are trusted native code.
+Produced artifacts are checked before they enter the cache or publication
 transaction.
 
 Publication chooses exactly one Video output by type. A source program may also

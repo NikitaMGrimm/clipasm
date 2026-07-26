@@ -24,6 +24,7 @@ pub(super) fn video(
         .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
     let preserved = inputs[&invocation.preserve_input];
     let (preserved_domain, preserved_has_audio) = lowerer.video_domain(preserved, node.origin())?;
+    let preserved_domain = *preserved_domain;
     let executable =
         inspect_external_tool(&invocation.executable.value, &invocation.executable.span)?;
     let arguments = invocation
@@ -64,7 +65,7 @@ pub(super) fn video(
             parameters,
             preserve_input: invocation.preserve_input.clone(),
         },
-        *preserved_domain,
+        preserved_domain,
         preserved_has_audio,
         node.semantic_version(),
         node.origin().clone(),

@@ -4,43 +4,30 @@ status: accepted
 
 # Support ordered program outputs
 
-ClipAsm programs have an ordered sequence of typed outputs. Existing built-ins
-retain their established behavior and each declares exactly one Video output,
-but the common program interface permits zero or multiple outputs. Direct
-lowerers and body finalizers return values in descriptor order, and the
-evaluator appends every returned value to the evaluation stack in that order.
-The last returned value is therefore the new stack top.
+ClipAsm programs have an ordered sequence of typed outputs. Direct lowerers and
+body finalizers return values in descriptor order, and the evaluator appends
+them to the stack in that order. The last returned value is therefore the new
+stack top.
 
-ADR 0009 later scopes named values to each authored-program invocation. The
-namespace rules below remain unchanged within one such local scope.
+A source program is not implicitly reduced. Its outputs are the complete
+ordered values owned by its body, including an empty result. Pure validation
+and compilation accept zero, one, or multiple outputs. Publication separately
+requires exactly one Video and permits auxiliary Audio outputs.
 
-A source program is not implicitly reduced. Its outputs are the complete final
-ordered values owned by its body, including an empty result. Pure `validate` and
-`compile` accept zero, one, or multiple source outputs. A header `output` path
-is publication metadata and requires exactly one Video output; preflight and
-rendering remain singular publication phases.
+An item with one output may use `as name`; an item with multiple outputs uses
+`as (name, ...)` and must name the complete sequence in bottom-to-top stack
+order. Zero-output items cannot be named. Names use the containing authored
+program invocation's namespace and its forward-reference, duplicate-name, and
+dependency-cycle rules. Omitting names never removes, reorders, or discards
+values.
 
-An item with one output may use `id`. An item with multiple outputs may use
-`ids: [name, ...]`, which must completely name the outputs in bottom-to-top
-stack order. `id` and `ids` are mutually exclusive. Zero-output items cannot be
-named. Output names use the existing global namespace and forward-reference,
-duplicate-name, and dependency-cycle rules. Omitting output names never removes,
-reorders, or discards values.
+Compiled semantic identity includes ordered source-output hashes, so reordering
+outputs changes identity. Compiled serialization stores the ordered sequence.
+Prepared plans remain singular because rendering selects exactly one Video for
+publication. Inline fixed-input bodies still require exactly one value of the
+port type.
 
-Compiled semantic identity includes the ordered source-output hashes, so
-reordering outputs changes identity. The compiled document stores `outputs`
-instead of one `result`; compiled format version 7 originally recorded that
-incompatible change. ADR 0008 later supersedes the document boundary with
-compiled format version 8 while preserving the ordered-output contract.
-Prepared plans remain singular and their format and cache versions do not
-change.
-
-Inline fixed-input bodies still require exactly one value of the port type.
-Existing body programs retain their one-output finalization behavior. Callable
-authored programs and imports were added later by ADR 0009.
-
-Requiring authored output declarations on source programs was rejected because
-the compiler already evaluates an acyclic composition of statically described
-program effects and therefore knows the exact ordered output sequence. An
-optional checked interface declaration may be considered if separate
-compilation or recursion later makes it useful.
+Requiring separate authored output declarations was rejected because the
+compiler already evaluates an acyclic composition of statically described
+program effects and knows the exact output sequence. Separate compilation or
+recursion could justify an explicit interface later.

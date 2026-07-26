@@ -16,7 +16,10 @@ use crate::program::{
 use crate::source::{OutputBindings, SourceSpan};
 
 use super::check::LocalType;
-use super::draft::{DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftProgram};
+use super::draft::{
+    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftProgram, IdTable, InvocationId,
+    StackBlockId,
+};
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
     StackFrame,
@@ -260,53 +263,55 @@ enum Requirement {
     Generic(TypeVarId),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct ResolvedInvocation {
     pub(super) signature: ResolvedSignature,
     pub(super) stack_plan: StackBindingPlan,
 }
 
-#[derive(Clone, Debug)]
-pub(super) struct InferenceResult {
-    pub(super) invocations: Vec<ResolvedInvocation>,
-    pub(super) stack_blocks: Vec<Vec<ValueType>>,
+#[derive(Debug)]
+pub(super) struct ResolvedDraftProgram {
+    pub(super) draft: DraftProgram,
+    pub(super) invocations: IdTable<InvocationId, ResolvedInvocation>,
+    pub(super) stack_blocks: IdTable<StackBlockId, Vec<ValueType>>,
     pub(super) outputs: Vec<ValueType>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PassPurpose {
-    Infer,
-    Resolve,
+struct PassState {
+    deferred: usize,
+    resolutions: Option<PassResolutions>,
 }
 
-struct PassState {
-    purpose: PassPurpose,
-    deferred: usize,
-    invocations: Vec<Option<ResolvedInvocation>>,
-    stack_blocks: Vec<Option<Vec<ValueType>>>,
+struct PassResolutions {
+    invocations: IdTable<InvocationId, ResolvedInvocation>,
+    stack_blocks: IdTable<StackBlockId, Vec<ValueType>>,
+}
+
+struct FinalResolution {
+    decisions: PassResolutions,
+    outputs: Vec<ValueType>,
 }
 
 impl PassState {
-    fn infer(invocation_count: usize, stack_block_count: usize) -> Self {
+    const fn infer() -> Self {
         Self {
-            purpose: PassPurpose::Infer,
             deferred: 0,
-            invocations: vec![None; invocation_count],
-            stack_blocks: vec![None; stack_block_count],
+            resolutions: None,
         }
     }
 
     fn resolve(invocation_count: usize, stack_block_count: usize) -> Self {
         Self {
-            purpose: PassPurpose::Resolve,
             deferred: 0,
-            invocations: vec![None; invocation_count],
-            stack_blocks: vec![None; stack_block_count],
+            resolutions: Some(PassResolutions {
+                invocations: IdTable::with_slot_count(invocation_count),
+                stack_blocks: IdTable::with_slot_count(stack_block_count),
+            }),
         }
     }
 
     const fn is_resolving(&self) -> bool {
-        matches!(self.purpose, PassPurpose::Resolve)
+        self.resolutions.is_some()
     }
 
     fn mark_deferred(&mut self) {
@@ -317,8 +322,8 @@ impl PassState {
     }
 
     fn record(&mut self, invocation: &DraftInvocation, resolved: ResolvedInvocation) {
-        if self.is_resolving() {
-            self.invocations[invocation.id.0] = Some(resolved);
+        if let Some(resolutions) = &mut self.resolutions {
+            resolutions.invocations.insert(invocation.id, resolved);
         }
     }
 
@@ -327,8 +332,8 @@ impl PassState {
         block: &super::draft::DraftStackBlock,
         outputs: Vec<ValueType>,
     ) {
-        if self.is_resolving() {
-            self.stack_blocks[block.id.0] = Some(outputs);
+        if let Some(resolutions) = &mut self.resolutions {
+            resolutions.stack_blocks.insert(block.id, outputs);
         }
     }
 }
@@ -337,7 +342,7 @@ fn allocate_body_generics(
     body: &DraftBody,
     definitions: &[ProgramDefinition],
     arena: &mut TypeArena,
-    generics: &mut [Option<TypeVarId>],
+    generics: &mut IdTable<InvocationId, TypeVarId>,
 ) {
     for item in &body.items {
         match &item.kind {
@@ -345,7 +350,7 @@ fn allocate_body_generics(
             DraftItemKind::Invocation(invocation) => {
                 let definition = &definitions[invocation.program.index()];
                 if definition.descriptor.is_generic() {
-                    generics[invocation.id.0] = Some(arena.allocate());
+                    generics.insert(invocation.id, arena.allocate());
                 }
                 for input in invocation.inputs.iter().flatten() {
                     if let DraftInput::Body(body) = input {
@@ -366,18 +371,25 @@ fn allocate_body_generics(
 struct TypeState {
     arena: TypeArena,
     slots: BTreeMap<String, LocalSlot>,
-    invocation_generics: Vec<Option<TypeVarId>>,
+    invocation_generics: IdTable<InvocationId, TypeVarId>,
 }
 
 pub(super) fn resolve_program_types(
-    program: &DraftProgram,
+    program: DraftProgram,
     locals: &mut BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
-) -> Result<InferenceResult> {
-    let mut types = prepare_type_state(program, locals, definitions);
-    infer_fixpoint(program, definitions, &mut types)?;
+) -> Result<ResolvedDraftProgram> {
+    let mut types = prepare_type_state(&program, locals, definitions);
+    infer_fixpoint(&program, definitions, &mut types)?;
     apply_resolved_local_types(locals, &types);
-    resolve_final_program(program, definitions, &types)
+    let FinalResolution { decisions, outputs } =
+        resolve_final_program(&program, definitions, &types)?;
+    Ok(ResolvedDraftProgram {
+        draft: program,
+        invocations: decisions.invocations,
+        stack_blocks: decisions.stack_blocks,
+        outputs,
+    })
 }
 
 fn prepare_type_state(
@@ -397,7 +409,7 @@ fn prepare_type_state(
             (name.clone(), slot)
         })
         .collect();
-    let mut invocation_generics = vec![None; program.invocation_count];
+    let mut invocation_generics = IdTable::with_slot_count(program.invocation_count);
     allocate_body_generics(
         &program.body,
         definitions,
@@ -419,7 +431,7 @@ fn infer_fixpoint(
     loop {
         let before = types.arena.revision();
         let mut attempt = types.arena.clone();
-        let mut state = PassState::infer(program.invocation_count, program.stack_block_count);
+        let mut state = PassState::infer();
         infer_program_body(
             program,
             definitions,
@@ -436,7 +448,7 @@ fn infer_fixpoint(
                 LocalSlot::Value(variable) => Some(*variable),
                 LocalSlot::Parameter => None,
             })
-            .chain(types.invocation_generics.iter().flatten().copied())
+            .chain(types.invocation_generics.values().copied())
         {
             types
                 .arena
@@ -467,7 +479,7 @@ fn resolve_final_program(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
     types: &TypeState,
-) -> Result<InferenceResult> {
+) -> Result<FinalResolution> {
     let mut arena = types.arena.clone();
     let mut state = PassState::resolve(program.invocation_count, program.stack_block_count);
     let outputs = infer_program_body(
@@ -482,37 +494,25 @@ fn resolve_final_program(
     if state.deferred > 0 {
         return Err(inference_dependency(&program.span));
     }
-    let invocations = state
-        .invocations
-        .into_iter()
-        .enumerate()
-        .map(|(index, resolved)| {
-            resolved.ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_TYPE_RESOLUTION",
-                    format!("invocation {index} was not resolved"),
-                    program.span.clone(),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let stack_blocks = state
-        .stack_blocks
-        .into_iter()
-        .enumerate()
-        .map(|(index, resolved)| {
-            resolved.ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_TYPE_RESOLUTION",
-                    format!("stack block {index} was not resolved"),
-                    program.span.clone(),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(InferenceResult {
-        invocations,
-        stack_blocks,
+    let resolutions = state
+        .resolutions
+        .expect("final type-resolution pass owns resolution tables");
+    if let Some(index) = resolutions.invocations.first_missing() {
+        return Err(Diagnostic::new(
+            "E_INTERNAL_TYPE_RESOLUTION",
+            format!("invocation {index} was not resolved"),
+            program.span.clone(),
+        ));
+    }
+    if let Some(index) = resolutions.stack_blocks.first_missing() {
+        return Err(Diagnostic::new(
+            "E_INTERNAL_TYPE_RESOLUTION",
+            format!("stack block {index} was not resolved"),
+            program.span.clone(),
+        ));
+    }
+    Ok(FinalResolution {
+        decisions: resolutions,
         outputs,
     })
 }
@@ -522,7 +522,7 @@ fn infer_program_body(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
     slots: &BTreeMap<String, LocalSlot>,
-    invocation_generics: &[Option<TypeVarId>],
+    invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     state: &mut PassState,
     phase: &str,
@@ -577,7 +577,7 @@ fn infer_body(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    invocation_generics: &[Option<TypeVarId>],
+    invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
@@ -652,7 +652,7 @@ fn infer_invocation(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    invocation_generics: &[Option<TypeVarId>],
+    invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
     frame: &mut StackFrame,
@@ -662,7 +662,7 @@ fn infer_invocation(
     let definition = &definitions[invocation.program.index()];
     let access = invocation.access;
 
-    let generic = invocation_generics[invocation.id.0];
+    let generic = invocation_generics.get(invocation.id).copied();
     if let Some(variable) = generic
         && let Some(argument) = &invocation.type_argument
     {
@@ -804,7 +804,7 @@ fn explicit_values(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
-    invocation_generics: &[Option<TypeVarId>],
+    invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     state: &mut PassState,
 ) -> Result<Vec<TypeVarId>> {

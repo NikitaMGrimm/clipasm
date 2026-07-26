@@ -10,6 +10,7 @@ use crate::model::{
 use crate::semantic::SourceOrigin;
 use crate::source::SourceFile;
 
+use super::policy::RenderPolicy;
 use super::tools::{self, ExternalToolIdentity, ToolIdentity};
 
 #[derive(Clone, Debug)]
@@ -44,6 +45,7 @@ pub struct PreparedPlan {
     format_version: u32,
     engine_version: String,
     semantic_hash: String,
+    render_policy: RenderPolicy,
     video: VideoSpec,
     audio: AudioSpec,
     nodes: Vec<PreparedNode>,
@@ -63,6 +65,7 @@ impl PreparedPlan {
         format_version: u32,
         engine_version: String,
         semantic_hash: String,
+        render_policy: RenderPolicy,
         video: VideoSpec,
         audio: AudioSpec,
         nodes: Vec<PreparedNode>,
@@ -79,6 +82,7 @@ impl PreparedPlan {
             format_version,
             engine_version,
             semantic_hash,
+            render_policy,
             video,
             audio,
             nodes,
@@ -167,6 +171,10 @@ impl PreparedPlan {
 
     pub(crate) fn ffmpeg(&self) -> &ToolIdentity {
         &self.ffmpeg
+    }
+
+    pub(crate) const fn render_policy(&self) -> RenderPolicy {
+        self.render_policy
     }
 
     pub(crate) fn ffprobe(&self) -> &ToolIdentity {
@@ -340,6 +348,13 @@ impl PreparedNode {
     /// Return the content fingerprint used to address this node's artifact.
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
+    }
+
+    pub(crate) fn visit_inputs(&self, visitor: impl FnMut(NodeId)) {
+        match &self.media {
+            PreparedMedia::Video { kind, .. } => kind.visit_inputs(visitor),
+            PreparedMedia::Audio { kind, .. } => kind.visit_inputs(visitor),
+        }
     }
 }
 
