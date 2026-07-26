@@ -86,8 +86,33 @@ jobs:
           toolchain: 1.95.0
       - if: runner.os == 'macOS'
         run: brew install ffmpeg
-      - if: runner.os == 'Windows'
-        run: choco install ffmpeg --no-progress --yes
+      - name: Install FFmpeg
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $maximumWaitSeconds = 30 * 60
+          $waitedSeconds = 0
+          $delaySeconds = 1
+          $attempt = 1
+
+          while ($true) {
+            choco install ffmpeg --no-progress --yes
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              break
+            }
+
+            if ($waitedSeconds + $delaySeconds -gt $maximumWaitSeconds) {
+              Write-Host "::error::Chocolatey failed after $attempt attempts and $waitedSeconds seconds of backoff."
+              exit $exitCode
+            }
+
+            Write-Host "Chocolatey attempt $attempt failed; retrying in $delaySeconds seconds."
+            Start-Sleep -Seconds $delaySeconds
+            $waitedSeconds += $delaySeconds
+            $delaySeconds *= 2
+            $attempt += 1
+          }
       - name: Check all targets
         run: cargo check --all-targets
       - name: Run portable tests
