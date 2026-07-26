@@ -6,15 +6,17 @@ use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAcces
 use crate::source::{
     ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
     ProgramBody, ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
-    STACK_BLOCK_DEFAULT_STACK_ACCESS, SourceExternalArgument, SourceExternalImplementation,
-    SourceFile, SourceImport, SourceInput, SourcePackage, SourceParameter, SourceProgram,
-    SourceProgramImplementation, SourceUnit, SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit,
-    VideoSettings,
+    STACK_BLOCK_DEFAULT_STACK_ACCESS, ScalarBinaryOperator,
+    ScalarExpression as SourceScalarExpression, ScalarPostfixOperator, ScalarUnaryOperator,
+    SourceExternalArgument, SourceExternalImplementation, SourceFile, SourceImport, SourceInput,
+    SourcePackage, SourceParameter, SourceProgram, SourceProgramImplementation, SourceUnit,
+    SourceUnitId, Spanned, StackBlock, UnlinkedSourceUnit, VideoSettings,
 };
 
 use super::syntax::{
-    Argument, Block, Declaration, Expression, ExternalArgumentDeclaration,
-    OutputBindings as SyntaxOutputBindings, Scalar, SourceFileSyntax, Statement,
+    Argument, BinaryOperator, Block, Declaration, Expression, ExternalArgumentDeclaration,
+    OutputBindings as SyntaxOutputBindings, PostfixOperator, Scalar, ScalarExpression,
+    SourceFileSyntax, Statement, UnaryOperator,
 };
 use super::{parser, sugar};
 
@@ -366,12 +368,73 @@ fn parse_u32(value: Spanned<String>, field: &str) -> Result<Spanned<u32>> {
     Ok(Spanned::new(parsed, value.span))
 }
 
-fn lower_scalar_literal(value: Scalar) -> Literal {
+fn lower_scalar_literal(value: Scalar) -> SourceScalarExpression {
     match value {
-        Scalar::String(value) => Literal::String(value.value, value.span),
-        Scalar::Atom(value) => match value.value.parse::<i64>() {
+        Scalar::String(value) => lower_scalar_leaf(value, true),
+        Scalar::Atom(value) => lower_scalar_leaf(value, false),
+        Scalar::Expression(expression) => lower_scalar_expression(&expression),
+    }
+}
+
+fn lower_scalar_leaf(value: Spanned<String>, quoted: bool) -> SourceScalarExpression {
+    SourceScalarExpression::Literal(if quoted {
+        Literal::String(value.value, value.span)
+    } else {
+        match value.value.parse::<i64>() {
             Ok(integer) => Literal::Integer(integer, value.span),
-            Err(_) => Literal::String(value.value, value.span),
+            Err(_) => Literal::Atom(value.value, value.span),
+        }
+    })
+}
+
+fn lower_scalar_expression(expression: &ScalarExpression) -> SourceScalarExpression {
+    match expression {
+        ScalarExpression::String(value) => lower_scalar_leaf(value.clone(), true),
+        ScalarExpression::Atom(value) => lower_scalar_leaf(value.clone(), false),
+        ScalarExpression::Reference(reference) => {
+            SourceScalarExpression::Reference(reference.clone())
+        }
+        ScalarExpression::Unary {
+            operator,
+            operand,
+            span,
+        } => SourceScalarExpression::Unary {
+            operator: match operator {
+                UnaryOperator::Positive => ScalarUnaryOperator::Positive,
+                UnaryOperator::Negative => ScalarUnaryOperator::Negative,
+            },
+            operand: Box::new(lower_scalar_expression(operand)),
+            span: span.clone(),
+        },
+        ScalarExpression::Binary {
+            operator,
+            left,
+            right,
+            span,
+        } => SourceScalarExpression::Binary {
+            operator: match operator {
+                BinaryOperator::Range => ScalarBinaryOperator::Range,
+                BinaryOperator::Add => ScalarBinaryOperator::Add,
+                BinaryOperator::Subtract => ScalarBinaryOperator::Subtract,
+                BinaryOperator::Multiply => ScalarBinaryOperator::Multiply,
+                BinaryOperator::Divide => ScalarBinaryOperator::Divide,
+            },
+            left: Box::new(lower_scalar_expression(left)),
+            right: Box::new(lower_scalar_expression(right)),
+            span: span.clone(),
+        },
+        ScalarExpression::Postfix {
+            operator,
+            operand,
+            span,
+        } => SourceScalarExpression::Postfix {
+            operator: match operator {
+                PostfixOperator::Percent => ScalarPostfixOperator::Percent,
+                PostfixOperator::Milliseconds => ScalarPostfixOperator::Milliseconds,
+                PostfixOperator::Seconds => ScalarPostfixOperator::Seconds,
+            },
+            operand: Box::new(lower_scalar_expression(operand)),
+            span: span.clone(),
         },
     }
 }
@@ -417,11 +480,13 @@ impl Lowerer<'_> {
                 lexical,
                 statement.span.clone(),
             )?]),
-            Expression::String(_) | Expression::Atom(_) => Err(Diagnostic::new(
-                "E_INVALID_STATEMENT",
-                "scalar values cannot be used as executable statements",
-                statement.span.clone(),
-            )),
+            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
+                Err(Diagnostic::new(
+                    "E_INVALID_STATEMENT",
+                    "scalar values cannot be used as executable statements",
+                    statement.span.clone(),
+                ))
+            }
         }
     }
 
@@ -565,33 +630,40 @@ impl Lowerer<'_> {
                 span.clone(),
             ));
         }
-        let body = invocation.body.as_ref().ok_or_else(|| {
-            Diagnostic::new(
-                "E_MISSING_PROGRAM_BODY",
-                "`clip` requires a body",
-                invocation.name.span.clone(),
-            )
-        })?;
-        let body = self.lower_program_body(body, lexical)?;
+        let mut body = invocation
+            .body
+            .as_ref()
+            .map(|body| self.lower_program_body(body, lexical))
+            .transpose()?
+            .unwrap_or_else(|| ProgramBody {
+                items: Vec::new(),
+                span: invocation.name.span.clone(),
+            });
         let expansion = sugar::Expansion::new(sugar::Sugar::Clip, invocation.span.clone());
         let access = invocation
             .access
             .as_ref()
             .map_or(StackAccess::Owned, |access| access.value);
-        let access_span = invocation.access.as_ref().map_or_else(
-            || invocation.name.span.clone(),
-            |access| access.span.clone(),
-        );
+        body.items.push(expansion.hidden(
+            "concat",
+            ItemKind::Invocation(Invocation {
+                program: Spanned::new("concat".to_owned(), invocation.name.span.clone()),
+                type_argument: invocation.type_argument.clone(),
+                stack_access: Some(Spanned::new(
+                    StackAccess::Owned,
+                    invocation.name.span.clone(),
+                )),
+                arguments: BTreeMap::new(),
+                body: None,
+            }),
+        ));
 
         Ok(vec![
             expansion.visible(
                 "result",
-                ItemKind::Invocation(Invocation {
-                    program: Spanned::new("glue".to_owned(), invocation.name.span.clone()),
-                    type_argument: invocation.type_argument.clone(),
-                    stack_access: Some(Spanned::new(access, access_span)),
-                    arguments: BTreeMap::new(),
-                    body: Some(body),
+                ItemKind::StackBlock(StackBlock {
+                    stack_access: access,
+                    body,
                 }),
                 output_bindings,
             ),
@@ -617,17 +689,20 @@ impl Lowerer<'_> {
         parameter: &str,
     ) -> Result<ArgumentValue> {
         match expression {
-            Expression::String(value) => Ok(ArgumentValue::Literal(Literal::String(
-                value.value.clone(),
-                value.span.clone(),
+            Expression::String(value) => Ok(ArgumentValue::Scalar(lower_scalar_leaf(
+                value.clone(),
+                true,
             ))),
-            Expression::Atom(value) => {
-                Ok(ArgumentValue::Literal(match value.value.parse::<i64>() {
-                    Ok(integer) => Literal::Integer(integer, value.span.clone()),
-                    Err(_) => Literal::String(value.value.clone(), value.span.clone()),
-                }))
+            Expression::Atom(value) => Ok(ArgumentValue::Scalar(lower_scalar_leaf(
+                value.clone(),
+                false,
+            ))),
+            Expression::Scalar(expression) => {
+                Ok(ArgumentValue::Scalar(lower_scalar_expression(expression)))
             }
-            Expression::Reference(reference) => Ok(ArgumentValue::Reference(reference.clone())),
+            Expression::Reference(reference) => Ok(ArgumentValue::Scalar(
+                SourceScalarExpression::Reference(reference.clone()),
+            )),
             Expression::Invocation(_) | Expression::Block(_) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!("parameter `{program}.{parameter}` requires a scalar value"),
@@ -649,11 +724,13 @@ impl Lowerer<'_> {
                     span: expression.span().clone(),
                 }))
             }
-            Expression::String(_) | Expression::Atom(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                "a graph input requires a reference, invocation, or stack block",
-                expression.span().clone(),
-            )),
+            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
+                Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    "a graph input requires a reference, invocation, or stack block",
+                    expression.span().clone(),
+                ))
+            }
         }
     }
 
@@ -679,11 +756,13 @@ impl Lowerer<'_> {
                 lexical,
                 block.span.clone(),
             )?]),
-            Expression::String(_) | Expression::Atom(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                "expected a graph-producing expression",
-                expression.span().clone(),
-            )),
+            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
+                Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    "expected a graph-producing expression",
+                    expression.span().clone(),
+                ))
+            }
         }
     }
 
@@ -716,7 +795,7 @@ impl Lowerer<'_> {
 
     fn is_scalar_expression(&self, expression: &Expression, lexical: &BTreeSet<String>) -> bool {
         match expression {
-            Expression::String(_) | Expression::Atom(_) => true,
+            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => true,
             Expression::Reference(reference) => {
                 !lexical.contains(&reference.value) && self.parameters.contains(&reference.value)
             }
@@ -754,7 +833,7 @@ mod tests {
     fn lowers_and_compiles_native_positional_graph_expressions() {
         let package = parse_str(
             Path::new("program.clipasm"),
-            "clipasm 1\nconfig {\n  video {\n    width = 1280\n    height = 720\n    fps = 30\n  }\n}\nflash(image(\"before.png\", 1s), image(\"after.png\", 1s), 3)\n",
+            "clipasm 1\nconfig {\n  video {\n    width = 1280\n    height = 720\n    fps = 30\n  }\n}\nflash_cut(image(\"before.png\", 1s), image(\"after.png\", 1s), 100ms)\n",
         )
         .expect("native source");
         let compiled = compiler::compile(&package).expect("compiled source");
@@ -794,7 +873,7 @@ mod tests {
     fn rejects_mixed_positional_and_named_graph_inputs() {
         let error = parse_str(
             Path::new("program.clipasm"),
-            "clipasm 1\nflash(image(\"after.png\", 1s), before=image(\"before.png\", 1s), frames=3)\n",
+            "clipasm 1\nflash_cut(image(\"after.png\", 1s), before=image(\"before.png\", 1s), duration=100ms)\n",
         )
         .expect_err("mixed graph argument styles");
         assert_eq!(error.code, "E_MIXED_GRAPH_ARGUMENT_STYLES");
@@ -820,17 +899,32 @@ mod tests {
         let items = &body(&package).items;
         assert_eq!(items.len(), 3);
 
-        let ItemKind::Invocation(glue) = &items[0].kind else {
-            panic!("generated glue");
+        let ItemKind::StackBlock(block) = &items[0].kind else {
+            panic!("generated stack block");
         };
-        assert_eq!(glue.program.value, "glue");
+        assert_eq!(block.stack_access, StackAccess::Visible);
+        let ItemKind::Invocation(concat) = &block.body.items.last().expect("generated concat").kind
+        else {
+            panic!("generated concat invocation");
+        };
+        assert_eq!(concat.program.value, "concat");
         assert_eq!(
-            glue.stack_access.as_ref().map(|access| access.value),
-            Some(StackAccess::Visible)
+            concat.type_argument.as_ref().map(|argument| argument.value),
+            Some(ValueType::Audio)
         );
         assert_eq!(
-            glue.type_argument.as_ref().map(|argument| argument.value),
-            Some(ValueType::Audio)
+            concat.stack_access.as_ref().map(|access| access.value),
+            Some(StackAccess::Owned)
+        );
+        assert_eq!(
+            block
+                .body
+                .items
+                .last()
+                .expect("generated concat")
+                .origin
+                .visibility,
+            SurfaceVisibility::Hidden
         );
         assert_eq!(items[0].origin.construct, "clip");
         assert_eq!(items[0].origin.visibility, SurfaceVisibility::Visible);
@@ -869,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_is_semantically_equal_to_explicit_glue_and_drop() {
+    fn clip_is_semantically_equal_to_explicit_stack_block_concat_and_drop() {
         let sugar = parse_str(
             Path::new("program.clipasm"),
             "clipasm 1\nclip {\n  image(\"card.png\", 1s)\n} as opening\n$opening\n",
@@ -877,7 +971,7 @@ mod tests {
         .expect("sugar source");
         let explicit = parse_str(
             Path::new("program.clipasm"),
-            "clipasm 1\n@owned glue {\n  image(\"card.png\", 1s)\n} as opening\n@owned drop\n$opening\n",
+            "clipasm 1\n@owned {\n  image(\"card.png\", 1s)\n  @owned concat\n} as opening\n@owned drop\n$opening\n",
         )
         .expect("explicit source");
         assert_eq!(
@@ -899,14 +993,22 @@ mod tests {
         .expect("native clip");
         let error = compiler::compile(&package).expect_err("mixed clip body");
         assert!(error.message.contains("`clip`"), "{}", error.message);
-        assert!(!error.message.contains("`glue`"), "{}", error.message);
+        assert!(!error.message.contains("`concat`"), "{}", error.message);
     }
 
     #[test]
-    fn clip_requires_a_body_and_rejects_arguments() {
-        let missing = parse_str(Path::new("program.clipasm"), "clipasm 1\nclip\n")
-            .expect_err("missing clip body");
-        assert_eq!(missing.code, "E_MISSING_PROGRAM_BODY");
+    fn clip_treats_an_omitted_body_as_empty_and_rejects_arguments() {
+        let mut empty_errors = Vec::new();
+        for invocation in ["clip", "clip()", "clip {}", "clip() {}"] {
+            let package = parse_str(
+                Path::new("program.clipasm"),
+                &format!("clipasm 1\n{invocation}\n"),
+            )
+            .expect("empty clip lowers");
+            let error = compiler::compile(&package).expect_err("empty clip cannot concatenate");
+            empty_errors.push((error.code, error.message));
+        }
+        assert!(empty_errors.windows(2).all(|pair| pair[0] == pair[1]));
 
         let argument = parse_str(
             Path::new("program.clipasm"),

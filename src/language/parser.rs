@@ -5,10 +5,10 @@ use crate::source::{SourceFile, SourceSpan, Spanned};
 
 use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
-    Argument, AudioConfigDeclaration, Block, ConfigDeclaration, Declaration, Expression,
-    ExternalArgumentDeclaration, ExternalDeclaration, InputDeclaration, Invocation, OutputBindings,
-    ParameterDeclaration, PathDeclaration, Scalar, SourceFileSyntax, Statement,
-    VideoConfigDeclaration,
+    Argument, AudioConfigDeclaration, BinaryOperator, Block, ConfigDeclaration, Declaration,
+    Expression, ExternalArgumentDeclaration, ExternalDeclaration, InputDeclaration, Invocation,
+    OutputBindings, ParameterDeclaration, PathDeclaration, PostfixOperator, Scalar,
+    ScalarExpression, SourceFileSyntax, Statement, UnaryOperator, VideoConfigDeclaration,
 };
 
 pub(crate) fn parse(source: SourceFile) -> Result<SourceFileSyntax> {
@@ -77,7 +77,7 @@ impl Parser {
 
     fn parse_version(&mut self) -> Result<Spanned<u32>> {
         let token = self.advance().clone();
-        let TokenKind::Bare(value) = token.kind else {
+        let TokenKind::Number(value) = token.kind else {
             return Err(Diagnostic::new(
                 "E_INVALID_VERSION",
                 "`clipasm` must be followed by language version `1`",
@@ -187,7 +187,12 @@ impl Parser {
             }
             let field = self.expect_identifier("a video config field")?;
             self.expect(&TokenKind::Equal, "`=` after the video config field")?;
-            let value = self.expect_scalar_text("a video config value")?;
+            let mut value = self.expect_scalar_text("a video config value")?;
+            if field.value == "fps" && self.consume(&TokenKind::Slash) {
+                let denominator = self.expect_scalar_text("a frame-rate denominator")?;
+                value.value.push('/');
+                value.value.push_str(&denominator.value);
+            }
             let target = match field.value.as_str() {
                 "width" => &mut width,
                 "height" => &mut height,
@@ -460,17 +465,10 @@ impl Parser {
     }
 
     fn parse_scalar(&mut self) -> Result<Scalar> {
-        let token = self.advance().clone();
-        match token.kind {
-            TokenKind::String(value) => Ok(Scalar::String(Spanned::new(value, token.span))),
-            TokenKind::Bare(value) | TokenKind::Identifier(value) => {
-                Ok(Scalar::Atom(Spanned::new(value, token.span)))
-            }
-            _ => Err(Diagnostic::new(
-                "E_EXPECTED_TOKEN",
-                "expected a scalar default value",
-                token.span,
-            )),
+        match self.parse_scalar_expression()? {
+            ScalarExpression::String(value) => Ok(Scalar::String(value)),
+            ScalarExpression::Atom(value) => Ok(Scalar::Atom(value)),
+            expression => Ok(Scalar::Expression(expression)),
         }
     }
 
@@ -504,32 +502,178 @@ impl Parser {
     fn parse_expression(&mut self) -> Result<Expression> {
         let access = self.parse_access()?;
         match &self.current().kind {
-            TokenKind::Dollar if access.is_none() => self.parse_reference(),
-            TokenKind::Dollar => Err(Diagnostic::new(
+            TokenKind::Dollar if access.is_some() => Err(Diagnostic::new(
                 "E_INVALID_ACCESS_TARGET",
                 "stack access may modify an invocation or block, not a reference",
                 self.current().span.clone(),
             )),
+            TokenKind::Dollar => self.parse_argument_scalar_expression(),
             TokenKind::LeftBrace => Ok(Expression::Block(self.parse_block(access)?)),
-            TokenKind::String(value) if access.is_none() => {
-                let value = value.clone();
-                let span = self.advance().span.clone();
-                Ok(Expression::String(Spanned::new(value, span)))
-            }
-            TokenKind::Bare(value) if access.is_none() => {
-                let value = value.clone();
-                let span = self.advance().span.clone();
-                Ok(Expression::Atom(Spanned::new(value, span)))
-            }
             TokenKind::Identifier(value)
                 if access.is_none() && !self.identifier_starts_invocation() =>
             {
-                let value = value.clone();
-                let span = self.advance().span.clone();
-                Ok(Expression::Atom(Spanned::new(value, span)))
+                let _ = value;
+                self.parse_argument_scalar_expression()
             }
             TokenKind::Identifier(_) => Ok(Expression::Invocation(self.parse_invocation(access)?)),
+            TokenKind::String(_)
+            | TokenKind::Number(_)
+            | TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::LeftParen
+                if access.is_none() =>
+            {
+                self.parse_argument_scalar_expression()
+            }
             _ => Err(self.expected("an argument expression")),
+        }
+    }
+
+    fn parse_argument_scalar_expression(&mut self) -> Result<Expression> {
+        Ok(match self.parse_scalar_expression()? {
+            ScalarExpression::Reference(reference) => Expression::Reference(reference),
+            ScalarExpression::String(value) => Expression::String(value),
+            ScalarExpression::Atom(value) => Expression::Atom(value),
+            expression => Expression::Scalar(expression),
+        })
+    }
+
+    fn parse_scalar_expression(&mut self) -> Result<ScalarExpression> {
+        let left = self.parse_sum_expression()?;
+        if !self.consume(&TokenKind::DotDot) {
+            return Ok(left);
+        }
+        let span = self.previous().span.clone();
+        let right = self.parse_sum_expression()?;
+        Ok(ScalarExpression::Binary {
+            operator: BinaryOperator::Range,
+            left: Box::new(left),
+            right: Box::new(right),
+            span,
+        })
+    }
+
+    fn parse_sum_expression(&mut self) -> Result<ScalarExpression> {
+        let mut expression = self.parse_product_expression()?;
+        loop {
+            let operator = if self.consume(&TokenKind::Plus) {
+                BinaryOperator::Add
+            } else if self.consume(&TokenKind::Minus) {
+                BinaryOperator::Subtract
+            } else {
+                break;
+            };
+            let span = self.previous().span.clone();
+            let right = self.parse_product_expression()?;
+            expression = ScalarExpression::Binary {
+                operator,
+                left: Box::new(expression),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
+    fn parse_product_expression(&mut self) -> Result<ScalarExpression> {
+        let mut expression = self.parse_unary_expression()?;
+        loop {
+            let operator = if self.consume(&TokenKind::Star) {
+                BinaryOperator::Multiply
+            } else if self.consume(&TokenKind::Slash) {
+                BinaryOperator::Divide
+            } else {
+                break;
+            };
+            let span = self.previous().span.clone();
+            let right = self.parse_unary_expression()?;
+            expression = ScalarExpression::Binary {
+                operator,
+                left: Box::new(expression),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
+    fn parse_unary_expression(&mut self) -> Result<ScalarExpression> {
+        let mut operators = Vec::new();
+        loop {
+            let operator = if self.consume(&TokenKind::Plus) {
+                UnaryOperator::Positive
+            } else if self.consume(&TokenKind::Minus) {
+                UnaryOperator::Negative
+            } else {
+                break;
+            };
+            operators.push((operator, self.previous().span.clone()));
+        }
+        let mut expression = self.parse_postfix_expression()?;
+        for (operator, span) in operators.into_iter().rev() {
+            expression = ScalarExpression::Unary {
+                operator,
+                operand: Box::new(expression),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
+    fn parse_postfix_expression(&mut self) -> Result<ScalarExpression> {
+        let mut expression = self.parse_primary_scalar_expression()?;
+        loop {
+            let operator = if self.consume(&TokenKind::Percent) {
+                Some(PostfixOperator::Percent)
+            } else {
+                let operator = match self.current_identifier() {
+                    Some("ms") => Some(PostfixOperator::Milliseconds),
+                    Some("s") => Some(PostfixOperator::Seconds),
+                    _ => None,
+                };
+                if operator.is_some() {
+                    self.advance();
+                }
+                operator
+            };
+            let Some(operator) = operator else {
+                break;
+            };
+            let span = self.previous().span.clone();
+            expression = ScalarExpression::Postfix {
+                operator,
+                operand: Box::new(expression),
+                span,
+            };
+        }
+        Ok(expression)
+    }
+
+    fn parse_primary_scalar_expression(&mut self) -> Result<ScalarExpression> {
+        let token = self.advance().clone();
+        match token.kind {
+            TokenKind::String(value) => {
+                Ok(ScalarExpression::String(Spanned::new(value, token.span)))
+            }
+            TokenKind::Number(value) | TokenKind::Identifier(value) => {
+                Ok(ScalarExpression::Atom(Spanned::new(value, token.span)))
+            }
+            TokenKind::Dollar => Ok(ScalarExpression::Reference(
+                self.expect_identifier("a scalar parameter name after `$`")?,
+            )),
+            TokenKind::LeftParen => {
+                let span = token.span;
+                self.with_syntax_nesting(span, |parser| {
+                    let expression = parser.parse_scalar_expression()?;
+                    parser.expect(&TokenKind::RightParen, "`)` after the scalar expression")?;
+                    Ok(expression)
+                })
+            }
+            _ => Err(Diagnostic::new(
+                "E_EXPECTED_TOKEN",
+                "expected a scalar expression",
+                token.span,
+            )),
         }
     }
 
@@ -794,7 +938,7 @@ impl Parser {
     fn expect_scalar_text(&mut self, expected: &str) -> Result<Spanned<String>> {
         let token = self.advance().clone();
         match token.kind {
-            TokenKind::String(value) | TokenKind::Bare(value) | TokenKind::Identifier(value) => {
+            TokenKind::String(value) | TokenKind::Number(value) | TokenKind::Identifier(value) => {
                 Ok(Spanned::new(value, token.span))
             }
             _ => Err(Diagnostic::new(
@@ -909,7 +1053,7 @@ mod tests {
     #[test]
     fn parses_invocations_references_bodies_and_bindings() {
         let syntax = parse_text(
-            "clipasm 1\n\n@visible clip<Audio> {\n  $source_audio\n  trim(0s..45s)\n} as soundtrack\n\nflash(\n  {\n    $opening\n    trim(0s..1s)\n  },\n  after=$main_edit,\n  frames=3,\n) as flashed\n",
+            "clipasm 1\n\n@visible clip<Audio> {\n  $source_audio\n  trim(0s..45s)\n} as soundtrack\n\nflash_cut(\n  {\n    $opening\n    trim(0s..1s)\n  },\n  after=$main_edit,\n  duration=100ms,\n) as flashed\n",
         );
         assert_eq!(syntax.version.value, 1);
         assert_eq!(syntax.statements.len(), 2);
@@ -932,15 +1076,15 @@ mod tests {
             OutputBindings::One(_)
         ));
 
-        let Expression::Invocation(flash) = &syntax.statements[1].expression else {
-            panic!("flash invocation");
+        let Expression::Invocation(flash_cut) = &syntax.statements[1].expression else {
+            panic!("flash_cut invocation");
         };
-        assert_eq!(flash.arguments.len(), 3);
+        assert_eq!(flash_cut.arguments.len(), 3);
         assert!(matches!(
-            flash.arguments[0],
+            flash_cut.arguments[0],
             Argument::Positional(Expression::Block(_))
         ));
-        assert!(matches!(flash.arguments[1], Argument::Named { .. }));
+        assert!(matches!(flash_cut.arguments[1], Argument::Named { .. }));
     }
 
     #[test]
@@ -969,12 +1113,25 @@ mod tests {
     }
 
     #[test]
+    fn parses_hyphenated_output_bindings_and_references() {
+        let syntax = parse_text("clipasm 1\nimage(\"card.png\", 1s) as test-name\n$test-name\n");
+        let OutputBindings::One(binding) = &syntax.statements[0].output_bindings else {
+            panic!("single output binding");
+        };
+        assert_eq!(binding.value, "test-name");
+        let Expression::Reference(reference) = &syntax.statements[1].expression else {
+            panic!("reference");
+        };
+        assert_eq!(reference.value, "test-name");
+    }
+
+    #[test]
     fn indentation_is_ignored_but_newlines_separate_statements() {
         let compact = parse_text("clipasm 1\nclip { image(\"card.png\", 1s) } as card\n$card\n");
         assert_eq!(compact.statements.len(), 2);
 
         let irregular =
-            parse_text("clipasm 1\n\tclip {\nimage(\"card.png\", 1s)\n        zoom(8)\n}\n");
+            parse_text("clipasm 1\n\tclip {\nimage(\"card.png\", 1s)\n        zoom_in(8%)\n}\n");
         let Expression::Invocation(clip) = &irregular.statements[0].expression else {
             panic!("clip invocation");
         };
@@ -982,10 +1139,80 @@ mod tests {
 
         let error = parse(SourceFile::new(
             "test.clipasm",
-            "clipasm 1\nclip { image(\"card.png\", 1s) zoom(8) }\n",
+            "clipasm 1\nclip { image(\"card.png\", 1s) zoom_in(8%) }\n",
         ))
         .expect_err("two statements require a newline");
         assert_eq!(error.code, "E_EXPECTED_STATEMENT_END");
+    }
+
+    #[test]
+    fn scalar_expression_precedence_keeps_postfix_inside_product_inside_sum() {
+        let syntax = parse_text("clipasm 1\nrepeat(5 + 6 / 2ms%%)\n");
+        let Expression::Invocation(invocation) = &syntax.statements[0].expression else {
+            panic!("invocation");
+        };
+        let Argument::Positional(Expression::Scalar(ScalarExpression::Binary {
+            operator: BinaryOperator::Add,
+            right,
+            ..
+        })) = &invocation.arguments[0]
+        else {
+            panic!("sum expression");
+        };
+        let ScalarExpression::Binary {
+            operator: BinaryOperator::Divide,
+            right,
+            ..
+        } = right.as_ref()
+        else {
+            panic!("product expression");
+        };
+        let ScalarExpression::Postfix {
+            operator: PostfixOperator::Percent,
+            operand,
+            ..
+        } = right.as_ref()
+        else {
+            panic!("outer percent");
+        };
+        assert!(matches!(
+            operand.as_ref(),
+            ScalarExpression::Postfix {
+                operator: PostfixOperator::Percent,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn range_expression_is_looser_than_duration_addition() {
+        let syntax = parse_text("clipasm 1\ntrim(1s+100ms..100ms)\n");
+        let Expression::Invocation(invocation) = &syntax.statements[0].expression else {
+            panic!("invocation");
+        };
+        let Argument::Positional(Expression::Scalar(ScalarExpression::Binary {
+            operator: BinaryOperator::Range,
+            left,
+            right,
+            ..
+        })) = &invocation.arguments[0]
+        else {
+            panic!("range expression");
+        };
+        assert!(matches!(
+            left.as_ref(),
+            ScalarExpression::Binary {
+                operator: BinaryOperator::Add,
+                ..
+            }
+        ));
+        assert!(matches!(
+            right.as_ref(),
+            ScalarExpression::Postfix {
+                operator: PostfixOperator::Milliseconds,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -1067,7 +1294,7 @@ mod tests {
     fn rejects_invalid_ordering_and_incomplete_structure() {
         let positional = parse(SourceFile::new(
             "test.clipasm",
-            "clipasm 1\nflash(frames=3, $after)\n",
+            "clipasm 1\nflash_cut(duration=100ms, $after)\n",
         ))
         .expect_err("positional after named");
         assert_eq!(positional.code, "E_POSITIONAL_AFTER_NAMED");

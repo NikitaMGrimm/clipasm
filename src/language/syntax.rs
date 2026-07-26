@@ -82,6 +82,63 @@ pub(crate) struct ParameterDeclaration {
 pub(crate) enum Scalar {
     String(Spanned<String>),
     Atom(Spanned<String>),
+    Expression(ScalarExpression),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ScalarExpression {
+    String(Spanned<String>),
+    Atom(Spanned<String>),
+    Reference(Spanned<String>),
+    Unary {
+        operator: UnaryOperator,
+        operand: Box<Self>,
+        span: SourceSpan,
+    },
+    Binary {
+        operator: BinaryOperator,
+        left: Box<Self>,
+        right: Box<Self>,
+        span: SourceSpan,
+    },
+    Postfix {
+        operator: PostfixOperator,
+        operand: Box<Self>,
+        span: SourceSpan,
+    },
+}
+
+impl ScalarExpression {
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::String(value) | Self::Atom(value) | Self::Reference(value) => &value.span,
+            Self::Unary { span, .. } | Self::Binary { span, .. } | Self::Postfix { span, .. } => {
+                span
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UnaryOperator {
+    Positive,
+    Negative,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BinaryOperator {
+    Range,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PostfixOperator {
+    Percent,
+    Milliseconds,
+    Seconds,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -98,6 +155,7 @@ pub(crate) enum Expression {
     Block(Block),
     String(Spanned<String>),
     Atom(Spanned<String>),
+    Scalar(ScalarExpression),
 }
 
 impl Expression {
@@ -105,6 +163,7 @@ impl Expression {
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
             Self::Reference(value) | Self::String(value) | Self::Atom(value) => &value.span,
+            Self::Scalar(expression) => expression.span(),
             Self::Invocation(invocation) => &invocation.span,
             Self::Block(block) => &block.span,
         }

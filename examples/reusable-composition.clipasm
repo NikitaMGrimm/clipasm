@@ -11,7 +11,7 @@ config {
 
 clip {
     image("assets/morning.png", 1s, contain)
-    zoom
+    zoom_in
 } as opening
 
 clip {
@@ -19,13 +19,13 @@ clip {
 } as closing
 
 $opening
-flash(
+flash_cut(
     before=$opening,
     after={
         image("assets/meadow.png", 1s, contain)
-        wobble(2)
+        zoom_in(2%)
     },
-    frames=5,
+    duration=200ms,
 )
 $closing
 concat

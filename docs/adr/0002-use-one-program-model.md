@@ -17,7 +17,7 @@ implementation lowers to a semantic node and runs only during rendering.
 
 This common model does not erase meaningful lifecycle differences. It keeps
 program-specific behavior in definition variants while preventing parser or
-evaluator branches on registered names such as `join`, `glue`, or `during`.
+evaluator branches on registered names such as `join` or `during`.
 
 File declarations, structural stack blocks, references, and `clip` sugar are
 language structures rather than registered programs. Sugar may generate

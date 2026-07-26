@@ -359,7 +359,7 @@ fn unused_imported_programs_accept_valid_scalar_defaults() {
     write(
         directory.path(),
         "defaults.clipasm",
-        "clipasm 1\nparam count: Integer = 2\nparam path: File = \"unused.ppm\"\nparam duration: Duration = 1s\nparam range: TimeRange = 0s..1s\nparam fit: Keyword(cover, contain) = cover\nimage(\"unused.ppm\", 1s)\n",
+        "clipasm 1\nparam amount: Number = 8%\nparam count: Integer = 6 / 3\nparam path: File = \"unused.ppm\"\nparam duration: Duration = 1s + 500ms\nparam range: TimeRange = 0s..(1s + 500ms)\nparam fit: Keyword(cover, contain) = cover\nimage(\"unused.ppm\", 1s)\n",
     );
     write(
         directory.path(),

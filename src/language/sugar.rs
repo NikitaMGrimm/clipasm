@@ -68,6 +68,6 @@ mod tests {
     #[test]
     fn resolves_only_registered_sugars() {
         assert_eq!(resolve("clip"), Some(Sugar::Clip));
-        assert_eq!(resolve("glue"), None);
+        assert_eq!(resolve("concat"), None);
     }
 }

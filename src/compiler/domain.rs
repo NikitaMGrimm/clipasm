@@ -57,16 +57,15 @@ pub(super) fn infer_domains(
                     DomainKnowledge::NotVideo => DomainKnowledge::NotVideo,
                 }
             }
-            SemanticNodeKind::Zoom { input, .. }
-            | SemanticNodeKind::Wobble { input, .. }
+            SemanticNodeKind::ZoomIn { input, .. }
             | SemanticNodeKind::SetAudio { video: input, .. } => {
                 knowledge[input.id().get() as usize].clone()
             }
-            SemanticNodeKind::FlashJoin {
+            SemanticNodeKind::FlashCut {
                 before,
                 after,
                 frames,
-            } => infer_flash_domain(
+            } => infer_flash_cut_domain(
                 &knowledge[before.id().get() as usize],
                 &knowledge[after.id().get() as usize],
                 *frames,
@@ -155,16 +154,16 @@ fn validate_range(
     Ok(())
 }
 
-fn validate_flash_frames(
+fn validate_flash_cut_frames(
     frames: FrameCount,
     after: FrameCount,
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if frames > after {
         return Err(Diagnostic::new(
-            "E_INVALID_FLASH_FRAMES",
+            "E_INVALID_FLASH_CUT_DURATION",
             format!(
-                "`flash.frames` is {} frames, but `after` contains only {} frames",
+                "`flash_cut.duration` covers {} frames, but `after` contains only {} frames",
                 frames.0, after.0
             ),
             span.clone(),
@@ -173,7 +172,7 @@ fn validate_flash_frames(
     Ok(())
 }
 
-fn infer_flash_domain(
+fn infer_flash_cut_domain(
     before: &DomainKnowledge,
     after: &DomainKnowledge,
     frames: FrameCount,
@@ -181,14 +180,14 @@ fn infer_flash_domain(
     span: &crate::source::SourceSpan,
 ) -> Result<DomainKnowledge> {
     if let DomainKnowledge::Known(after) = after {
-        validate_flash_frames(frames, after.frames(), span)?;
+        validate_flash_cut_frames(frames, after.frames(), span)?;
     }
     Ok(match (before, after) {
         (DomainKnowledge::Known(before), DomainKnowledge::Known(after)) => DomainKnowledge::Known(
             project_domain(video, before.frames().checked_add(after.frames(), span)?),
         ),
         (DomainKnowledge::NotVideo, _) | (_, DomainKnowledge::NotVideo) => {
-            unreachable!("flash inputs are typed Video")
+            unreachable!("flash_cut inputs are typed Video")
         }
         _ => DomainKnowledge::Deferred,
     })

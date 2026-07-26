@@ -11,8 +11,8 @@ publication. Executable statements form the source-program body.
 
 The body starts with an empty evaluation stack and receives no implicit
 finalizer. Zero, one, or multiple remaining owned values return in order.
-Authors use `concat` or an explicit nested `glue` when several Videos should
-become one Video; `glue` has no privileged source-file role.
+Authors use `concat`, optionally inside a structural stack block, when several
+Videos should become one Video.
 
 Source outputs belong to compilation semantics. A root `output` path requires
 exactly one Video, whose publication belongs to render orchestration. The path

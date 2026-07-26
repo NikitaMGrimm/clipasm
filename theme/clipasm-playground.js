@@ -1,7 +1,7 @@
 (async () => {
     "use strict";
 
-    const RESPONSE_VERSION = 3;
+    const RESPONSE_VERSION = 4;
     const MAX_SOURCE_BYTES = 256 * 1024;
     const MAX_ASSET_BYTES = 128 * 1024 * 1024;
     const MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;

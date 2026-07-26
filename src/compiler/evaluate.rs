@@ -454,17 +454,28 @@ impl Evaluator {
             definition.descriptor.parameters.len(),
             checked_parameters.len()
         );
-        let parameters = checked_parameters
+        let parameters = definition
+            .descriptor
+            .parameters
             .iter()
-            .map(|binding| {
-                binding.as_ref().map(|binding| match binding {
-                    CheckedParameterValue::Literal(value) => value.clone(),
-                    CheckedParameterValue::Reference(parameter) => {
-                        scope.parameters[parameter.index()].clone()
-                    }
-                })
+            .zip(checked_parameters)
+            .map(|(descriptor, binding)| {
+                binding
+                    .as_ref()
+                    .map(|binding| match binding {
+                        CheckedParameterValue::Expression(expression) => {
+                            super::parameter::evaluate_expression(
+                                construct,
+                                &descriptor.name,
+                                &descriptor.parameter_type,
+                                expression,
+                                &scope.parameters,
+                            )
+                        }
+                    })
+                    .transpose()
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         let call = ResolvedCall::new(
             &definition.descriptor,
             signature,
@@ -609,7 +620,7 @@ impl Evaluator {
                         local.len(),
                         span,
                     )
-                    .note("combine multiple Videos explicitly with `concat` or a nested `glue`"));
+                    .note("combine multiple Videos explicitly with `concat`"));
                 };
                 (vec![*result], span)
             }
@@ -878,23 +889,6 @@ mod tests {
     fn output_programs() -> Vec<ProgramDefinition> {
         vec![
             definition(
-                "glue",
-                1,
-                StackAccess::Owned,
-                vec![],
-                vec![ValueType::Video],
-                ProgramImplementation::Body {
-                    prepare: prepare_root,
-                    contract: crate::program::BodyContract {
-                        initial_values: Vec::new(),
-                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
-                            ValueType::Video.into(),
-                        ]),
-                        count_error_code: "E_BODY_OUTPUT_COUNT",
-                    },
-                },
-            ),
-            definition(
                 "source",
                 3,
                 StackAccess::Owned,
@@ -962,23 +956,6 @@ mod tests {
         };
         contract.initial_values = vec![ValueType::Video.into()];
         vec![
-            definition(
-                "glue",
-                1,
-                StackAccess::Owned,
-                vec![],
-                vec![ValueType::Video],
-                ProgramImplementation::Body {
-                    prepare: prepare_root,
-                    contract: crate::program::BodyContract {
-                        initial_values: Vec::new(),
-                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
-                            ValueType::Video.into(),
-                        ]),
-                        count_error_code: "E_BODY_OUTPUT_COUNT",
-                    },
-                },
-            ),
             definition(
                 "versioned_direct",
                 11,
@@ -1172,7 +1149,7 @@ mod tests {
     #[test]
     fn scoped_builders_propagate_program_semantic_versions() {
         let (workflow, registry) = parse_with_registry(
-            "clipasm 1\nclip { versioned_direct } as unused\nversioned_body {}\n",
+            "clipasm 1\n@owned { versioned_direct } as unused\n@owned drop\nversioned_body {}\n",
             version_programs(),
         );
         let compiled =

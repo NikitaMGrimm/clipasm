@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::Serialize;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-const RESPONSE_VERSION: u32 = 3;
+const RESPONSE_VERSION: u32 = 4;
 const SOURCE_NAME: &str = "playground.clipasm";
 
 #[derive(Serialize)]

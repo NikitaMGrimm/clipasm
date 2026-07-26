@@ -5,7 +5,7 @@ use super::filters::{normalize_audio, samples_for_video};
 use super::recipe::{FfmpegRecipe, RecipeContext};
 use super::timeline::video_segment_sample_counts;
 
-pub(super) fn flash(
+pub(super) fn flash_cut(
     context: &RecipeContext<'_>,
     before: NodeId,
     after: NodeId,

@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::diagnostic::Result;
 use crate::model::{
-    AudioDomain, AudioSpec, FrameCount, FrameRange, ImageFit, NodeId, ValueType, VideoDomain,
-    VideoSpec,
+    AudioDomain, AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, ValueType,
+    VideoDomain, VideoSpec,
 };
 use crate::semantic::SourceOrigin;
 use crate::source::SourceFile;
@@ -396,22 +396,15 @@ pub enum PreparedVideoKind {
         /// Exact total output frames.
         frames: FrameCount,
     },
-    /// A centered linear zoom over the complete upstream clip.
-    Zoom {
+    /// A centered linear `zoom_in` over the complete upstream clip.
+    ZoomIn {
         /// Prepared Video node being zoomed.
         input: NodeId,
-        /// Final percentage increase over the source size.
-        percent: u32,
+        /// Exact final fractional increase over the source size.
+        by: ExactNumber,
     },
-    /// Deterministic two-axis full-clip motion.
-    Wobble {
-        /// Prepared Video node being moved.
-        input: NodeId,
-        /// Maximum movement from center in pixels.
-        pixels: u32,
-    },
-    /// Ordered join whose latter Video fades from white at its start.
-    FlashJoin {
+    /// Ordered cut whose latter Video fades from white at its start.
+    FlashCut {
         /// Video rendered unchanged before the cut.
         before: NodeId,
         /// Video rendered after the cut with the flash fade.
@@ -466,10 +459,9 @@ impl PreparedVideoKind {
             Self::ImageVideo { .. } | Self::VideoSource { .. } => {}
             Self::Slice { input, .. }
             | Self::Repeat { input, .. }
-            | Self::Zoom { input, .. }
-            | Self::Wobble { input, .. }
+            | Self::ZoomIn { input, .. }
             | Self::AudioOnBlack { audio: input } => visitor(*input),
-            Self::FlashJoin { before, after, .. } | Self::Crossfade { before, after, .. } => {
+            Self::FlashCut { before, after, .. } | Self::Crossfade { before, after, .. } => {
                 visitor(*before);
                 visitor(*after);
             }

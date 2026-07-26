@@ -759,7 +759,7 @@ mod tests {
                 &child,
                 StackAccess::Visible,
                 ValueType::Video,
-                "flash",
+                "flash_cut",
                 "after",
                 &SourceSpan::file_start("workflow.clipasm"),
             )
@@ -769,7 +769,7 @@ mod tests {
                 &child,
                 StackAccess::Visible,
                 ValueType::Video,
-                "flash",
+                "flash_cut",
                 "before",
                 &SourceSpan::file_start("workflow.clipasm"),
             )
@@ -813,7 +813,7 @@ mod tests {
                 &child,
                 StackAccess::Visible,
                 ValueType::Video,
-                "flash",
+                "flash_cut",
                 "after",
                 &SourceSpan::file_start("workflow.clipasm"),
             )
@@ -824,7 +824,7 @@ mod tests {
                 &child,
                 StackAccess::Visible,
                 ValueType::Video,
-                "flash",
+                "flash_cut",
                 "before",
                 &SourceSpan::file_start("workflow.clipasm"),
             )
@@ -841,7 +841,7 @@ mod tests {
         let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
-            "glue",
+            "stack block",
             SourceSpan::file_start("workflow.clipasm"),
         );
 
@@ -874,7 +874,7 @@ mod tests {
         let child = EvaluationStack::<ValueRef>::enter_body(
             &root,
             StackAccess::Visible,
-            "glue",
+            "stack block",
             SourceSpan::file_start("workflow.clipasm"),
         );
         stack.push(&child, value(2));

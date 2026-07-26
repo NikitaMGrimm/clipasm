@@ -239,7 +239,7 @@ fn renders_and_normalizes_a_video_source() {
     let workflow_path = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow_path,
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"video-source.mp4\" }\nglue {\n  image(\"card.ppm\", 1s)\n  video(\"source.mkv\", contain)\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"video-source.mp4\" }\n{\n  image(\"card.ppm\", 1s)\n  video(\"source.mkv\", contain)\n  concat\n}\n",
     )
     .expect("workflow");
 
@@ -406,7 +406,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
 #[test]
 fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
     if !common::media_tools_available() {
-        eprintln!("skipping zoom render test because FFmpeg/FFprobe are unavailable");
+        eprintln!("skipping zoom_in render test because FFmpeg/FFprobe are unavailable");
         return;
     }
 
@@ -421,14 +421,14 @@ fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
         fs::write(
             &workflow,
             format!(
-                "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }}\noutput = \"zoom.mp4\" }}\nimage(\"card.ppm\", {duration}, stretch)\nzoom(20)\n"
+                "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }}\noutput = \"zoom_in.mp4\" }}\nimage(\"card.ppm\", {duration}, stretch)\nzoom_in(20%)\n"
             ),
         )
         .expect("workflow");
 
         let compiled = compile_file(&workflow).expect("compile");
         let plan = preflight::preflight(&compiled).expect("preflight");
-        let report = render::render(&plan).expect("render zoom");
+        let report = render::render(&plan).expect("render zoom_in");
         let output = Command::new("ffprobe")
             .args([
                 "-v",
@@ -443,7 +443,7 @@ fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
             ])
             .arg(&report.output)
             .output()
-            .expect("probe zoom");
+            .expect("probe zoom_in");
         assert!(
             output.status.success(),
             "FFprobe failed: {}",
@@ -465,7 +465,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     const FRAME_BYTES: usize = WIDTH * HEIGHT * 3;
 
     if !common::media_tools_available() {
-        eprintln!("skipping zoom centering test because FFmpeg/FFprobe are unavailable");
+        eprintln!("skipping zoom_in centering test because FFmpeg/FFprobe are unavailable");
         return;
     }
 
@@ -484,19 +484,19 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"zoom.mp4\" }\nimage(\"center.ppm\", 1s, stretch)\nzoom(100)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"zoom_in.mp4\" }\nimage(\"center.ppm\", 1s, stretch)\nzoom_in(100%)\n",
     )
     .expect("workflow");
 
     let compiled = compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
-    let report = render::render(&plan).expect("render zoom");
+    let report = render::render(&plan).expect("render zoom_in");
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(&report.output)
         .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .output()
-        .expect("decode zoom");
+        .expect("decode zoom_in");
     assert!(
         decoded.status.success(),
         "FFmpeg decode failed: {}",
@@ -515,80 +515,11 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
 }
 
 #[test]
-fn wobble_renders_exact_domain_without_exposing_borders() {
-    if !common::media_tools_available() {
-        eprintln!("skipping wobble render test because FFmpeg/FFprobe are unavailable");
-        return;
-    }
-
-    let directory = tempfile::tempdir().expect("temporary directory");
-    fs::write(
-        directory.path().join("white.ppm"),
-        b"P3\n2 2\n255\n255 255 255  255 255 255\n255 255 255  255 255 255\n",
-    )
-    .expect("image");
-    let workflow = directory.path().join("workflow.clipasm");
-    fs::write(
-        &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"wobble.mp4\" }\nimage(\"white.ppm\", 1s, stretch)\nwobble(4)\n",
-    )
-    .expect("workflow");
-
-    let compiled = compile_file(&workflow).expect("compile");
-    let plan = preflight::preflight(&compiled).expect("preflight");
-    let report = render::render(&plan).expect("render wobble");
-    let probe = Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-count_frames",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,r_frame_rate,nb_read_frames",
-            "-of",
-            "json",
-        ])
-        .arg(&report.output)
-        .output()
-        .expect("probe wobble");
-    assert!(
-        probe.status.success(),
-        "FFprobe failed: {}",
-        String::from_utf8_lossy(&probe.stderr)
-    );
-    let probe: serde_json::Value = serde_json::from_slice(&probe.stdout).expect("probe JSON");
-    let stream = &probe["streams"][0];
-    assert_eq!(stream["width"], 64);
-    assert_eq!(stream["height"], 48);
-    assert_eq!(stream["r_frame_rate"], "10/1");
-    assert_eq!(stream["nb_read_frames"], "10");
-
-    let decoded = Command::new("ffmpeg")
-        .args(["-v", "error", "-i"])
-        .arg(&report.output)
-        .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
-        .output()
-        .expect("decode wobble");
-    assert!(
-        decoded.status.success(),
-        "FFmpeg decode failed: {}",
-        String::from_utf8_lossy(&decoded.stderr)
-    );
-    assert_eq!(decoded.stdout.len(), 64 * 48 * 3 * 10);
-    assert!(
-        decoded.stdout.iter().all(|sample| *sample >= 240),
-        "wobble exposed a dark border; darkest decoded sample was {}",
-        decoded.stdout.iter().min().copied().unwrap_or_default()
-    );
-}
-
-#[test]
-fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
+fn flash_cut_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     const FRAME_BYTES: usize = 64 * 48 * 3;
 
     if !common::media_tools_available() {
-        eprintln!("skipping flash render test because FFmpeg/FFprobe are unavailable");
+        eprintln!("skipping flash_cut render test because FFmpeg/FFprobe are unavailable");
         return;
     }
 
@@ -606,7 +537,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"flash.mp4\" }\nimage(\"before.ppm\", 1s, stretch)\nimage(\"after.ppm\", 1s, stretch)\njoin { flash(4) }\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"flash_cut.mp4\" }\nimage(\"before.ppm\", 1s, stretch)\nimage(\"after.ppm\", 1s, stretch)\njoin { flash_cut(400ms) }\n",
     )
     .expect("workflow");
 
@@ -620,13 +551,13 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
             .0,
         20
     );
-    let report = render::render(&plan).expect("render flash");
+    let report = render::render(&plan).expect("render flash_cut");
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(&report.output)
         .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .output()
-        .expect("decode flash");
+        .expect("decode flash_cut");
     assert!(
         decoded.status.success(),
         "FFmpeg decode failed: {}",
@@ -650,7 +581,7 @@ fn flash_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     );
     assert!(
         transition_end + 50 < first_after,
-        "flash did not visibly clear: first={first_after}, end={transition_end}"
+        "flash_cut did not visibly clear: first={first_after}, end={transition_end}"
     );
     assert!(
         transition_end.abs_diff(normal_after) < 80,
@@ -919,7 +850,7 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s, stretch)\neffect\nzoom(10)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s, stretch)\neffect\nzoom_in(10%)\n",
     )
     .expect("workflow");
 

@@ -23,10 +23,11 @@ config {
     output = "generated/scenic-sequence.mp4"
 }
 
-glue {
+{
     image("assets/morning.png", 1500ms, contain)
     image("assets/meadow.png", 1500ms, contain)
     image("assets/evening.png", 1500ms, contain)
+    concat
 }
 ```
 
@@ -64,15 +65,16 @@ settings. See
 [configuration and declarations](../language-reference.md#configuration-and-declarations)
 for the complete rules.
 
-## Produce three Video values
+## Produce and concatenate three Video values
 
-The first executable statement is the `glue` body:
+The executable stack block is:
 
 ```clipasm
-glue {
+{
     image("assets/morning.png", 1500ms, contain)
     image("assets/meadow.png", 1500ms, contain)
     image("assets/evening.png", 1500ms, contain)
+    concat
 }
 ```
 
@@ -85,12 +87,12 @@ Each `image` call produces one Video. Its arguments are:
 The committed images already match the 320x180 project, but the explicit fit
 mode makes the intended behavior visible in the example.
 
-Statements run in order. The `glue` body starts without owned values, collects
-the three Video values in that order, and concatenates its homogeneous
-remainder. The result is one Video lasting 4.5 seconds.
+Statements run in order. The block produces the three Video values in that
+order, and `concat` consumes that homogeneous sequence. The block returns the
+one combined Video, lasting 4.5 seconds.
 
 The [built-in program table](../language-reference.md#built-in-programs)
-defines `image` and `glue`. Use it as the reference rather than treating this
+defines `image` and `concat`. Use it as the reference rather than treating this
 tutorial as a complete signature listing.
 
 ## Validate and inspect
@@ -165,7 +167,7 @@ You have seen how a ClipAsm file:
 - selects its language version and declares project configuration;
 - resolves authored paths from the source that contains them;
 - produces Video values with `image`;
-- uses statement order and `glue` to form one sequence;
+- uses a stack block, statement order, and `concat` to form one sequence;
 - moves from pure validation and inspection to rendering.
 
 Continue with [build a reusable composition](reusable-composition.md) to name

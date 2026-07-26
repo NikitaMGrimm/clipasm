@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef};
+use crate::model::{ExactNumber, FrameCount, SourceTime, SourceTimeRange, ValueRef};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceSpan, Spanned};
 
@@ -192,16 +192,16 @@ impl<'a> ResolvedCall<'a> {
         }
     }
 
-    pub(crate) fn optional_integer_parameter(
+    pub(crate) fn optional_number_parameter(
         &self,
         name: &str,
-    ) -> Result<Option<(i64, &SourceSpan)>> {
+    ) -> Result<Option<(&ExactNumber, &SourceSpan)>> {
         let Some(parameter) = self.optional_parameter(name)? else {
             return Ok(None);
         };
         match &parameter.value {
-            ParameterValue::Integer(value) => Ok(Some((*value, &parameter.span))),
-            _ => Err(self.parameter_type_error(name, "integer")),
+            ParameterValue::Number(value) => Ok(Some((value, &parameter.span))),
+            _ => Err(self.parameter_type_error(name, "number")),
         }
     }
 
@@ -280,7 +280,8 @@ impl<'a> ResolvedCall<'a> {
 
 fn parameter_matches(parameter_type: &ParameterType, value: &ParameterValue) -> bool {
     match (parameter_type, value) {
-        (ParameterType::Integer, ParameterValue::Integer(_))
+        (ParameterType::Number, ParameterValue::Number(_))
+        | (ParameterType::Integer, ParameterValue::Integer(_))
         | (ParameterType::File, ParameterValue::File(_))
         | (ParameterType::Duration, ParameterValue::Duration(_))
         | (ParameterType::TimeRange, ParameterValue::TimeRange(_)) => true,

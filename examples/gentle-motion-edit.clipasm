@@ -11,5 +11,5 @@ config {
 
 video("assets/gentle-motion.mkv", contain)
 during(500ms..1500ms) {
-    wobble(2)
+    zoom_in(2%)
 }

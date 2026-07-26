@@ -24,6 +24,11 @@ inputs and an optional `duration`. The default is 500 milliseconds. The authored
 duration becomes the smallest project-frame count that covers it and must cover
 at least one frame. The overlap may not exceed either input.
 
+`flash_cut` uses the same optional authored `duration` interface and covering
+frame conversion, with a default of 160 milliseconds. It remains a
+non-overlapping cut effect: the duration controls how long the white fade clears
+over the start of `after`, and its output domain remains `before + after`.
+
 For input frame counts `before`, `after`, and `overlap`, the output domain is:
 
 ```text
@@ -55,7 +60,8 @@ last Video timestamp.
   one exact frame-domain contract.
 - Fractional frame/sample ratios do not make Audio placement depend on source
   segmentation or packet boundaries.
-- `flash` remains a non-overlapping cut effect with its existing summed domain.
+- `flash_cut` shares the authored-duration conversion while retaining its
+  non-overlapping summed domain.
 - Additional overlapping transitions may reuse the established timing rules,
   but no generic transition kind or runtime transition framework is introduced
   until another operation demonstrates shared semantics.

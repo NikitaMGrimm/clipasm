@@ -6,8 +6,8 @@ pure; rendering additionally requires FFmpeg and FFprobe.
 
 ## Scenic sequence
 
-`examples/scenic-sequence.clipasm` combines three still images in a `glue`
-body.
+`examples/scenic-sequence.clipasm` combines three still images with `concat`
+inside a stack block.
 
 ```console
 clipasm validate examples/scenic-sequence.clipasm
@@ -26,7 +26,7 @@ clipasm render examples/crossfade.clipasm
 
 ## Gentle motion edit
 
-`examples/gentle-motion-edit.clipasm` applies `wobble` only to a selected range
+`examples/gentle-motion-edit.clipasm` applies `zoom_in` only to a selected range
 through `during`.
 
 ```console

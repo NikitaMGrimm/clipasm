@@ -27,10 +27,20 @@ imports, root project/publication settings, source program signatures, bodies,
 invocations, references, literals, and output bindings. The compiler consumes
 only this model.
 
-The native `.clipasm` language is the sole supported source language. Its lexer,
-parser, package loader, and lowerer own surface grammar and sugar. Those details
-disappear before compilation. The source structs remain intentionally opaque;
-the project does not promise a stable external builder API.
+The native `.clipasm` language is the sole supported source language. Its
+normative EBNF, lexer, parser, package loader, and lowerer own surface grammar
+and sugar. The handwritten recursive-descent parser mirrors the grammar's
+productions and produces a source-located scalar-expression tree without
+performing arithmetic. Those details disappear before compilation. The source
+structs remain intentionally opaque; the project does not promise a stable
+external builder API.
+
+Parsing erases empty call parentheses into an empty argument sequence. It
+preserves whether a body was authored until program linking resolves the
+implementation variant. Checked-source construction gives every body program an
+empty draft body when braces were omitted; direct, authored, and external
+programs continue to reject caller-supplied bodies. `clip` applies the same
+normalization while lowering its sugar expansion.
 
 `StackBlock` is a structural canonical-source item rather than a registered
 program. It evaluates a nested body in a child stack frame and returns every
@@ -79,8 +89,12 @@ concrete type or stack interpreter. Imported definitions and built-ins share
 the resulting runtime catalog.
 
 Checked-source materialization allocates compact local and parameter identities,
-resolves graph and scalar references, parses scalar literals, and assigns
-lexical body-port identities. Inputs, parameters, stack plans, and body-port
+resolves graph and scalar references, statically checks scalar operator types,
+and assigns lexical body-port identities. A separate exact scalar evaluator
+reduces Number expressions, applies Integer refinements, and evaluates typed
+Duration and TimeRange composition when a checked invocation is bound. Parsing
+therefore knows expression structure but not rational arithmetic or parameter
+constraints. Inputs, parameters, stack plans, and body-port
 identities remain aligned to typed descriptor slots throughout checked source.
 It consumes the resolver's concrete signatures, stack plans, and output types
 rather than recomputing them. Checked items are complete when constructed; no
@@ -112,9 +126,9 @@ call ABI once. External programs likewise use the ordered call internally and
 reconstruct named input and parameter maps only at the semantic and process
 protocol boundary. The type resolver resolves the single closed Video-or-Audio
 selector used by type-preserving built-ins and stores the resulting concrete
-signature in checked source. A body-inferred program such as bare `glue`
-contributes its homogeneous owned body outputs to that same inference, including
-when the result is named or referenced before its declaration. The evaluator
+signature in checked source. A bare `concat` contributes its homogeneous stack
+inputs to that same inference, including when a containing stack-block result is
+named or referenced before its declaration. The evaluator
 does not repeat type inference. Program implementations therefore receive a
 fully resolved call rather than surface arguments, generic types, or
 stack-frame metadata.
@@ -124,7 +138,7 @@ invocation metadata may override it with `@owned` or `@visible`.
 `owned` binding is limited to values owned by the current frame. `visible`
 binding may also consume enclosing values down to the frame's visibility
 boundary. Values of unrelated types remain ordered and untouched. The setting is per invocation and does not propagate to child calls. Direct built-ins and source programs default to
-`owned`; the native body programs `join`, `glue`, and `during` default to
+`owned`; the native body programs `join` and `during` default to
 `visible`, so they may bind through an enclosing body boundary and expose that
 same visible suffix to independently visible descendants.
 
@@ -195,8 +209,8 @@ directory without rewriting authored source.
 Registered programs are:
 
 - direct: `image`, `video`, `audio`, `extract_audio`, `set_audio`, `concat`,
-  `repeat`, `trim`, `drop`, `zoom`, `wobble`, `flash`, `crossfade`
-- body: `join`, `glue`, `during`
+  `repeat`, `trim`, `drop`, `zoom_in`, `flash_cut`, `crossfade`
+- body: `join`, `during`
 
 Lowering is restricted to a scoped `GraphBuilder`; every generated operation
 inherits the active program's semantic version and origin. Built-in declarations
@@ -222,7 +236,7 @@ implementations. See [ADR 0015](adr/0015-keep-native-operations-phase-owned.md).
 
 Native file declarations are language syntax, not registered invocations. The
 evaluator treats the executable body uniformly without granting any registered
-program, including `glue`, a privileged source-file role. Pure compilation may
+program a privileged source-file role. Pure compilation may
 produce zero, one, or multiple ordered outputs. Publication finds exactly one
 Video among them and permits any number of auxiliary Audio outputs.
 

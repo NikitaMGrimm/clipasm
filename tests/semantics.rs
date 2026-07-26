@@ -51,9 +51,9 @@ fn repeat_reuses_one_upstream_value() {
 }
 
 #[test]
-fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
+fn zoom_in_defaults_to_eight_percent_and_preserves_the_video_domain() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  zoom\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  zoom_in\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -62,53 +62,164 @@ fn zoom_defaults_to_eight_percent_and_preserves_the_video_domain() {
     );
 
     let json = compiled_json(&compiled);
-    let zoom = json["nodes"]
+    let zoom_in = json["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["origin"]["construct"] == "zoom")
-        .expect("zoom node");
-    assert_eq!(zoom["kind"]["operation"], "zoom");
-    assert_eq!(zoom["kind"]["percent"], 8);
-    assert_eq!(zoom["domain"]["frames"], 10);
-    assert_eq!(zoom["domain"]["width"], 64);
-    assert_eq!(zoom["domain"]["height"], 64);
+        .find(|node| node["origin"]["construct"] == "zoom_in")
+        .expect("zoom_in node");
+    assert_eq!(zoom_in["kind"]["operation"], "zoom_in");
+    assert_eq!(zoom_in["kind"]["by"], "2/25");
+    assert_eq!(zoom_in["domain"]["frames"], 10);
+    assert_eq!(zoom_in["domain"]["width"], 64);
+    assert_eq!(zoom_in["domain"]["height"], 64);
 }
 
 #[test]
-fn omitted_and_explicit_default_zoom_have_equal_identity() {
-    let source = |zoom: &str| {
+fn equivalent_zoom_in_numbers_have_equal_identity() {
+    let source = |zoom_in: &str| {
         format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nglue {{\n  image(\"a.ppm\", 1s)\n  {zoom}\n}}\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\n{{\n  image(\"a.ppm\", 1s)\n  {zoom_in}\n  concat\n}}\n"
         )
     };
-    let (_omitted_directory, omitted) = project(&source("zoom"));
-    let (_explicit_directory, explicit) = project(&source("zoom(8)"));
-    let (_changed_directory, changed) = project(&source("zoom(9)"));
+    let (_omitted_directory, omitted) = project(&source("zoom_in"));
+    let (_percent_directory, percent) = project(&source("zoom_in(8%)"));
+    let (_decimal_directory, decimal) = project(&source("zoom_in(0.08)"));
+    let (_fraction_directory, fraction) = project(&source("zoom_in(2 / 25)"));
+    let (_repeated_postfix_directory, repeated_postfix) = project(&source("zoom_in(800%%)"));
+    let (_changed_directory, changed) = project(&source("zoom_in(9%)"));
 
     let omitted = compiler::compile(&omitted).expect("omitted default");
-    let explicit = compiler::compile(&explicit).expect("explicit default");
-    let changed = compiler::compile(&changed).expect("changed percent");
-    assert_eq!(omitted.structure_hash(), explicit.structure_hash());
+    let percent = compiler::compile(&percent).expect("percentage");
+    let decimal = compiler::compile(&decimal).expect("decimal");
+    let fraction = compiler::compile(&fraction).expect("fraction");
+    let repeated_postfix =
+        compiler::compile(&repeated_postfix).expect("repeated percentage postfix");
+    let changed = compiler::compile(&changed).expect("changed amount");
+    assert_eq!(omitted.structure_hash(), percent.structure_hash());
+    assert_eq!(omitted.structure_hash(), decimal.structure_hash());
+    assert_eq!(omitted.structure_hash(), fraction.structure_hash());
+    assert_eq!(omitted.structure_hash(), repeated_postfix.structure_hash());
     assert_ne!(omitted.structure_hash(), changed.structure_hash());
 }
 
 #[test]
-fn zoom_rejects_nonpositive_or_unrepresentable_percentages() {
-    for percent in [-1, 0, i64::from(u32::MAX) + 1] {
+fn empty_argument_delimiters_do_not_change_invocation_semantics() {
+    let source = |invocation: &str| {
+        format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nimage(\"a.ppm\", 1s)\n{invocation}\n"
+        )
+    };
+    let (_bare_directory, bare) = project(&source("zoom_in"));
+    let (_parenthesized_directory, parenthesized) = project(&source("zoom_in()"));
+    assert_eq!(
+        compiler::compile(&bare)
+            .expect("bare invocation")
+            .structure_hash(),
+        compiler::compile(&parenthesized)
+            .expect("parenthesized invocation")
+            .structure_hash()
+    );
+}
+
+#[test]
+fn exact_number_expressions_refine_to_integer_at_the_parameter_boundary() {
+    let (_directory, accepted) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nrepeat(6 / 2)\n",
+    );
+    let compiled = compiler::compile(&accepted).expect("exact integer result");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
+
+    let (_directory, rejected) = project("clipasm 1\nimage(\"a.ppm\", 1s)\nrepeat(5 / 2)\n");
+    let error = compiler::compile(&rejected).expect_err("fraction is not Integer");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    assert!(error.message.contains("evaluates to 2.5"));
+    assert_eq!(error.notes, ["exact value: 5/2"]);
+
+    let (_directory, referenced) =
+        project("clipasm 1\nparam count: Number = 5 / 2\nimage(\"a.ppm\", 1s)\nrepeat($count)\n");
+    let error = compiler::compile(&referenced).expect_err("referenced fraction is not Integer");
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note == "scalar parameter `$count` evaluated to 2.5 (exactly 5/2)")
+    );
+}
+
+#[test]
+fn duration_arithmetic_and_integer_unit_postfixes_are_exact() {
+    let (_directory, subtraction) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 100s - 100ms)\n",
+    );
+    let compiled = compiler::compile(&subtraction).expect("duration subtraction");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        999
+    );
+
+    let (_directory, converted) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 1000 } }\nimage(\"a.ppm\", (6 / 2)ms)\n",
+    );
+    let compiled = compiler::compile(&converted).expect("integer expression in milliseconds");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        3
+    );
+}
+
+#[test]
+fn duration_unit_and_mixed_arithmetic_errors_follow_types_and_precedence() {
+    let (_directory, fractional_unit) = project("clipasm 1\nimage(\"a.ppm\", (5 / 2)ms)\n");
+    let error = compiler::compile(&fractional_unit).expect_err("ms requires Integer");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    assert!(error.message.contains("evaluates to 2.5"));
+
+    let (_directory, mixed_division) = project("clipasm 1\nimage(\"a.ppm\", 5 / 2ms)\n");
+    let error = compiler::compile(&mixed_division).expect_err("Number / Duration is undefined");
+    assert_eq!(error.code, "E_INVALID_SCALAR_OPERATION");
+    assert!(error.message.contains("got Number and Duration"));
+}
+
+#[test]
+fn scalar_parameter_references_participate_in_exact_expressions() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nparam marker: Duration = 100s - 100ms\nparam by: Number = 800%%\nimage(\"a.ppm\", $marker)\nzoom_in($by)\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("parameter expressions");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        999
+    );
+    let json = compiled_json(&compiled);
+    let zoom_in = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "zoom_in")
+        .expect("zoom_in");
+    assert_eq!(zoom_in["kind"]["by"], "2/25");
+}
+
+#[test]
+fn zoom_in_rejects_nonpositive_amounts() {
+    for amount in [-1, 0] {
         let (_directory, workflow) = project(&format!(
-            "clipasm 1\nglue {{\n  image(\"a.ppm\", 1s)\n  zoom({percent})\n}}\n"
+            "clipasm 1\n{{\n  image(\"a.ppm\", 1s)\n  zoom_in({amount})\n  concat\n}}\n"
         ));
-        let error = compiler::compile(&workflow).expect_err("invalid zoom percent");
-        assert_eq!(error.code, "E_INVALID_ZOOM_PERCENT");
-        assert!(error.message.contains("positive integer"));
+        let error = compiler::compile(&workflow).expect_err("invalid zoom_in amount");
+        assert_eq!(error.code, "E_INVALID_ZOOM_AMOUNT");
+        assert!(error.message.contains("positive"));
     }
 }
 
 #[test]
-fn zoom_consumes_only_the_top_video() {
+fn zoom_in_consumes_only_the_top_video() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  zoom(12)\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  zoom_in(12%)\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -118,89 +229,19 @@ fn zoom_consumes_only_the_top_video() {
 
     let json = compiled_json(&compiled);
     let nodes = json["nodes"].as_array().expect("nodes");
-    let zoom = nodes
+    let zoom_in = nodes
         .iter()
-        .find(|node| node["kind"]["operation"] == "zoom")
-        .expect("zoom");
-    assert_eq!(zoom["kind"]["input"]["id"], 1);
-    assert_eq!(zoom["kind"]["percent"], 12);
+        .find(|node| node["kind"]["operation"] == "zoom_in")
+        .expect("zoom_in");
+    assert_eq!(zoom_in["kind"]["input"]["id"], 1);
+    assert_eq!(zoom_in["kind"]["by"], "3/25");
     assert_eq!(nodes.last().expect("result")["kind"]["operation"], "concat");
 }
 
 #[test]
-fn wobble_defaults_to_three_pixels_and_preserves_the_video_domain() {
+fn flash_cut_inside_join_binds_in_order_and_preserves_the_summed_domain() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  wobble\n}\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("compile");
-    let domain = compiled.result_domain().expect("known domain");
-    assert_eq!(domain.frames().0, 10);
-    assert_eq!(domain.width(), 64);
-    assert_eq!(domain.height(), 48);
-
-    let json = compiled_json(&compiled);
-    let wobble = json["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .find(|node| node["origin"]["construct"] == "wobble")
-        .expect("wobble node");
-    assert_eq!(wobble["kind"]["operation"], "wobble");
-    assert_eq!(wobble["kind"]["pixels"], 3);
-}
-
-#[test]
-fn wobble_default_normalizes_identity_and_changed_pixels_change_it() {
-    let source = |wobble: &str| {
-        format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nglue {{\n  image(\"a.ppm\", 1s)\n  {wobble}\n}}\n"
-        )
-    };
-    let (_omitted_directory, omitted) = project(&source("wobble"));
-    let (_explicit_directory, explicit) = project(&source("wobble(3)"));
-    let (_changed_directory, changed) = project(&source("wobble(4)"));
-
-    let omitted = compiler::compile(&omitted).expect("omitted default");
-    let explicit = compiler::compile(&explicit).expect("explicit default");
-    let changed = compiler::compile(&changed).expect("changed pixels");
-    assert_eq!(omitted.structure_hash(), explicit.structure_hash());
-    assert_ne!(omitted.structure_hash(), changed.structure_hash());
-}
-
-#[test]
-fn wobble_rejects_invalid_or_dimension_unsafe_amplitudes() {
-    for (width, height, pixels) in [
-        (1280, 720, -1),
-        (1280, 720, 0),
-        (8, 48, 4),
-        (64, 6, 3),
-        (u32::MAX, u32::MAX, 1),
-    ] {
-        let (_directory, workflow) = project(&format!(
-            "clipasm 1\nconfig {{ video {{ width = {width}\nheight = {height}\nfps = 10 }} }}\nglue {{\n  image(\"a.ppm\", 1s)\n  wobble({pixels})\n}}\n"
-        ));
-        let error = compiler::compile(&workflow).expect_err("invalid wobble pixels");
-        assert_eq!(error.code, "E_INVALID_WOBBLE_PIXELS");
-        assert!(error.message.contains("both project dimensions"));
-    }
-}
-
-#[test]
-fn zoom_and_wobble_accept_values_above_the_old_policy_ceilings() {
-    let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 1024\nheight = 768\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  zoom(101)\n  wobble(65)\n}\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(
-        compiled.result_domain().expect("known domain").frames().0,
-        10
-    );
-}
-
-#[test]
-fn wobble_consumes_only_the_top_video() {
-    let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  wobble(4)\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join { flash_cut }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -209,44 +250,22 @@ fn wobble_consumes_only_the_top_video() {
     );
 
     let json = compiled_json(&compiled);
-    let nodes = json["nodes"].as_array().expect("nodes");
-    let wobble = nodes
-        .iter()
-        .find(|node| node["kind"]["operation"] == "wobble")
-        .expect("wobble");
-    assert_eq!(wobble["kind"]["input"]["id"], 1);
-    assert_eq!(wobble["kind"]["pixels"], 4);
-    assert_eq!(nodes.last().expect("result")["kind"]["operation"], "concat");
-}
-
-#[test]
-fn flash_inside_join_binds_in_order_and_preserves_the_summed_domain() {
-    let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join { flash }\n}\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("compile");
-    assert_eq!(
-        compiled.result_domain().expect("known domain").frames().0,
-        20
-    );
-
-    let json = compiled_json(&compiled);
-    let flash = json["nodes"]
+    let flash_cut = json["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["kind"]["operation"] == "flash_join")
-        .expect("flash");
-    assert_eq!(flash["kind"]["before"]["id"], 0);
-    assert_eq!(flash["kind"]["after"]["id"], 1);
-    assert_eq!(flash["kind"]["frames"], 2);
-    assert_eq!(flash["domain"]["frames"], 20);
+        .find(|node| node["kind"]["operation"] == "flash_cut")
+        .expect("flash_cut");
+    assert_eq!(flash_cut["kind"]["before"]["id"], 0);
+    assert_eq!(flash_cut["kind"]["after"]["id"], 1);
+    assert_eq!(flash_cut["kind"]["frames"], 2);
+    assert_eq!(flash_cut["domain"]["frames"], 20);
 }
 
 #[test]
-fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
+fn explicit_flash_cut_inputs_preserve_unrelated_stack_occurrences() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  flash(before=$x, after=$y, frames=2)\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  flash_cut(before=$x, after=$y, duration=200ms)\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -270,7 +289,7 @@ fn explicit_flash_inputs_preserve_unrelated_stack_occurrences() {
 #[test]
 fn fixed_inputs_accept_isolated_inline_program_bodies() {
     let (_directory, program) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nflash(\n  before={\n    image(\"a.ppm\", 1s)\n    zoom\n  },\n  after=image(\"b.ppm\", 1s),\n  frames=2,\n)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nflash_cut(\n  before={\n    image(\"a.ppm\", 1s)\n    zoom_in\n  },\n  after=image(\"b.ppm\", 1s),\n  duration=200ms,\n)\n",
     );
 
     let compiled = compiler::compile(&program).expect("inline fixed inputs");
@@ -279,14 +298,14 @@ fn fixed_inputs_accept_isolated_inline_program_bodies() {
         20
     );
     let document = compiled_json(&compiled);
-    let flash = document["nodes"]
+    let flash_cut = document["nodes"]
         .as_array()
         .expect("nodes")
         .iter()
-        .find(|node| node["kind"]["operation"] == "flash_join")
-        .expect("flash result");
-    assert_eq!(flash["kind"]["before"]["id"], 1);
-    assert_eq!(flash["kind"]["after"]["id"], 2);
+        .find(|node| node["kind"]["operation"] == "flash_cut")
+        .expect("flash_cut result");
+    assert_eq!(flash_cut["kind"]["before"]["id"], 1);
+    assert_eq!(flash_cut["kind"]["after"]["id"], 2);
 }
 
 #[test]
@@ -320,7 +339,7 @@ fn inline_input_body_requires_exactly_one_value() {
 #[test]
 fn inline_input_bodies_inherit_requested_frames() {
     let (_directory, program) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nduring(500ms..1500ms) {\n  flash(before=image(\"b.ppm\"), after=image(\"c.ppm\"))\n  concat\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nduring(500ms..1500ms) {\n  flash_cut(before=image(\"b.ppm\"), after=image(\"c.ppm\"))\n  concat\n}\n",
     );
     let compiled = compiler::compile(&program).expect("requested inline duration");
     assert_eq!(
@@ -333,7 +352,7 @@ fn inline_input_bodies_inherit_requested_frames() {
 fn inline_fixed_inputs_bind_in_descriptor_order_not_argument_order() {
     let source = |inputs: &str| {
         format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nflash({inputs}frames=2)\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nflash_cut({inputs}duration=200ms)\n"
         )
     };
     let before = "before=image(\"a.ppm\", 1s), ";
@@ -354,7 +373,7 @@ fn inline_fixed_inputs_bind_in_descriptor_order_not_argument_order() {
 #[test]
 fn ids_inside_inline_inputs_use_the_global_named_value_namespace() {
     let (_directory, program) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nflash(\n  before={\n    image(\"a.ppm\", 1s) as reusable\n    zoom\n  },\n  after=image(\"b.ppm\", 1s),\n  frames=2,\n)\n$reusable\nwobble\nconcat\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nflash_cut(\n  before={\n    image(\"a.ppm\", 1s) as reusable\n    zoom_in\n  },\n  after=image(\"b.ppm\", 1s),\n  duration=200ms,\n)\n$reusable\nzoom_in\nconcat\n",
     );
     let compiled = compiler::compile(&program).expect("global inline output binding");
     assert_eq!(
@@ -367,7 +386,7 @@ fn ids_inside_inline_inputs_use_the_global_named_value_namespace() {
 #[test]
 fn ids_inside_clip_bodies_are_visible_to_the_source_body() {
     let (_directory, program) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as reusable\n  zoom\n} as decorated\n$reusable\nwobble\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as reusable\n  zoom_in\n} as decorated\n$reusable\nzoom_in\n",
     );
     let compiled = compiler::compile(&program).expect("global clip-body output binding");
     assert_eq!(
@@ -380,7 +399,7 @@ fn ids_inside_clip_bodies_are_visible_to_the_source_body() {
 #[test]
 fn duplicate_names_cross_inline_input_boundaries() {
     let (_directory, duplicate) = project(
-        "clipasm 1\nflash(\n  before={ image(\"a.ppm\", 1s) as duplicate },\n  after=image(\"b.ppm\", 1s),\n)\nimage(\"c.ppm\", 1s) as duplicate\nconcat\n",
+        "clipasm 1\nflash_cut(\n  before={ image(\"a.ppm\", 1s) as duplicate },\n  after=image(\"b.ppm\", 1s),\n)\nimage(\"c.ppm\", 1s) as duplicate\nconcat\n",
     );
     assert_eq!(
         compiler::compile(&duplicate)
@@ -393,7 +412,7 @@ fn duplicate_names_cross_inline_input_boundaries() {
 #[test]
 fn dependency_cycles_cross_inline_input_boundaries() {
     let (_directory, cycle) = project(
-        "clipasm 1\nflash(\n  before={\n    $outer\n    zoom as inner\n  },\n  after={ image(\"b.ppm\", 1s) },\n)\n$inner\nzoom as outer\nconcat\n",
+        "clipasm 1\nflash_cut(\n  before={\n    $outer\n    zoom_in as inner\n  },\n  after={ image(\"b.ppm\", 1s) },\n)\n$inner\nzoom_in as outer\nconcat\n",
     );
     assert_eq!(
         compiler::compile(&cycle)
@@ -404,20 +423,20 @@ fn dependency_cycles_cross_inline_input_boundaries() {
 }
 
 #[test]
-fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
-    let source = |before: &str, after: &str, frames: &str| {
+fn flash_cut_identity_normalizes_the_default_and_preserves_order_and_duration() {
+    let source = |before: &str, after: &str, duration: &str| {
         format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nclip {{ image(\"a.ppm\", 1s) }} as a\nclip {{ image(\"b.ppm\", 1s) }} as b\nflash(before=${before}, after=${after}{frames})\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nclip {{ image(\"a.ppm\", 1s) }} as a\nclip {{ image(\"b.ppm\", 1s) }} as b\nflash_cut(before=${before}, after=${after}{duration})\n"
         )
     };
     let (_omitted_directory, omitted) = project(&source("a", "b", ""));
-    let (_explicit_directory, explicit) = project(&source("a", "b", ", frames=2"));
-    let (_changed_directory, changed) = project(&source("a", "b", ", frames=3"));
-    let (_reversed_directory, reversed) = project(&source("b", "a", ", frames=2"));
+    let (_explicit_directory, explicit) = project(&source("a", "b", ", duration=160ms"));
+    let (_changed_directory, changed) = project(&source("a", "b", ", duration=300ms"));
+    let (_reversed_directory, reversed) = project(&source("b", "a", ", duration=160ms"));
 
     let omitted = compiler::compile(&omitted).expect("omitted default");
     let explicit = compiler::compile(&explicit).expect("explicit default");
-    let changed = compiler::compile(&changed).expect("changed frames");
+    let changed = compiler::compile(&changed).expect("changed duration");
     let reversed = compiler::compile(&reversed).expect("reversed inputs");
     assert_eq!(omitted.structure_hash(), explicit.structure_hash());
     assert_ne!(omitted.structure_hash(), changed.structure_hash());
@@ -425,38 +444,38 @@ fn flash_identity_normalizes_the_default_and_preserves_order_and_frames() {
 }
 
 #[test]
-fn flash_rejects_nonpositive_or_known_excessive_frame_counts() {
-    for frames in [-1, 0, 11] {
+fn flash_cut_rejects_empty_or_known_excessive_duration() {
+    for duration in ["0ms", "1100ms"] {
         let (_directory, workflow) = project(&format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\nglue {{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  flash({frames})\n}}\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = 10 }} }}\n{{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  flash_cut({duration})\n  concat\n}}\n"
         ));
-        let error = compiler::compile(&workflow).expect_err("invalid flash frames");
-        assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
+        let error = compiler::compile(&workflow).expect_err("invalid flash_cut duration");
+        assert_eq!(error.code, "E_INVALID_FLASH_CUT_DURATION");
     }
 }
 
 #[test]
-fn default_flash_frames_are_the_smallest_count_covering_160_milliseconds() {
+fn flash_cut_duration_uses_the_smallest_covering_project_frame_count() {
     for (fps, expected) in [("1", 1_u64), ("30000/1001", 5)] {
         let (_directory, workflow) = project(&format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = {fps} }} }}\nglue {{\n  image(\"a.ppm\", 1001s)\n  image(\"b.ppm\", 1001s)\n  flash\n}}\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 48\nfps = {fps} }} }}\n{{\n  image(\"a.ppm\", 1001s)\n  image(\"b.ppm\", 1001s)\n  flash_cut(160ms)\n  concat\n}}\n"
         ));
         let compiled = compiler::compile(&workflow).expect("compile");
         let json = compiled_json(&compiled);
-        let flash = json["nodes"]
+        let flash_cut = json["nodes"]
             .as_array()
             .expect("nodes")
             .iter()
-            .find(|node| node["kind"]["operation"] == "flash_join")
-            .expect("flash");
-        assert_eq!(flash["kind"]["frames"], expected);
+            .find(|node| node["kind"]["operation"] == "flash_cut")
+            .expect("flash_cut");
+        assert_eq!(flash_cut["kind"]["frames"], expected);
     }
 }
 
 #[test]
 fn during_changes_duration() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { repeat(2) }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { repeat(2) }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -476,7 +495,7 @@ fn during_changes_duration() {
 #[test]
 fn trim_selects_an_authored_time_range() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 3s)\n  trim(1s..2s)\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 3s)\n  trim(1s..2s)\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -497,34 +516,14 @@ fn trim_selects_an_authored_time_range() {
 }
 
 #[test]
-fn empty_concat_bodies_report_their_owner() {
-    let (_directory, workflow) = project("clipasm 1\nglue {}\n");
-    let error = compiler::compile(&workflow).expect_err("empty glue");
-    assert_eq!(error.code, "E_EMPTY_GLUE");
-    assert!(error.message.contains("glue"));
-}
-
-#[test]
-fn nested_glue_starts_empty_and_does_not_consume_outer_values() {
+fn nested_stack_blocks_with_concat_preserve_composition_order() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  glue {\n    image(\"b.ppm\", 1s)\n    image(\"c.ppm\", 1s)\n  }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  {\n    image(\"b.ppm\", 1s)\n    image(\"c.ppm\", 1s)\n    concat\n  }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
         compiled.result_domain().expect("known domain").frames().0,
         30
-    );
-}
-
-#[test]
-fn body_program_defaults_to_visible_and_can_capture_through_a_visible_operation() {
-    let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nglue { @visible repeat(2) }\n",
-    );
-    let compiled = compiler::compile(&workflow).expect("default visible capture");
-    assert_eq!(
-        compiled.result_domain().expect("known domain").frames().0,
-        20
     );
 }
 
@@ -564,7 +563,7 @@ fn owned_stack_block_still_blocks_explicit_visible_consumers() {
 #[test]
 fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\nglue { join {} }\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\n{ join {}\nconcat }\n",
     );
     let compiled = compiler::compile(&workflow).expect("default visible join binding");
     assert_eq!(
@@ -574,9 +573,57 @@ fn default_visible_join_binds_its_inputs_from_the_visible_suffix() {
 }
 
 #[test]
+fn omitted_join_body_is_the_same_as_an_empty_body() {
+    let source = |join: &str| {
+        format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\n{join}\n"
+        )
+    };
+    let mut hashes = Vec::new();
+    for invocation in ["join", "join()", "join {}", "join() {}"] {
+        let (_directory, workflow) = project(&source(invocation));
+        let compiled = compiler::compile(&workflow).expect("join invocation");
+        assert_eq!(
+            compiled.result_domain().expect("known domain").frames().0,
+            20
+        );
+        hashes.push(compiled.structure_hash().to_owned());
+    }
+    assert!(hashes.windows(2).all(|pair| pair[0] == pair[1]));
+}
+
+#[test]
+fn omitted_during_body_is_the_same_as_an_empty_body() {
+    let source = |during: &str| {
+        format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nimage(\"a.ppm\", 2s)\n{during}\n"
+        )
+    };
+    let (_omitted_directory, omitted) = project(&source("during(500ms..1500ms)"));
+    let (_empty_directory, empty) = project(&source("during(500ms..1500ms) {}"));
+    let omitted = compiler::compile(&omitted).expect("omitted during body");
+    let empty = compiler::compile(&empty).expect("empty during body");
+    assert_eq!(omitted.structure_hash(), empty.structure_hash());
+    assert_eq!(
+        omitted.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn omitted_body_uses_the_existing_input_diagnostic() {
+    let (_omitted_directory, omitted) = project("clipasm 1\njoin\n");
+    let (_empty_directory, empty) = project("clipasm 1\njoin {}\n");
+    let omitted = compiler::compile(&omitted).expect_err("missing join inputs");
+    let empty = compiler::compile(&empty).expect_err("missing join inputs");
+    assert_eq!(omitted.code, empty.code);
+    assert_eq!(omitted.message, empty.message);
+}
+
+#[test]
 fn default_visible_during_binds_its_video_from_the_visible_suffix() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nglue { during(500ms..1500ms) { repeat(2) } }\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\n{ during(500ms..1500ms) { repeat(2) }\nconcat }\n",
     );
     let compiled = compiler::compile(&workflow).expect("default visible during binding");
     assert_eq!(
@@ -587,7 +634,8 @@ fn default_visible_during_binds_its_video_from_the_visible_suffix() {
 
 #[test]
 fn visible_body_does_not_make_its_children_visible() {
-    let (_directory, workflow) = project("clipasm 1\nimage(\"a.ppm\", 1s)\nglue { repeat(2) }\n");
+    let (_directory, workflow) =
+        project("clipasm 1\nimage(\"a.ppm\", 1s)\n{ repeat<Video>(2)\nconcat<Video> }\n");
     let error = compiler::compile(&workflow).expect_err("owned repeat cannot capture");
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
     assert!(error.message.contains("owned"));
@@ -602,7 +650,7 @@ fn visible_body_does_not_make_its_children_visible() {
 #[test]
 fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\nimage(\"c.ppm\", 2s)\nduring(500ms..1500ms) {\n  @visible flash(1)\n  image(\"x.ppm\", 1s)\n  concat\n}\nconcat\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\nimage(\"c.ppm\", 2s)\nduring(500ms..1500ms) {\n  @visible flash_cut(100ms)\n  image(\"x.ppm\", 1s)\n  concat\n}\nconcat\n",
     );
     let compiled = compiler::compile(&workflow).expect("selective capture");
     assert_eq!(
@@ -629,7 +677,7 @@ fn owned_concat_reduces_only_values_captured_by_an_earlier_visible_operation() {
 #[test]
 fn visible_concat_deliberately_consumes_the_complete_visible_suffix() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nglue {\n  image(\"b.ppm\", 1s)\n  @visible concat\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\n{\n  image(\"b.ppm\", 1s)\n  @visible concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("visible concat");
     assert_eq!(
@@ -641,7 +689,7 @@ fn visible_concat_deliberately_consumes_the_complete_visible_suffix() {
 #[test]
 fn explicit_owned_body_boundary_blocks_a_visible_descendant() {
     let (_directory, workflow) = project(
-        "clipasm 1\nimage(\"a.ppm\", 1s)\nglue {\n  image(\"b.ppm\", 2s)\n  @owned during(500ms..1500ms) { @visible flash(1) }\n}\n",
+        "clipasm 1\nimage(\"a.ppm\", 1s)\n{\n  image(\"b.ppm\", 2s)\n  @owned during(500ms..1500ms) { @visible flash_cut(100ms) }\n  concat\n}\n",
     );
     let error = compiler::compile(&workflow).expect_err("during boundary");
     assert_eq!(error.code, "E_STACK_UNDERFLOW");
@@ -655,19 +703,19 @@ fn explicit_owned_body_boundary_blocks_a_visible_descendant() {
 }
 
 #[test]
-fn omitted_body_stack_access_matches_explicit_visible_identity() {
+fn omitted_stack_block_access_matches_explicit_visible_identity() {
     let source = |access: &str| {
-        format!("clipasm 1\nimage(\"a.ppm\", 1s)\n{access}glue {{ @visible repeat(2) }}\n")
+        format!("clipasm 1\nimage(\"a.ppm\", 1s)\n{access}{{ @visible repeat(2)\nconcat }}\n")
     };
     let (_default_directory, default) = project(&source(""));
     let (_visible_directory, visible) = project(&source("@visible "));
 
     assert_eq!(
         compiler::compile(&default)
-            .expect("default body access")
+            .expect("default block access")
             .structure_hash(),
         compiler::compile(&visible)
-            .expect("explicit visible body access")
+            .expect("explicit visible block access")
             .structure_hash()
     );
 }
@@ -688,7 +736,7 @@ fn no_op_stack_access_does_not_change_semantic_identity() {
 fn positional_and_named_during_ranges_have_the_same_semantics() {
     let source = |during: &str| {
         format!(
-            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nglue {{\n  image(\"a.ppm\", 10s)\n{during}\n}}\n"
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\n{{\n  image(\"a.ppm\", 10s)\n{during}\n  concat\n}}\n"
         )
     };
     let (_positional_directory, positional) = project(&source("  during(4s..6s) { repeat(2) }"));
@@ -706,7 +754,7 @@ fn positional_and_named_during_ranges_have_the_same_semantics() {
 #[test]
 fn output_binding_names_the_during_result() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { repeat(2) } as edited\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { repeat(2) } as edited\n  concat\n}\n",
     );
     let document = compiled_json(&compiler::compile(&workflow).expect("compile"));
     let edited = usize::try_from(
@@ -724,7 +772,7 @@ fn output_binding_names_the_during_result() {
 #[test]
 fn during_does_not_hide_selected_input_from_a_source() {
     let (_directory, workflow) = project(
-        "clipasm 1\nglue {\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { image(\"b.ppm\", 2s) }\n}\n",
+        "clipasm 1\n{\n  image(\"a.ppm\", 10s)\n  during(4s..6s) { image(\"b.ppm\", 2s) }\n  concat\n}\n",
     );
     let error = compiler::compile(&workflow).expect_err("selected plus source");
     assert_eq!(error.code, "E_BODY_OUTPUT_COUNT");
@@ -733,7 +781,7 @@ fn during_does_not_hide_selected_input_from_a_source() {
 #[test]
 fn join_concatenates_leftover_body_videos_in_order() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join { wobble }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join { zoom_in }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -759,7 +807,7 @@ fn join_concatenates_leftover_body_videos_in_order() {
 #[test]
 fn join_reduces_only_the_top_two_outer_values() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  image(\"c.ppm\", 1s)\n  join { concat }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  image(\"c.ppm\", 1s)\n  join { concat }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -781,7 +829,7 @@ fn join_reduces_only_the_top_two_outer_values() {
 #[test]
 fn owned_stack_block_preserves_join_stack_occurrences() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join {\n    {\n      $x\n      $y\n      concat\n    }\n    concat\n  }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join {\n    {\n      $x\n      $y\n      concat\n    }\n    concat\n  }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -793,7 +841,7 @@ fn owned_stack_block_preserves_join_stack_occurrences() {
 #[test]
 fn explicit_join_inputs_preserve_the_outer_stack() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join(before=$x, after=$y) { concat }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"x.ppm\", 1s) } as x\nclip { image(\"y.ppm\", 1s) } as y\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join(before=$x, after=$y) { concat }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -805,7 +853,7 @@ fn explicit_join_inputs_preserve_the_outer_stack() {
 #[test]
 fn partial_explicit_join_binding_uses_the_preceding_value() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"y.ppm\", 1s) } as y\nglue {\n  image(\"a.ppm\", 1s)\n  join(after=$y) { concat }\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"y.ppm\", 1s) } as y\n{\n  image(\"a.ppm\", 1s)\n  join(after=$y) { concat }\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("compile");
     assert_eq!(
@@ -845,7 +893,7 @@ fn generated_clip_diagnostics_use_the_authored_construct() {
         project("clipasm 1\nclip {\n  image(\"a.ppm\", 1s)\n  audio(\"a.wav\")\n} as mixed\n");
     let error = compiler::compile(&workflow).expect_err("mixed clip body");
     assert!(error.message.contains("`clip`"), "{}", error.message);
-    assert!(!error.message.contains("`glue`"), "{}", error.message);
+    assert!(!error.message.contains("`concat`"), "{}", error.message);
 }
 
 #[test]
@@ -859,10 +907,10 @@ fn reports_readable_named_cycle() {
 #[test]
 fn named_argument_order_does_not_change_compiled_structure() {
     let (_first_dir, first) = project(
-        "clipasm 1\nclip { image(path=\"a.ppm\", duration=1s) } as a\nclip { image(path=\"b.ppm\", duration=1s) } as b\nglue { $a\n$b }\n",
+        "clipasm 1\nclip { image(path=\"a.ppm\", duration=1s) } as a\nclip { image(path=\"b.ppm\", duration=1s) } as b\n{ $a\n$b\nconcat }\n",
     );
     let (_second_dir, second) = project(
-        "clipasm 1\nclip { image(duration=1s, path=\"a.ppm\") } as a\nclip { image(duration=1s, path=\"b.ppm\") } as b\nglue { $a\n$b }\n",
+        "clipasm 1\nclip { image(duration=1s, path=\"a.ppm\") } as a\nclip { image(duration=1s, path=\"b.ppm\") } as b\n{ $a\n$b\nconcat }\n",
     );
     let first_compiled = compiler::compile(&first).expect("first");
     let second_compiled = compiler::compile(&second).expect("second");
@@ -873,13 +921,13 @@ fn named_argument_order_does_not_change_compiled_structure() {
 }
 
 #[test]
-fn explicit_concat_and_nested_glue_have_the_same_semantics() {
+fn explicit_concat_and_nested_stack_block_have_the_same_semantics() {
     let header =
         "clipasm 1\nclip { image(\"a.ppm\", 1s) } as a\nclip { image(\"b.ppm\", 1s) } as b\n";
     let (_concat_directory, concat) = project(&format!("{header}$a\n$b\nconcat\n"));
-    let (_nested_directory, nested) = project(&format!("{header}glue {{ $a\n$b }}\n"));
+    let (_nested_directory, nested) = project(&format!("{header}{{ $a\n$b\nconcat }}\n"));
     let concat = compiler::compile(&concat).expect("explicit concat");
-    let nested = compiler::compile(&nested).expect("nested glue");
+    let nested = compiler::compile(&nested).expect("nested stack block");
     assert_eq!(concat.result_domain(), nested.result_domain());
     assert_eq!(concat.structure_hash(), nested.structure_hash());
 }
@@ -940,7 +988,7 @@ fn during_accepts_explicit_visible_access() {
 #[test]
 fn body_program_inputs_are_available_as_local_references_after_stack_consumption() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\njoin {\n  flash\n  $before\n  concat\n}\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\njoin {\n  flash_cut\n  $before\n  concat\n}\n",
     );
     let compiled = compiler::compile(&workflow).expect("body input references");
     assert_eq!(
@@ -997,7 +1045,7 @@ fn trim_uses_audio_natively_without_implicit_adaptation() {
 #[test]
 fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nset_audio(\n  video=image(\"a.ppm\", 4s),\n  audio=zoom(video=audio(\"missing.wav\")),\n)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nset_audio(\n  video=image(\"a.ppm\", 4s),\n  audio=zoom_in(video=audio(\"missing.wav\")),\n)\n",
     );
     let compiled = compiler::compile(&workflow).expect("composed explicit adaptations");
     assert_eq!(
@@ -1012,7 +1060,7 @@ fn nested_explicit_ports_compose_direct_audio_video_adaptations() {
         .filter_map(|node| node["kind"]["operation"].as_str())
         .collect::<Vec<_>>();
     assert!(operations.contains(&"audio_on_black"));
-    assert!(operations.contains(&"zoom"));
+    assert!(operations.contains(&"zoom_in"));
     assert!(operations.contains(&"extract_audio"));
     assert!(operations.contains(&"set_audio"));
 }
@@ -1130,10 +1178,10 @@ fn generic_unary_programs_use_the_nearest_compatible_value() {
 }
 
 #[test]
-fn glue_concatenates_homogeneous_audio() {
+fn stack_block_with_concat_concatenates_homogeneous_audio() {
     let (_directory, workflow) =
-        project("clipasm 1\nglue {\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n}\n");
-    let compiled = compiler::compile(&workflow).expect("Audio glue");
+        project("clipasm 1\n{\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n  concat\n}\n");
+    let compiled = compiler::compile(&workflow).expect("Audio stack block");
     assert_eq!(compiled.outputs().len(), 1);
     assert_eq!(
         compiled.outputs()[0].value_type(),
@@ -1170,18 +1218,15 @@ fn join_concatenates_homogeneous_audio() {
 }
 
 #[test]
-fn generic_body_programs_reject_mixed_outputs() {
-    for program in [
-        "glue { audio(\"music.wav\")\nimage(\"a.ppm\", 1s) }\n",
-        "audio(\"first.wav\")\naudio(\"second.wav\")\njoin { image(\"a.ppm\", 1s) }\n",
-    ] {
-        let (_directory, workflow) = project(&format!("clipasm 1\n{program}"));
-        let error = compiler::compile(&workflow).expect_err("mixed body output types");
-        assert!(matches!(
-            error.code,
-            "E_GENERIC_TYPE_MISMATCH" | "E_TYPE_MISMATCH"
-        ));
-    }
+fn generic_join_rejects_mixed_outputs() {
+    let (_directory, workflow) = project(
+        "clipasm 1\naudio(\"first.wav\")\naudio(\"second.wav\")\njoin { image(\"a.ppm\", 1s) }\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("mixed body output types");
+    assert!(matches!(
+        error.code,
+        "E_GENERIC_TYPE_MISMATCH" | "E_TYPE_MISMATCH"
+    ));
 }
 
 #[test]
@@ -1204,11 +1249,11 @@ fn join_selector_chooses_one_homogeneous_stack_view() {
 }
 
 #[test]
-fn named_glue_infers_its_type_from_the_body() {
+fn named_stack_block_infers_its_concat_type_from_the_body() {
     let (_directory, inferred) = project(
-        "clipasm 1\nglue {\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n} as combined\n$combined\n",
+        "clipasm 1\n{\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n  concat\n} as combined\n$combined\n",
     );
-    let inferred = compiler::compile(&inferred).expect("inferred named Audio glue");
+    let inferred = compiler::compile(&inferred).expect("inferred named Audio block");
     assert_eq!(
         inferred
             .outputs()
@@ -1219,18 +1264,18 @@ fn named_glue_infers_its_type_from_the_body() {
     );
 
     let (_directory, annotated) = project(
-        "clipasm 1\nglue<Audio> {\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n} as combined\n$combined\n",
+        "clipasm 1\n{\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n  concat<Audio>\n} as combined\n$combined\n",
     );
-    let annotated = compiler::compile(&annotated).expect("annotated named Audio glue");
+    let annotated = compiler::compile(&annotated).expect("annotated named Audio block");
     assert_eq!(inferred.structure_hash(), annotated.structure_hash());
 }
 
 #[test]
-fn named_glue_type_inference_follows_forward_references() {
+fn named_stack_block_type_inference_follows_forward_references() {
     let (_directory, workflow) = project(
-        "clipasm 1\n$combined\nglue {\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n} as combined\n",
+        "clipasm 1\n$combined\n{\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n  concat\n} as combined\n",
     );
-    let compiled = compiler::compile(&workflow).expect("forward inferred named glue");
+    let compiled = compiler::compile(&workflow).expect("forward inferred named block");
     assert_eq!(compiled.outputs().len(), 2);
     assert!(
         compiled
@@ -1241,11 +1286,11 @@ fn named_glue_type_inference_follows_forward_references() {
 }
 
 #[test]
-fn named_glue_type_inference_resolves_dependency_chains() {
+fn named_stack_block_type_inference_resolves_dependency_chains() {
     let (_directory, workflow) = project(
-        "clipasm 1\nglue { $later } as earlier\nglue {\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n} as later\n$earlier\n",
+        "clipasm 1\n{ $later\nconcat } as earlier\n{\n  audio(\"first.wav\")\n  audio(\"second.wav\")\n  concat\n} as later\n$earlier\n",
     );
-    let compiled = compiler::compile(&workflow).expect("inferred named glue chain");
+    let compiled = compiler::compile(&workflow).expect("inferred named block chain");
     assert_eq!(
         compiled
             .outputs()
@@ -1257,19 +1302,20 @@ fn named_glue_type_inference_resolves_dependency_chains() {
 }
 
 #[test]
-fn named_glue_type_inference_reports_dependency_cycles() {
+fn named_stack_block_type_inference_reports_dependency_cycles() {
     let (_directory, workflow) =
-        project("clipasm 1\nglue { $second } as first\nglue { $first } as second\n");
-    let error = compiler::compile(&workflow).expect_err("named glue type cycle");
+        project("clipasm 1\n{ $second\nconcat } as first\n{ $first\nconcat } as second\n");
+    let error = compiler::compile(&workflow).expect_err("named block type cycle");
     assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
     assert!(error.message.contains("first -> second -> first"));
 }
 
 #[test]
-fn selected_named_glue_cycle_remains_a_dependency_cycle() {
-    let (_directory, workflow) =
-        project("clipasm 1\nglue<Audio> { $second } as first\nglue<Audio> { $first } as second\n");
-    let error = compiler::compile(&workflow).expect_err("selected named glue cycle");
+fn selected_named_stack_block_cycle_remains_a_dependency_cycle() {
+    let (_directory, workflow) = project(
+        "clipasm 1\n{ $second\nconcat<Audio> } as first\n{ $first\nconcat<Audio> } as second\n",
+    );
+    let error = compiler::compile(&workflow).expect_err("selected named block cycle");
     assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
     assert!(error.message.contains("first -> second -> first"));
 }
@@ -1282,9 +1328,9 @@ fn self_dependent_stack_inference_reports_an_inference_dependency() {
 }
 
 #[test]
-fn named_glue_type_inference_respects_body_port_shadowing() {
+fn named_stack_block_type_inference_respects_body_port_shadowing() {
     let (_directory, workflow) = project(
-        "clipasm 1\nglue {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join {\n    drop\n    drop\n    $before\n  }\n} as combined\n$combined\n",
+        "clipasm 1\n{\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 1s)\n  join {\n    drop\n    drop\n    $before\n  }\n  concat\n} as combined\n$combined\n",
     );
     let compiled = compiler::compile(&workflow).expect("body-local port shadowing");
     assert_eq!(
@@ -1329,7 +1375,7 @@ fn forward_reference_uses_the_type_inferred_from_a_named_calls_stack_input() {
 #[test]
 fn deferred_exact_binding_retries_after_a_forward_generic_type_resolves() {
     let (_directory, workflow) = project(
-        "clipasm 1\n$future\nimage(\"a.ppm\", 1s)\nzoom\naudio(\"missing.wav\")\nrepeat(2) as future\n",
+        "clipasm 1\n$future\nimage(\"a.ppm\", 1s)\nzoom_in\naudio(\"missing.wav\")\nrepeat(2) as future\n",
     );
     let compiled = compiler::compile(&workflow).expect("forward Audio above Video binding");
     assert_eq!(compiled.outputs().len(), 3);

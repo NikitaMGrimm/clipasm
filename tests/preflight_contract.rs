@@ -36,7 +36,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 9);
+    assert_eq!(document["format_version"], 11);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -585,74 +585,50 @@ fn prepared_repeat_keeps_one_upstream_edge() {
 }
 
 #[test]
-fn prepared_zoom_preserves_the_exact_input_domain() {
+fn prepared_zoom_in_preserves_the_exact_input_domain() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom(12)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom_in(12%)\n",
     )
     .expect("workflow");
 
     let compiled = compile_file(&workflow).expect("compile");
-    let input_domain = *compiled.result_domain().expect("known zoom domain");
+    let input_domain = *compiled.result_domain().expect("known zoom_in domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let Some(PreparedVideoKind::Zoom { input, percent }) = result.video_kind() else {
-        panic!("prepared zoom");
+    let Some(PreparedVideoKind::ZoomIn { input, by }) = result.video_kind() else {
+        panic!("prepared zoom_in");
     };
     assert_eq!(input.get(), 0);
-    assert_eq!(*percent, 12);
+    assert_eq!(by.canonical(), "3/25");
     assert_eq!(result.video_domain(), Some(&input_domain));
 }
 
 #[test]
-fn prepared_wobble_preserves_the_exact_input_domain_and_amplitude() {
-    let directory = tempfile::tempdir().expect("temporary directory");
-    write_image(directory.path(), "card.ppm", "255 0 0");
-    let workflow = directory.path().join("workflow.clipasm");
-    fs::write(
-        &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nwobble(4)\n",
-    )
-    .expect("workflow");
-
-    let compiled = compile_file(&workflow).expect("compile");
-    let input_domain = *compiled.result_domain().expect("known wobble domain");
-    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
-    let result = &plan.nodes()[plan.result().get() as usize];
-    let Some(PreparedVideoKind::Wobble { input, pixels }) = result.video_kind() else {
-        panic!("prepared wobble");
-    };
-    assert_eq!(input.get(), 0);
-    assert_eq!(*pixels, 4);
-    assert_eq!(result.video_domain(), Some(&input_domain));
-    assert_ne!(result.fingerprint(), plan.nodes()[0].fingerprint());
-}
-
-#[test]
-fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
+fn prepared_flash_cut_preserves_order_frames_and_exact_summed_domain() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "before.ppm", "0 0 0");
     write_image(directory.path(), "after.ppm", "255 0 0");
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nimage(\"after.ppm\", 1s)\nflash(4)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nimage(\"after.ppm\", 1s)\nflash_cut(400ms)\n",
     )
     .expect("workflow");
 
     let compiled = compile_file(&workflow).expect("compile");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let Some(PreparedVideoKind::FlashJoin {
+    let Some(PreparedVideoKind::FlashCut {
         before,
         after,
         frames,
     }) = result.video_kind()
     else {
-        panic!("prepared flash");
+        panic!("prepared flash_cut");
     };
     assert_eq!(before.get(), 0);
     assert_eq!(after.get(), 1);
@@ -661,9 +637,9 @@ fn prepared_flash_preserves_order_frames_and_exact_summed_domain() {
 }
 
 #[test]
-fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
+fn preflight_rejects_flash_cut_longer_than_a_deferred_after_video() {
     if !common::media_tools_available() {
-        eprintln!("skipping deferred flash test because FFmpeg/FFprobe are unavailable");
+        eprintln!("skipping deferred flash_cut test because FFmpeg/FFprobe are unavailable");
         return;
     }
     let directory = tempfile::tempdir().expect("temporary directory");
@@ -688,14 +664,14 @@ fn preflight_rejects_flash_longer_than_a_deferred_after_video() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nvideo(\"after.mkv\")\nflash(11)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s)\nvideo(\"after.mkv\")\nflash_cut(1100ms)\n",
     )
     .expect("workflow");
 
     let compiled = compile_file(&workflow).expect("deferred compile");
     assert!(compiled.result_domain().is_none());
-    let error = clipasm::preflight::preflight(&compiled).expect_err("excessive flash frames");
-    assert_eq!(error.code, "E_INVALID_FLASH_FRAMES");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("excessive flash_cut duration");
+    assert_eq!(error.code, "E_INVALID_FLASH_CUT_DURATION");
     assert!(error.message.contains("11"));
     assert!(error.message.contains("10"));
 }

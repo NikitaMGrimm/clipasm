@@ -143,14 +143,11 @@ fn operation_identity(kind: &SemanticNodeKind) -> Result<serde_json::Value> {
         SemanticNodeKind::AudioRepeat { count, .. } => {
             Ok(serde_json::json!({"operation": "audio_repeat", "count": count}))
         }
-        SemanticNodeKind::Zoom { percent, .. } => {
-            Ok(serde_json::json!({"operation": "zoom", "percent": percent}))
+        SemanticNodeKind::ZoomIn { by, .. } => {
+            Ok(serde_json::json!({"operation": "zoom_in", "by": by}))
         }
-        SemanticNodeKind::Wobble { pixels, .. } => {
-            Ok(serde_json::json!({"operation": "wobble", "pixels": pixels}))
-        }
-        SemanticNodeKind::FlashJoin { frames, .. } => {
-            Ok(serde_json::json!({"operation": "flash_join", "frames": frames}))
+        SemanticNodeKind::FlashCut { frames, .. } => {
+            Ok(serde_json::json!({"operation": "flash_cut", "frames": frames}))
         }
         SemanticNodeKind::Crossfade { frames, .. } => {
             Ok(serde_json::json!({"operation": "crossfade", "frames": frames}))

@@ -6,8 +6,8 @@ use serde::Serialize;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
-    AudioDomain, AudioSpec, FrameCount, FrameRange, ImageFit, NodeId, SampleRange, ValueType,
-    VideoDomain, VideoSpec,
+    AudioDomain, AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, SampleRange,
+    ValueType, VideoDomain, VideoSpec,
 };
 use crate::preflight::tools::{ExternalToolIdentity, ToolIdentity};
 use crate::preflight::{
@@ -102,15 +102,11 @@ enum PreparedOperationDocument<'a> {
         count: NonZeroU64,
         frames: FrameCount,
     },
-    Zoom {
+    ZoomIn {
         input: NodeId,
-        percent: u32,
+        by: &'a ExactNumber,
     },
-    Wobble {
-        input: NodeId,
-        pixels: u32,
-    },
-    FlashJoin {
+    FlashCut {
         before: NodeId,
         after: NodeId,
         frames: FrameCount,
@@ -239,19 +235,14 @@ fn video_operation_document(kind: &PreparedVideoKind) -> PreparedOperationDocume
             count: *count,
             frames: *frames,
         },
-        PreparedVideoKind::Zoom { input, percent } => PreparedOperationDocument::Zoom {
-            input: *input,
-            percent: *percent,
-        },
-        PreparedVideoKind::Wobble { input, pixels } => PreparedOperationDocument::Wobble {
-            input: *input,
-            pixels: *pixels,
-        },
-        PreparedVideoKind::FlashJoin {
+        PreparedVideoKind::ZoomIn { input, by } => {
+            PreparedOperationDocument::ZoomIn { input: *input, by }
+        }
+        PreparedVideoKind::FlashCut {
             before,
             after,
             frames,
-        } => PreparedOperationDocument::FlashJoin {
+        } => PreparedOperationDocument::FlashCut {
             before: *before,
             after: *after,
             frames: *frames,

@@ -29,21 +29,6 @@ pub(crate) fn join() -> ProgramDefinition {
     )
 }
 
-pub(crate) fn glue() -> ProgramDefinition {
-    body(
-        generic_descriptor("glue", 2, vec![]),
-        prepare_glue,
-        BodyContract {
-            initial_values: vec![],
-            outputs: BodyOutputConstraint::Variadic {
-                value_type: ValueTypeSpec::Generic,
-                min: 1,
-            },
-            count_error_code: "E_EMPTY_GLUE",
-        },
-    )
-}
-
 pub(crate) fn during() -> ProgramDefinition {
     body(
         descriptor(
@@ -131,15 +116,6 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
         initial_values: vec![call.one_input("before")?, call.one_input("after")?],
         requested_frames: call.requested_frames(),
         finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_JOIN")),
-    })
-}
-
-#[allow(clippy::unnecessary_wraps)]
-fn prepare_glue(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
-    Ok(BodyPlan {
-        initial_values: Vec::new(),
-        requested_frames: call.requested_frames(),
-        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_GLUE")),
     })
 }
 

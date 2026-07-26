@@ -18,7 +18,7 @@ browser before installing anything.
 1. [Try ClipAsm in the browser](try-clipasm.md), or skip directly to installation.
 2. [Check the requirements and complete a first render](getting-started/first-render.md).
 3. [Build the scenic sequence](tutorials/scenic-sequence.md) to learn the
-   configuration, values, and `glue` body as they become useful.
+   configuration, stack blocks, values, and `concat` as they become useful.
 4. [Build a reusable composition](tutorials/reusable-composition.md) to work
    with names, references, and composition.
 5. Choose a task guide or concept below as your next project requires it.

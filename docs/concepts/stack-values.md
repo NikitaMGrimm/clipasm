@@ -67,8 +67,8 @@ Stack access is invocation metadata:
   the nearest visibility boundary
 
 The setting applies to one invocation and does not propagate to its children.
-Direct built-ins and source programs default to `owned`; `join`, `glue`, and
-`during` default to `visible`.
+Direct built-ins and source programs default to `owned`; `join` and `during`
+default to `visible`.
 
 A plain stack block opens a visible child frame and returns every remaining
 occurrence owned by that frame in order. An `@owned { ... }` block establishes

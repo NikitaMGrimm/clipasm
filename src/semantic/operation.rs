@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::external::ExternalInvocation;
-use crate::model::{FrameCount, FrameRange, ImageFit, SampleRange, ValueRef, ValueType};
+use crate::model::{
+    ExactNumber, FrameCount, FrameRange, ImageFit, SampleRange, ValueRef, ValueType,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -49,15 +51,11 @@ pub(crate) enum SemanticNodeKind {
         input: ValueRef,
         count: NonZeroU64,
     },
-    Zoom {
+    ZoomIn {
         input: ValueRef,
-        percent: u32,
+        by: ExactNumber,
     },
-    Wobble {
-        input: ValueRef,
-        pixels: u32,
-    },
-    FlashJoin {
+    FlashCut {
         before: ValueRef,
         after: ValueRef,
         frames: FrameCount,
@@ -120,9 +118,8 @@ impl SemanticNodeKind {
             Self::ImageVideo { .. }
             | Self::VideoSource { .. }
             | Self::Repeat { .. }
-            | Self::Zoom { .. }
-            | Self::Wobble { .. }
-            | Self::FlashJoin { .. }
+            | Self::ZoomIn { .. }
+            | Self::FlashCut { .. }
             | Self::Crossfade { .. }
             | Self::Concat { .. }
             | Self::Slice { .. }
@@ -143,8 +140,7 @@ impl SemanticNodeKind {
             Self::Repeat { input, .. }
             | Self::AudioRepeat { input, .. }
             | Self::AudioSlice { input, .. }
-            | Self::Zoom { input, .. }
-            | Self::Wobble { input, .. }
+            | Self::ZoomIn { input, .. }
             | Self::Slice { input, .. }
             | Self::ExtractAudio { video: input }
             | Self::AudioOnBlack { audio: input }
@@ -155,7 +151,7 @@ impl SemanticNodeKind {
             Self::Concat { inputs } | Self::AudioConcat { inputs } => {
                 inputs.get(index).copied().map(SemanticDependency::Value)
             }
-            Self::FlashJoin { before, after, .. } | Self::Crossfade { before, after, .. } => {
+            Self::FlashCut { before, after, .. } | Self::Crossfade { before, after, .. } => {
                 [*before, *after]
                     .get(index)
                     .copied()
@@ -184,8 +180,7 @@ impl SemanticNodeKind {
             | Self::Repeat { .. }
             | Self::AudioRepeat { .. }
             | Self::AudioSlice { .. }
-            | Self::Zoom { .. }
-            | Self::Wobble { .. }
+            | Self::ZoomIn { .. }
             | Self::Slice { .. }
             | Self::ExtractAudio { .. }
             | Self::AudioOnBlack { .. } => None,
@@ -218,11 +213,11 @@ mod tests {
         };
         assert_eq!(reference.value_type(), ValueType::Audio);
 
-        let zoom = SemanticNodeKind::Zoom {
+        let zoom_in = SemanticNodeKind::ZoomIn {
             input: value(0, ValueType::Video),
-            percent: 8,
+            by: ExactNumber::from_ratio(2, 25),
         };
-        assert_eq!(zoom.value_type(), ValueType::Video);
+        assert_eq!(zoom_in.value_type(), ValueType::Video);
     }
 
     #[test]

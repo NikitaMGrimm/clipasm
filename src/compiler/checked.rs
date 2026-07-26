@@ -19,8 +19,33 @@ pub(super) enum CheckedInputValue {
 
 #[derive(Clone, Debug)]
 pub(super) enum CheckedParameterValue {
-    Literal(crate::source::Spanned<crate::program::ParameterValue>),
-    Reference(ParameterId),
+    Expression(CheckedScalarExpression),
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CheckedScalarExpression {
+    Literal(crate::source::Literal),
+    Parameter {
+        id: ParameterId,
+        name: String,
+        span: crate::source::SourceSpan,
+    },
+    Unary {
+        operator: crate::source::ScalarUnaryOperator,
+        operand: Box<Self>,
+        span: crate::source::SourceSpan,
+    },
+    Binary {
+        operator: crate::source::ScalarBinaryOperator,
+        left: Box<Self>,
+        right: Box<Self>,
+        span: crate::source::SourceSpan,
+    },
+    Postfix {
+        operator: crate::source::ScalarPostfixOperator,
+        operand: Box<Self>,
+        span: crate::source::SourceSpan,
+    },
 }
 
 #[derive(Clone, Debug)]

@@ -63,17 +63,14 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::Repeat { input, count } => {
                 timeline::video_repeat(self, compiled_node, *input, *count)?
             }
-            SemanticNodeKind::Zoom { input, percent } => {
-                effects::zoom(self, compiled_node, *input, *percent)?
+            SemanticNodeKind::ZoomIn { input, by } => {
+                effects::zoom_in(self, compiled_node, *input, by.clone())?
             }
-            SemanticNodeKind::Wobble { input, pixels } => {
-                effects::wobble(self, compiled_node, *input, *pixels)?
-            }
-            SemanticNodeKind::FlashJoin {
+            SemanticNodeKind::FlashCut {
                 before,
                 after,
                 frames,
-            } => transitions::flash(self, compiled_node, *before, *after, *frames)?,
+            } => transitions::flash_cut(self, compiled_node, *before, *after, *frames)?,
             SemanticNodeKind::Crossfade {
                 before,
                 after,

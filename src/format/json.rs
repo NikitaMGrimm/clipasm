@@ -122,21 +122,16 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         SemanticNodeKind::AudioRepeat { input, count } => serde_json::json!({
             "operation": "audio_repeat", "input": input, "count": count,
         }),
-        SemanticNodeKind::Zoom { input, percent } => serde_json::json!({
-            "operation": "zoom",
+        SemanticNodeKind::ZoomIn { input, by } => serde_json::json!({
+            "operation": "zoom_in",
             "input": input,
-            "percent": percent,
+            "by": by,
         }),
-        SemanticNodeKind::Wobble { input, pixels } => serde_json::json!({
-            "operation": "wobble",
-            "input": input,
-            "pixels": pixels,
-        }),
-        SemanticNodeKind::FlashJoin {
+        SemanticNodeKind::FlashCut {
             before,
             after,
             frames,
-        } => transition_document("flash_join", *before, *after, *frames),
+        } => transition_document("flash_cut", *before, *after, *frames),
         SemanticNodeKind::Crossfade {
             before,
             after,

@@ -15,13 +15,12 @@ The imported program declares its callable interface and body:
 clipasm 1
 
 input video: Video
-param percent: Integer = 6
+param by: Number = 6%
 
-zoom($video, $percent)
-wobble(2)
+zoom_in($video, $by)
 ```
 
-The `video` input and `percent` parameter are local to each invocation.
+The `video` input and `by` parameter are local to each invocation.
 The source program returns its ordered final owned values to its caller.
 
 ## Import it under a local alias
@@ -43,7 +42,7 @@ config {
 import "programs/polish.clipasm" as polish
 
 video("assets/gentle-motion.mkv", contain)
-polish(10)
+polish(10%)
 ```
 
 Import paths resolve relative to the source unit containing the declaration, so
@@ -53,13 +52,13 @@ and is not re-exported. The imported invocation also has its own local stack and
 namespace; local inputs, parameters, and output names do not escape it.
 
 Here `video(...)` produces the Video that binds to `polish`'s declared input,
-and `10` overrides the `percent` default.
+and `10%` overrides the `by` default.
 
 ## Validate and render the wrapper
 
 ```console
 $ clipasm validate examples/imported-program.clipasm
-valid: 4 semantic value(s), duration resolves during preflight
+valid: 3 semantic value(s), duration resolves during preflight
 
 ```
 

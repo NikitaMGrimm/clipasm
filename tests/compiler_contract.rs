@@ -70,7 +70,7 @@ fn non_utf8_bound_media_path_returns_a_fingerprint_diagnostic() {
 }
 
 #[test]
-fn source_program_body_returns_one_video_without_an_implicit_glue() {
+fn source_program_body_returns_one_video_without_implicit_reduction() {
     let compiled = compile_source(
         Path::new("program.clipasm"),
         "clipasm 1\nimage(\"card.ppm\", 1s)\n",
@@ -196,7 +196,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 13);
+    assert_eq!(document["format_version"], 15);
     assert_eq!(
         compiled.result_domain().expect("known result").frames().0,
         30
@@ -288,7 +288,7 @@ fn pure_compile_does_not_require_assets_to_exist() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig {\n  output = \"final.mp4\"\n}\nglue {\n  image(\"missing.png\", 1s)\n}\n",
+        "clipasm 1\nconfig {\n  output = \"final.mp4\"\n}\n{\n  image(\"missing.png\", 1s)\n  concat\n}\n",
     )
     .expect("workflow");
 
@@ -345,7 +345,7 @@ fn references_are_explained_as_references() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nclip {\n  image(\"card.ppm\", 1s)\n} as card\nglue {\n  $card\n}\n",
+        "clipasm 1\nclip {\n  image(\"card.ppm\", 1s)\n} as card\n{\n  $card\n  concat\n}\n",
     )
     .expect("workflow");
 
@@ -366,7 +366,7 @@ fn reducible_frame_rate_is_canonical() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig {\n  video {\n    width = 64\n    height = 64\n    fps = 60/2\n  }\n}\nglue {\n  image(\"card.ppm\", 1s)\n}\n",
+        "clipasm 1\nconfig {\n  video {\n    width = 64\n    height = 64\n    fps = 60/2\n  }\n}\n{\n  image(\"card.ppm\", 1s)\n  concat\n}\n",
     )
     .expect("workflow");
 

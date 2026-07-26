@@ -29,17 +29,24 @@ order. Named graph arguments retain explicit isolated-input semantics. The
 parser records structure only; program lookup, graph classification, type
 inference, and stack binding occur later.
 
+Empty call parentheses are omitted syntax. Once linking resolves a body-program
+implementation, an omitted caller body normalizes to an empty body; normal
+input binding and the declared body contract decide whether that invocation is
+valid. Non-body programs still reject caller-supplied braces. Body-capable sugar
+applies the same normalization in its own lowering, without parser knowledge of
+registered or sugar names.
+
 Plain braces define a structural stack block. It defaults to visible access,
 evaluates a child stack frame, and returns every remaining child-owned value in
 order. Ordinary child programs still keep their own defaults; `@owned { ... }`
 is the explicit isolation form. A stack block is not a registered program or a
 lexical name scope.
 
-`clip` is language sugar. It lowers to a `glue` result followed by an owned
-`drop`. An explicit access modifier applies to the generated `glue`; an output
-binding names that result before cleanup. Surface provenance keeps diagnostics
-and normal explain output attributed to `clip` while hiding the generated
-cleanup operation.
+`clip` is language sugar. It lowers to a stack block ending in an owned
+`concat`, followed by an owned `drop`. An explicit access modifier applies to
+the generated block; an output binding names that result before cleanup.
+Surface provenance keeps diagnostics and normal explain output attributed to
+`clip` while hiding the generated operations.
 
 The implementation is split into lexer, syntax tree, parser, package loader,
 lowerer, and sugar expansion. The parser does not recognize registered program

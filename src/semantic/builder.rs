@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::ExternalInvocation;
 use crate::model::{
-    AudioSpec, FrameCount, FrameRange, ImageFit, SourceTimeRange, ValueId, ValueRef, ValueType,
-    VideoSpec,
+    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, SourceTimeRange, ValueId, ValueRef,
+    ValueType, VideoSpec,
 };
 use crate::source::SourceSpan;
 
@@ -135,24 +135,14 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    /// Add a centered full-clip linear zoom that preserves the input domain.
+    /// Add a centered full-clip linear `zoom_in` that preserves the input domain.
     ///
     /// # Errors
     ///
     /// Returns a type or graph-size diagnostic.
-    pub(crate) fn zoom(&mut self, input: ValueRef, percent: u32) -> Result<ValueRef> {
+    pub(crate) fn zoom_in(&mut self, input: ValueRef, by: ExactNumber) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "video")?;
-        self.push(SemanticNodeKind::Zoom { input, percent })
-    }
-
-    /// Add deterministic full-clip two-axis motion that preserves the input domain.
-    ///
-    /// # Errors
-    ///
-    /// Returns a type or graph-size diagnostic.
-    pub(crate) fn wobble(&mut self, input: ValueRef, pixels: u32) -> Result<ValueRef> {
-        self.require_type(input, ValueType::Video, "video")?;
-        self.push(SemanticNodeKind::Wobble { input, pixels })
+        self.push(SemanticNodeKind::ZoomIn { input, by })
     }
 
     /// Join two Videos without overlap while fading the start of the latter from white.
@@ -160,7 +150,7 @@ impl<'a> GraphBuilder<'a> {
     /// # Errors
     ///
     /// Returns a type or graph-size diagnostic.
-    pub(crate) fn flash_join(
+    pub(crate) fn flash_cut(
         &mut self,
         before: ValueRef,
         after: ValueRef,
@@ -168,7 +158,7 @@ impl<'a> GraphBuilder<'a> {
     ) -> Result<ValueRef> {
         self.require_type(before, ValueType::Video, "before")?;
         self.require_type(after, ValueType::Video, "after")?;
-        self.push(SemanticNodeKind::FlashJoin {
+        self.push(SemanticNodeKind::FlashCut {
             before,
             after,
             frames,

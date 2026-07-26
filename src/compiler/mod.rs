@@ -33,7 +33,7 @@ use crate::source::{SourcePackage, SourceUnit};
 pub use crate::semantic::SourceOrigin;
 pub use entrypoint::EntrypointBindings;
 
-const COMPILED_FORMAT_VERSION: u32 = 13;
+const COMPILED_FORMAT_VERSION: u32 = 15;
 
 #[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
@@ -403,8 +403,8 @@ mod tests {
     use crate::program::StackAccess;
     use crate::source::{
         ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
-        ProgramBody, ProjectSettings, SourcePackage, SourceProgram, SourceProgramImplementation,
-        SourceUnit, SourceUnitId, StackBlock,
+        ProgramBody, ProjectSettings, ScalarExpression, SourcePackage, SourceProgram,
+        SourceProgramImplementation, SourceUnit, SourceUnitId, StackBlock,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -420,17 +420,17 @@ mod tests {
         let arguments = BTreeMap::from([
             (
                 "duration".to_owned(),
-                ArgumentValue::Literal(Literal::String(
+                ArgumentValue::Scalar(ScalarExpression::Literal(Literal::String(
                     "1s".to_owned(),
                     SourceSpan::at(source.clone(), 2, 19),
-                )),
+                ))),
             ),
             (
                 "path".to_owned(),
-                ArgumentValue::Literal(Literal::String(
+                ArgumentValue::Scalar(ScalarExpression::Literal(Literal::String(
                     "card.png".to_owned(),
                     SourceSpan::at(source.clone(), 2, 7),
-                )),
+                ))),
             ),
         ]);
         let direct = SourcePackage {
@@ -483,10 +483,10 @@ mod tests {
                     .map(|(name, value)| {
                         (
                             (*name).to_owned(),
-                            ArgumentValue::Literal(Literal::String(
+                            ArgumentValue::Scalar(ScalarExpression::Literal(Literal::String(
                                 (*value).to_owned(),
                                 span.clone(),
-                            )),
+                            ))),
                         )
                     })
                     .collect(),

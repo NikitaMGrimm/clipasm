@@ -106,14 +106,11 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
             "count": count,
             "frames": frames,
         }),
-        PreparedVideoKind::Zoom { percent, .. } => {
-            serde_json::json!({"operation": "zoom", "percent": percent})
+        PreparedVideoKind::ZoomIn { by, .. } => {
+            serde_json::json!({"operation": "zoom_in", "by": by})
         }
-        PreparedVideoKind::Wobble { pixels, .. } => {
-            serde_json::json!({"operation": "wobble", "pixels": pixels})
-        }
-        PreparedVideoKind::FlashJoin { frames, .. } => {
-            serde_json::json!({"operation": "flash_join", "frames": frames})
+        PreparedVideoKind::FlashCut { frames, .. } => {
+            serde_json::json!({"operation": "flash_cut", "frames": frames})
         }
         PreparedVideoKind::Crossfade { frames, .. } => {
             serde_json::json!({"operation": "crossfade", "frames": frames})

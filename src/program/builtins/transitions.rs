@@ -5,7 +5,7 @@ use crate::semantic::GraphBuilder;
 
 use super::support::{direct, exact_descriptor, input, one_output, parameter};
 
-const DEFAULT_FLASH_MILLISECONDS: u64 = 160;
+const DEFAULT_FLASH_CUT_MILLISECONDS: u64 = 160;
 const DEFAULT_CROSSFADE_MILLISECONDS: u64 = 500;
 
 pub(super) fn crossfade() -> ProgramDefinition {
@@ -24,25 +24,41 @@ pub(super) fn crossfade() -> ProgramDefinition {
     )
 }
 
-pub(super) fn flash() -> ProgramDefinition {
+pub(super) fn flash_cut() -> ProgramDefinition {
     direct(
         exact_descriptor(
-            "flash",
+            "flash_cut",
             2,
             vec![
                 input("before", ValueType::Video, Cardinality::One),
                 input("after", ValueType::Video, Cardinality::One),
             ],
-            vec![parameter("frames", ParameterType::Integer, false)],
+            vec![parameter("duration", ParameterType::Duration, false)],
             ValueType::Video,
         ),
-        lower_flash,
+        lower_flash_cut,
     )
 }
 
 fn lower_crossfade(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let before = call.one_input("before")?;
     let after = call.one_input("after")?;
+    let frames = duration_frames(call, builder, DEFAULT_CROSSFADE_MILLISECONDS)?;
+    one_output(builder.crossfade(before, after, frames))
+}
+
+fn lower_flash_cut(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
+    let before = call.one_input("before")?;
+    let after = call.one_input("after")?;
+    let frames = duration_frames(call, builder, DEFAULT_FLASH_CUT_MILLISECONDS)?;
+    one_output(builder.flash_cut(before, after, frames))
+}
+
+fn duration_frames(
+    call: &ResolvedCall,
+    builder: &GraphBuilder<'_>,
+    default_milliseconds: u64,
+) -> Result<FrameCount> {
     let (frames, duration_span) = match call.optional_duration_parameter("duration")? {
         Some((duration, span)) => (
             duration.to_covering_frames(builder.video_spec().fps(), span)?,
@@ -50,7 +66,7 @@ fn lower_crossfade(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Resul
         ),
         None => (
             FrameCount::covering_duration(
-                u128::from(DEFAULT_CROSSFADE_MILLISECONDS),
+                u128::from(default_milliseconds),
                 1_000,
                 builder.video_spec().fps(),
                 &call.origin().span,
@@ -60,36 +76,17 @@ fn lower_crossfade(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Resul
     };
     if frames.0 == 0 {
         return Err(Diagnostic::new(
-            "E_INVALID_CROSSFADE_DURATION",
-            "`crossfade.duration` must cover at least one project frame",
+            match call.program_name() {
+                "flash_cut" => "E_INVALID_FLASH_CUT_DURATION",
+                "crossfade" => "E_INVALID_CROSSFADE_DURATION",
+                _ => unreachable!("only transitions with duration use this helper"),
+            },
+            format!(
+                "`{}.duration` must cover at least one project frame",
+                call.program_name()
+            ),
             duration_span.clone(),
         ));
     }
-    one_output(builder.crossfade(before, after, frames))
-}
-
-fn lower_flash(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
-    let before = call.one_input("before")?;
-    let after = call.one_input("after")?;
-    let frames = match call.optional_integer_parameter("frames")? {
-        Some((frames, span)) => FrameCount(
-            u64::try_from(frames)
-                .ok()
-                .filter(|frames| *frames > 0)
-                .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INVALID_FLASH_FRAMES",
-                        "`flash.frames` must be an integer greater than or equal to one",
-                        span.clone(),
-                    )
-                })?,
-        ),
-        None => FrameCount::covering_duration(
-            u128::from(DEFAULT_FLASH_MILLISECONDS),
-            1_000,
-            builder.video_spec().fps(),
-            &call.origin().span,
-        )?,
-    };
-    one_output(builder.flash_join(before, after, frames))
+    Ok(frames)
 }

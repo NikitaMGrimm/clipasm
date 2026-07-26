@@ -73,7 +73,9 @@ impl ExternalRuntime {
                     ParameterValue::File(path) => {
                         ExternalParameterValue::File(Spanned::new(path.clone(), value.span.clone()))
                     }
-                    ParameterValue::Duration(_) | ParameterValue::TimeRange(_) => {
+                    ParameterValue::Number(_)
+                    | ParameterValue::Duration(_)
+                    | ParameterValue::TimeRange(_) => {
                         return Err(Diagnostic::new(
                             "E_INVALID_EXTERNAL_PROGRAM",
                             format!(

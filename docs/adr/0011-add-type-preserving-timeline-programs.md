@@ -24,7 +24,6 @@ The type-preserving programs are:
 - `concat<T: Timeline>(values: T...) -> T`
 - `drop<T: Value>(value: T) -> []`
 - `join<T: Timeline>(before: T, after: T, body) -> T`
-- `glue<T: Timeline>(body) -> T`
 
 `Timeline` currently means Video or Audio. Generic inputs require exact types
 and do not use contextual adaptation. Audio operations use the exact project
@@ -35,8 +34,9 @@ homogeneous typed stack view; bare `concat` is an error when both Audio and
 Video are accessible. `drop` removes the nearest accessible value or the
 nearest value selected explicitly.
 
-`join` requires homogeneous inputs and body outputs. `glue` infers from one or
-more homogeneous body outputs. An explicit `<Video>` or `<Audio>` selector
+`join` requires homogeneous inputs and body outputs. A structural stack block
+ending in `concat` provides isolated grouping without another registered
+program. An explicit `<Video>` or `<Audio>` selector on `concat` or `join`
 resolves genuine ambiguity. Naming, forward references, lexical body ports,
 explicit inputs, and stack binding constrain the same compiler-owned variables,
 so naming never changes stack effects or inference.

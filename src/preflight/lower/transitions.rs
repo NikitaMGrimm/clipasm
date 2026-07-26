@@ -6,7 +6,7 @@ use crate::source::SourceSpan;
 use super::super::PreparedVideoKind;
 use super::{PreflightLowerer, project_domain};
 
-pub(super) fn flash(
+pub(super) fn flash_cut(
     lowerer: &mut PreflightLowerer<'_>,
     node: &CompiledNode,
     before: ValueRef,
@@ -18,12 +18,12 @@ pub(super) fn flash(
     let (before_domain, before_has_audio) = lowerer.video_domain(before, node.origin())?;
     let (after_domain, after_has_audio) = lowerer.video_domain(after, node.origin())?;
     let after_frames = after_domain.frames();
-    validate_flash_frames(frames, after_frames, &node.origin().span)?;
+    validate_flash_cut_frames(frames, after_frames, &node.origin().span)?;
     let total = before_domain
         .frames()
         .checked_add(after_frames, &node.origin().span)?;
     lowerer.add_video_node(
-        PreparedVideoKind::FlashJoin {
+        PreparedVideoKind::FlashCut {
             before,
             after,
             frames,
@@ -105,12 +105,16 @@ fn validate_crossfade_frames(
     Ok(())
 }
 
-fn validate_flash_frames(frames: FrameCount, after: FrameCount, span: &SourceSpan) -> Result<()> {
+fn validate_flash_cut_frames(
+    frames: FrameCount,
+    after: FrameCount,
+    span: &SourceSpan,
+) -> Result<()> {
     if frames > after {
         return Err(Diagnostic::new(
-            "E_INVALID_FLASH_FRAMES",
+            "E_INVALID_FLASH_CUT_DURATION",
             format!(
-                "`flash.frames` is {} frames, but `after` contains only {} frames",
+                "`flash_cut.duration` covers {} frames, but `after` contains only {} frames",
                 frames.0, after.0
             ),
             span.clone(),

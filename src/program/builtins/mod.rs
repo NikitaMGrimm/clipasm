@@ -19,12 +19,10 @@ pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
         timeline::repeat(),
         timeline::trim(),
         timeline::drop_value(),
-        effects::zoom(),
-        effects::wobble(),
-        transitions::flash(),
+        effects::zoom_in(),
+        transitions::flash_cut(),
         transitions::crossfade(),
         body::join(),
-        body::glue(),
         body::during(),
     ]
 }

@@ -25,6 +25,7 @@
 
 - [Command-line reference](reference/cli.md)
 - [Language reference](language-reference.md)
+- [Language grammar](language-grammar.md)
 - [Runnable examples](examples.md)
 
 # Concepts and explanation
@@ -55,6 +56,7 @@
   - [0015: Keep native operations closed and phase-owned](adr/0015-keep-native-operations-phase-owned.md)
   - [0016: Overlap audiovisual transitions on exact boundaries](adr/0016-overlap-audiovisual-transitions-exactly.md)
   - [0017: Run FFmpeg recipes through host adapters](adr/0017-run-ffmpeg-recipes-through-host-adapters.md)
+  - [0018: Evaluate scalar expressions exactly](adr/0018-evaluate-scalar-expressions-exactly.md)
 
 # Development
 

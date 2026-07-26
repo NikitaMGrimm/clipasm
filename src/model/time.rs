@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::FrameRate;
+use crate::model::{ExactNumber, FrameRate};
 use crate::source::SourceSpan;
 
 #[derive(
@@ -170,6 +170,42 @@ pub(crate) struct SourceTime {
 }
 
 impl SourceTime {
+    pub(crate) fn exact_seconds(self) -> ExactNumber {
+        ExactNumber::from_unsigned_integer(self.nanoseconds)
+            .divide(&ExactNumber::from_integer(1_000_000_000))
+            .expect("time scale is nonzero")
+    }
+
+    /// Convert an exact rational number of seconds into the authored time grid.
+    ///
+    /// # Errors
+    ///
+    /// Returns a diagnostic for negative, sub-nanosecond, or overflowing values.
+    pub(crate) fn from_exact_seconds(value: &ExactNumber, span: &SourceSpan) -> Result<Self> {
+        if !value.is_positive() && !value.is_zero() {
+            return Err(Diagnostic::new(
+                "E_INVALID_DURATION",
+                format!(
+                    "duration cannot be negative; got {}",
+                    value.authored_display()
+                ),
+                span.clone(),
+            ));
+        }
+        let nanoseconds = value.multiply(&ExactNumber::from_integer(1_000_000_000));
+        let Some(nanoseconds) = nanoseconds.to_u64() else {
+            return Err(Diagnostic::new(
+                "E_INVALID_DURATION",
+                format!(
+                    "duration {}s is not representable as an exact nonnegative nanosecond value",
+                    value.authored_display()
+                ),
+                span.clone(),
+            ));
+        };
+        Ok(Self { nanoseconds })
+    }
+
     /// Parse an integer seconds or milliseconds duration.
     ///
     /// # Errors

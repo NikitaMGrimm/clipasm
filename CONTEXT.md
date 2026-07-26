@@ -37,10 +37,10 @@ authoring semantics. The native `.clipasm` grammar is implemented under
   compiled purely and whose trusted executable runs only during rendering.
 - A **Video** is a finite picture timeline with optional synchronized audio.
 - **Audio** is a finite standalone normalized audio timeline.
-- A **clip block** is native-language sugar that evaluates a `glue` body, may
-  bind the result with `as`, and removes the resulting stack occurrence with an
-  owned `drop`. It is lowered before compilation and is not a registered
-  program.
+- A **clip block** is native-language sugar that evaluates a stack block ending
+  in an owned `concat`, may bind the result with `as`, and removes the resulting
+  stack occurrence with an owned `drop`. It is lowered before compilation and
+  is not a registered program.
 - A **stack block** is the structural `{ ... }` item. It evaluates a child stack
   frame and returns every remaining value owned by that frame in order. It is
   not a registered program or a lexical name scope.
@@ -49,6 +49,13 @@ authoring semantics. The native `.clipasm` grammar is implemented under
 - A **reference expression** is `$name`. It reads a named value without
   consuming any stack occurrence. In a scalar parameter position it may also
   forward a declared scalar parameter of the required type.
+- A **Number** is a dimensionless exact reduced rational scalar. Authored
+  integers, decimals, percentages, and arithmetic never use binary floating
+  point.
+- An **Integer** is the refinement of Number whose reduced denominator is one.
+  Integer constraints are checked after exact expression evaluation.
+- A **Duration** is an exact time quantity distinct from Number. The postfix
+  units `ms` and `s` construct a Duration from an Integer expression.
 - The **evaluation stack** is the ordered sequence of value occurrences used
   while compiling one source program.
 - A body's **visible values** are stack entries whose ownership lies within
@@ -87,33 +94,37 @@ Explicit inputs read named values or evaluate isolated inline bodies and consume
 nothing from the caller stack.
 
 Every program definition explicitly declares a default stack access. Direct
-built-ins and source programs default to `owned`; `join`, `glue`, and `during`
+built-ins and source programs default to `owned`; `join` and `during`
 default to `visible`. `owned` binding can consume only entries owned by the
 current body. `visible` binding may also consume entries owned by enclosing
 bodies down to the nearest visibility boundary. A body invocation with
 `stack_access: owned` establishes a new boundary. Settings remain per invocation
 and do not propagate to children.
 
+Empty call parentheses are optional. A body-capable construct with no authored
+body receives an empty body, so `join`, `join()`, `join {}`, and `join() {}`
+have the same semantics. The same omission rule applies to `clip` sugar.
+Ordinary input binding, required parameters, body contracts, and generated
+operations determine whether the resulting empty invocation is valid.
+Constructs that do not accept a caller body still reject authored braces.
+
 Every body program exposes each resolved fixed graph input as a local immutable
 reference named after its port. Arguments are evaluated in the caller scope
 before those aliases are introduced. Thus an inner `during.video: $video` reads
 the outer `$video`, while `$video` inside the inner body names the inner bound
-port. The body itself is structural invocation data, not a port. Programs with
-no fixed inputs, such as `glue`, expose no aliases.
+port. The body itself is structural invocation data, not a port.
 
 - `join` resolves one homogeneous timeline type, starts its body with two bound
   values of that type, exposes `$before` and `$after`, and concatenates the
   body's owned values in order.
-- A nested `glue` starts with no owned values, infers one homogeneous timeline
-  type from its body unless selected explicitly, and concatenates those values.
 - `during` exposes its complete bound `$video`, starts the body stack with only
   the selected range, requires one processed owned Video, and splices it back.
 - A plain stack block starts a visible child frame and returns its complete
   ordered owned remainder. `@owned { ... }` establishes an explicit visibility
   boundary.
-- A clip block defaults its generated `glue` to owned access. An explicit
-  access modifier applies to that `glue`; the generated cleanup `drop` remains
-  owned.
+- A clip block defaults its generated stack block to owned access. An explicit
+  access modifier applies to that block; its generated `concat` and cleanup
+  `drop` remain owned.
 
 A source-program body starts empty and returns all final owned values in physical
 order. Zero, one, or multiple outputs are valid for pure validation and
@@ -121,7 +132,7 @@ compilation. Publication finds exactly one Video output by type and ignores any
 auxiliary Audio outputs. Inline inputs and body contracts remain strict.
 
 Implicit stack binding always requires exact types. `trim`, `repeat`, `concat`,
-`drop`, `join`, and `glue` are type-preserving over Video or Audio. Unary programs select the
+`drop` and `join` are type-preserving over Video or Audio. Unary programs select the
 nearest accessible compatible value. `concat` consumes one homogeneous typed
 view; `<Video>` or `<Audio>` selects it explicitly, while bare `concat`
 is an error when both timeline types are accessible. Generic explicit inputs
@@ -132,6 +143,29 @@ at the port boundary: `Video` to `Audio` extracts synchronized audio, while
 `Audio` to `Video` creates a black project-sized Video carrying that Audio.
 Adaptations are semantic graph nodes; program outputs and body outputs are never
 adapted. Nested explicit boundaries may compose direct adaptations.
+
+## Settled scalar semantics
+
+Scalar expressions use conventional precedence: ranges, sums, products, unary
+signs, postfix operators, then primaries from loosest to tightest. Parentheses
+may group any scalar expression. `+`, `-`, `*`, and `/` operate on Number;
+Duration additionally supports unary signs and addition or subtraction with
+Duration. `..` constructs a TimeRange from two Duration expressions.
+
+Postfix `%` divides a Number by 100 and may repeat without a language-specific
+restriction. Postfix `ms` and `s` require the immediately preceding expression
+to evaluate to Integer and construct an exact Duration. Consequently
+`(6 / 2)ms` is three milliseconds, `(5 / 2)ms` fails Integer refinement, and
+`5 / 2ms` is rejected as undefined Number/Duration division. Duration
+parameters reject negative or sub-nanosecond results at their representation
+boundary.
+
+Scalar parameter references participate in expressions without becoming stack
+values. Expressions evaluate before the target parameter constraint, so
+`repeat(6 / 2)` is valid while `repeat(5 / 2)` reports the evaluated value
+`2.5` and its exact fraction `5/2`. Canonical reduced rational values define
+semantic identity; equivalent forms such as `8%`, `0.08`, and `2 / 25` hash
+identically.
 
 An inline input body starts empty, inherits the enclosing requested-frame
 context, and must leave exactly one value accepted by its input port after any

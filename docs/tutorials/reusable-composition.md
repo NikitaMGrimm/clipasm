@@ -26,7 +26,7 @@ config {
 
 clip {
     image("assets/morning.png", 1s, contain)
-    zoom
+    zoom_in
 } as opening
 
 clip {
@@ -34,13 +34,13 @@ clip {
 } as closing
 
 $opening
-flash(
+flash_cut(
     before=$opening,
     after={
         image("assets/meadow.png", 1s, contain)
-        wobble(2)
+        zoom_in(2%)
     },
-    frames=5,
+    duration=200ms,
 )
 $closing
 concat
@@ -56,18 +56,18 @@ The first `clip` block prepares the opening:
 ```clipasm
 clip {
     image("assets/morning.png", 1s, contain)
-    zoom
+    zoom_in
 } as opening
 ```
 
-Inside the block, `image` produces a one-second Video. The following `zoom`
+Inside the block, `image` produces a one-second Video. The following `zoom_in`
 uses the compatible Video owned by that body and returns the processed Video.
 
 `as opening` gives the block's result an immutable name. A `clip` block is
-language sugar for collecting a sequence through `glue`, naming its result, and
-removing that result's stack occurrence. The value remains available through
-`$opening`, but it is not yet waiting on the outer stack for final
-concatenation.
+language sugar for running an owned stack block with a generated `concat`,
+naming its result, and removing that result's stack occurrence. The value
+remains available through `$opening`, but it is not yet waiting on the outer
+stack for final concatenation.
 
 The closing uses the same pattern without an effect:
 
@@ -90,10 +90,10 @@ $opening
 ```
 
 References read immutable named values without consuming them. That allows the
-same opening to be supplied again as an explicit input to `flash`:
+same opening to be supplied again as an explicit input to `flash_cut`:
 
 ```clipasm
-flash(
+flash_cut(
     before=$opening,
 ```
 
@@ -110,22 +110,23 @@ The `after` input is produced by an inline body:
 ```clipasm
     after={
         image("assets/meadow.png", 1s, contain)
-        wobble(2)
+        zoom_in(2%)
     },
 ```
 
 An inline input body starts with an empty stack and must produce exactly one
 value accepted by the input port. Here `image` creates the meadow Video and
-`wobble(2)` processes it, so the body supplies one Video to `after`.
+`zoom_in(2%)` processes it, so the body supplies one Video to `after`.
 
-The last argument chooses a five-frame flash:
+The last argument chooses a 200-millisecond flash cut:
 
 ```clipasm
-    frames=5,
+    duration=200ms,
 )
 ```
 
-`flash` returns its own Video result to the caller's stack.
+At 24 fps, 200 milliseconds is covered by five project frames. `flash_cut`
+returns its own Video result to the caller's stack.
 
 ## Concatenate the final stack
 
@@ -139,7 +140,7 @@ concat
 At this point, the accessible Video values are ordered as:
 
 1. the standalone `$opening`;
-2. the Video returned by `flash`;
+2. the Video returned by `flash_cut`;
 3. the standalone `$closing`.
 
 `concat` consumes that homogeneous Video sequence in physical order and
@@ -178,7 +179,7 @@ The output is
 `examples/generated/reusable-composition.mp4`, a four-second Video at 24 frames
 per second. Cache counts may vary between runs.
 
-## Exercise: lengthen the flash
+## Exercise: lengthen the flash cut
 
 Make an ignored practice copy:
 
@@ -187,16 +188,16 @@ mkdir -p local
 cp -R examples local/reusable-practice
 ```
 
-In `local/reusable-practice/reusable-composition.clipasm`, change `frames=5` to
-`frames=8`. Validate the change:
+In `local/reusable-practice/reusable-composition.clipasm`, change
+`duration=200ms` to `duration=320ms`. Validate the change:
 
 ```console,ignore
 clipasm validate local/reusable-practice/reusable-composition.clipasm
 ```
 
-The program still validates to 96 frames because the change affects the flash
-within the same overall composition. Render the practice copy and compare the
-transition:
+The program still validates to 96 frames because the change affects the
+`flash_cut` within the same overall composition. Render the practice copy and
+compare the transition:
 
 ```console,ignore
 clipasm render local/reusable-practice/reusable-composition.clipasm
@@ -214,7 +215,7 @@ You have used:
 - `as` and `$name` to retain and reuse immutable graph results;
 - explicit arguments without consuming a caller stack occurrence;
 - an isolated inline input body to produce one Video;
-- `flash` and `concat` to build the final ordered composition.
+- `flash_cut` and `concat` to build the final ordered composition.
 
 Use the [examples catalog](../examples.md) to choose another runnable program,
 or consult the [language reference](../language-reference.md) for exact

@@ -12,4 +12,4 @@ config {
 import "programs/polish.clipasm" as polish
 
 video("assets/gentle-motion.mkv", contain)
-polish(10)
+polish(10%)

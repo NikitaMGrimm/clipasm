@@ -181,7 +181,7 @@ pub(crate) enum SourceExternalArgument {
 pub(crate) struct SourceParameter {
     pub(crate) name: Spanned<String>,
     pub(crate) parameter_type: ParameterType,
-    pub(crate) default: Option<Literal>,
+    pub(crate) default: Option<ScalarExpression>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -305,14 +305,59 @@ pub(crate) struct Invocation {
 
 #[derive(Clone, Debug)]
 pub(crate) enum ArgumentValue {
-    Literal(Literal),
+    Scalar(ScalarExpression),
     Reference(Spanned<String>),
     Body(ProgramBody),
 }
 
 #[derive(Clone, Debug)]
+pub(crate) enum ScalarExpression {
+    Literal(Literal),
+    Reference(Spanned<String>),
+    Unary {
+        operator: ScalarUnaryOperator,
+        operand: Box<Self>,
+        span: SourceSpan,
+    },
+    Binary {
+        operator: ScalarBinaryOperator,
+        left: Box<Self>,
+        right: Box<Self>,
+        span: SourceSpan,
+    },
+    Postfix {
+        operator: ScalarPostfixOperator,
+        operand: Box<Self>,
+        span: SourceSpan,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ScalarUnaryOperator {
+    Positive,
+    Negative,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ScalarBinaryOperator {
+    Range,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ScalarPostfixOperator {
+    Percent,
+    Milliseconds,
+    Seconds,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum Literal {
     String(String, SourceSpan),
+    Atom(String, SourceSpan),
     Integer(i64, SourceSpan),
 }
 
@@ -320,9 +365,22 @@ impl ArgumentValue {
     #[must_use]
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
-            Self::Literal(literal) => literal.span(),
+            Self::Scalar(expression) => expression.span(),
             Self::Reference(reference) => &reference.span,
             Self::Body(body) => &body.span,
+        }
+    }
+}
+
+impl ScalarExpression {
+    #[must_use]
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::Literal(literal) => literal.span(),
+            Self::Reference(reference) => &reference.span,
+            Self::Unary { span, .. } | Self::Binary { span, .. } | Self::Postfix { span, .. } => {
+                span
+            }
         }
     }
 }
@@ -331,7 +389,7 @@ impl Literal {
     #[must_use]
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
-            Self::String(_, span) | Self::Integer(_, span) => span,
+            Self::String(_, span) | Self::Atom(_, span) | Self::Integer(_, span) => span,
         }
     }
 }

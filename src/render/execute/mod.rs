@@ -142,25 +142,20 @@ pub(crate) fn ffmpeg_recipe(
             ..
         } => timeline::repeat(context, *input, *count, *frames),
         PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::Zoom { input, percent },
+            kind: PreparedVideoKind::ZoomIn { input, by },
             domain,
             ..
-        } => effects::zoom(context, *input, *percent, domain),
-        PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::Wobble { input, pixels },
-            domain,
-            ..
-        } => effects::wobble(context, *input, *pixels, domain),
+        } => effects::zoom_in(context, *input, by, domain),
         PreparedNodeMedia::Video {
             kind:
-                PreparedVideoKind::FlashJoin {
+                PreparedVideoKind::FlashCut {
                     before,
                     after,
                     frames,
                 },
             domain,
             ..
-        } => transitions::flash(context, *before, *after, *frames, domain),
+        } => transitions::flash_cut(context, *before, *after, *frames, domain),
         PreparedNodeMedia::Video {
             kind:
                 PreparedVideoKind::Crossfade {

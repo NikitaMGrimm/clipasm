@@ -15,7 +15,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nglue {\n  image(\"card.ppm\", 1s)\n}\n",
+        "clipasm 1\n{\n  image(\"card.ppm\", 1s)\n  concat\n}\n",
     )
     .expect("workflow");
     (directory, workflow)
@@ -94,7 +94,11 @@ fn inspect_preserves_an_existing_destination() {
 #[test]
 fn diagnostics_produce_a_failure_exit_code() {
     let (directory, workflow) = fixture();
-    fs::write(&workflow, "clipasm 1\nglue {\n  repeat(2)\n}\n").expect("invalid workflow");
+    fs::write(
+        &workflow,
+        "clipasm 1\n{\n  repeat<Video>(2)\n  concat<Video>\n}\n",
+    )
+    .expect("invalid workflow");
     let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
         .args(["validate", workflow.to_str().expect("UTF-8 path")])
         .output()
@@ -124,7 +128,7 @@ fn validate_reports_a_deferred_video_duration_without_opening_the_asset() {
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nglue {\n  video(\"missing.mp4\")\n}\n",
+        "clipasm 1\n{\n  video(\"missing.mp4\")\n  concat\n}\n",
     )
     .expect("workflow");
 

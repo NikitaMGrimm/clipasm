@@ -10,7 +10,7 @@ pub(crate) struct Token {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TokenKind {
     Identifier(String),
-    Bare(String),
+    Number(String),
     String(String),
     Newline,
     Dollar,
@@ -26,6 +26,12 @@ pub(crate) enum TokenKind {
     Colon,
     Comma,
     Equal,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    DotDot,
     End,
 }
 
@@ -66,7 +72,7 @@ impl Lexer {
                 '#' => self.skip_comment(),
                 '"' => tokens.push(self.string()?),
                 character if is_identifier_start(character) => tokens.push(self.identifier()),
-                character if is_bare_start(character) => tokens.push(self.bare()),
+                character if character.is_ascii_digit() => tokens.push(self.number()),
                 _ => tokens.push(self.punctuation()?),
             }
         }
@@ -90,17 +96,30 @@ impl Lexer {
         }
     }
 
-    fn bare(&mut self) -> Token {
+    fn number(&mut self) -> Token {
         let span = self.span();
         let start = self.offset;
         while self
             .peek()
-            .is_some_and(|character| !is_delimiter(character))
+            .is_some_and(|character| character.is_ascii_digit())
         {
             self.advance();
         }
+        if self.peek() == Some('.')
+            && self
+                .peek_next()
+                .is_some_and(|character| character.is_ascii_digit())
+        {
+            self.advance();
+            while self
+                .peek()
+                .is_some_and(|character| character.is_ascii_digit())
+            {
+                self.advance();
+            }
+        }
         Token {
-            kind: TokenKind::Bare(self.source.text()[start..self.offset].to_owned()),
+            kind: TokenKind::Number(self.source.text()[start..self.offset].to_owned()),
             span,
         }
     }
@@ -150,6 +169,14 @@ impl Lexer {
     fn punctuation(&mut self) -> Result<Token> {
         let span = self.span();
         let character = self.peek().expect("punctuation begins at a character");
+        if character == '.' && self.peek_next() == Some('.') {
+            self.advance();
+            self.advance();
+            return Ok(Token {
+                kind: TokenKind::DotDot,
+                span,
+            });
+        }
         let kind = match character {
             '$' => TokenKind::Dollar,
             '@' => TokenKind::At,
@@ -164,6 +191,11 @@ impl Lexer {
             ':' => TokenKind::Colon,
             ',' => TokenKind::Comma,
             '=' => TokenKind::Equal,
+            '+' => TokenKind::Plus,
+            '-' => TokenKind::Minus,
+            '*' => TokenKind::Star,
+            '/' => TokenKind::Slash,
+            '%' => TokenKind::Percent,
             _ => {
                 return Err(Diagnostic::new(
                     "E_INVALID_TOKEN",
@@ -198,6 +230,10 @@ impl Lexer {
         self.source.text()[self.offset..].chars().next()
     }
 
+    fn peek_next(&self) -> Option<char> {
+        self.source.text()[self.offset..].chars().nth(1)
+    }
+
     fn advance(&mut self) {
         let character = self.peek().expect("advance requires a character");
         self.offset += character.len_utf8();
@@ -218,18 +254,6 @@ fn is_identifier_continue(character: char) -> bool {
     matches!(character, '_' | '-') || character.is_ascii_alphanumeric()
 }
 
-fn is_bare_start(character: char) -> bool {
-    character.is_ascii_digit() || character == '-' || character == '.'
-}
-
-fn is_delimiter(character: char) -> bool {
-    character.is_whitespace()
-        || matches!(
-            character,
-            '#' | '"' | '$' | '@' | '(' | ')' | '{' | '}' | '[' | ']' | '<' | '>' | ':' | ',' | '='
-        )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,7 +272,7 @@ mod tests {
             kinds("clipasm 1\n@visible clip<Audio> {\n  trim(300ms..800ms) as result # note\n}\n"),
             vec![
                 TokenKind::Identifier("clipasm".to_owned()),
-                TokenKind::Bare("1".to_owned()),
+                TokenKind::Number("1".to_owned()),
                 TokenKind::Newline,
                 TokenKind::At,
                 TokenKind::Identifier("visible".to_owned()),
@@ -260,7 +284,11 @@ mod tests {
                 TokenKind::Newline,
                 TokenKind::Identifier("trim".to_owned()),
                 TokenKind::LeftParen,
-                TokenKind::Bare("300ms..800ms".to_owned()),
+                TokenKind::Number("300".to_owned()),
+                TokenKind::Identifier("ms".to_owned()),
+                TokenKind::DotDot,
+                TokenKind::Number("800".to_owned()),
+                TokenKind::Identifier("ms".to_owned()),
                 TokenKind::RightParen,
                 TokenKind::Identifier("as".to_owned()),
                 TokenKind::Identifier("result".to_owned()),
@@ -275,7 +303,7 @@ mod tests {
             kinds("clipasm 1\nmy-program as output-name\n"),
             vec![
                 TokenKind::Identifier("clipasm".to_owned()),
-                TokenKind::Bare("1".to_owned()),
+                TokenKind::Number("1".to_owned()),
                 TokenKind::Newline,
                 TokenKind::Identifier("my-program".to_owned()),
                 TokenKind::Identifier("as".to_owned()),
@@ -296,6 +324,38 @@ mod tests {
         assert_eq!(tokens[1].span.line, 2);
         assert_eq!(tokens[1].span.column, 1);
         assert_eq!(tokens[3].kind, TokenKind::String("a\n\"b.png".to_owned()));
+    }
+
+    #[test]
+    fn lexes_decimal_arithmetic_units_and_repeated_postfixes() {
+        assert_eq!(
+            kinds("(1.25 + $offset)ms / 2%%"),
+            vec![
+                TokenKind::LeftParen,
+                TokenKind::Number("1.25".to_owned()),
+                TokenKind::Plus,
+                TokenKind::Dollar,
+                TokenKind::Identifier("offset".to_owned()),
+                TokenKind::RightParen,
+                TokenKind::Identifier("ms".to_owned()),
+                TokenKind::Slash,
+                TokenKind::Number("2".to_owned()),
+                TokenKind::Percent,
+                TokenKind::Percent,
+                TokenKind::End,
+            ]
+        );
+
+        assert_eq!(
+            kinds("$duration- 100ms"),
+            vec![
+                TokenKind::Dollar,
+                TokenKind::Identifier("duration-".to_owned()),
+                TokenKind::Number("100".to_owned()),
+                TokenKind::Identifier("ms".to_owned()),
+                TokenKind::End,
+            ]
+        );
     }
 
     #[test]

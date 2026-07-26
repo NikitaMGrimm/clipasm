@@ -55,15 +55,11 @@ fn add_video_requirements(
             requirements.require_filters(["trim", "setpts", "asetnsamples"]);
             require_normalized_audio(requirements);
         }
-        PreparedVideoKind::Zoom { .. } => {
+        PreparedVideoKind::ZoomIn { .. } => {
             requirements.require_filters(["perspective", "setpts"]);
             require_normalized_audio(requirements);
         }
-        PreparedVideoKind::Wobble { .. } => {
-            requirements.require_filters(["scale", "setsar", "crop", "setpts"]);
-            require_normalized_audio(requirements);
-        }
-        PreparedVideoKind::FlashJoin { .. } => {
+        PreparedVideoKind::FlashCut { .. } => {
             requirements.require_filters(["fade", "concat"]);
             require_normalized_audio(requirements);
         }

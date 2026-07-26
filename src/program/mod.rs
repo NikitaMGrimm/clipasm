@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
+use crate::model::{ExactNumber, FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
 use crate::semantic::GraphBuilder;
 use crate::source::{SourceSpan, SourceUnitId};
 
@@ -116,6 +116,7 @@ pub(crate) struct ResolvedSignature {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterType {
+    Number,
     Integer,
     File,
     Duration,
@@ -130,6 +131,7 @@ impl ParameterType {
         keyword_values: Option<Vec<String>>,
     ) -> Option<Self> {
         match name {
+            "Number" => Some(Self::Number),
             "Integer" => Some(Self::Integer),
             "File" => Some(Self::File),
             "Duration" => Some(Self::Duration),
@@ -142,6 +144,7 @@ impl ParameterType {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParameterValue {
+    Number(ExactNumber),
     Integer(i64),
     File(PathBuf),
     Duration(SourceTime),

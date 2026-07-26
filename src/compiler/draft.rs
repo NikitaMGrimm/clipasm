@@ -7,8 +7,8 @@ use crate::program::{
     Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess,
 };
 use crate::source::{
-    ArgumentValue, ItemKind, ItemOrigin, Literal, OutputBindings, ProgramBody, SourceProgram,
-    SourceSpan, Spanned, StackBlock,
+    ArgumentValue, ItemKind, ItemOrigin, OutputBindings, ProgramBody, ScalarExpression,
+    SourceProgram, SourceSpan, Spanned, StackBlock,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -137,8 +137,7 @@ impl DraftInput {
 
 #[derive(Debug)]
 pub(super) enum DraftParameter {
-    Literal(Literal),
-    Reference(Spanned<String>),
+    Expression(ScalarExpression),
 }
 
 impl DraftProgram {
@@ -170,6 +169,13 @@ impl DraftProgram {
 }
 
 impl DraftBody {
+    fn empty(span: SourceSpan) -> Self {
+        Self {
+            span,
+            items: Vec::new(),
+        }
+    }
+
     fn build(
         source: &ProgramBody,
         definitions: &[ProgramDefinition],
@@ -303,7 +309,7 @@ impl DraftInvocation {
                             stack_block_count,
                         )?))
                     }
-                    ArgumentValue::Literal(_) => {
+                    ArgumentValue::Scalar(_) => {
                         return Err(Diagnostic::new(
                             "E_INVALID_ARGUMENT_TYPE",
                             format!(
@@ -341,9 +347,11 @@ impl DraftInvocation {
                 inputs[slot.index()] = Some(input);
             } else if let Some(slot) = definition.descriptor.parameter_slot(name) {
                 parameters[slot.index()] = Some(match argument {
-                    ArgumentValue::Literal(literal) => DraftParameter::Literal(literal.clone()),
+                    ArgumentValue::Scalar(expression) => {
+                        DraftParameter::Expression(expression.clone())
+                    }
                     ArgumentValue::Reference(reference) => {
-                        DraftParameter::Reference(reference.clone())
+                        DraftParameter::Expression(ScalarExpression::Reference(reference.clone()))
                     }
                     ArgumentValue::Body(_) => {
                         return Err(Diagnostic::new(
@@ -398,22 +406,23 @@ impl DraftInvocation {
                 None
             }
             ProgramImplementation::Body { .. } => {
-                let body = source.body.as_ref().ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_MISSING_PROGRAM_BODY",
-                        format!("body program `{}` requires a `body`", source.program.value),
-                        source.program.span.clone(),
-                    )
-                })?;
-                Some(Box::new(DraftBody::build(
-                    body,
-                    definitions,
-                    builtins,
-                    namespace,
-                    depth + 1,
-                    invocation_count,
-                    stack_block_count,
-                )?))
+                let body = source
+                    .body
+                    .as_ref()
+                    .map(|body| {
+                        DraftBody::build(
+                            body,
+                            definitions,
+                            builtins,
+                            namespace,
+                            depth + 1,
+                            invocation_count,
+                            stack_block_count,
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| DraftBody::empty(source.program.span.clone()));
+                Some(Box::new(body))
             }
         };
 

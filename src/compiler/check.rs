@@ -284,7 +284,7 @@ fn parameter_defaults(
                 .default
                 .as_ref()
                 .map(|default| {
-                    super::parameter::from_literal(
+                    super::parameter::from_expression(
                         owner,
                         &parameter.name.value,
                         &parameter.parameter_type,
@@ -425,14 +425,14 @@ fn prepare_program_bindings(
         let default = parameter
             .default
             .as_ref()
-            .map(|literal| {
-                super::parameter::from_literal(
+            .map(|expression| {
+                super::parameter::from_expression(
                     "authored program",
                     &parameter.name.value,
                     &parameter.parameter_type,
-                    literal,
+                    expression,
                 )
-                .map(|value| crate::source::Spanned::new(value, literal.span().clone()))
+                .map(|value| crate::source::Spanned::new(value, expression.span().clone()))
             })
             .transpose()?;
         parameters.push(CheckedParameter {
@@ -925,46 +925,31 @@ fn check_parameter_argument(
     local_types: &BTreeMap<String, LocalType>,
     parameter_ids: &BTreeMap<String, ParameterId>,
 ) -> Result<CheckedParameterValue> {
-    match argument {
-        DraftParameter::Literal(literal) => {
-            let span = literal.span().clone();
-            Ok(CheckedParameterValue::Literal(crate::source::Spanned::new(
-                super::parameter::from_literal(
-                    program,
-                    &parameter.name,
-                    &parameter.parameter_type,
-                    &literal,
-                )?,
-                span,
-            )))
-        }
-        DraftParameter::Reference(reference) => match local_types.get(&reference.value) {
-            Some(LocalType::Parameter(actual)) if actual == &parameter.parameter_type => {
-                Ok(CheckedParameterValue::Reference(
-                    *parameter_ids
-                        .get(&reference.value)
-                        .ok_or_else(|| missing_reference(&reference.value, &reference.span))?,
-                ))
-            }
-            Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "parameter `${}` is not compatible with `{program}.{}`",
-                    reference.value, parameter.name
-                ),
-                reference.span.clone(),
+    let DraftParameter::Expression(expression) = argument;
+    let checked = super::parameter::check_expression(
+        program,
+        &parameter.name,
+        &parameter.parameter_type,
+        &expression,
+        &mut |reference| match local_types.get(&reference.value) {
+            Some(LocalType::Parameter(actual)) => Ok((
+                *parameter_ids
+                    .get(&reference.value)
+                    .ok_or_else(|| missing_reference(&reference.value, &reference.span))?,
+                actual.clone(),
             )),
             Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
                 format!(
-                    "graph value `${}` cannot be used as scalar parameter `{program}.{}`",
+                    "graph value `${}` cannot be used in scalar parameter `{program}.{}`",
                     reference.value, parameter.name
                 ),
                 reference.span.clone(),
             )),
             None => Err(missing_reference(&reference.value, &reference.span)),
         },
-    }
+    )?;
+    Ok(CheckedParameterValue::Expression(checked))
 }
 
 fn resolved_value_type(
@@ -1169,7 +1154,7 @@ fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Res
     let Some(default) = parameter.default.as_ref() else {
         return Ok(());
     };
-    super::parameter::from_literal(
+    super::parameter::from_expression(
         "authored program",
         &parameter.name.value,
         &parameter.parameter_type,
