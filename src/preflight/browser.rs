@@ -6,7 +6,7 @@
 //! runtime.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -357,31 +357,21 @@ fn normalize_relative(path: &Path, span: &SourceSpan) -> Result<String> {
     }
 
     let mut components = Vec::new();
-    for component in Path::new(&portable).components() {
+    for component in portable.split('/') {
         match component {
-            Component::CurDir => {}
-            Component::Normal(value) => components.push(value),
-            Component::ParentDir => {
+            "" | "." => {}
+            ".." => {
                 if components.pop().is_none() {
                     return Err(invalid_browser_path(path, span));
                 }
             }
-            Component::Prefix(_) | Component::RootDir => {
-                return Err(invalid_browser_path(path, span));
-            }
+            value => components.push(value),
         }
     }
     if components.is_empty() {
         return Err(invalid_browser_path(path, span));
     }
-    let mut normalized = PathBuf::new();
-    for component in components {
-        normalized.push(component);
-    }
-    normalized
-        .to_str()
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| invalid_browser_path(path, span))
+    Ok(components.join("/"))
 }
 
 fn invalid_browser_path(path: &Path, span: &SourceSpan) -> Diagnostic {
