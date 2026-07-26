@@ -1,11 +1,11 @@
-import init, { compileSource } from "./clipasm_playground.js";
+import init, { compileSource, prepareRender } from "./clipasm_playground.js";
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const encoder = new TextEncoder();
 const initialized = init();
 
 self.addEventListener("message", async ({ data }) => {
-    const { id, source } = data;
+    const { id, operation, source, assets } = data;
 
     try {
         if (typeof source !== "string") {
@@ -16,7 +16,10 @@ self.addEventListener("message", async ({ data }) => {
         }
 
         await initialized;
-        const response = JSON.parse(compileSource(source));
+        const response =
+            operation === "prepare_render"
+                ? JSON.parse(prepareRender(source, JSON.stringify(assets)))
+                : JSON.parse(compileSource(source));
         self.postMessage({ id, response });
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

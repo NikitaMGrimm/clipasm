@@ -50,14 +50,29 @@ jobs:
         with:
           toolchain: 1.95.0
           targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: playground/web/package-lock.json
+      - uses: browser-actions/setup-chrome@2e1d749697dd1612b833dba4a722266286fbefcd # v2.1.2
+        id: chrome
       - name: Install WebAssembly bindings
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
-      - name: Build browser compiler
-        run: ./scripts/build_playground.sh target/playground
+      - name: Install mdBook
+        run: cargo install mdbook --version 0.5.4 --locked
+      - name: Build browser playground
+        run: mdbook build && ./scripts/build_playground.sh
       - name: Check browser JavaScript
         run: >-
           node --check theme/clipasm-playground.js &&
-          node --check playground/web/clipasm-playground-worker.js
+          node --check playground/web/clipasm-playground-worker.js &&
+          node --check playground/web/clipasm-playground-render-worker.js &&
+          node --check playground/web/browser-smoke.mjs
+      - name: Render in Chrome
+        run: npm --prefix playground/web run test:browser
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
 
   portable-rust:
     strategy:

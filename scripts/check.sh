@@ -21,4 +21,6 @@ mdbook build
 python3 scripts/check_docs.py
 node --check theme/clipasm-playground.js
 node --check playground/web/clipasm-playground-worker.js
+node --check playground/web/clipasm-playground-render-worker.js
+node --check playground/web/browser-smoke.mjs
 git diff --check

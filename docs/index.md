@@ -10,7 +10,7 @@ Compilation creates a pure semantic graph without opening media files;
 preflight resolves reachable media and tools; rendering uses FFmpeg to produce
 the configured MP4 and FFprobe to verify it.
 
-You can [try validation and inspect a compiled graph](try-clipasm.md) in the
+You can [edit, validate, inspect, and render a video](try-clipasm.md) in the
 browser before installing anything.
 
 ## Recommended learning path

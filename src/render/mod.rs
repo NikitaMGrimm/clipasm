@@ -1,11 +1,13 @@
 //! Verified execution, caching, and rollback-capable publication of prepared plans.
 //!
-//! Rendering accepts only [`PreparedPlan`],
-//! re-verifies source content reached by cache-aware execution, reuses
-//! compatible cached artifacts, executes `FFmpeg` primitives, and publishes the
-//! MP4 and manifest as one in-process transaction.
+//! Native rendering accepts only [`PreparedPlan`], re-verifies source content
+//! reached by cache-aware execution, reuses compatible cached artifacts,
+//! executes `FFmpeg` primitives, and publishes the MP4 and manifest as one
+//! in-process transaction. The [`browser`] adapter serializes the same closed
+//! recipes for an isolated WebAssembly host.
 
 mod artifact;
+pub mod browser;
 mod cache;
 mod execute;
 mod execution_plan;

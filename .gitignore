@@ -6,4 +6,5 @@
 *.manifest.json
 .*.publication.lock
 /dist/
+**/node_modules/
 __pycache__/

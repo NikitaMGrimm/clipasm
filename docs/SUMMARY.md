@@ -54,6 +54,7 @@
   - [0014: Map frame and sample boundaries cumulatively](adr/0014-map-frame-and-sample-boundaries.md)
   - [0015: Keep native operations closed and phase-owned](adr/0015-keep-native-operations-phase-owned.md)
   - [0016: Overlap audiovisual transitions on exact boundaries](adr/0016-overlap-audiovisual-transitions-exactly.md)
+  - [0017: Run FFmpeg recipes through host adapters](adr/0017-run-ffmpeg-recipes-through-host-adapters.md)
 
 # Development
 

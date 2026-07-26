@@ -58,8 +58,11 @@ Use the [language reference](../language-reference.md) for authored examples.
 | [0012](0012-run-external-programs.md) | `accepted` | Run typed external programs only as trusted rendering-time executables. |
 | [0014](0014-map-frame-and-sample-boundaries.md) | `accepted` | Map cumulative frame and sample boundaries exactly without a shared master tick. |
 | [0016](0016-overlap-audiovisual-transitions-exactly.md) | `accepted` | Overlap crossfade picture and Audio on the same exact output boundaries. |
+| [0017](0017-run-ffmpeg-recipes-through-host-adapters.md) | `accepted` | Share closed FFmpeg recipes between explicit native and browser runtime adapters. |
 
 See the architecture's [preflight](../architecture.md#preflight) and
 [rendering](../architecture.md#rendering) sections for current execution
 ownership. External executables are trusted code; the complete trust boundary
-is recorded in [ADR 0012](0012-run-external-programs.md).
+is recorded in [ADR 0012](0012-run-external-programs.md). The native/browser
+runtime boundary is recorded in
+[ADR 0017](0017-run-ffmpeg-recipes-through-host-adapters.md).

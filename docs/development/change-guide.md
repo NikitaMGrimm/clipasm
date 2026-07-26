@@ -17,8 +17,8 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | `src/preflight` | Assets, tools, exact media domains, and prepared primitives |
 | `src/render` | Cache execution, FFmpeg, verification, and publication |
 | `src/model` | Invariant-protected value, time, audio, and video types |
-| `playground` | Thin WebAssembly adapter and browser worker for pure compilation |
-| `theme` | Self-hosted book playground behavior and presentation |
+| `playground` | WebAssembly compilation/preparation adapter and pinned browser render runtime |
+| `theme` | Book playground, virtual-file binding, worker lifecycle, preview, and presentation |
 | `tests` | Public compiler, preflight, CLI, and render contracts |
 | `examples` | Small runnable `.clipasm` programs |
 
@@ -40,7 +40,7 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | Change media formats or frame/sample mapping | `src/model`, preflight, render | ADR 0014, exact-domain tests, serialized shape, cache identity |
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
-| Change browser compilation | `playground`, `theme` | pure-compilation boundary, response version, single-file limits, WebAssembly and book builds |
+| Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
 | Change terminology | `CONTEXT.md` first | language reference, architecture, diagnostics, code names |
 | Add a dependency | `Cargo.toml`, CI | requirements and execution identity where relevant |
 

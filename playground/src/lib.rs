@@ -155,7 +155,7 @@ pub fn prepare_render(source: &str, assets_json: &str) -> String {
                 })?;
         let compiled = compile_program(source)?;
         let prepared = clipasm::preflight::browser::prepare(&compiled, &assets)?;
-        prepared.render_json()
+        clipasm::render::browser::render_json(&prepared)
     })();
     let response = match result {
         Ok(plan_json) => RenderPlanResponse::Success {
@@ -242,9 +242,20 @@ mod tests {
             serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
                 .expect("valid plan JSON");
         assert_eq!(plan["version"], 1);
+        assert_eq!(plan["recipe_contract"], 1);
+        assert_eq!(
+            plan["runtime"],
+            serde_json::json!({
+                "wrapper": "0.12.15",
+                "core": "0.12.10",
+                "policy": "ffv1-flac-matroska-v1",
+            })
+        );
         assert_eq!(plan["steps"].as_array().map(Vec::len), Some(4));
         assert_eq!(plan["export"]["contract"]["frames"], 108);
         assert_eq!(plan["export"]["contract"]["width"], 320);
         assert_eq!(plan["export"]["contract"]["height"], 180);
+        assert_eq!(plan["export"]["contract"]["sample_rate"], 48_000);
+        assert_eq!(plan["export"]["contract"]["channels"], 2);
     }
 }

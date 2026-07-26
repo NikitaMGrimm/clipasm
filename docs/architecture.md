@@ -10,11 +10,11 @@ Self-contained checked source
 Semantic graph + ordered source outputs
   -> compiled JSON adapter (optional)
 Compiled semantic document
-  -> preflight
+  -> preflight through native or browser asset host
 Prepared primitive plan + one result
-  -> renderer and cache
-Optional entrypoint publication
-  -> MP4 + manifest
+  -> closed renderer-owned FFmpeg recipes
+  -> native process/cache adapter -> published MP4 + manifest
+  -> browser worker/VFS adapter -> preview and downloadable MP4
 ```
 
 The reasons behind the load-bearing boundaries are recorded in the
@@ -151,10 +151,10 @@ and its schema is not derived implicitly from the internal `CompiledProgram`
 layout.
 
 The `playground` workspace crate is a downstream browser host adapter. It keeps
-WebAssembly bindings out of the core crate and exposes only in-memory parsing,
-pure compilation, and compiled JSON through a versioned response. The book runs
-that adapter in a worker and accepts one source unit; native package loading,
-preflight, external processes, and rendering do not enter the browser boundary.
+WebAssembly bindings out of the core crate and exposes versioned in-memory
+compilation and browser preparation responses. The book accepts one source unit
+and supplies immutable virtual files and their hashes. Native package loading
+and external processes do not enter the browser boundary.
 
 ## Programs
 
@@ -298,6 +298,14 @@ nodes; external artifacts may use other encodings when they satisfy the
 verified media contract. Export-only policy changes reuse compatible working
 artifacts because publication is always performed afresh.
 
+Native preflight supplies filesystem assets, media probes, and tool identities.
+Browser preflight supplies normalized virtual image assets and their host-
+computed hashes without opening media or invoking tools. It reuses the same
+prepared lowering for operations reachable from still images. The browser
+renderer turns that plan into the versioned execution document. Video-file
+sources, Audio-file sources, imports, and external programs are explicitly
+unsupported in the browser.
+
 Audio is normalized to the configured stereo project sample rate, which
 defaults to 48 kHz. Working Video artifacts always contain one lossless
 normalized audio stream, using silence for semantically silent Videos, while
@@ -335,15 +343,17 @@ time scales with the input and operation graph. The
 sibling render manifest has its own versioned schema and records only project
 media properties, semantic/result identity, tool version summaries, and cache
 statistics; it does not serialize the executable prepared plan or local paths.
-Cache and publication orchestration remain in `render`. The native executor
-keeps one exhaustive prepared-primitive dispatcher and delegates media, Audio,
-timeline, effect, transition, external-process, and export work to focused
-modules. One shared render context owns FFmpeg command initialization, upstream
-artifact lookup, policy-driven native output construction, temporary output
-naming, failure cleanup, and atomic cache replacement, so native operation
-modules cannot diverge on execution lifecycle or artifact encoding. External
-programs use the versioned process protocol and must satisfy artifact
-verification rather than the native encoding policy.
+Cache and publication orchestration remain in `render`. One exhaustive
+prepared-primitive dispatcher delegates media, Audio, timeline, effect, and
+transition argument construction to focused modules and returns a typed FFmpeg
+recipe. Recipes distinguish literal arguments, source assets, and prepared
+artifacts; they contain no shell commands or host paths.
+
+The native adapter materializes recipes with platform paths and owns FFmpeg
+process setup, upstream artifact lookup, policy-driven output construction,
+temporary naming, failure cleanup, and atomic cache replacement. External
+programs bypass FFmpeg recipes, use the versioned process protocol, and must
+satisfy artifact verification rather than the native encoding policy.
 
 Before execution, a private execution plan walks backward from the prepared
 result. A cache entry becomes a dependency barrier only after both its sidecar
@@ -372,6 +382,15 @@ checks the exact resulting frame and sample counts instead. Artifact
 verification, locking, and rollback-capable publication remain separate deep
 modules; there is no generic process runner, operation trait hierarchy, or
 renderer backend interface.
+
+The browser adapter materializes the same recipes against a private virtual
+filesystem and executes them sequentially in a dedicated worker. It verifies
+the exact stream shape, frame count, and Audio sample count after every step,
+deletes artifacts after their last use, and returns a verified MP4. Runtime and
+work limits are browser policy rather than semantic Video limits. The pinned
+single-threaded FFmpeg WebAssembly runtime loads only when rendering starts;
+cancellation terminates the worker. Browser rendering has no persistent cache.
+See [ADR 0017](adr/0017-run-ffmpeg-recipes-through-host-adapters.md).
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without
@@ -402,7 +421,9 @@ remain iterative so graph depth is not limited by the Rust call stack.
 - Compilation owns checked stack evaluation, semantic dependency resolution,
   and pure domain inference.
 - Preflight owns media and tool discovery, exact typed domains, and prepared primitive construction.
-- Rendering owns artifact execution and publication.
+- Rendering owns closed FFmpeg recipes, native artifact execution, cache, and publication.
+- The browser host owns virtual file binding, WebAssembly execution,
+  cancellation, and preview/download lifecycle.
 
 Do not move media I/O into compilation or backend policy into semantic Video
 domains.

@@ -128,11 +128,23 @@ that pair with the browser editor; readers without JavaScript still see the
 source. Prefer an mdBook `{{#include}}` of a committed example so the book and
 repository do not drift.
 
-The browser adapter deliberately exposes only media-pure, single-file
-compilation. Do not imply that the playground opens assets, resolves imports,
-runs external programs, or renders video. Changes to its response must update
-the response version in `playground/src/lib.rs` and
-`theme/clipasm-playground.js`.
+To provide bundled files for rendering, add a project-relative base:
+
+```html
+<div data-clipasm-playground
+     data-clipasm-assets-base="playground/example-assets/"></div>
+```
+
+The base is optional. Readers may upload individual files or a directory, and
+uploads with matching virtual paths override bundled files. The adapter accepts
+one source unit and still-image sources; it does not resolve imports, probe
+Video or Audio files, or run external programs. Rendering uses a pinned,
+separately licensed FFmpeg WebAssembly runtime loaded on demand.
+
+Changes to compilation/preparation responses must update the response version
+in `playground/src/lib.rs` and `theme/clipasm-playground.js`. Changes to recipe
+or runtime compatibility must update the browser plan metadata and render
+worker together.
 
 To build the WebAssembly assets locally, install the pinned target and binding
 tool, build the book, and run the asset script:
@@ -144,9 +156,12 @@ mdbook build
 ./scripts/build_playground.sh
 ```
 
-Serve `target/book` over HTTP to test the worker; browsers do not load the
-WebAssembly module correctly from a `file://` URL. CI checks the adapter and
-JavaScript, while the Pages workflow builds the same assets before deployment.
+Serve `target/book` over HTTP to test the workers; browsers do not load
+WebAssembly modules correctly from a `file://` URL. Render the scenic example,
+cancel and restart once, and test an uploaded replacement before changing the
+runtime lifecycle. CI checks the adapter and JavaScript, while the Pages
+workflow builds the same pinned assets before deployment. The browser CI job
+also renders the scenic example in Chrome and exercises cancellation.
 
 ## Check the result
 

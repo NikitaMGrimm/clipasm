@@ -11,22 +11,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{
-    AudioDomain, AudioSpec, FrameCount, NodeId, TimelineRate, ValueType, VideoSpec,
-};
-use crate::render::execute::{
-    FfmpegArgument, FfmpegRecipe, RecipeContext, export_recipe, ffmpeg_recipe,
-};
+use crate::model::{AudioDomain, AudioSpec, FrameCount, NodeId, VideoSpec};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 use crate::source::SourceSpan;
 
 use super::identity::prepared_semantic_hash;
 use super::lower::{PreflightLowerer, PreparationHost};
 use super::tools::ExternalToolIdentity;
-use super::{
-    PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind,
-    RenderPolicy,
-};
+use super::{PreparedAsset, PreparedNode, RenderPolicy};
 
 /// The media role of one virtual asset required for browser rendering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -87,7 +79,7 @@ impl BrowserAsset {
     }
 }
 
-/// An exact prepared graph for browser recipe generation.
+/// An exact prepared graph for browser rendering.
 #[derive(Clone, Debug)]
 pub struct BrowserPreparedPlan {
     video: VideoSpec,
@@ -116,380 +108,13 @@ impl BrowserPreparedPlan {
         &self.semantic_hash
     }
 
-    /// Serialize the closed `FFmpeg` recipes and virtual artifact contracts.
-    ///
-    /// The document contains no executable program names or shell commands. A
-    /// browser host mounts each requested asset at the supplied virtual path,
-    /// executes the argument arrays in order, verifies their contracts, and
-    /// reads the final MP4.
-    ///
-    /// # Errors
-    ///
-    /// Returns a diagnostic if a virtual asset path cannot be represented,
-    /// recipe generation detects an invalid prepared graph, the browser work
-    /// budget is exceeded, or the document cannot be serialized.
-    pub fn render_json(&self) -> Result<String> {
-        let document = self.render_document()?;
-        serde_json::to_string(&document).map_err(|error| {
-            Diagnostic::new(
-                "E_BROWSER_RENDER_JSON",
-                format!("could not serialize the browser render plan: {error}"),
-                self.result_span(),
-            )
-        })
+    pub(crate) fn nodes(&self) -> &[PreparedNode] {
+        &self.nodes
     }
 
-    #[allow(clippy::too_many_lines)]
-    fn render_document(&self) -> Result<BrowserRenderDocument<'_>> {
-        validate_browser_budget(self)?;
-        let policy = RenderPolicy::CURRENT;
-        let assets = browser_mounts(&self.nodes)?;
-        let asset_paths = assets
-            .iter()
-            .map(|asset| (PathBuf::from(&asset.path), asset.virtual_path.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let last_uses = last_uses(&self.nodes, self.result);
-        let mut steps = Vec::with_capacity(self.nodes.len());
-        for (index, node) in self.nodes.iter().enumerate() {
-            let context = RecipeContext::new(
-                &self.video,
-                &self.audio,
-                &self.nodes,
-                policy,
-                &node.origin().span,
-            );
-            let recipe = ffmpeg_recipe(node, &context)?;
-            let output = artifact_path(node.id(), node.value_type(), policy);
-            let arguments = browser_arguments(
-                &recipe,
-                &asset_paths,
-                &self.nodes,
-                policy,
-                &output,
-                &node.origin().span,
-            )?;
-            let delete_after = last_uses
-                .iter()
-                .filter(|(_, last_use)| **last_use == index)
-                .map(|(node, _)| {
-                    let node = &self.nodes[node.get() as usize];
-                    artifact_path(node.id(), node.value_type(), policy)
-                })
-                .collect();
-            steps.push(BrowserRenderStep {
-                node: node.id().get(),
-                arguments,
-                output,
-                contract: artifact_contract(node, self.audio, policy)?,
-                delete_after,
-            });
-        }
-
-        let result = &self.nodes[self.result.get() as usize];
-        let final_output = "/output/clipasm.mp4".to_owned();
-        let export = export_recipe(
-            self.result,
-            &self.video,
-            &self.audio,
-            result.has_audio(),
-            policy,
-        );
-        let arguments = browser_arguments(
-            &export,
-            &asset_paths,
-            &self.nodes,
-            policy,
-            &final_output,
-            &result.origin().span,
-        )?;
-        let result_domain = result.video_domain().ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_PLAN",
-                "browser render result is not Video",
-                result.origin().span.clone(),
-            )
-        })?;
-        let final_contract = BrowserArtifactContract::Video {
-            width: result_domain.width(),
-            height: result_domain.height(),
-            fps_numerator: result_domain.frame_rate().numerator(),
-            fps_denominator: result_domain.frame_rate().denominator(),
-            frames: result_domain.frames().0,
-            pixel_format: policy.export_pixel_format(),
-            audio: result.has_audio(),
-            exact_audio_samples: false,
-            samples: result
-                .has_audio()
-                .then(|| {
-                    TimelineRate::new(self.video, self.audio)
-                        .samples_for_frames(result_domain.frames(), &result.origin().span)
-                })
-                .transpose()?,
-        };
-
-        Ok(BrowserRenderDocument {
-            version: 1,
-            recipe_contract: 1,
-            runtime: BrowserRuntime {
-                wrapper: "0.12.15",
-                core: "0.12.10",
-            },
-            semantic_hash: &self.semantic_hash,
-            assets,
-            steps,
-            export: BrowserExport {
-                arguments,
-                output: final_output,
-                contract: final_contract,
-                delete_after: vec![artifact_path(self.result, ValueType::Video, policy)],
-            },
-        })
+    pub(crate) const fn result(&self) -> NodeId {
+        self.result
     }
-
-    fn result_span(&self) -> SourceSpan {
-        self.nodes[self.result.get() as usize].origin().span.clone()
-    }
-}
-
-#[derive(Serialize)]
-struct BrowserRenderDocument<'a> {
-    version: u32,
-    recipe_contract: u32,
-    runtime: BrowserRuntime<'static>,
-    semantic_hash: &'a str,
-    assets: Vec<BrowserMount>,
-    steps: Vec<BrowserRenderStep>,
-    export: BrowserExport,
-}
-
-#[derive(Serialize)]
-struct BrowserRuntime<'a> {
-    wrapper: &'a str,
-    core: &'a str,
-}
-
-#[derive(Serialize)]
-struct BrowserMount {
-    path: String,
-    virtual_path: String,
-}
-
-#[derive(Serialize)]
-struct BrowserRenderStep {
-    node: u32,
-    arguments: Vec<String>,
-    output: String,
-    contract: BrowserArtifactContract,
-    delete_after: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct BrowserExport {
-    arguments: Vec<String>,
-    output: String,
-    contract: BrowserArtifactContract,
-    delete_after: Vec<String>,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "media", rename_all = "snake_case")]
-enum BrowserArtifactContract {
-    Video {
-        width: u32,
-        height: u32,
-        fps_numerator: u32,
-        fps_denominator: u32,
-        frames: u64,
-        pixel_format: &'static str,
-        audio: bool,
-        exact_audio_samples: bool,
-        samples: Option<u64>,
-    },
-    Audio {
-        sample_rate: u32,
-        channels: u8,
-        samples: u64,
-    },
-}
-
-fn browser_mounts(nodes: &[PreparedNode]) -> Result<Vec<BrowserMount>> {
-    let mut paths = BTreeSet::new();
-    for node in nodes {
-        match node.media() {
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::ImageVideo { asset, .. }
-                    | PreparedVideoKind::VideoSource { asset, .. },
-                ..
-            }
-            | PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioSource { asset },
-                ..
-            } => {
-                let path = asset.source_path().to_str().ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_BROWSER_ASSET_PATH",
-                        "browser asset paths must be UTF-8",
-                        node.origin().span.clone(),
-                    )
-                })?;
-                paths.insert(path.to_owned());
-            }
-            PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => {}
-        }
-    }
-    paths
-        .into_iter()
-        .enumerate()
-        .map(|(index, path)| {
-            let extension = Path::new(&path)
-                .extension()
-                .and_then(|value| value.to_str())
-                .filter(|value| {
-                    !value.is_empty()
-                        && value.len() <= 12
-                        && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
-                })
-                .map_or_else(String::new, |value| format!(".{value}"));
-            Ok(BrowserMount {
-                path,
-                virtual_path: format!("/inputs/{index}/asset{extension}"),
-            })
-        })
-        .collect()
-}
-
-fn browser_arguments(
-    recipe: &FfmpegRecipe,
-    assets: &BTreeMap<PathBuf, String>,
-    nodes: &[PreparedNode],
-    policy: RenderPolicy,
-    output: &str,
-    span: &SourceSpan,
-) -> Result<Vec<String>> {
-    let mut arguments = Vec::with_capacity(recipe.arguments().len() + 1);
-    for argument in recipe.arguments() {
-        match argument {
-            FfmpegArgument::Text(value) => arguments.push(value.clone()),
-            FfmpegArgument::Asset(path) => {
-                let Some(path) = assets.get(path) else {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_PLAN",
-                        format!(
-                            "browser recipe references unavailable asset `{}`",
-                            path.display()
-                        ),
-                        span.clone(),
-                    ));
-                };
-                arguments.push(path.clone());
-            }
-            FfmpegArgument::Artifact(id) => {
-                let Some(node) = nodes.get(id.get() as usize) else {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_PLAN",
-                        format!("browser recipe references unavailable node {}", id.get()),
-                        span.clone(),
-                    ));
-                };
-                arguments.push(artifact_path(*id, node.value_type(), policy));
-            }
-        }
-    }
-    arguments.push(output.to_owned());
-    Ok(arguments)
-}
-
-fn artifact_path(node: NodeId, value_type: ValueType, policy: RenderPolicy) -> String {
-    let extension = match value_type {
-        ValueType::Video => policy.working_video_extension(),
-        ValueType::Audio => policy.working_audio_extension(),
-    };
-    format!("/work/node-{}.{extension}", node.get())
-}
-
-fn artifact_contract(
-    node: &PreparedNode,
-    audio: AudioSpec,
-    policy: RenderPolicy,
-) -> Result<BrowserArtifactContract> {
-    match node.media() {
-        PreparedNodeMedia::Video { domain, .. } => {
-            let samples = TimelineRate::new(domain.video_spec(), audio)
-                .samples_for_frames(domain.frames(), &node.origin().span)?;
-            Ok(BrowserArtifactContract::Video {
-                width: domain.width(),
-                height: domain.height(),
-                fps_numerator: domain.frame_rate().numerator(),
-                fps_denominator: domain.frame_rate().denominator(),
-                frames: domain.frames().0,
-                pixel_format: policy.working_pixel_format(),
-                audio: true,
-                exact_audio_samples: true,
-                samples: Some(samples),
-            })
-        }
-        PreparedNodeMedia::Audio { domain, .. } => Ok(BrowserArtifactContract::Audio {
-            sample_rate: domain.audio_spec().sample_rate(),
-            channels: domain.audio_spec().channels(),
-            samples: domain.samples(),
-        }),
-    }
-}
-
-fn last_uses(nodes: &[PreparedNode], result: NodeId) -> BTreeMap<NodeId, usize> {
-    let mut uses = BTreeMap::new();
-    for (index, node) in nodes.iter().enumerate() {
-        node.visit_inputs(|input| {
-            uses.insert(input, index);
-        });
-    }
-    uses.insert(result, nodes.len());
-    uses
-}
-
-fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
-    const MAX_PIXEL_FRAMES: u128 = 1_000_000_000;
-    const MAX_NODES: usize = 512;
-
-    if plan.nodes.len() > MAX_NODES {
-        return Err(Diagnostic::new(
-            "E_BROWSER_RENDER_LIMIT",
-            format!(
-                "browser rendering supports at most {MAX_NODES} prepared operations; this graph has {}",
-                plan.nodes.len()
-            ),
-            plan.result_span(),
-        ));
-    }
-    let mut pixel_frames = 0_u128;
-    for node in &plan.nodes {
-        if let Some(domain) = node.video_domain() {
-            pixel_frames = pixel_frames
-                .checked_add(
-                    u128::from(domain.width())
-                        * u128::from(domain.height())
-                        * u128::from(domain.frames().0),
-                )
-                .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_BROWSER_RENDER_LIMIT",
-                        "browser render work exceeds the supported size",
-                        node.origin().span.clone(),
-                    )
-                })?;
-        }
-    }
-    if pixel_frames > MAX_PIXEL_FRAMES {
-        return Err(Diagnostic::new(
-            "E_BROWSER_RENDER_LIMIT",
-            format!(
-                "browser render work is {pixel_frames} pixel-frames, above the {MAX_PIXEL_FRAMES} pixel-frame limit"
-            ),
-            plan.result_span(),
-        ));
-    }
-    Ok(())
 }
 
 /// Discover virtual assets required for browser rendering.
@@ -682,8 +307,19 @@ fn virtual_path(authored: &Path, span: &SourceSpan) -> Result<String> {
 }
 
 fn normalize_relative(path: &Path, span: &SourceSpan) -> Result<String> {
+    let Some(path_text) = path.to_str() else {
+        return Err(invalid_browser_path(path, span));
+    };
+    let portable = path_text.replace('\\', "/");
+    let bytes = portable.as_bytes();
+    if portable.starts_with('/')
+        || (bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':')
+    {
+        return Err(invalid_browser_path(path, span));
+    }
+
     let mut components = Vec::new();
-    for component in path.components() {
+    for component in Path::new(&portable).components() {
         match component {
             Component::CurDir => {}
             Component::Normal(value) => components.push(value),
@@ -706,7 +342,7 @@ fn normalize_relative(path: &Path, span: &SourceSpan) -> Result<String> {
     }
     normalized
         .to_str()
-        .map(|value| value.replace('\\', "/"))
+        .map(ToOwned::to_owned)
         .ok_or_else(|| invalid_browser_path(path, span))
 }
 
@@ -848,6 +484,38 @@ mod tests {
             required_assets(&traversal).expect_err("traversal").code,
             "E_BROWSER_ASSET_PATH"
         );
+    }
+
+    #[test]
+    fn treats_slashes_and_backslashes_as_virtual_path_separators() {
+        let span = SourceSpan::file_start("playground.clipasm");
+
+        assert_eq!(
+            normalize_relative(Path::new("a\\..\\secret.png"), &span).expect("normalized"),
+            "secret.png"
+        );
+        assert_eq!(
+            normalize_relative(Path::new("assets\\scene\\..\\still.png"), &span)
+                .expect("normalized"),
+            "assets/still.png"
+        );
+
+        for path in [
+            "..\\secret.png",
+            "C:\\secret.png",
+            "C:/secret.png",
+            "C:secret.png",
+            "\\\\server\\share\\secret.png",
+            "\\secret.png",
+        ] {
+            assert_eq!(
+                normalize_relative(Path::new(path), &span)
+                    .expect_err("unsafe browser path")
+                    .code,
+                "E_BROWSER_ASSET_PATH",
+                "{path}"
+            );
+        }
     }
 
     #[test]

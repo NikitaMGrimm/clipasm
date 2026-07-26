@@ -69,6 +69,9 @@ authoring semantics. The native `.clipasm` grammar is implemented under
 - The **prepared plan** is the preflight result with reachable data assets and
   tools resolved and hashed, exact domains derived, and renderer primitives
   selected.
+- An **FFmpeg recipe** is a renderer-owned, closed argument description for one
+  prepared primitive or final export. Native and browser hosts materialize the
+  same recipe against their own paths and runtime.
 
 ## Settled stack semantics
 

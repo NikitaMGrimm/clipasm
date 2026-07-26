@@ -10,8 +10,9 @@ FFprobe to verify it.
 > change without compatibility guarantees.
 
 You can
-[try browser-based validation and graph inspection](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
-without installing ClipAsm. Rendering remains a native workflow.
+[edit, validate, inspect, and render the scenic example in your browser](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
+without installing ClipAsm. Browser rendering supports uploaded still images;
+the native CLI remains the complete workflow.
 
 ## Install
 

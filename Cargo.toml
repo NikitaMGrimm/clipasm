@@ -19,7 +19,7 @@ include = [
     "/examples/?*.clipasm",
     "/examples/programs/**/*.clipasm",
     "/examples/assets/gentle-motion.mkv",
-    "/examples/assets/morning.png",
+    "/examples/assets/*.png",
     "/theme/**",
     "/Cargo.lock",
     "/LICENSE",

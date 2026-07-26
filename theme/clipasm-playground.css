@@ -58,9 +58,64 @@
     color: var(--links);
 }
 
+.clipasm-playground__button--render {
+    border-color: #188038;
+    color: #188038;
+}
+
 .clipasm-playground__button:disabled {
     cursor: wait;
     opacity: 0.6;
+}
+
+.clipasm-playground__assets {
+    margin: 0.75rem 1rem 0;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--searchresults-border-color);
+    border-radius: 0.25rem;
+    background: var(--bg);
+}
+
+.clipasm-playground__assets summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.clipasm-playground__assets p {
+    margin: 0.7rem 0;
+}
+
+.clipasm-playground__file-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.clipasm-playground__file-button {
+    display: inline-block;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid var(--searchresults-border-color);
+    border-radius: 0.25rem;
+    cursor: pointer;
+}
+
+.clipasm-playground__file-button:focus-within,
+.clipasm-playground__file-button:hover {
+    border-color: var(--links);
+}
+
+.clipasm-playground__file-button input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+.clipasm-playground__file-list {
+    margin: 0.7rem 0 0;
+    padding-left: 1.3rem;
+    font-family: var(--mono-font);
 }
 
 .clipasm-playground__status {
@@ -84,6 +139,22 @@
     white-space: pre;
 }
 
+.clipasm-playground__preview {
+    padding: 0 1rem 1rem;
+}
+
+.clipasm-playground__preview video {
+    display: block;
+    width: 100%;
+    max-height: 70vh;
+    margin-bottom: 0.75rem;
+    background: #000;
+}
+
+.clipasm-playground__preview a {
+    color: var(--links);
+}
+
 html.ayu .clipasm-playground__status--success,
 html.coal .clipasm-playground__status--success,
 html.navy .clipasm-playground__status--success {
@@ -98,8 +169,10 @@ html.navy .clipasm-playground__status--error {
 
 @media print {
     .clipasm-playground__actions,
+    .clipasm-playground__assets,
     .clipasm-playground__status,
-    .clipasm-playground__output {
+    .clipasm-playground__output,
+    .clipasm-playground__preview {
         display: none;
     }
 

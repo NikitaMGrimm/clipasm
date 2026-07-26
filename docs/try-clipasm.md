@@ -1,19 +1,29 @@
 # Try ClipAsm
 
-Edit the program, then select **Validate** or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
-**Inspect** shows the compiled semantic graph. Everything runs locally in your
-browser: the source is not uploaded, media files are not opened, and FFmpeg is
-not invoked.
+Edit the program, then select **Validate**, **Inspect**, or **Render video**.
+<kbd>Ctrl</kbd>+<kbd>Enter</kbd> validates. Everything runs locally in your
+browser; source and project files are not uploaded.
 
 ```clipasm
 {{#include ../examples/scenic-sequence.clipasm}}
 ```
 
-<div data-clipasm-playground></div>
+<div data-clipasm-playground data-clipasm-assets-base="playground/example-assets/"></div>
 
-This playground accepts one source file up to 256 KiB and stops compilation
-after five seconds. File-backed imports are unavailable, and external programs
-are never run. The installed CLI supports complete source packages, preflight,
-and rendering; continue with
+The scenic assets are bundled, so the example renders immediately. Use
+**Virtual project files** to replace them or supply paths used by another
+program. The playground accepts one source file up to 256 KiB, individual
+assets up to 128 MiB, and 256 MiB of assets in total. Browser rendering uses a
+single-threaded WebAssembly FFmpeg runtime, loaded on demand, and applies a
+bounded operation/work budget.
+
+Still-image sources and every native operation reachable from them are
+supported. Video-file sources, Audio-file sources, imports, and external
+programs remain unavailable in the browser. The installed CLI supports complete
+source packages and unrestricted native preflight and rendering; continue with
 [Install and render ClipAsm](getting-started/first-render.md) when you want to
-produce a video.
+use those features or render larger projects.
+
+The renderer is downloaded only when selected. It is separate GPL-licensed
+software; see the
+[browser runtime notices](https://github.com/NikitaMGrimm/clipasm/blob/main/playground/web/THIRD_PARTY.md).
