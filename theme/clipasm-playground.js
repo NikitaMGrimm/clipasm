@@ -67,11 +67,18 @@
         playground.className = "clipasm-playground";
         playground.setAttribute("aria-label", "ClipAsm playground");
 
+        const editorFrame = document.createElement("div");
+        editorFrame.className = "clipasm-playground__editor-frame";
+        const lineNumbers = document.createElement("pre");
+        lineNumbers.className = "clipasm-playground__line-numbers";
+        lineNumbers.setAttribute("aria-hidden", "true");
         const editor = document.createElement("textarea");
         editor.className = "clipasm-playground__editor";
         editor.setAttribute("aria-label", "ClipAsm source");
         editor.setAttribute("spellcheck", "false");
+        editor.setAttribute("wrap", "off");
         editor.value = initialSource;
+        editorFrame.append(lineNumbers, editor);
 
         const actions = document.createElement("div");
         actions.className = "clipasm-playground__actions";
@@ -95,7 +102,7 @@
         assetsSummary.textContent = "Virtual project files";
         const assetHelp = document.createElement("p");
         assetHelp.textContent =
-            "Add files by name, or add a folder to preserve paths such as assets/morning.png.";
+            "Add files by name, or add a folder to preserve paths such as uploaded_folder/folder_image.png.";
         const fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.multiple = true;
@@ -107,9 +114,13 @@
         folderInput.setAttribute("aria-label", "Add project folder");
         const selectedFiles = document.createElement("ul");
         selectedFiles.className = "clipasm-playground__file-list";
+        selectedFiles.hidden = true;
         const fileControls = document.createElement("div");
         fileControls.className = "clipasm-playground__file-controls";
-        fileControls.append(labeledInput("Add files", fileInput), labeledInput("Add folder", folderInput));
+        fileControls.append(
+            labeledInput("Add files", fileInput),
+            labeledInput("Add folder", folderInput),
+        );
         assets.append(assetsSummary, assetHelp, fileControls, selectedFiles);
 
         const status = document.createElement("p");
@@ -133,7 +144,56 @@
         download.download = "clipasm-preview.mp4";
         preview.append(video, download);
 
-        playground.append(editor, actions, assets, status, output, preview);
+        const renameDialog = document.createElement("dialog");
+        renameDialog.className = "clipasm-playground__dialog";
+        renameDialog.setAttribute("aria-label", "Rename virtual file");
+        const renameForm = document.createElement("form");
+        renameForm.method = "dialog";
+        const renameTitle = document.createElement("h3");
+        renameTitle.textContent = "Rename virtual file";
+        const renameLabel = document.createElement("label");
+        renameLabel.textContent = "Path";
+        const renameInput = document.createElement("input");
+        renameInput.type = "text";
+        renameInput.required = true;
+        renameInput.setAttribute("autocomplete", "off");
+        renameLabel.append(renameInput);
+        const renameError = document.createElement("p");
+        renameError.className = "clipasm-playground__dialog-error";
+        renameError.setAttribute("role", "alert");
+        renameError.hidden = true;
+        const renameActions = document.createElement("div");
+        renameActions.className = "clipasm-playground__dialog-actions";
+        const renameCancel = button("Cancel");
+        const renameSubmit = button("Rename", "primary");
+        renameSubmit.type = "submit";
+        renameActions.append(renameCancel, renameSubmit);
+        renameForm.append(renameTitle, renameLabel, renameError, renameActions);
+        renameDialog.append(renameForm);
+
+        const filePreviewDialog = document.createElement("dialog");
+        filePreviewDialog.className =
+            "clipasm-playground__dialog clipasm-playground__file-preview";
+        filePreviewDialog.setAttribute("aria-label", "File preview");
+        const filePreviewHeader = document.createElement("div");
+        filePreviewHeader.className = "clipasm-playground__file-preview-header";
+        const filePreviewTitle = document.createElement("h3");
+        const filePreviewClose = button("Close");
+        filePreviewHeader.append(filePreviewTitle, filePreviewClose);
+        const filePreviewContent = document.createElement("div");
+        filePreviewContent.className = "clipasm-playground__file-preview-content";
+        filePreviewDialog.append(filePreviewHeader, filePreviewContent);
+
+        playground.append(
+            editorFrame,
+            actions,
+            assets,
+            status,
+            output,
+            preview,
+            renameDialog,
+            filePreviewDialog,
+        );
         sourceBlock.replaceWith(playground);
         mount.remove();
 
@@ -145,8 +205,12 @@
         let compileCache;
         let activeToken;
         let previewUrl;
+        let filePreviewUrl;
+        let renamePath;
+        let displayedLineCount;
         const uploadedFiles = new Map();
 
+        updateLineNumbers();
         validateButton.addEventListener("click", () => runCompile("validate"));
         inspectButton.addEventListener("click", () => runCompile("inspect"));
         renderButton.addEventListener("click", runRender);
@@ -157,6 +221,9 @@
         resetButton.addEventListener("click", () => {
             cancelWork();
             editor.value = initialSource;
+            editor.scrollTop = 0;
+            updateLineNumbers();
+            syncLineNumbers();
             compileCache = undefined;
             uploadedFiles.clear();
             renderFileList();
@@ -169,8 +236,10 @@
             cancelWork();
             compileCache = undefined;
             clearPreview();
+            updateLineNumbers();
             setStatus("Edited. Validate or render when ready.");
         });
+        editor.addEventListener("scroll", syncLineNumbers);
         editor.addEventListener("keydown", (event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                 event.preventDefault();
@@ -179,9 +248,14 @@
         });
         fileInput.addEventListener("change", () => addUploads(fileInput.files));
         folderInput.addEventListener("change", () => addUploads(folderInput.files));
+        renameCancel.addEventListener("click", () => renameDialog.close());
+        renameForm.addEventListener("submit", renameFile);
+        filePreviewClose.addEventListener("click", () => filePreviewDialog.close());
+        filePreviewDialog.addEventListener("close", clearFilePreview);
         window.addEventListener("pagehide", () => {
             cancelWork();
             clearPreview();
+            clearFilePreview();
         });
 
         async function runCompile(mode) {
@@ -446,27 +520,163 @@
         }
 
         function uploadPath(file) {
-            const candidate = (file.webkitRelativePath || file.name).replaceAll("\\", "/");
-            const parts = candidate.split("/");
-            if (
-                candidate.startsWith("/") ||
-                parts.length === 0 ||
-                parts.some((part) => part === "" || part === "." || part === "..")
-            ) {
-                throw new Error(`Uploaded path \`${candidate}\` is not a safe virtual path.`);
-            }
-            return parts.join("/");
+            return normalizeVirtualPath(file.webkitRelativePath || file.name, "Uploaded path");
         }
 
         function renderFileList() {
             selectedFiles.replaceChildren(
-                ...[...uploadedFiles.keys()].sort().map((path) => {
+                ...[...uploadedFiles.entries()]
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([path, file]) => {
                     const item = document.createElement("li");
-                    item.textContent = path;
+                    item.className = "clipasm-playground__file-row";
+                    const filePath = document.createElement("code");
+                    filePath.className = "clipasm-playground__file-path";
+                    filePath.textContent = path;
+                    filePath.title = path;
+                    const menu = document.createElement("details");
+                    menu.className = "clipasm-playground__file-menu";
+                    const menuSummary = document.createElement("summary");
+                    menuSummary.textContent = "…";
+                    menuSummary.setAttribute("aria-label", `File actions for ${path}`);
+                    const menuActions = document.createElement("div");
+                    menuActions.className = "clipasm-playground__file-menu-actions";
+                    if (previewKind(file)) {
+                        menuActions.append(
+                            fileAction("Preview", () => {
+                                menu.open = false;
+                                showFilePreview(path, file);
+                            }),
+                        );
+                    }
+                    menuActions.append(
+                        fileAction("Copy path", async () => {
+                            menu.open = false;
+                            try {
+                                await copyText(path);
+                                setStatus(`Copied \`${path}\` to the clipboard.`, "success");
+                            } catch (error) {
+                                showUnhandled(error);
+                            }
+                        }),
+                        fileAction("Rename", () => {
+                            menu.open = false;
+                            openRenameDialog(path);
+                        }),
+                        fileAction("Delete", () => {
+                            menu.open = false;
+                            uploadedFiles.delete(path);
+                            filesChanged(`Removed \`${path}\`.`);
+                        }, "danger"),
+                    );
+                    menu.append(menuSummary, menuActions);
+                    item.append(filePath, menu);
                     return item;
                 }),
             );
             selectedFiles.hidden = uploadedFiles.size === 0;
+        }
+
+        function fileAction(label, action, kind) {
+            const element = document.createElement("button");
+            element.type = "button";
+            element.className = `clipasm-playground__file-action${
+                kind ? ` clipasm-playground__file-action--${kind}` : ""
+            }`;
+            element.textContent = label;
+            element.addEventListener("click", action);
+            return element;
+        }
+
+        function openRenameDialog(path) {
+            renamePath = path;
+            renameInput.value = path;
+            renameError.hidden = true;
+            renameDialog.showModal();
+            renameInput.focus();
+            renameInput.select();
+        }
+
+        function renameFile(event) {
+            event.preventDefault();
+            try {
+                const path = normalizeVirtualPath(renameInput.value, "Virtual path");
+                if (path !== renamePath && uploadedFiles.has(path)) {
+                    throw new Error(`A virtual file already exists at \`${path}\`.`);
+                }
+                if (path === renamePath) {
+                    renameDialog.close();
+                    return;
+                }
+                const file = uploadedFiles.get(renamePath);
+                if (!file) {
+                    throw new Error("The virtual file is no longer available.");
+                }
+                uploadedFiles.delete(renamePath);
+                uploadedFiles.set(path, file);
+                const previousPath = renamePath;
+                renameDialog.close();
+                filesChanged(`Renamed \`${previousPath}\` to \`${path}\`.`);
+            } catch (error) {
+                renameError.textContent = error instanceof Error ? error.message : String(error);
+                renameError.hidden = false;
+            }
+        }
+
+        function filesChanged(message) {
+            cancelWork();
+            clearPreview();
+            renderFileList();
+            setStatus(message);
+        }
+
+        function showFilePreview(path, file) {
+            clearFilePreview();
+            const kind = previewKind(file);
+            if (!kind) {
+                return;
+            }
+            const media = document.createElement(kind);
+            filePreviewUrl = URL.createObjectURL(file);
+            media.src = filePreviewUrl;
+            if (kind === "img") {
+                media.alt = `Preview of ${path}`;
+            } else {
+                media.controls = true;
+                media.preload = "metadata";
+            }
+            filePreviewTitle.textContent = path;
+            filePreviewContent.replaceChildren(media);
+            filePreviewDialog.showModal();
+        }
+
+        function clearFilePreview() {
+            filePreviewContent.replaceChildren();
+            if (filePreviewUrl) {
+                URL.revokeObjectURL(filePreviewUrl);
+                filePreviewUrl = undefined;
+            }
+        }
+
+        function updateLineNumbers() {
+            const lineCount = editor.value.split("\n").length;
+            if (lineCount === displayedLineCount) {
+                return;
+            }
+            editorFrame.style.setProperty(
+                "--clipasm-line-number-width",
+                `${Math.max(3, String(lineCount).length + 2)}ch`,
+            );
+            lineNumbers.textContent = Array.from(
+                { length: lineCount },
+                (_, index) => index + 1,
+            ).join("\n");
+            displayedLineCount = lineCount;
+            syncLineNumbers();
+        }
+
+        function syncLineNumbers() {
+            lineNumbers.scrollTop = editor.scrollTop;
         }
 
         function showResponse(response, mode) {
@@ -604,6 +814,9 @@
             renderButton.disabled = busy;
             fileInput.disabled = busy;
             folderInput.disabled = busy;
+            for (const action of selectedFiles.querySelectorAll("button")) {
+                action.disabled = busy;
+            }
             cancelButton.hidden = !busy;
         }
 
@@ -630,6 +843,49 @@
         wrapper.className = "clipasm-playground__file-button";
         wrapper.append(label, input);
         return wrapper;
+    }
+
+    function normalizeVirtualPath(candidate, label) {
+        const normalized = candidate.replaceAll("\\", "/");
+        const parts = normalized.split("/");
+        if (
+            normalized.startsWith("/") ||
+            parts.length === 0 ||
+            parts.some((part) => part === "" || part === "." || part === "..")
+        ) {
+            throw new Error(`${label} \`${candidate}\` is not a safe relative path.`);
+        }
+        return parts.join("/");
+    }
+
+    function previewKind(file) {
+        if (file.type.startsWith("image/")) {
+            return "img";
+        }
+        if (file.type.startsWith("video/")) {
+            return "video";
+        }
+        if (file.type.startsWith("audio/")) {
+            return "audio";
+        }
+        const extension = file.name.split(".").pop()?.toLowerCase();
+        if (["avif", "gif", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)) {
+            return "img";
+        }
+        if (["m4v", "mov", "mp4", "ogv", "webm"].includes(extension)) {
+            return "video";
+        }
+        if (["aac", "flac", "m4a", "mp3", "oga", "ogg", "wav", "webm"].includes(extension)) {
+            return "audio";
+        }
+        return undefined;
+    }
+
+    async function copyText(value) {
+        if (!navigator.clipboard?.writeText) {
+            throw new Error("Clipboard access is unavailable in this browser.");
+        }
+        await navigator.clipboard.writeText(value);
     }
 
     function validateSourceSize(source) {

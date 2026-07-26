@@ -37,6 +37,8 @@ try {
               args: ["--disable-dev-shm-usage", "--no-sandbox"],
           });
     const context = browser.contexts()[0] ?? (await browser.newContext());
+    const origin = `http://127.0.0.1:${address.port}`;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
     const page = await context.newPage();
     await page.addInitScript(() => {
         const digest = SubtleCrypto.prototype.digest;
@@ -58,8 +60,89 @@ try {
     });
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
-    await page.goto(`http://127.0.0.1:${address.port}/try-clipasm.html`);
+    await page.goto(`${origin}/try-clipasm.html`);
+    const playground = page.locator(".clipasm-playground");
     const status = page.locator(".clipasm-playground__status");
+    const editor = page.getByRole("textbox", { name: "ClipAsm source" });
+    const lineNumbers = page.locator(".clipasm-playground__line-numbers");
+    const source = await editor.inputValue();
+    const expectedLineCount = source.split("\n").length;
+    const displayedLines = (await lineNumbers.textContent())?.split("\n").length;
+    if (displayedLines !== expectedLineCount) {
+        throw new Error(
+            `Expected ${String(expectedLineCount)} editor line numbers, found ${String(displayedLines)}.`,
+        );
+    }
+    const editorHeight = await editor.evaluate((element) => element.getBoundingClientRect().height);
+    if (editorHeight < 340) {
+        throw new Error(`Expected the editor to be at least 340px tall, found ${editorHeight}px.`);
+    }
+    await editor.fill(Array.from({ length: 100 }, (_, index) => `# line ${index + 1}`).join("\n"));
+    const scrollTop = await editor.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+        element.dispatchEvent(new Event("scroll"));
+        return element.scrollTop;
+    });
+    const gutterScrollTop = await lineNumbers.evaluate((element) => element.scrollTop);
+    if (Math.abs(scrollTop - gutterScrollTop) > 1) {
+        throw new Error(
+            `Editor and line-number scroll positions differ: ${scrollTop} and ${gutterScrollTop}.`,
+        );
+    }
+    await page.getByRole("button", { name: "Reset" }).click();
+
+    await page.locator(".clipasm-playground__assets > summary").click();
+    const fileInput = page.getByLabel("Add project files");
+    await fileInput.setInputFiles({
+        name: "morning.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "base64",
+        ),
+    });
+    let fileRow = page.locator(".clipasm-playground__file-row");
+    await fileRow.getByText("morning.png", { exact: true }).waitFor();
+    const playgroundHeight = await playground.evaluate(
+        (element) => element.getBoundingClientRect().height,
+    );
+    await fileRow.locator("summary").click();
+    await fileRow.getByRole("button", { name: "Preview" }).click();
+    const filePreview = page.getByRole("dialog", { name: "File preview" });
+    await filePreview.locator("img").waitFor();
+    const previewHeight = await playground.evaluate(
+        (element) => element.getBoundingClientRect().height,
+    );
+    if (Math.abs(playgroundHeight - previewHeight) > 1) {
+        throw new Error("Opening a file preview changed the playground layout.");
+    }
+    await filePreview.getByRole("button", { name: "Close" }).click();
+
+    await fileRow.locator("summary").click();
+    await fileRow.getByRole("button", { name: "Rename" }).click();
+    const renameDialog = page.getByRole("dialog", { name: "Rename virtual file" });
+    await renameDialog.getByLabel("Path").fill("../unsafe.png");
+    await renameDialog.getByRole("button", { name: "Rename" }).click();
+    await renameDialog.getByRole("alert").getByText(/not a safe relative path/).waitFor();
+    await renameDialog.getByLabel("Path").fill("assets/renamed.png");
+    await renameDialog.getByRole("button", { name: "Rename" }).click();
+    fileRow = page.locator(".clipasm-playground__file-row");
+    await fileRow.getByText("assets/renamed.png", { exact: true }).waitFor();
+    await fileRow.locator("summary").click();
+    await fileRow.getByRole("button", { name: "Copy path" }).click();
+    await status
+        .getByText("Copied `assets/renamed.png` to the clipboard.", { exact: true })
+        .waitFor();
+    const clipboardPath = await page.evaluate(() => navigator.clipboard.readText());
+    if (clipboardPath !== "assets/renamed.png") {
+        throw new Error(`Copy path wrote \`${clipboardPath}\` to the clipboard.`);
+    }
+    await fileRow.locator("summary").click();
+    await fileRow.getByRole("button", { name: "Delete" }).click();
+    if (await page.locator(".clipasm-playground__file-list").isVisible()) {
+        throw new Error("Deleting the final virtual file left the file list visible.");
+    }
+
     const render = page.getByRole("button", { name: "Render video" });
     await render.click();
     await page.waitForFunction(() => window.__clipasmDigestStarted === true);

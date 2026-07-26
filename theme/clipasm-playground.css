@@ -19,14 +19,47 @@
     tab-size: 4;
 }
 
+.clipasm-playground__editor-frame {
+    --clipasm-line-number-width: 4ch;
+
+    position: relative;
+    background: var(--bg);
+}
+
+.clipasm-playground__line-numbers {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    box-sizing: border-box;
+    width: var(--clipasm-line-number-width);
+    margin: 0;
+    overflow: hidden;
+    padding: 1rem 0.7rem;
+    border-right: 1px solid var(--searchresults-border-color);
+    background: var(--quote-bg);
+    color: var(--searchresults-header-fg);
+    font: var(--code-font-size)/1.5 var(--mono-font);
+    text-align: right;
+    user-select: none;
+    pointer-events: none;
+}
+
 .clipasm-playground__editor {
     display: block;
+    height: 34.5rem;
     min-height: 23rem;
-    padding: 1rem;
+    padding: 1rem 1rem 1rem calc(var(--clipasm-line-number-width) + 1rem);
     resize: vertical;
+    white-space: pre;
 }
 
 .clipasm-playground__editor:focus {
+    outline: none;
+}
+
+.clipasm-playground__editor-frame:focus-within {
     outline: 2px solid var(--links);
     outline-offset: -2px;
 }
@@ -114,8 +147,93 @@
 
 .clipasm-playground__file-list {
     margin: 0.7rem 0 0;
-    padding-left: 1.3rem;
-    font-family: var(--mono-font);
+    padding: 0;
+    list-style: none;
+}
+
+.clipasm-playground__file-row {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0;
+    border-top: 1px solid var(--searchresults-border-color);
+}
+
+.clipasm-playground__file-path {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    background: transparent;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.clipasm-playground__file-menu {
+    position: relative;
+}
+
+.clipasm-playground__file-menu > summary {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font: 1.2rem/1 var(--mono-font);
+    list-style: none;
+    place-items: center;
+}
+
+.clipasm-playground__file-menu > summary::-webkit-details-marker {
+    display: none;
+}
+
+.clipasm-playground__file-menu > summary:hover,
+.clipasm-playground__file-menu > summary:focus-visible,
+.clipasm-playground__file-menu[open] > summary {
+    border-color: var(--links);
+}
+
+.clipasm-playground__file-menu-actions {
+    position: absolute;
+    z-index: 3;
+    top: calc(100% + 0.2rem);
+    right: 0;
+    display: grid;
+    min-width: 8rem;
+    padding: 0.25rem;
+    border: 1px solid var(--searchresults-border-color);
+    border-radius: 0.25rem;
+    background: var(--bg);
+    box-shadow: 0 0.25rem 0.8rem rgb(0 0 0 / 20%);
+}
+
+.clipasm-playground__file-action {
+    padding: 0.4rem 0.55rem;
+    border: 0;
+    border-radius: 0.2rem;
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+}
+
+.clipasm-playground__file-action:hover:not(:disabled),
+.clipasm-playground__file-action:focus-visible {
+    background: var(--quote-bg);
+    color: var(--links);
+}
+
+.clipasm-playground__file-action--danger {
+    color: #c62828;
+}
+
+.clipasm-playground__file-action:disabled {
+    cursor: wait;
+    opacity: 0.6;
 }
 
 .clipasm-playground__status {
@@ -155,6 +273,97 @@
     color: var(--links);
 }
 
+.clipasm-playground__dialog {
+    box-sizing: border-box;
+    width: min(32rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    padding: 1rem;
+    overflow: auto;
+    border: 1px solid var(--searchresults-border-color);
+    border-radius: 0.35rem;
+    background: var(--bg);
+    color: var(--fg);
+    box-shadow: 0 0.5rem 2rem rgb(0 0 0 / 30%);
+}
+
+.clipasm-playground__dialog::backdrop {
+    background: rgb(0 0 0 / 55%);
+}
+
+.clipasm-playground__dialog h3 {
+    margin: 0;
+}
+
+.clipasm-playground__dialog label {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 1rem;
+}
+
+.clipasm-playground__dialog input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--searchresults-border-color);
+    border-radius: 0.25rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+}
+
+.clipasm-playground__dialog-error {
+    margin: 0.6rem 0 0;
+    color: #c62828;
+}
+
+.clipasm-playground__dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 1rem;
+}
+
+.clipasm-playground__file-preview {
+    width: min(56rem, calc(100vw - 2rem));
+}
+
+.clipasm-playground__file-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.clipasm-playground__file-preview-header h3 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.clipasm-playground__file-preview-content {
+    display: grid;
+    min-height: 8rem;
+    place-items: center;
+}
+
+.clipasm-playground__file-preview-content img,
+.clipasm-playground__file-preview-content video {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 9rem);
+    object-fit: contain;
+}
+
+.clipasm-playground__file-preview-content video {
+    background: #000;
+}
+
+.clipasm-playground__file-preview-content audio {
+    width: min(100%, 32rem);
+}
+
 html.ayu .clipasm-playground__status--success,
 html.coal .clipasm-playground__status--success,
 html.navy .clipasm-playground__status--success {
@@ -163,7 +372,13 @@ html.navy .clipasm-playground__status--success {
 
 html.ayu .clipasm-playground__status--error,
 html.coal .clipasm-playground__status--error,
-html.navy .clipasm-playground__status--error {
+html.navy .clipasm-playground__status--error,
+html.ayu .clipasm-playground__dialog-error,
+html.coal .clipasm-playground__dialog-error,
+html.navy .clipasm-playground__dialog-error,
+html.ayu .clipasm-playground__file-action--danger,
+html.coal .clipasm-playground__file-action--danger,
+html.navy .clipasm-playground__file-action--danger {
     color: #f28b82;
 }
 
