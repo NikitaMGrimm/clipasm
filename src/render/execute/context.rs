@@ -8,6 +8,7 @@ use crate::preflight::{PreparedNode, PreparedPlan, RenderPolicy};
 use crate::source::SourceSpan;
 
 use super::super::{cache, staging::StagingDirectory};
+use super::recipe::{FfmpegRecipe, RecipeContext};
 
 pub(super) struct RenderContext<'a> {
     plan: &'a PreparedPlan,
@@ -59,55 +60,14 @@ impl<'a> RenderContext<'a> {
         &self.node.origin().span
     }
 
-    pub(super) fn command(&self) -> Command {
-        let mut command = Command::new(self.plan.ffmpeg().executable());
-        command.args(["-y", "-v", "error"]);
-        command
-    }
-
-    pub(super) fn append_video_output(&self, command: &mut Command) {
-        let policy = self.policy();
-        command
-            .args(["-c:v", policy.native_video_encoder()])
-            .args([
-                "-level",
-                &policy.native_video_level().to_string(),
-                "-pix_fmt",
-                policy.working_pixel_format(),
-                "-r",
-            ])
-            .arg(format!(
-                "{}/{}",
-                self.video().fps().numerator(),
-                self.video().fps().denominator()
-            ))
-            .args([
-                "-c:a",
-                policy.native_audio_encoder(),
-                "-ar",
-                &self.audio().sample_rate().to_string(),
-                "-ac",
-                &self.audio().channels().to_string(),
-                "-f",
-                policy.native_container(),
-            ])
-            .arg(self.temporary());
-    }
-
-    pub(super) fn append_audio_output(&self, command: &mut Command) {
-        let policy = self.policy();
-        command
-            .args([
-                "-c:a",
-                policy.native_audio_encoder(),
-                "-ar",
-                &self.audio().sample_rate().to_string(),
-                "-ac",
-                &self.audio().channels().to_string(),
-                "-f",
-                policy.native_container(),
-            ])
-            .arg(self.temporary());
+    pub(super) fn recipe_context(&self) -> RecipeContext<'_> {
+        RecipeContext::new(
+            self.video(),
+            self.audio(),
+            self.nodes(),
+            self.policy(),
+            self.span(),
+        )
     }
 
     pub(super) fn artifact(&self, id: NodeId) -> Result<&'a Path> {
@@ -123,7 +83,17 @@ impl<'a> RenderContext<'a> {
             })
     }
 
-    pub(super) fn finish_ffmpeg(&self, command: Command) -> Result<()> {
+    pub(super) fn finish_ffmpeg(&self, recipe: &FfmpegRecipe) -> Result<()> {
+        let command = recipe.materialize(
+            self.plan.ffmpeg().executable(),
+            self.temporary(),
+            self.span(),
+            |node| {
+                self.artifacts
+                    .get(node.get() as usize)
+                    .and_then(Option::as_deref)
+            },
+        )?;
         run_command(command, "E_FFMPEG", self.span())
     }
 }

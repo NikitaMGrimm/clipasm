@@ -1,26 +1,26 @@
 use crate::diagnostic::Result;
 use crate::model::{FrameCount, NodeId, VideoDomain, VideoSpec};
 
-use super::context::RenderContext;
 use super::filters::{normalize_audio, samples_for_video};
+use super::recipe::{FfmpegRecipe, RecipeContext};
 
 const WOBBLE_FREQUENCY_NUMERATOR: u32 = 13;
 const WOBBLE_FREQUENCY_DENOMINATOR: u32 = 2;
 
 pub(super) fn zoom(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     percent: u32,
     domain: &VideoDomain,
-) -> Result<()> {
+) -> Result<FfmpegRecipe> {
     let samples = samples_for_video(
         domain.frames(),
         context.video(),
         context.audio(),
         context.span(),
     )?;
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(input)?);
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(input);
     let filter = format!(
         "[0:v]{}[v];[0:a]{}[a]",
         zoom_filter(percent, domain.frames()),
@@ -30,25 +30,25 @@ pub(super) fn zoom(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 pub(super) fn wobble(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     pixels: u32,
     domain: &VideoDomain,
-) -> Result<()> {
+) -> Result<FfmpegRecipe> {
     let samples = samples_for_video(
         domain.frames(),
         context.video(),
         context.audio(),
         context.span(),
     )?;
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(input)?);
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(input);
     let filter = format!(
         "[0:v]{}[v];[0:a]{}[a]",
         wobble_filter(pixels, context.video()),
@@ -58,9 +58,9 @@ pub(super) fn wobble(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 fn zoom_filter(percent: u32, frames: FrameCount) -> String {

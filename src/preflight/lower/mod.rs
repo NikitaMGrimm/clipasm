@@ -1,5 +1,6 @@
 mod effects;
 mod external;
+mod host;
 mod media;
 mod timeline;
 mod transitions;
@@ -13,16 +14,16 @@ use crate::semantic::{SemanticNodeKind, SourceOrigin};
 
 use super::identity::node_fingerprint;
 use super::plan::PreparedMedia;
-use super::tools::ToolIdentity;
 use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
 pub(super) struct PreflightLowerer<'a> {
     pub(super) compiled: &'a CompiledProgram,
-    pub(super) ffmpeg: &'a ToolIdentity,
-    pub(super) ffprobe: &'a ToolIdentity,
+    pub(super) host: &'a mut dyn host::PreparationHost,
     pub(super) nodes: Vec<PreparedNode>,
     pub(super) lowered: HashMap<ValueId, NodeId>,
 }
+
+pub(super) use host::{NativePreparationHost, PreparationHost};
 
 impl PreflightLowerer<'_> {
     pub(super) fn lower(&mut self, value: ValueRef) -> Result<NodeId> {

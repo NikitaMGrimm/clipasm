@@ -1,19 +1,18 @@
 use std::fmt::Write as _;
 
-use crate::diagnostic::Result;
 use crate::model::{AudioDomain, NodeId};
 use crate::preflight::PreparedAsset;
 
-use super::context::RenderContext;
 use super::filters::normalize_audio;
+use super::recipe::{FfmpegRecipe, RecipeContext};
 
 pub(super) fn source(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     asset: &PreparedAsset,
     domain: &AudioDomain,
-) -> Result<()> {
-    let mut command = context.command();
-    command.arg("-i").arg(asset.source_path());
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).asset(asset.source_path());
     let filter = format!(
         "[0:a:0]{}[a]",
         normalize_audio(
@@ -22,36 +21,36 @@ pub(super) fn source(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
+    recipe
 }
 
 pub(super) fn slice(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     start: u64,
     end: u64,
-) -> Result<()> {
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(input)?);
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(input);
     let filter =
         format!("[0:a]atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS[a]");
-    command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
+    recipe
 }
 
 pub(super) fn repeat(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     count: u64,
     domain: &AudioDomain,
-) -> Result<()> {
-    let mut command = context.command();
-    command
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
+    recipe
         .args(["-stream_loop", &(count - 1).to_string(), "-i"])
-        .arg(context.artifact(input)?);
+        .artifact(input);
     let filter = format!(
         "[0:a]{}[a]",
         normalize_audio(
@@ -60,19 +59,19 @@ pub(super) fn repeat(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
+    recipe
 }
 
 pub(super) fn concat(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     inputs: &[NodeId],
     domain: &AudioDomain,
-) -> Result<()> {
-    let mut command = context.command();
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
     for input in inputs {
-        command.arg("-i").arg(context.artifact(*input)?);
+        recipe.args(["-i"]).artifact(*input);
     }
     let labels = (0..inputs.len()).fold(String::new(), |mut output, index| {
         let _ = write!(output, "[{index}:a]");
@@ -87,18 +86,18 @@ pub(super) fn concat(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
+    recipe
 }
 
 pub(super) fn extract(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     video: NodeId,
     domain: &AudioDomain,
-) -> Result<()> {
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(video)?);
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(video);
     let filter = format!(
         "[0:a]{}[a]",
         normalize_audio(
@@ -107,7 +106,7 @@ pub(super) fn extract(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
+    recipe
 }

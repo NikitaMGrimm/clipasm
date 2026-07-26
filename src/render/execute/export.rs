@@ -1,17 +1,18 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use crate::diagnostic::Result;
-use crate::model::{AudioSpec, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, NodeId, VideoDomain, VideoSpec};
 use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
 
 use super::super::artifact::verify_video_artifact;
 use super::context::run_command;
+use super::recipe::FfmpegRecipe;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn stage_export(
+    result: NodeId,
     artifact: &Path,
     staged: &Path,
     spec: &VideoSpec,
@@ -23,6 +24,7 @@ pub(super) fn stage_export(
     ffprobe: &Path,
 ) -> Result<()> {
     let result = export_video(
+        result,
         artifact,
         staged,
         spec,
@@ -51,6 +53,7 @@ pub(super) fn stage_export(
 
 #[allow(clippy::too_many_arguments)]
 fn export_video(
+    result: NodeId,
     artifact: &Path,
     output: &Path,
     spec: &VideoSpec,
@@ -59,10 +62,24 @@ fn export_video(
     render_policy: RenderPolicy,
     ffmpeg: &Path,
 ) -> Result<()> {
-    let mut command = Command::new(ffmpeg);
-    command
-        .args(["-y", "-v", "error", "-i"])
-        .arg(artifact)
+    let recipe = export_recipe(result, spec, audio, has_audio, render_policy);
+    let command = recipe.materialize(ffmpeg, output, &SourceSpan::file_start(output), |node| {
+        (node == result).then_some(artifact)
+    })?;
+    run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
+}
+
+pub(crate) fn export_recipe(
+    result: NodeId,
+    spec: &VideoSpec,
+    audio: &AudioSpec,
+    has_audio: bool,
+    render_policy: RenderPolicy,
+) -> FfmpegRecipe {
+    let mut recipe = FfmpegRecipe::new();
+    recipe
+        .args(["-i"])
+        .artifact(result)
         .args([
             "-map",
             "0:v:0",
@@ -78,7 +95,7 @@ fn export_video(
             spec.fps().denominator()
         ));
     if has_audio {
-        command.args([
+        recipe.args([
             "-map",
             "0:a:0",
             "-c:a",
@@ -89,24 +106,116 @@ fn export_video(
             &audio.channels().to_string(),
         ]);
     } else {
-        command.arg("-an");
+        recipe.arg("-an");
     }
-    command
-        .args([
-            "-movflags",
-            render_policy.export_movflags(),
-            "-f",
-            render_policy.export_container(),
-        ])
-        .arg(output);
-    run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
+    recipe.args([
+        "-movflags",
+        render_policy.export_movflags(),
+        "-f",
+        render_policy.export_container(),
+    ]);
+    recipe
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+    use std::process::Command;
+
     use super::super::super::publication::PublicationTransaction;
     use super::*;
     use crate::model::{FrameCount, FrameRate, VideoDomain, VideoSpec};
+
+    fn export_arguments(has_audio: bool) -> Vec<OsString> {
+        let spec =
+            VideoSpec::new(64, 64, FrameRate::new(10, 1).expect("frame rate")).expect("video spec");
+        let audio = AudioSpec::default();
+        let recipe = export_recipe(
+            NodeId::new(4),
+            &spec,
+            &audio,
+            has_audio,
+            RenderPolicy::CURRENT,
+        );
+        let artifact = Path::new("cache/result.mkv");
+        let command = recipe
+            .materialize(
+                Path::new("ffmpeg"),
+                Path::new("final.mp4"),
+                &SourceSpan::file_start("final.mp4"),
+                |node| (node == NodeId::new(4)).then_some(artifact),
+            )
+            .expect("export command");
+        command
+            .get_args()
+            .map(std::ffi::OsStr::to_os_string)
+            .collect()
+    }
+
+    #[test]
+    fn video_only_export_recipe_preserves_the_native_arguments() {
+        assert_eq!(
+            export_arguments(false),
+            [
+                "-y",
+                "-v",
+                "error",
+                "-i",
+                "cache/result.mkv",
+                "-map",
+                "0:v:0",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "10/1",
+                "-an",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                "final.mp4",
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn audiovisual_export_recipe_preserves_the_native_arguments() {
+        assert_eq!(
+            export_arguments(true),
+            [
+                "-y",
+                "-v",
+                "error",
+                "-i",
+                "cache/result.mkv",
+                "-map",
+                "0:v:0",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "10/1",
+                "-map",
+                "0:a:0",
+                "-c:a",
+                "aac",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                "final.mp4",
+            ]
+            .map(OsString::from)
+        );
+    }
 
     #[test]
     fn failed_final_export_preserves_existing_pair() {
@@ -126,6 +235,7 @@ mod tests {
         let publication =
             PublicationTransaction::new(&output, &manifest).expect("publication transaction");
         stage_export(
+            NodeId::new(0),
             &invalid_artifact,
             publication.staged_output(),
             &spec,

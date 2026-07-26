@@ -25,6 +25,7 @@ use crate::diagnostic::Result;
 use crate::source::SourceSpan;
 
 mod assets;
+pub mod browser;
 mod capabilities;
 mod identity;
 mod lower;
@@ -39,7 +40,7 @@ use assets::{
 };
 use capabilities::ffmpeg_requirements;
 use identity::{cache_execution_namespace, prepared_semantic_hash};
-use lower::PreflightLowerer;
+use lower::{NativePreparationHost, PreflightLowerer};
 pub use plan::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
     PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
@@ -93,10 +94,10 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
     let execution_namespace = cache_execution_namespace(render_policy, &ffmpeg, &ffprobe)?;
+    let mut host = NativePreparationHost::new(&ffmpeg, &ffprobe);
     let mut lowerer = PreflightLowerer {
         compiled,
-        ffmpeg: &ffmpeg,
-        ffprobe: &ffprobe,
+        host: &mut host,
         nodes: Vec::new(),
         lowered: HashMap::new(),
     };

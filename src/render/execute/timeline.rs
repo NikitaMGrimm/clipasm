@@ -8,15 +8,15 @@ use crate::model::{
 use crate::preflight::PreparedNode;
 use crate::source::SourceSpan;
 
-use super::context::RenderContext;
 use super::filters::{normalize_audio, samples_for_video};
+use super::recipe::{FfmpegRecipe, RecipeContext};
 
 pub(super) fn slice(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     start: u64,
     end: u64,
-) -> Result<()> {
+) -> Result<FfmpegRecipe> {
     let start_sample = samples_for_video(
         FrameCount(start),
         context.video(),
@@ -29,22 +29,22 @@ pub(super) fn slice(
         context.audio(),
         context.span(),
     )?;
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(input)?);
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(input);
     let filter = format!(
         "[0:v]trim=start_frame={start}:end_frame={end},setpts=PTS-STARTPTS[v];[0:a]atrim=start_sample={start_sample}:end_sample={end_sample},asetpts=PTS-STARTPTS[a]"
     );
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 pub(super) fn repeat(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     input: NodeId,
     count: NonZeroU64,
     frames: FrameCount,
-) -> Result<()> {
+) -> Result<FfmpegRecipe> {
     let input_frames = context
         .nodes()
         .get(input.get() as usize)
@@ -65,27 +65,27 @@ pub(super) fn repeat(
         context.policy().working_channel_layout(),
         context.span(),
     )?;
-    let mut command = context.command();
-    command
+    let mut recipe = FfmpegRecipe::new();
+    recipe
         .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
-        .arg(context.artifact(input)?);
+        .artifact(input);
     let filter = format!(
         "[0:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{audio_filter}[a]",
         frames.0,
     );
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 pub(super) fn concat(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     inputs: &[NodeId],
     domain: &VideoDomain,
-) -> Result<()> {
-    let mut command = context.command();
+) -> Result<FfmpegRecipe> {
+    let mut recipe = FfmpegRecipe::new();
     for input in inputs {
-        command.arg("-i").arg(context.artifact(*input)?);
+        recipe.args(["-i"]).artifact(*input);
     }
     let segment_samples = video_segment_sample_counts(
         inputs,
@@ -123,9 +123,9 @@ pub(super) fn concat(
             context.policy().working_channel_layout(),
         )
     );
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 pub(super) fn video_segment_sample_counts(

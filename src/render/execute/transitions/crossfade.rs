@@ -3,16 +3,16 @@ use std::fmt::Write as _;
 use crate::diagnostic::Result;
 use crate::model::{FrameCount, NodeId, VideoDomain};
 
-use super::super::context::RenderContext;
 use super::super::filters::normalize_audio;
+use super::super::recipe::{FfmpegRecipe, RecipeContext};
 
 pub(super) fn render(
-    context: &RenderContext<'_>,
+    context: &RecipeContext<'_>,
     before: NodeId,
     after: NodeId,
     frames: FrameCount,
     domain: &VideoDomain,
-) -> Result<()> {
+) -> Result<FfmpegRecipe> {
     let layout = CrossfadeLayout::new(context, before, after, frames, domain)?;
     let mut filter = String::new();
     append_crossfade_video_filter(&mut filter, &layout);
@@ -23,12 +23,12 @@ pub(super) fn render(
         context.policy().working_channel_layout(),
     );
 
-    let mut command = context.command();
-    command.arg("-i").arg(context.artifact(before)?);
-    command.arg("-i").arg(context.artifact(after)?);
-    command.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut command);
-    context.finish_ffmpeg(command)
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(before);
+    recipe.args(["-i"]).artifact(after);
+    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
+    context.append_video_output(&mut recipe);
+    Ok(recipe)
 }
 
 fn append_crossfade_video_filter(filter: &mut String, layout: &CrossfadeLayout) {
@@ -263,7 +263,7 @@ struct CrossfadeLayout {
 
 impl CrossfadeLayout {
     fn new(
-        context: &RenderContext<'_>,
+        context: &RecipeContext<'_>,
         before: NodeId,
         after: NodeId,
         frames: FrameCount,

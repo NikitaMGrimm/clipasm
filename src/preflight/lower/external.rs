@@ -3,8 +3,6 @@ use crate::external::{ExternalArgumentValue, ExternalInvocation, ExternalParamet
 use crate::model::NodeId;
 use crate::semantic::CompiledNode;
 
-use super::super::assets::prepare_external_file_asset;
-use super::super::tools::inspect_external_tool;
 use super::super::{PreparedExternalArgument, PreparedExternalParameterValue, PreparedVideoKind};
 use super::PreflightLowerer;
 
@@ -25,8 +23,9 @@ pub(super) fn video(
     let preserved = inputs[&invocation.preserve_input];
     let (preserved_domain, preserved_has_audio) = lowerer.video_domain(preserved, node.origin())?;
     let preserved_domain = *preserved_domain;
-    let executable =
-        inspect_external_tool(&invocation.executable.value, &invocation.executable.span)?;
+    let executable = lowerer
+        .host
+        .prepare_external_tool(&invocation.executable.value, &invocation.executable.span)?;
     let arguments = invocation
         .arguments
         .iter()
@@ -35,7 +34,9 @@ pub(super) fn video(
                 Ok(PreparedExternalArgument::Text(value.clone()))
             }
             ExternalArgumentValue::File { path } => Ok(PreparedExternalArgument::File(
-                prepare_external_file_asset(&path.value, &path.span)?,
+                lowerer
+                    .host
+                    .prepare_external_file(&path.value, &path.span)?,
             )),
         })
         .collect::<Result<Vec<_>>>()?;
@@ -51,7 +52,9 @@ pub(super) fn video(
                     PreparedExternalParameterValue::Keyword(value.clone())
                 }
                 ExternalParameterValue::File(path) => PreparedExternalParameterValue::File(
-                    prepare_external_file_asset(&path.value, &path.span)?,
+                    lowerer
+                        .host
+                        .prepare_external_file(&path.value, &path.span)?,
                 ),
             };
             Ok((name.clone(), value))

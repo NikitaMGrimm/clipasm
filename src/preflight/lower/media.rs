@@ -4,7 +4,6 @@ use crate::diagnostic::Result;
 use crate::model::{AudioDomain, FrameCount, ImageFit, NodeId, TimelineRate, ValueRef};
 use crate::semantic::CompiledNode;
 
-use super::super::assets::{prepare_audio_asset, prepare_image_asset, prepare_video_asset};
 use super::super::{PreparedAudioKind, PreparedVideoKind};
 use super::{PreflightLowerer, project_domain};
 
@@ -15,7 +14,7 @@ pub(super) fn image(
     frames: FrameCount,
     fit: ImageFit,
 ) -> Result<NodeId> {
-    let asset = prepare_image_asset(path, node.origin(), lowerer.ffmpeg, lowerer.ffprobe)?;
+    let asset = lowerer.host.prepare_image(path, node.origin())?;
     lowerer.add_video_node(
         PreparedVideoKind::ImageVideo { asset, frames, fit },
         *node.domain().expect("Video node domain"),
@@ -31,13 +30,10 @@ pub(super) fn video_source(
     path: &Path,
     fit: ImageFit,
 ) -> Result<NodeId> {
-    let (asset, frames, has_audio) = prepare_video_asset(
-        path,
-        lowerer.compiled.video(),
-        node.origin(),
-        lowerer.ffmpeg,
-        lowerer.ffprobe,
-    )?;
+    let (asset, frames, has_audio) =
+        lowerer
+            .host
+            .prepare_video(path, lowerer.compiled.video(), node.origin())?;
     lowerer.add_video_node(
         PreparedVideoKind::VideoSource { asset, frames, fit },
         project_domain(lowerer.compiled.video(), frames),
@@ -52,13 +48,10 @@ pub(super) fn audio_source(
     node: &CompiledNode,
     path: &Path,
 ) -> Result<NodeId> {
-    let (asset, domain) = prepare_audio_asset(
-        path,
-        *lowerer.compiled.audio(),
-        node.origin(),
-        lowerer.ffmpeg,
-        lowerer.ffprobe,
-    )?;
+    let (asset, domain) =
+        lowerer
+            .host
+            .prepare_audio(path, *lowerer.compiled.audio(), node.origin())?;
     lowerer.add_audio_node(
         PreparedAudioKind::AudioSource { asset },
         domain,

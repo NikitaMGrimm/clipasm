@@ -7,6 +7,7 @@ mod export;
 mod external;
 mod filters;
 mod media;
+mod recipe;
 mod timeline;
 mod transitions;
 
@@ -18,6 +19,8 @@ use crate::preflight::{
 };
 
 use context::{RenderContext, StagedArtifact};
+pub(crate) use export::export_recipe;
+pub(crate) use recipe::{FfmpegArgument, FfmpegRecipe, RecipeContext};
 
 pub(super) struct Executor<'a> {
     plan: &'a PreparedPlan,
@@ -45,6 +48,7 @@ impl<'a> Executor<'a> {
             ));
         };
         export::stage_export(
+            result.id(),
             artifact,
             staged,
             self.plan.video(),
@@ -74,105 +78,125 @@ impl<'a> Executor<'a> {
     }
 
     fn render_into(node: &PreparedNode, context: &RenderContext<'_>) -> Result<()> {
-        match node.media() {
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::ImageVideo { asset, fit, frames },
-                ..
-            } => media::image(context, asset, *fit, *frames),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::VideoSource { asset, fit, frames },
-                has_audio,
-                ..
-            } => media::video_source(context, asset, *fit, *frames, has_audio),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioSource { asset },
-                domain,
-            } => audio::source(context, asset, domain),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioSlice { input, range },
-                ..
-            } => audio::slice(context, *input, range.start(), range.end()),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioRepeat { input, count },
-                domain,
-            } => audio::repeat(context, *input, count.get(), domain),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioConcat { inputs },
-                domain,
-            } => audio::concat(context, inputs, domain),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::Slice { input, range },
-                ..
-            } => timeline::slice(context, *input, range.start(), range.end()),
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::Repeat {
-                        input,
-                        count,
-                        frames,
-                    },
-                ..
-            } => timeline::repeat(context, *input, *count, *frames),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::Zoom { input, percent },
-                domain,
-                ..
-            } => effects::zoom(context, *input, *percent, domain),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::Wobble { input, pixels },
-                domain,
-                ..
-            } => effects::wobble(context, *input, *pixels, domain),
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::FlashJoin {
-                        before,
-                        after,
-                        frames,
-                    },
-                domain,
-                ..
-            } => transitions::flash(context, *before, *after, *frames, domain),
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::Crossfade {
-                        before,
-                        after,
-                        frames,
-                    },
-                domain,
-                ..
-            } => transitions::crossfade(context, *before, *after, *frames, domain),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::Concat { inputs },
-                domain,
-                ..
-            } => timeline::concat(context, inputs, domain),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::ExtractAudio { video },
-                domain,
-            } => audio::extract(context, *video, domain),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::SetAudio { audio, video },
-                domain,
-                ..
-            } => media::set_audio(context, *audio, *video, domain),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::AudioOnBlack { audio },
-                domain,
-                ..
-            } => media::audio_on_black(context, *audio, domain),
-            PreparedNodeMedia::Video {
-                kind:
-                    PreparedVideoKind::ExternalVideo {
-                        executable,
-                        arguments,
-                        inputs,
-                        parameters,
-                        ..
-                    },
-                ..
-            } => external::video(context, executable, arguments, inputs, parameters),
+        if let PreparedNodeMedia::Video {
+            kind:
+                PreparedVideoKind::ExternalVideo {
+                    executable,
+                    arguments,
+                    inputs,
+                    parameters,
+                    ..
+                },
+            ..
+        } = node.media()
+        {
+            return external::video(context, executable, arguments, inputs, parameters);
         }
+        let recipe_context = context.recipe_context();
+        context.finish_ffmpeg(&ffmpeg_recipe(node, &recipe_context)?)
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+pub(crate) fn ffmpeg_recipe(
+    node: &PreparedNode,
+    context: &RecipeContext<'_>,
+) -> Result<FfmpegRecipe> {
+    match node.media() {
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::ImageVideo { asset, fit, frames },
+            ..
+        } => media::image(context, asset, *fit, *frames),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::VideoSource { asset, fit, frames },
+            has_audio,
+            ..
+        } => media::video_source(context, asset, *fit, *frames, has_audio),
+        PreparedNodeMedia::Audio {
+            kind: PreparedAudioKind::AudioSource { asset },
+            domain,
+        } => Ok(audio::source(context, asset, domain)),
+        PreparedNodeMedia::Audio {
+            kind: PreparedAudioKind::AudioSlice { input, range },
+            ..
+        } => Ok(audio::slice(context, *input, range.start(), range.end())),
+        PreparedNodeMedia::Audio {
+            kind: PreparedAudioKind::AudioRepeat { input, count },
+            domain,
+        } => Ok(audio::repeat(context, *input, count.get(), domain)),
+        PreparedNodeMedia::Audio {
+            kind: PreparedAudioKind::AudioConcat { inputs },
+            domain,
+        } => Ok(audio::concat(context, inputs, domain)),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::Slice { input, range },
+            ..
+        } => timeline::slice(context, *input, range.start(), range.end()),
+        PreparedNodeMedia::Video {
+            kind:
+                PreparedVideoKind::Repeat {
+                    input,
+                    count,
+                    frames,
+                },
+            ..
+        } => timeline::repeat(context, *input, *count, *frames),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::Zoom { input, percent },
+            domain,
+            ..
+        } => effects::zoom(context, *input, *percent, domain),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::Wobble { input, pixels },
+            domain,
+            ..
+        } => effects::wobble(context, *input, *pixels, domain),
+        PreparedNodeMedia::Video {
+            kind:
+                PreparedVideoKind::FlashJoin {
+                    before,
+                    after,
+                    frames,
+                },
+            domain,
+            ..
+        } => transitions::flash(context, *before, *after, *frames, domain),
+        PreparedNodeMedia::Video {
+            kind:
+                PreparedVideoKind::Crossfade {
+                    before,
+                    after,
+                    frames,
+                },
+            domain,
+            ..
+        } => transitions::crossfade(context, *before, *after, *frames, domain),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::Concat { inputs },
+            domain,
+            ..
+        } => timeline::concat(context, inputs, domain),
+        PreparedNodeMedia::Audio {
+            kind: PreparedAudioKind::ExtractAudio { video },
+            domain,
+        } => Ok(audio::extract(context, *video, domain)),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::SetAudio { audio, video },
+            domain,
+            ..
+        } => media::set_audio(context, *audio, *video, domain),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::AudioOnBlack { audio },
+            domain,
+            ..
+        } => media::audio_on_black(context, *audio, domain),
+        PreparedNodeMedia::Video {
+            kind: PreparedVideoKind::ExternalVideo { .. },
+            ..
+        } => Err(Diagnostic::new(
+            "E_INVALID_PLAN",
+            "external programs do not have an FFmpeg recipe",
+            node.origin().span.clone(),
+        )),
     }
 }
