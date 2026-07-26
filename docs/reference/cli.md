@@ -4,10 +4,11 @@ ClipAsm provides three commands: `validate`, `inspect`, and `render`. Run
 commands from the directory whose relative CLI paths you intend to use.
 
 ```console
-cargo run -- --help
+clipasm --help
 ```
 
-When using an installed binary, replace `cargo run --` with `clipasm`.
+From a source checkout, `cargo run -- <COMMAND>` is the equivalent development
+form.
 
 ## Common source argument
 
@@ -49,7 +50,7 @@ not open media, invoke FFmpeg or FFprobe, or execute external programs.
 Use it as the first check while editing:
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
 ```
 
 Successful output reports the semantic value count and either an exact frame
@@ -65,14 +66,14 @@ clipasm inspect [OPTIONS] <SOURCE>
 semantic program as JSON. By default it writes JSON to standard output.
 
 ```console
-cargo run -- inspect examples/scenic-sequence.clipasm
+clipasm inspect examples/scenic-sequence.clipasm
 ```
 
 Use `-o` or `--output` to write a new file. Create the parent directory first
 when it does not already exist:
 
 ```console
-cargo run -- inspect examples/scenic-sequence.clipasm \
+clipasm inspect examples/scenic-sequence.clipasm \
   --output local/scenic-sequence.json
 ```
 
@@ -89,14 +90,14 @@ clipasm render [OPTIONS] <SOURCE>
 verifies produced artifacts, and publishes an MP4 and sibling manifest.
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 The root source may declare `config.output`. Override it with `-o` or
 `--output`:
 
 ```console
-cargo run -- render examples/scenic-sequence.clipasm \
+clipasm render examples/scenic-sequence.clipasm \
   --output local/scenic-sequence.mp4
 ```
 
@@ -110,13 +111,13 @@ code.
 Use `-h` or `--help` with the root command or a subcommand:
 
 ```console
-cargo run -- render --help
+clipasm render --help
 ```
 
 Use `-V` or `--version` on the root command:
 
 ```console
-cargo run -- --version
+clipasm --version
 ```
 
 ## Related documentation

@@ -6,6 +6,20 @@ rust-version = "1.95"
 description = "A strict, typed, stack-based programmatic video compiler"
 license = "MIT"
 repository = "https://github.com/NikitaMGrimm/clipasm"
+homepage = "https://nikitamgrimm.github.io/clipasm/"
+documentation = "https://docs.rs/clipasm"
+readme = "README.md"
+keywords = ["video-editing", "audio", "ffmpeg", "compiler", "dsl"]
+categories = ["command-line-utilities", "multimedia::video"]
+include = [
+    "/src/**",
+    "/tests/**",
+    "/examples/assets/gentle-motion.mkv",
+    "/examples/assets/morning.png",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+]
 
 [lib]
 name = "clipasm"

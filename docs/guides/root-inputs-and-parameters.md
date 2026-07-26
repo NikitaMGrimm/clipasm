@@ -29,7 +29,7 @@ Use `--video-input` for the graph input and one `--arg` for each scalar
 parameter:
 
 ```console
-cargo run -- validate examples/root-bindings.clipasm \
+clipasm validate examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2
@@ -48,7 +48,7 @@ valid: 4 semantic value(s), 48 frame(s)
 The example does not declare an output path, so provide one to `render`:
 
 ```console
-cargo run -- render examples/root-bindings.clipasm \
+clipasm render examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
   --arg count=2 \

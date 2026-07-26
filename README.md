@@ -9,12 +9,19 @@ FFprobe to verify it.
 > **Pre-release:** ClipAsm's language, file formats, Rust API, and CLI may
 > change without compatibility guarantees.
 
+## Install
+
+Install ClipAsm from crates.io:
+
+```console
+cargo install clipasm --locked
+clipasm --version
+```
+
+Installation requires Rust 1.95 or newer. Rendering additionally requires
+FFmpeg and FFprobe on `PATH`. Native archives are attached to GitHub releases.
+
 ## Quick start
-
-To build ClipAsm from this repository, install:
-
-- Rust 1.95 or newer;
-- FFmpeg and FFprobe on `PATH` for rendering.
 
 The committed scenic-sequence example uses three small images from
 `examples/assets/`:
@@ -38,12 +45,12 @@ glue {
 }
 ```
 
-Run these commands from the repository root:
+Run these commands from a repository checkout:
 
 ```console
-cargo run -- validate examples/scenic-sequence.clipasm
-cargo run -- inspect examples/scenic-sequence.clipasm
-cargo run -- render examples/scenic-sequence.clipasm
+clipasm validate examples/scenic-sequence.clipasm
+clipasm inspect examples/scenic-sequence.clipasm
+clipasm render examples/scenic-sequence.clipasm
 ```
 
 `validate` parses, type-checks, and infers every source-independent domain.
@@ -52,8 +59,9 @@ preflight and writes `examples/generated/scenic-sequence.mp4` together with its
 manifest and cache data.
 
 Continue with the
-[first-render guide](docs/getting-started/first-render.md) or the
-[scenic-sequence tutorial](docs/tutorials/scenic-sequence.md).
+[first-render guide](https://nikitamgrimm.github.io/clipasm/getting-started/first-render.html)
+or the
+[scenic-sequence tutorial](https://nikitamgrimm.github.io/clipasm/tutorials/scenic-sequence.html).
 
 ## How ClipAsm handles media
 
@@ -66,9 +74,11 @@ ClipAsm keeps authored intent separate from media execution:
 3. **Rendering** executes that plan, caches verified intermediate artifacts,
    and publishes the configured MP4 and manifest.
 
-See [Compilation, preflight, and rendering](docs/concepts/pipeline.md) for an
-accessible explanation and [Architecture](docs/architecture.md) for the
-maintainer-level phase model.
+See
+[Compilation, preflight, and rendering](https://nikitamgrimm.github.io/clipasm/concepts/pipeline.html)
+for an accessible explanation and
+[Architecture](https://nikitamgrimm.github.io/clipasm/architecture.html) for
+the maintainer-level phase model.
 
 ## External programs are trusted code
 
@@ -76,36 +86,22 @@ An imported source program may delegate its implementation to an executable.
 Compilation remains pure, but preflight resolves and hashes that executable and
 rendering runs it as trusted code. Review external declarations and their
 referenced files before rendering source you do not trust. The
-[external-program guide](docs/guides/external-programs.md) describes the
-workflow and trust boundary. The committed external-program example additionally
-requires Python 3 on `PATH`.
+[external-program guide](https://nikitamgrimm.github.io/clipasm/guides/external-programs.html)
+describes the workflow and trust boundary. The committed external-program
+example additionally requires Python 3 on `PATH`.
 
 ## Documentation
 
 The [published ClipAsm guide](https://nikitamgrimm.github.io/clipasm/) is the
-main documentation entry point.
+main entry point. Start with
+[your first render](https://nikitamgrimm.github.io/clipasm/getting-started/first-render.html),
+or use the
+[CLI reference](https://nikitamgrimm.github.io/clipasm/reference/cli.html),
+[language reference](https://nikitamgrimm.github.io/clipasm/language-reference.html),
+and [architecture](https://nikitamgrimm.github.io/clipasm/architecture.html).
 
-- **Learn ClipAsm:** start with
-  [your first render](docs/getting-started/first-render.md), then work through
-  the [scenic sequence](docs/tutorials/scenic-sequence.md) and
-  [reusable composition](docs/tutorials/reusable-composition.md).
-- **Complete a task:** learn how to
-  [validate and inspect](docs/guides/validate-and-inspect.md),
-  [supply root inputs and parameters](docs/guides/root-inputs-and-parameters.md),
-  [import a source program](docs/guides/import-a-program.md), or
-  [review and run an external program](docs/guides/external-programs.md). Start
-  with [troubleshooting](docs/guides/troubleshooting.md) when a command fails.
-- **Look up exact behavior:** use the
-  [command-line reference](docs/reference/cli.md), normative
-  [language reference](docs/language-reference.md), and the
-  [runnable examples catalog](docs/examples.md).
-- **Understand the design:** read the
-  [concept explanations](docs/concepts/pipeline.md),
-  [architecture](docs/architecture.md), and
-  [architecture decision index](docs/adr/index.md).
-- **Contribute:** follow [Contributing](CONTRIBUTING.md), use the
-  [change guide](docs/development/change-guide.md), and keep documentation
-  consistent with the [documentation maintenance guide](docs/development/documentation.md).
+Contributors should follow
+[CONTRIBUTING.md](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
 
 `CONTEXT.md` owns settled domain language and authoring semantics. The language
 reference owns public syntax and behavior, while Architecture and the ADRs
@@ -121,10 +117,11 @@ to Rust:
 ```
 
 AI-assisted contributions are welcome under the responsibility and review
-requirements in [AI_POLICY.md](AI_POLICY.md).
+requirements in
+[AI_POLICY.md](https://github.com/NikitaMGrimm/clipasm/blob/main/AI_POLICY.md).
 
 Report possible vulnerabilities privately as described in
-[SECURITY.md](SECURITY.md).
+[SECURITY.md](https://github.com/NikitaMGrimm/clipasm/blob/main/SECURITY.md).
 
 The published book also includes the
 [repository history chart](https://nikitamgrimm.github.io/clipasm/repository-history.html).

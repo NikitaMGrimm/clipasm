@@ -38,8 +38,8 @@ Validation and inspection compile the declaration into a pure semantic node.
 They do not resolve or execute `python3` or `brighten.py`:
 
 ```console
-cargo run -- validate examples/external-brighten.clipasm
-cargo run -- inspect examples/external-brighten.clipasm
+clipasm validate examples/external-brighten.clipasm
+clipasm inspect examples/external-brighten.clipasm
 ```
 
 These checks confirm the ClipAsm package and its typed call. They cannot confirm
@@ -52,7 +52,7 @@ reproducible, or that running it is safe.
 > program described above.
 
 ```console
-cargo run -- render examples/external-brighten.clipasm
+clipasm render examples/external-brighten.clipasm
 ```
 
 During preflight, ClipAsm resolves and hashes the executable and declared file

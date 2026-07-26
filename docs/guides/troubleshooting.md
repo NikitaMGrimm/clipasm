@@ -9,7 +9,7 @@ tool, and execution problems.
 Run:
 
 ```console
-cargo run -- validate path/to/program.clipasm
+clipasm validate path/to/program.clipasm
 ```
 
 Use the first reported source location as the starting point. Common causes
@@ -31,7 +31,7 @@ Root `input` and `param` declarations without defaults must be supplied to every
 command that compiles the root source:
 
 ```console
-cargo run -- validate path/to/program.clipasm \
+clipasm validate path/to/program.clipasm \
   --video-input video=path/to/input.mp4 \
   --arg count=2
 ```
@@ -52,7 +52,7 @@ Render the program when you are ready for ClipAsm to resolve and probe reachable
 media:
 
 ```console
-cargo run -- render path/to/program.clipasm
+clipasm render path/to/program.clipasm
 ```
 
 ## A media file cannot be found
@@ -97,7 +97,7 @@ The root source can declare `config.output`, or the caller can provide an
 override:
 
 ```console
-cargo run -- render path/to/program.clipasm \
+clipasm render path/to/program.clipasm \
   --output local/result.mp4
 ```
 

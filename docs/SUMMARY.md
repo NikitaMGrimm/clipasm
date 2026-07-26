@@ -4,7 +4,7 @@
 
 # Getting started
 
-- [Build and render ClipAsm](getting-started/first-render.md)
+- [Install and render ClipAsm](getting-started/first-render.md)
 
 # Tutorials
 
