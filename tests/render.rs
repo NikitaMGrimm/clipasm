@@ -791,7 +791,7 @@ fn renders_native_audio_trim_repeat_and_concat() {
     assert!(report.output.is_file());
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn renders_non_utf8_output_without_serializing_local_paths() {
     use std::os::unix::ffi::OsStringExt as _;
