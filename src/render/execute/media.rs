@@ -15,9 +15,7 @@ pub(super) fn image(
 ) -> Result<()> {
     let samples = samples_for_video(frames, context.video(), context.audio(), context.span())?;
     let mut command = context.command();
-    command
-        .args(["-loop", "1", "-i"])
-        .arg(asset.execution_path());
+    command.args(["-loop", "1", "-i"]).arg(asset.source_path());
     command.args(["-f", "lavfi", "-i"]).arg(silence_source(
         context.audio(),
         context.policy().working_channel_layout(),
@@ -50,7 +48,7 @@ pub(super) fn video_source(
 ) -> Result<()> {
     let samples = samples_for_video(frames, context.video(), context.audio(), context.span())?;
     let mut command = context.command();
-    command.arg("-i").arg(asset.execution_path());
+    command.arg("-i").arg(asset.source_path());
     let audio_input = if has_audio {
         "[0:a:0]".to_owned()
     } else {

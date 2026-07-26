@@ -107,9 +107,3 @@ whenever such dependencies change output semantics.
   protocol extension with explicit prepared-domain discovery.
 - Multiple outputs, Duration/TimeRange parameters, variadic inputs, and shell
   command strings remain outside the initial protocol.
-
-## Related decisions
-
-- [ADR 0017](0017-snapshot-prepared-data-assets.md) changes declared File
-  arguments and parameters from reverified authored paths to immutable
-  plan-scoped snapshot paths in external protocol version 2.

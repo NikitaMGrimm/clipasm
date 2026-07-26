@@ -30,7 +30,6 @@ mod identity;
 mod lower;
 mod plan;
 mod policy;
-mod snapshots;
 pub(crate) mod tools;
 
 pub(crate) use assets::verify_prepared_asset;
@@ -46,11 +45,10 @@ pub use plan::{
     PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
 pub(crate) use policy::RenderPolicy;
-use snapshots::AssetSnapshotStore;
 pub use tools::ExternalToolIdentity;
 use tools::{inspect_ffmpeg, inspect_ffprobe, validate_ffmpeg_capabilities};
 
-const PREPARED_FORMAT_VERSION: u32 = 10;
+const PREPARED_FORMAT_VERSION: u32 = 9;
 /// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
@@ -95,16 +93,12 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let ffmpeg = inspect_ffmpeg()?;
     let ffprobe = inspect_ffprobe()?;
     let execution_namespace = cache_execution_namespace(render_policy, &ffmpeg, &ffprobe)?;
-    let snapshots = AssetSnapshotStore::new(&SourceSpan::source_start(
-        compiled.entrypoint_source().clone(),
-    ))?;
     let mut lowerer = PreflightLowerer {
         compiled,
         ffmpeg: &ffmpeg,
         ffprobe: &ffprobe,
         nodes: Vec::new(),
         lowered: HashMap::new(),
-        snapshots,
     };
     let order = crate::compiler::traversal::topological_order(
         compiled.nodes(),
@@ -131,7 +125,6 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     reject_asset_collisions(&output, &manifest, &lowerer.nodes)?;
     let semantic_hash =
         prepared_semantic_hash(&video, audio, result, &named_values, &lowerer.nodes)?;
-    let snapshot_guard = lowerer.snapshots.guard();
 
     Ok(PreparedPlan::new(
         PREPARED_FORMAT_VERSION,
@@ -149,6 +142,5 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         ffprobe,
         execution_namespace,
         compiled.entrypoint_source().clone(),
-        snapshot_guard,
     ))
 }

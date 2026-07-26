@@ -36,7 +36,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 10);
+    assert_eq!(document["format_version"], 9);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -278,11 +278,7 @@ fn unused_named_values_are_absent_from_executable_nodes() {
 }
 
 #[test]
-fn preflight_snapshots_assets_for_later_render() {
-    if !common::media_tools_available() {
-        eprintln!("skipping asset snapshot render test because FFmpeg/FFprobe are unavailable");
-        return;
-    }
+fn preflight_hashes_assets_and_render_rejects_later_changes() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
     let workflow = directory.path().join("workflow.clipasm");
@@ -300,9 +296,10 @@ fn preflight_snapshots_assets_for_later_render() {
 
     fs::write(directory.path().join("card.ppm"), b"changed").expect("change asset");
     fs::write(directory.path().join("final.mp4"), b"existing output").expect("existing output");
-    let report = clipasm::render::render(&prepared).expect("render snapshotted asset");
-    assert_ne!(
-        fs::read(report.output).expect("rendered output"),
+    let error = clipasm::render::render(&prepared).expect_err("changed asset");
+    assert_eq!(error.code, "E_ASSET_CHANGED");
+    assert_eq!(
+        fs::read(directory.path().join("final.mp4")).expect("preserved output"),
         b"existing output"
     );
 }

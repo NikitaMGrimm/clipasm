@@ -13,7 +13,7 @@ pub(super) fn source(
     domain: &AudioDomain,
 ) -> Result<()> {
     let mut command = context.command();
-    command.arg("-i").arg(asset.execution_path());
+    command.arg("-i").arg(asset.source_path());
     let filter = format!(
         "[0:a:0]{}[a]",
         normalize_audio(

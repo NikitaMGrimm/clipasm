@@ -70,7 +70,6 @@ Older records can contain historical surface syntax; use the
 | [0012](0012-run-external-programs.md) | `accepted` | Run typed external programs only as trusted rendering-time executables. |
 | [0014](0014-map-frame-and-sample-boundaries.md) | `accepted` | Map cumulative frame and sample boundaries exactly without a shared master tick. |
 | [0016](0016-overlap-audiovisual-transitions-exactly.md) | `accepted` | Overlap crossfade picture and Audio on the same exact output boundaries. |
-| [0017](0017-snapshot-prepared-data-assets.md) | `accepted` | Snapshot reachable data assets so preflight and execution consume the same bytes. |
 
 See the architecture's [preflight](../architecture.md#preflight) and
 [rendering](../architecture.md#rendering) sections for current execution

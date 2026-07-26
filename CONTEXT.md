@@ -66,9 +66,9 @@ authoring semantics. The native `.clipasm` grammar is implemented under
   any additional Audio outputs are auxiliary and are not published.
 - An **inline input body** is an isolated body that supplies one explicit fixed
   graph input to an invocation.
-- The **prepared plan** is the preflight result with reachable data assets
-  captured as immutable plan-scoped snapshots and tools, exact domains, and
-  renderer primitives resolved.
+- The **prepared plan** is the preflight result with reachable data assets and
+  tools resolved and hashed, exact domains derived, and renderer primitives
+  selected.
 
 ## Settled stack semantics
 
@@ -185,10 +185,10 @@ The initial protocol supports fixed Video or Audio inputs, Integer, File, and
 Keyword parameters, and one Video output preserving one declared Video input's
 exact domain and meaningful-audio state. Compilation remains pure. An external
 declaration names one executable plus ordered literal or `file(...)` arguments.
-Preflight resolves and hashes the executable and snapshots file arguments and
-File parameters relative to their source. Rendering passes the executable and
-argv separately, sends snapshot paths in a versioned JSON request, and verifies
-the artifact. ClipAsm does not construct a shell command string, while normal
-platform process semantics still apply. External programs cannot also contain
-statements or imports; composition belongs in a ClipAsm wrapper. External
-executables are trusted code.
+Preflight resolves and hashes the executable, file arguments, and File
+parameters relative to their source. Rendering re-hashes dependencies reached
+by the execution plan, passes the executable and resolved argv separately,
+sends a versioned JSON request, and verifies the artifact. ClipAsm does not
+construct a shell command string, while normal platform process semantics still
+apply. External programs cannot also contain statements or imports; composition
+belongs in a ClipAsm wrapper. External executables are trusted code.

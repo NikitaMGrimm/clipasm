@@ -241,9 +241,10 @@ programs. Composition uses a ClipAsm wrapper.
 External evaluation adds a pure semantic node. Preflight is the first phase that
 resolves and hashes the executable and turns the node into an exact prepared
 primitive. File arguments and File parameters follow the same source-relative
-resolution, snapshotting, and collision rules as other data assets. Rendering
-passes immutable snapshot paths, executable, and argv separately, sends the
-versioned JSON request, and verifies the artifact before cache commit.
+resolution, hashing, and collision rules as other data assets. Rendering
+re-hashes reached dependencies, passes resolved paths, executable, and argv
+separately, sends the versioned JSON request, and verifies the artifact before
+cache commit.
 Executable and file-argument bytes belong to prepared identity; authored
 executable, arguments, parameters, and graph inputs belong to compiled semantic
 identity.
@@ -253,7 +254,7 @@ identity.
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
 - resolves each authored path relative to the source unit that contains it
-- captures reachable data assets into private plan-scoped snapshots
+- resolves and hashes reachable data assets
 - validates image and video contracts
 - resolves video-source durations
 - verifies FFmpeg identity and only the capabilities required by the reachable
@@ -315,8 +316,8 @@ input to global output boundaries. See
 
 ## Rendering
 
-`render` verifies the prepared FFmpeg and FFprobe build identities and private
-asset snapshots, reuses only verified cached artifacts, renders missing native
+`render` verifies the prepared FFmpeg and FFprobe build identities and reached
+source assets, reuses only verified cached artifacts, renders missing native
 FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska, verifies
 external-program artifacts against the same prepared media shape, and exports
 one H.264/yuv420p MP4 with AAC when the result Video has audio.
@@ -343,8 +344,8 @@ result. A cache entry becomes a dependency barrier only after both its sidecar
 content hash and exact prepared media contract have been verified. A miss
 expands to the node's canonical prepared inputs. Actions then run in stable
 topological order, rechecking planned misses under their per-artifact lock so a
-concurrent renderer can satisfy them without duplicate work. Source snapshots,
-external executables, and declared external files are reverified when their node
+concurrent renderer can satisfy them without duplicate work. Source assets,
+external executables, and declared external files are rehashed when their node
 is reached; a verified downstream artifact makes the pruned upstream subtree
 irrelevant. FFmpeg/FFprobe identity verification and final export remain
 unconditional.

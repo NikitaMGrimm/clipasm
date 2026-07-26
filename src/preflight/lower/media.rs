@@ -15,13 +15,7 @@ pub(super) fn image(
     frames: FrameCount,
     fit: ImageFit,
 ) -> Result<NodeId> {
-    let asset = prepare_image_asset(
-        path,
-        node.origin(),
-        lowerer.ffmpeg,
-        lowerer.ffprobe,
-        &mut lowerer.snapshots,
-    )?;
+    let asset = prepare_image_asset(path, node.origin(), lowerer.ffmpeg, lowerer.ffprobe)?;
     lowerer.add_video_node(
         PreparedVideoKind::ImageVideo { asset, frames, fit },
         *node.domain().expect("Video node domain"),
@@ -43,7 +37,6 @@ pub(super) fn video_source(
         node.origin(),
         lowerer.ffmpeg,
         lowerer.ffprobe,
-        &mut lowerer.snapshots,
     )?;
     lowerer.add_video_node(
         PreparedVideoKind::VideoSource { asset, frames, fit },
@@ -65,7 +58,6 @@ pub(super) fn audio_source(
         node.origin(),
         lowerer.ffmpeg,
         lowerer.ffprobe,
-        &mut lowerer.snapshots,
     )?;
     lowerer.add_audio_node(
         PreparedAudioKind::AudioSource { asset },

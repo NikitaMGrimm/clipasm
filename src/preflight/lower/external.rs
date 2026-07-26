@@ -35,7 +35,7 @@ pub(super) fn video(
                 Ok(PreparedExternalArgument::Text(value.clone()))
             }
             ExternalArgumentValue::File { path } => Ok(PreparedExternalArgument::File(
-                prepare_external_file_asset(&path.value, &path.span, &mut lowerer.snapshots)?,
+                prepare_external_file_asset(&path.value, &path.span)?,
             )),
         })
         .collect::<Result<Vec<_>>>()?;
@@ -51,7 +51,7 @@ pub(super) fn video(
                     PreparedExternalParameterValue::Keyword(value.clone())
                 }
                 ExternalParameterValue::File(path) => PreparedExternalParameterValue::File(
-                    prepare_external_file_asset(&path.value, &path.span, &mut lowerer.snapshots)?,
+                    prepare_external_file_asset(&path.value, &path.span)?,
                 ),
             };
             Ok((name.clone(), value))

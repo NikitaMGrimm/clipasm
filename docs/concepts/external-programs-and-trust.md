@@ -80,11 +80,12 @@ Cache identity covers the declared semantic version, executable and
 `file(...)` bytes, File parameters, bound scalar parameters, upstream artifacts,
 project settings, and the provided FFmpeg and FFprobe identities.
 
-Preflight captures declared File values into private plan-scoped snapshots.
-External protocol version 2 receives those opaque snapshot paths, so external
-code must not use their directory or generated basename as authored project
-metadata. The authored extension is retained for format and interpreter
-selection.
+External protocol version 1 receives the resolved paths of declared File
+values. Preflight hashes those files, and rendering re-hashes them when the
+external node is reached. This detects ordinary changes between preparation and
+execution without treating the filesystem as an immutable store.
+The final hash and the process opening a file are separate operations, so a
+concurrent mutation can still change the bytes observed by the process.
 
 It cannot automatically discover:
 
@@ -107,8 +108,6 @@ author's contract.
   owns the declaration form and path behavior.
 - [ADR 0012](../adr/0012-run-external-programs.md) records execution,
   verification, cache identity, protocol limits, and the trust boundary.
-- [ADR 0017](../adr/0017-snapshot-prepared-data-assets.md) records immutable
-  data-asset capture and snapshot lifetime.
 - The architecture's
   [external-program](../architecture.md#external-programs),
   [preflight](../architecture.md#preflight), and

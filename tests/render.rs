@@ -854,7 +854,7 @@ fn renders_an_external_video_program() {
         &script,
         r#"import json, pathlib, subprocess, sys
 r = json.load(sys.stdin)
-assert r["protocol_version"] == 2
+assert r["protocol_version"] == 1
 assert r["parameters"]["amount"] == 7
 assert pathlib.Path(r["parameters"]["lut"]).read_bytes() == b"original lookup"
 subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
@@ -876,9 +876,6 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
 
     let compiled = compile_file(&workflow).expect("compile external program");
     let plan = preflight::preflight(&compiled).expect("preflight external program");
-    fs::write(&script, "raise RuntimeError('authored script changed')\n")
-        .expect("change authored script");
-    fs::write(directory.path().join("lut.bin"), b"changed lookup").expect("change lookup file");
     let report = render::render(&plan).expect("render external program");
     assert!(report.output.is_file());
     assert_eq!(report.cache_misses, 2);
