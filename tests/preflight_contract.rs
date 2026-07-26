@@ -559,6 +559,314 @@ fn video_preflight_derives_the_full_source_duration() {
 }
 
 #[test]
+fn preflight_resolves_media_dependent_marker_trim() {
+    if !common::media_tools_available() {
+        eprintln!("skipping deferred marker test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=2",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+video("source.mkv") as source
+trim(range=($source::start + 200ms)..($source::end - 300ms))
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    assert!(compiled.result_domain().is_none());
+    let plan = clipasm::preflight::preflight(&compiled).expect("deferred marker preflight");
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let Some(PreparedVideoKind::Slice { range, .. }) = result.video_kind() else {
+        panic!("prepared marker slice");
+    };
+    assert_eq!(range.start(), 2);
+    assert_eq!(range.end(), 17);
+    assert_eq!(result.video_domain().expect("Video node").frames().0, 15);
+}
+
+#[test]
+fn preflight_resolves_nested_media_marker_offsets() {
+    if !common::media_tools_available() {
+        eprintln!("skipping nested deferred marker test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "intro.ppm", "0 0 0");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=2",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+clip {
+    image("intro.ppm", 1s) as intro
+    video("source.mkv") as main
+} as edit
+$edit
+trim(range=($edit::main::start + 200ms)..($edit::main::end - 300ms))
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("nested marker preflight");
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let Some(PreparedVideoKind::Slice { range, .. }) = result.video_kind() else {
+        panic!("prepared nested marker slice");
+    };
+    assert_eq!(range.start(), 12);
+    assert_eq!(range.end(), 27);
+    assert_eq!(result.video_domain().expect("Video node").frames().0, 15);
+}
+
+#[test]
+fn preflight_resolves_deferred_during_and_inherited_image_extent() {
+    if !common::media_tools_available() {
+        eprintln!("skipping deferred during test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "replacement.ppm", "0 255 0");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=2",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+video("source.mkv") as source
+during(range=($source::start + 200ms)..($source::end - 300ms)) {
+    drop<Video>
+    image("replacement.ppm")
+}
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    assert!(compiled.result_domain().is_none());
+    let plan = clipasm::preflight::preflight(&compiled).expect("deferred during preflight");
+    let inherited = plan
+        .nodes()
+        .iter()
+        .find(|node| {
+            matches!(
+                node.video_kind(),
+                Some(PreparedVideoKind::ImageVideo { frames, .. }) if frames.0 == 15
+            )
+        })
+        .expect("15-frame inherited replacement image");
+    assert_eq!(inherited.video_domain().expect("Video node").frames().0, 15);
+    assert_eq!(
+        plan.nodes()[plan.result().get() as usize]
+            .video_domain()
+            .expect("Video result")
+            .frames()
+            .0,
+        20
+    );
+}
+
+#[test]
+fn preflight_resolves_crossfade_overlap_markers_from_video_sources() {
+    if !common::media_tools_available() {
+        eprintln!(
+            "skipping deferred transition-marker test because FFmpeg/FFprobe are unavailable"
+        );
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    for (name, color) in [("before.mkv", "red"), ("after.mkv", "blue")] {
+        let path = directory.path().join(name);
+        let source = format!("color=c={color}:s=64x64:r=10:d=1");
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y", "-v", "error", "-f", "lavfi", "-i", &source, "-c:v", "ffv1",
+            ])
+            .arg(&path)
+            .status()
+            .expect("create source video");
+        assert!(status.success());
+    }
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+video("before.mkv")
+video("after.mkv")
+crossfade(400ms) as transition
+trim(range=$transition::overlap)
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    assert!(compiled.result_domain().is_none());
+    let plan = clipasm::preflight::preflight(&compiled).expect("transition marker preflight");
+    assert_eq!(
+        plan.nodes()[plan.result().get() as usize]
+            .video_domain()
+            .expect("Video result")
+            .frames()
+            .0,
+        4
+    );
+}
+
+#[test]
+fn preflight_rejects_unaligned_media_dependent_marker() {
+    if !common::media_tools_available() {
+        eprintln!("skipping deferred marker alignment test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=1.9",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+video("source.mkv") as source
+trim(range=$source::middle..$source::end)
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("half-frame midpoint");
+    assert_eq!(error.code, "E_TIME_NOT_FRAME_ALIGNED");
+}
+
+#[test]
+fn preflight_rejects_out_of_bounds_media_dependent_marker() {
+    if !common::media_tools_available() {
+        eprintln!("skipping deferred marker bounds test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=2",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        r#"clipasm 1
+config { video { width = 64
+height = 64
+fps = 10 }
+output = "final.mp4" }
+video("source.mkv") as source
+trim(range=$source::start..($source::end + 100ms))
+"#,
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("pure compile");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("out-of-bounds marker");
+    assert_eq!(error.code, "E_INVALID_TIME_RANGE");
+    assert!(error.message.contains("21"));
+    assert!(error.message.contains("20"));
+}
+
+#[test]
 fn prepared_repeat_keeps_one_upstream_edge() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");

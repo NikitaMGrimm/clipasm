@@ -24,6 +24,24 @@ pub(super) fn image(
     )
 }
 
+pub(super) fn deferred_image(
+    lowerer: &mut PreflightLowerer<'_>,
+    node: &CompiledNode,
+    path: &Path,
+    extent: &crate::model::TimelineExpression,
+    fit: ImageFit,
+) -> Result<NodeId> {
+    let frames = super::timeline::resolve_video_extent(lowerer, node, extent)?;
+    let asset = lowerer.host.prepare_image(path, node.origin())?;
+    lowerer.add_video_node(
+        PreparedVideoKind::ImageVideo { asset, frames, fit },
+        project_domain(lowerer.compiled.video(), frames),
+        false,
+        node.semantic_version(),
+        node.origin().clone(),
+    )
+}
+
 pub(super) fn video_source(
     lowerer: &mut PreflightLowerer<'_>,
     node: &CompiledNode,

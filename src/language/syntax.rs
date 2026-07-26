@@ -90,6 +90,11 @@ pub(crate) enum ScalarExpression {
     String(Spanned<String>),
     Atom(Spanned<String>),
     Reference(Spanned<String>),
+    Selector {
+        root: Spanned<String>,
+        path: Vec<Spanned<String>>,
+        span: SourceSpan,
+    },
     Unary {
         operator: UnaryOperator,
         operand: Box<Self>,
@@ -112,9 +117,10 @@ impl ScalarExpression {
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
             Self::String(value) | Self::Atom(value) | Self::Reference(value) => &value.span,
-            Self::Unary { span, .. } | Self::Binary { span, .. } | Self::Postfix { span, .. } => {
-                span
-            }
+            Self::Selector { span, .. }
+            | Self::Unary { span, .. }
+            | Self::Binary { span, .. }
+            | Self::Postfix { span, .. } => span,
         }
     }
 }
@@ -151,6 +157,11 @@ pub(crate) struct Statement {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Expression {
     Reference(Spanned<String>),
+    ScalarBinding {
+        name: Spanned<String>,
+        value: ScalarExpression,
+        span: SourceSpan,
+    },
     Invocation(Invocation),
     Block(Block),
     String(Spanned<String>),
@@ -163,6 +174,7 @@ impl Expression {
     pub(crate) const fn span(&self) -> &SourceSpan {
         match self {
             Self::Reference(value) | Self::String(value) | Self::Atom(value) => &value.span,
+            Self::ScalarBinding { span, .. } => span,
             Self::Scalar(expression) => expression.span(),
             Self::Invocation(invocation) => &invocation.span,
             Self::Block(block) => &block.span,

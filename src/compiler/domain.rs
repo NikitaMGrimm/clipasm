@@ -27,6 +27,9 @@ pub(super) fn infer_domains(
             SemanticNodeKind::ImageVideo { frames, .. } => {
                 DomainKnowledge::Known(project_domain(video, *frames))
             }
+            SemanticNodeKind::DeferredImageVideo { .. }
+            | SemanticNodeKind::DeferredSlice { .. }
+            | SemanticNodeKind::DeferredReplaceRange { .. } => DomainKnowledge::Deferred,
             SemanticNodeKind::VideoSource { .. } | SemanticNodeKind::AudioOnBlack { .. } => {
                 DomainKnowledge::Deferred
             }

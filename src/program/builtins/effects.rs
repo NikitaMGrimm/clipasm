@@ -3,10 +3,10 @@ use crate::model::{ExactNumber, ValueType};
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
 
-use super::support::{direct, exact_descriptor, input, one_output, parameter};
+use super::support::{direct_with_timeline, exact_descriptor, input, one_output, parameter};
 
 pub(super) fn zoom_in() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         exact_descriptor(
             "zoom_in",
             4,
@@ -15,6 +15,9 @@ pub(super) fn zoom_in() -> ProgramDefinition {
             ValueType::Video,
         ),
         lower_zoom,
+        crate::program::TimelineBehavior::Identity {
+            input: crate::program::InputSlot::new(0),
+        },
     )
 }
 

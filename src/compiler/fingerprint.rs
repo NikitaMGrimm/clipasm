@@ -93,7 +93,7 @@ fn value_hashes(
             continue;
         }
         let upstream = upstream_hashes(node.kind(), &hashes);
-        let operation = operation_identity(node.kind())?;
+        let operation = operation_identity(node.kind(), &hashes)?;
         hashes[index] = Some(hash_serializable(&ValueIdentity {
             semantic_version: node.semantic_version(),
             value_type: node.value_type(),
@@ -118,12 +118,24 @@ fn upstream_hashes(kind: &SemanticNodeKind, hashes: &[Option<String>]) -> Vec<St
     upstream
 }
 
-fn operation_identity(kind: &SemanticNodeKind) -> Result<serde_json::Value> {
+fn operation_identity(
+    kind: &SemanticNodeKind,
+    hashes: &[Option<String>],
+) -> Result<serde_json::Value> {
     match kind {
         SemanticNodeKind::ImageVideo { path, frames, fit } => {
             let path = identity_value(path)?;
             Ok(serde_json::json!({
                 "operation": "image_video", "path": path, "frames": frames, "fit": fit,
+            }))
+        }
+        SemanticNodeKind::DeferredImageVideo { path, extent, fit } => {
+            let path = identity_value(path)?;
+            Ok(serde_json::json!({
+                "operation": "deferred_image_video",
+                "path": path,
+                "extent": timeline_expression_identity(extent, hashes),
+                "fit": fit,
             }))
         }
         SemanticNodeKind::VideoSource { path, fit } => {
@@ -159,12 +171,17 @@ fn operation_identity(kind: &SemanticNodeKind) -> Result<serde_json::Value> {
         SemanticNodeKind::Slice { range, .. } => {
             Ok(serde_json::json!({"operation": "slice", "range": range}))
         }
+        SemanticNodeKind::DeferredSlice { range, .. } => Ok(deferred_slice_identity(range, hashes)),
         SemanticNodeKind::AudioSlice { range, .. } => {
             Ok(serde_json::json!({"operation": "audio_slice", "range": range}))
         }
         SemanticNodeKind::ReplaceRange { range, .. } => {
             Ok(serde_json::json!({"operation": "replace_range", "range": range}))
         }
+        SemanticNodeKind::DeferredReplaceRange { range, .. } => Ok(serde_json::json!({
+            "operation": "deferred_replace_range",
+            "range": timeline_range_identity(range, hashes),
+        })),
         SemanticNodeKind::ExtractAudio { .. } => {
             Ok(serde_json::json!({"operation": "extract_audio"}))
         }
@@ -198,6 +215,43 @@ fn operation_identity(kind: &SemanticNodeKind) -> Result<serde_json::Value> {
             }))
         }
     }
+}
+
+fn deferred_slice_identity(
+    range: &crate::model::TimelineRangeExpression,
+    hashes: &[Option<String>],
+) -> serde_json::Value {
+    serde_json::json!({
+        "operation": "deferred_slice",
+        "range": timeline_range_identity(range, hashes),
+    })
+}
+
+fn timeline_range_identity(
+    range: &crate::model::TimelineRangeExpression,
+    hashes: &[Option<String>],
+) -> serde_json::Value {
+    serde_json::json!({
+        "start": timeline_expression_identity(&range.start, hashes),
+        "end": timeline_expression_identity(&range.end, hashes),
+    })
+}
+
+fn timeline_expression_identity(
+    expression: &crate::model::TimelineExpression,
+    hashes: &[Option<String>],
+) -> serde_json::Value {
+    serde_json::json!({
+        "constant": expression.constant_part(),
+        "terms": expression
+            .terms()
+            .iter()
+            .map(|term| serde_json::json!({
+                "value": node_hash(term.value, hashes),
+                "coefficient": term.coefficient,
+            }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 fn identity_value(value: &impl Serialize) -> Result<serde_json::Value> {
@@ -244,6 +298,7 @@ mod tests {
             name: "source".to_owned(),
             declared_at: span.clone(),
             value: Some(target),
+            timeline_view: None,
             value_type: ValueType::Video,
         }];
         let mut nodes = Vec::new();
@@ -310,6 +365,7 @@ mod tests {
                 name,
                 declared_at: span.clone(),
                 value: Some(root),
+                timeline_view: None,
                 value_type: ValueType::Video,
             });
             root = builder

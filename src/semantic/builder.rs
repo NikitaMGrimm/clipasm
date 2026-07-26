@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::ExternalInvocation;
 use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, SourceTimeRange, ValueId, ValueRef,
-    ValueType, VideoSpec,
+    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, SourceTimeRange,
+    TimelineRangeExpression, ValueId, ValueRef, ValueType, VideoSpec,
 };
 use crate::source::SourceSpan;
 
@@ -65,6 +65,15 @@ impl<'a> GraphBuilder<'a> {
         self.push(SemanticNodeKind::ImageVideo { path, frames, fit })
     }
 
+    pub(crate) fn deferred_image_video(
+        &mut self,
+        path: PathBuf,
+        extent: crate::model::TimelineExpression,
+        fit: ImageFit,
+    ) -> Result<ValueRef> {
+        self.push(SemanticNodeKind::DeferredImageVideo { path, extent, fit })
+    }
+
     /// Add a pure semantic video-file source with a deferred frame domain.
     ///
     /// # Errors
@@ -118,6 +127,15 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn slice(&mut self, input: ValueRef, range: FrameRange) -> Result<ValueRef> {
         self.require_type(input, ValueType::Video, "input")?;
         self.push(SemanticNodeKind::Slice { input, range })
+    }
+
+    pub(crate) fn deferred_slice(
+        &mut self,
+        input: ValueRef,
+        range: TimelineRangeExpression,
+    ) -> Result<ValueRef> {
+        self.require_type(input, ValueType::Video, "input")?;
+        self.push(SemanticNodeKind::DeferredSlice { input, range })
     }
 
     /// Add a checked compact semantic repetition, aliasing a count of one.
@@ -263,6 +281,21 @@ impl<'a> GraphBuilder<'a> {
         self.require_type(base, ValueType::Video, "base")?;
         self.require_type(replacement, ValueType::Video, "replacement")?;
         self.push(SemanticNodeKind::ReplaceRange {
+            base,
+            replacement,
+            range,
+        })
+    }
+
+    pub(crate) fn deferred_replace_range(
+        &mut self,
+        base: ValueRef,
+        range: TimelineRangeExpression,
+        replacement: ValueRef,
+    ) -> Result<ValueRef> {
+        self.require_type(base, ValueType::Video, "base")?;
+        self.require_type(replacement, ValueType::Video, "replacement")?;
+        self.push(SemanticNodeKind::DeferredReplaceRange {
             base,
             replacement,
             range,

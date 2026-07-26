@@ -5,7 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ExactNumber, FrameCount, SourceTime, SourceTimeRange, ValueRef, ValueType};
+use crate::model::{
+    ExactNumber, FrameCount, FrameRange, SourceTime, SourceTimeRange, TimelineRangeExpression,
+    TimelineViewId, ValueRef, ValueType,
+};
 use crate::semantic::GraphBuilder;
 use crate::source::{SourceSpan, SourceUnitId};
 
@@ -148,8 +151,102 @@ pub(crate) enum ParameterValue {
     Integer(i64),
     File(PathBuf),
     Duration(SourceTime),
-    TimeRange(SourceTimeRange),
+    TimeRange(TimeRangeValue),
     Keyword(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TimeRangeValue {
+    Absolute(SourceTimeRange),
+    VideoMarker {
+        owner: TimelineViewId,
+        range: TimelineRangeExpression,
+    },
+}
+
+impl TimeRangeValue {
+    pub(crate) fn to_video_range(
+        &self,
+        fps: crate::model::FrameRate,
+        span: &SourceSpan,
+    ) -> Result<VideoTimeRange> {
+        match self {
+            Self::Absolute(range) => range.to_frames(fps, span).map(VideoTimeRange::Concrete),
+            Self::VideoMarker { range, .. } => {
+                let (Some(start), Some(end)) =
+                    (range.start.constant_value(), range.end.constant_value())
+                else {
+                    return Ok(VideoTimeRange::Deferred(range.clone()));
+                };
+                let start = exact_seconds_to_frames(start, fps, span)?;
+                let end = exact_seconds_to_frames(end, fps, span)?;
+                FrameRange::new(start, end)
+                    .map(VideoTimeRange::Concrete)
+                    .ok_or_else(|| {
+                        Diagnostic::new(
+                            "E_INVALID_TIME_RANGE",
+                            "timeline-range start must be earlier than its end",
+                            span.clone(),
+                        )
+                    })
+            }
+        }
+    }
+
+    pub(crate) const fn marker_owner(&self) -> Option<TimelineViewId> {
+        match self {
+            Self::Absolute(_) => None,
+            Self::VideoMarker { owner, .. } => Some(*owner),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum VideoTimeRange {
+    Concrete(FrameRange),
+    Deferred(TimelineRangeExpression),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum RequestedVideoExtent {
+    Concrete(FrameCount),
+    Deferred(crate::model::TimelineExpression),
+}
+
+impl RequestedVideoExtent {
+    pub(crate) fn from_range(range: VideoTimeRange) -> Self {
+        match range {
+            VideoTimeRange::Concrete(range) => Self::Concrete(range.frames()),
+            VideoTimeRange::Deferred(range) => Self::Deferred(range.end.subtract(&range.start)),
+        }
+    }
+}
+
+fn exact_seconds_to_frames(
+    seconds: &ExactNumber,
+    fps: crate::model::FrameRate,
+    span: &SourceSpan,
+) -> Result<u64> {
+    let frames = seconds
+        .multiply(&ExactNumber::from_unsigned_integer(u64::from(
+            fps.numerator(),
+        )))
+        .divide(&ExactNumber::from_unsigned_integer(u64::from(
+            fps.denominator(),
+        )))
+        .expect("frame-rate denominator is nonzero");
+    frames.to_u64().ok_or_else(|| {
+        Diagnostic::new(
+            "E_TIME_NOT_FRAME_ALIGNED",
+            format!(
+                "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
+                seconds.authored_display(),
+                fps.numerator(),
+                fps.denominator()
+            ),
+            span.clone(),
+        )
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -268,11 +365,24 @@ impl std::fmt::Debug for ProgramImplementation {
 pub(crate) struct ProgramDefinition {
     pub(crate) descriptor: ProgramDescriptor,
     pub(crate) implementation: ProgramImplementation,
+    pub(crate) timeline_behavior: TimelineBehavior,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TimelineBehavior {
+    Fresh,
+    Identity { input: InputSlot },
+    Concat { input: InputSlot },
+    BodyConcat { inputs: &'static [InputSlot] },
+    Crop { input: InputSlot },
+    Replace { base: InputSlot },
+    FlashCut { before: InputSlot, after: InputSlot },
+    Crossfade { before: InputSlot, after: InputSlot },
 }
 
 pub(crate) struct BodyPlan {
     pub(crate) initial_values: Vec<ValueRef>,
-    pub(crate) requested_frames: Option<FrameCount>,
+    pub(crate) requested_extent: Option<RequestedVideoExtent>,
     pub(crate) finalizer: Box<dyn BodyFinalizer>,
 }
 
@@ -505,6 +615,7 @@ mod tests {
                 outputs: vec![ValueType::Video.into()],
             },
             implementation,
+            timeline_behavior: TimelineBehavior::Fresh,
         }
     }
 

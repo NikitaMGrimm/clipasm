@@ -1,13 +1,13 @@
 use std::path::Path;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ExactNumber, FrameCount, SourceTime, SourceTimeRange, ValueRef};
+use crate::model::{ExactNumber, SourceTime, ValueRef};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceSpan, Spanned};
 
 use super::{
     Cardinality, InputPort, InputSlot, ParameterDescriptor, ParameterSlot, ParameterType,
-    ParameterValue, ProgramDescriptor, ResolvedSignature,
+    ParameterValue, ProgramDescriptor, RequestedVideoExtent, ResolvedSignature, TimeRangeValue,
 };
 
 #[derive(Clone, Debug)]
@@ -31,7 +31,7 @@ pub(crate) struct ResolvedCall<'a> {
     descriptor: &'a ProgramDescriptor,
     inputs: Vec<ResolvedInput>,
     parameters: Vec<Option<Spanned<ParameterValue>>>,
-    requested_frames: Option<FrameCount>,
+    requested_extent: Option<RequestedVideoExtent>,
     origin: SourceOrigin,
 }
 
@@ -41,7 +41,7 @@ impl<'a> ResolvedCall<'a> {
         signature: &ResolvedSignature,
         inputs: Vec<ResolvedInput>,
         parameters: Vec<Option<Spanned<ParameterValue>>>,
-        requested_frames: Option<FrameCount>,
+        requested_extent: Option<RequestedVideoExtent>,
         origin: SourceOrigin,
     ) -> Result<Self> {
         if inputs.len() != descriptor.inputs.len() || inputs.len() != signature.inputs.len() {
@@ -113,7 +113,7 @@ impl<'a> ResolvedCall<'a> {
             descriptor,
             inputs,
             parameters,
-            requested_frames,
+            requested_extent,
             origin,
         })
     }
@@ -124,8 +124,8 @@ impl<'a> ResolvedCall<'a> {
     }
 
     #[must_use]
-    pub(crate) const fn requested_frames(&self) -> Option<FrameCount> {
-        self.requested_frames
+    pub(crate) const fn requested_extent(&self) -> Option<&RequestedVideoExtent> {
+        self.requested_extent.as_ref()
     }
 
     #[must_use]
@@ -229,10 +229,10 @@ impl<'a> ResolvedCall<'a> {
     pub(crate) fn time_range_parameter(
         &self,
         name: &str,
-    ) -> Result<(SourceTimeRange, &SourceSpan)> {
+    ) -> Result<(&TimeRangeValue, &SourceSpan)> {
         let parameter = self.parameter(name)?;
         match &parameter.value {
-            ParameterValue::TimeRange(value) => Ok((*value, &parameter.span)),
+            ParameterValue::TimeRange(value) => Ok((value, &parameter.span)),
             _ => Err(self.parameter_type_error(name, "time range")),
         }
     }

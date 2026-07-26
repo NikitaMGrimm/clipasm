@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
@@ -26,6 +27,1013 @@ fn project(source: &str) -> (TempDir, clipasm::source::SourcePackage) {
 
 fn compiled_json(compiled: &compiler::CompiledProgram) -> serde_json::Value {
     serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON value")
+}
+
+fn assert_last_slice_range(compiled: &compiler::CompiledProgram, start: u64, end: u64) {
+    let json = compiled_json(compiled);
+    let slice = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("trim slice");
+    assert_eq!(slice["kind"]["range"]["start"], start);
+    assert_eq!(slice["kind"]["range"]["end"], end);
+}
+
+#[test]
+fn explicitly_rooted_clip_placement_selects_its_exact_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as intro\n  image(\"b.ppm\", 2s) as credits\n} as edit\n$edit\nduring($edit::credits::start..$edit::credits::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("marker-rooted during range");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
+
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn timeline_placement_selector_is_a_complete_closed_open_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as intro\n  image(\"b.ppm\", 2s) as credits\n} as edit\n$edit\nduring($edit::credits) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("complete placement range");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn unique_reference_marker_survives_identity_timeline_programs() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as interview\nclip {\n  $interview\n  zoom_in(8%)\n} as edit\n$edit\nduring($edit::interview::start..$edit::interview::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("identity-preserved marker");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 0);
+    assert_eq!(replacement["kind"]["range"]["end"], 10);
+}
+
+#[test]
+fn marker_selector_uses_the_bound_timeline_as_inference_context() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"interview.ppm\", 2s) as interview\nclip {\n  image(\"intro.ppm\", 1s)\n  $interview\n} as edit\nduring(video=$edit, range=$interview::start..$interview::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("contextual marker root");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn nested_clip_placements_form_explicit_selector_paths() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as intro\n  image(\"b.ppm\", 2s) as interview\n} as chapter\nclip {\n  $chapter\n  image(\"c.ppm\", 1s) as credits\n} as edit\n$edit\nduring($edit::chapter::interview::start..$edit::chapter::interview::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("nested marker path");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn duplicate_implicit_reference_markers_require_explicit_aliases() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as interview\nclip {\n  $interview\n  $interview\n} as edit\n$edit\nduring($edit::interview::start..$edit::interview::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("duplicate implicit marker");
+    assert_eq!(error.code, "E_AMBIGUOUS_TIMELINE_PLACEMENT");
+    assert!(error.message.contains("interview"));
+    let layout = error.notes.join("\n");
+    assert_eq!(
+        layout
+            .matches("interview (not directly addressable)")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn marker_ranges_must_belong_to_the_consumed_timeline() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as intro\n  image(\"b.ppm\", 1s) as credits\n} as edit\nimage(\"c.ppm\", 2s) as other\nduring(video=$other, range=$edit::credits::start..$edit::credits::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("marker root mismatch");
+    assert_eq!(error.code, "E_TIMELINE_ROOT_MISMATCH");
+    assert!(error.message.contains("does not belong"));
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("marker range root"))
+    );
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("bound input 1"))
+    );
+}
+
+#[test]
+fn timeline_layout_diagnostics_are_bounded() {
+    let mut source =
+        String::from("clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n");
+    for index in 0..70 {
+        writeln!(source, "  image(\"{index}.ppm\", 100ms) as item_{index}")
+            .expect("write source fixture");
+    }
+    source.push_str("} as edit\ntrim(value=$edit, range=$edit::missing)\n");
+    let (_directory, workflow) = project(&source);
+
+    let error = compiler::compile(&workflow).expect_err("missing marker in large layout");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+    let layout = error.notes.join("\n");
+    assert!(layout.contains("timeline layout truncated"));
+    assert!(layout.len() < 8_000);
+}
+
+#[test]
+fn marker_ranges_remain_on_the_exact_project_frame_grid() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 30000 / 1001 } }\nclip {\n  image(\"a.ppm\", 1001ms) as first\n  image(\"b.ppm\", 1001ms) as second\n} as edit\n$edit\nduring($edit::second::start..$edit::second::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("frame-native marker range");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 30);
+    assert_eq!(replacement["kind"]["range"]["end"], 60);
+}
+
+#[test]
+fn timeline_coordinates_support_exact_addition_and_scaling() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as first\n  image(\"b.ppm\", 2s) as second\n} as edit\n$edit\nduring(50% * ($edit::first::start + $edit::second::start)..$edit::second::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("coordinate arithmetic");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 5);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn timeline_region_middle_is_an_exact_coordinate() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"section.ppm\", 2s) as section\n} as edit\n$edit\nduring($edit::section::middle..$edit::section::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("exact region middle");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 20);
+}
+
+#[test]
+fn unaligned_timeline_middle_fails_only_when_used_as_a_frame_boundary() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"section.ppm\", 500ms) as section\n} as edit\n$edit\nduring($edit::start..$edit::section::middle) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("half-frame middle must be rejected");
+    assert_eq!(error.code, "E_TIME_NOT_FRAME_ALIGNED");
+}
+
+#[test]
+fn timeline_coordinate_bounds_are_checked_only_at_parameter_use() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as first\n} as edit\n$edit\nduring($edit::start..($edit::end + 1s)) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("out-of-bounds final coordinate");
+    assert_eq!(error.code, "E_INVALID_TIME_RANGE");
+    assert!(error.message.contains("outside"));
+}
+
+#[test]
+fn scalar_alias_infers_a_rooted_coordinate_and_can_be_reused() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"credits.ppm\", 2s) as credits\n} as edit\ncredits_lead_in = $edit::credits::start - 500ms\n$edit\nduring($credits_lead_in..$edit::credits::end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("inferred scalar alias");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 5);
+    assert_eq!(replacement["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn scalar_aliases_support_forward_references() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as first\n  image(\"b.ppm\", 2s) as second\n} as edit\nrange_end = $range_start + 1s\nrange_start = $edit::second::start\n$edit\nduring($range_start..$range_end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("forward scalar aliases");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 10);
+    assert_eq!(replacement["kind"]["range"]["end"], 20);
+}
+
+#[test]
+fn unused_out_of_bounds_scalar_alias_is_harmless() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as edit\nunused = $edit::end + 500s\n$edit\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unused coordinate is not consumed");
+    assert!(!compiled.compiled_json().expect("compiled JSON").is_empty());
+}
+
+#[test]
+fn scalar_aliases_support_complex_exact_marker_arithmetic() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n} as edit\nhalf = 1 / 2\nmidpoint = $half * ($edit::main::start + $edit::main::end)\nrange_start = $midpoint - 500ms\nrange_end = $midpoint + 500ms\n$edit\nduring($range_start..$range_end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("complex marker aliases");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 15);
+    assert_eq!(replacement["kind"]["range"]["end"], 25);
+}
+
+#[test]
+fn unused_negative_duration_alias_is_valid() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nsmall = 250ms\nbig = 1s\nnegative = $small - $big\nimage(\"a.ppm\", 1s)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unused negative Duration");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        10
+    );
+}
+
+#[test]
+fn negative_duration_alias_can_be_brought_back_into_parameter_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nsmall = 250ms\nbig = 1s\nnegative = $small - $big\npositive = $negative + 1250ms\nimage(\"a.ppm\", $positive)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("corrected Duration alias");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        5
+    );
+}
+
+#[test]
+fn negative_duration_alias_fails_when_consumed_as_duration() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nsmall = 250ms\nbig = 1s\nnegative = $small - $big\nimage(\"a.ppm\", $negative)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("negative Duration parameter");
+    assert_eq!(error.code, "E_INVALID_DURATION");
+    assert!(error.message.contains("negative"));
+}
+
+#[test]
+fn out_of_bounds_coordinate_alias_fails_when_consumed_by_during() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as edit\nafter_end = $edit::end + 1s\n$edit\nduring($edit::start..$after_end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("consumed out-of-bounds alias");
+    assert_eq!(error.code, "E_INVALID_TIME_RANGE");
+    assert!(error.message.contains("outside"));
+}
+
+#[test]
+fn out_of_bounds_coordinate_alias_can_be_brought_back_in_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as edit\ntoo_early = $edit::start - 2s\nrange_start = $too_early + 2s\nrange_end = $range_start + 500ms\n$edit\nduring($range_start..$range_end) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("corrected coordinate alias");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 0);
+    assert_eq!(replacement["kind"]["range"]["end"], 5);
+}
+
+#[test]
+fn scalar_alias_declared_in_nested_body_is_program_wide() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nduring(0s..1s) {\n  nested_start = 200ms\n  zoom_in(2%)\n} as edited\ntrim(value=$edited, range=$nested_start..1s)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("nested scalar alias");
+    let json = compiled_json(&compiled);
+    let slice = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("trim slice");
+    assert_eq!(slice["kind"]["range"]["start"], 2);
+    assert_eq!(slice["kind"]["range"]["end"], 10);
+}
+
+#[test]
+fn unused_invalid_scalar_aliases_are_inert() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nimage(\"a.ppm\", 1s) as first\nimage(\"b.ppm\", 1s) as second\ndivision = 1 / 0\nmissing = $does_not_exist + 1s\ninvalid_operator = 1s * 2\nmixed_roots = $first::start + $second::end\ngraph_value = $first\ncycle_a = $cycle_b + 1s\ncycle_b = $cycle_a + 1s\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unused invalid aliases are inert");
+    assert!(!compiled.compiled_json().expect("compiled JSON").is_empty());
+}
+
+#[test]
+fn reached_invalid_scalar_aliases_report_their_errors() {
+    let cases = [
+        (
+            "division by zero",
+            "clipasm 1\nbad = 1 / 0\nimage(\"a.ppm\", 1s)\nzoom_in($bad)\n",
+            "E_DIVISION_BY_ZERO",
+        ),
+        (
+            "missing reference",
+            "clipasm 1\nbad = $missing + 1s\nimage(\"a.ppm\", $bad)\n",
+            "E_MISSING_REFERENCE",
+        ),
+        (
+            "invalid operator",
+            "clipasm 1\nbad = 1s * 2\nimage(\"a.ppm\", $bad)\n",
+            "E_INVALID_SCALAR_OPERATION",
+        ),
+        (
+            "wrong final type",
+            "clipasm 1\nbad = 1 / 2\nimage(\"a.ppm\", $bad)\n",
+            "E_INVALID_ARGUMENT_TYPE",
+        ),
+        (
+            "mixed timeline roots",
+            "clipasm 1\nimage(\"a.ppm\", 1s) as first\nimage(\"b.ppm\", 1s) as second\nbad = $first::start + $second::end\ntrim(value=$first, range=$first::start..$bad)\n",
+            "E_TIMELINE_ROOT_MISMATCH",
+        ),
+    ];
+
+    for (name, source, expected) in cases {
+        let (_directory, workflow) = project(source);
+        let error = compiler::compile(&workflow).expect_err(name);
+        assert_eq!(error.code, expected, "{name}: {}", error.message);
+    }
+}
+
+#[test]
+fn graph_values_fail_as_scalar_alias_values_only_when_reached() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nimage(\"a.ppm\", 1s) as picture\ninvalid = $picture\nimage(\"b.ppm\", $invalid)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("graph value in used scalar alias");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    assert!(error.message.contains("graph value `$picture`"));
+}
+
+#[test]
+fn scalar_and_body_input_names_are_resolved_by_context() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nvideo = 2%\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  drop<Video>\n  zoom_in(video=$video, by=$video)\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("context separates graph and scalar names");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
+}
+
+#[test]
+fn unused_nested_alias_may_reference_a_body_input() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  body_start = $video::start\n  zoom_in(2%)\n}\n",
+    );
+
+    compiler::compile(&workflow).expect("unused body-input alias is inert");
+}
+
+#[test]
+fn reached_nested_alias_cannot_capture_a_body_input() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  body_start = $video::start\n  zoom_in(2%)\n} as edited\ntrim(value=$edited, range=$body_start..1s)\n",
+    );
+
+    let error =
+        compiler::compile(&workflow).expect_err("program-wide alias cannot capture body input");
+    assert_eq!(error.code, "E_MISSING_REFERENCE");
+}
+
+#[test]
+fn scalar_alias_cannot_be_used_as_a_graph_statement() {
+    let (_directory, workflow) = project("clipasm 1\nlength = 1s\n$length\n");
+
+    let error = compiler::compile(&workflow).expect_err("scalar alias as graph value");
+    assert_eq!(error.code, "E_PARAMETER_NOT_VALUE");
+}
+
+#[test]
+fn alias_does_not_retroactively_merge_original_roots_after_join() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin as joined\nbad = $a::start + $b::end\nduring(video=$joined, range=$joined::start..$bad) { zoom_in(2%) }\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("original roots remain distinct");
+    assert_eq!(error.code, "E_TIMELINE_ROOT_MISMATCH");
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("left coordinate root") && note.contains("`$a` [0s..1s)"))
+    );
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("right coordinate root") && note.contains("`$b` [0s..1s)"))
+    );
+}
+
+#[test]
+fn unknown_placement_reports_the_real_canonical_layout_tree() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s) as b\nconcat as joined\ntrim(value=$joined, range=$joined::missing)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("canonical layout diagnostic");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+    let layout = error.notes.join("\n");
+    assert!(layout.contains("timeline layout for `$joined`"));
+    assert!(layout.contains("├── <unnamed> (not directly addressable) [0s..1s)"));
+    assert!(layout.contains("└── b [1s..2s)"));
+}
+
+#[test]
+fn explicit_and_implicit_placement_names_do_not_shadow_each_other() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\n$a\nconcat as joined\ntrim(value=$joined, range=$joined::a)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("same spelling is ambiguous");
+    assert_eq!(error.code, "E_AMBIGUOUS_TIMELINE_PLACEMENT");
+    assert!(error.message.contains("2 placements named `a`"));
+    assert_eq!(
+        error
+            .notes
+            .join("\n")
+            .matches("a (not directly addressable)")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn operation_owned_placement_names_reject_surviving_collisions() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as replacement\n  image(\"b.ppm\", 1s) as target\n} as edit\n$edit\nduring($edit::target) {\n  drop<Video>\n  image(\"c.ppm\", 500ms)\n} as revised\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("reserved placement collision");
+    assert_eq!(error.code, "E_TIMELINE_PLACEMENT_CONFLICT");
+    assert!(error.message.contains("replacement"));
+    assert!(error.notes.join("\n").contains("base timeline"));
+}
+
+#[test]
+fn operation_owned_placement_name_may_replace_a_removed_collision() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as replacement\n  image(\"b.ppm\", 1s) as tail\n} as edit\n$edit\nduring($edit::replacement) {\n  drop<Video>\n  image(\"c.ppm\", 500ms)\n} as revised\ntrim(value=$revised, range=$revised::replacement)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("removed collision does not survive");
+    assert_last_slice_range(&compiled, 0, 5);
+}
+
+#[test]
+fn alias_can_address_joined_children_through_a_named_parent_root() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin as joined\nend = $joined::a::start + $joined::b::end\nduring(video=$joined, range=$joined::start..$end) { zoom_in(2%) }\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("joined child alias");
+    let json = compiled_json(&compiled);
+    let replacement = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "replace_range")
+        .expect("during replacement");
+    assert_eq!(replacement["kind"]["range"]["start"], 0);
+    assert_eq!(replacement["kind"]["range"]["end"], 20);
+}
+
+#[test]
+fn unnamed_composite_supports_direct_contextual_child_selectors() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s) as a\n  image(\"b.ppm\", 1s) as b\n  concat\n}\nduring(range=$a::start..$b::end) { zoom_in(2%) }\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("contextual unnamed composite selectors");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn unnamed_join_result_supplies_context_to_the_next_timeline_consumer() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin { concat }\ntrim(range=$a::start..$b::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unnamed joined timeline context");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn join_without_body_concat_still_supplies_context_to_a_named_consumer() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin as joined\ntrim(value=$joined, range=$a::start..$b::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("body-concat finalizer supplies context");
+    assert_last_slice_range(&compiled, 0, 20);
+}
+
+#[test]
+fn join_body_has_no_aggregate_timeline_before_finalization() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {\n  point = $a::start + $b::start\n  concat\n} as joined\ntrim(value=$joined, range=$joined::start..$point)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("join body inputs remain separate roots");
+    assert_eq!(error.code, "E_TIMELINE_ROOT_MISMATCH");
+}
+
+#[test]
+fn join_body_can_create_a_contextual_root_before_finalization() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {\n  concat\n  trim(range=$a::start..$b::end)\n} as joined\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("body-created contextual root");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn contextual_selector_can_skip_unique_named_ancestors() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat as pair\nimage(\"c.ppm\", 1s) as c\nconcat as edit\ntrim(value=$edit, range=$a::start..$c::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unique descendant shorthand");
+    assert_last_slice_range(&compiled, 0, 30);
+}
+
+#[test]
+fn contextual_selector_can_match_a_unique_nested_suffix_path() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat as pair\nimage(\"x.ppm\", 1s) as x\nconcat as section\nimage(\"c.ppm\", 1s) as c\nconcat as edit\ntrim(value=$edit, range=$pair::a::start..$c::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("unique nested suffix shorthand");
+    assert_last_slice_range(&compiled, 0, 40);
+}
+
+#[test]
+fn contextual_selector_rejects_an_ambiguous_descendant_name() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nclip { $a } as first_pair\nclip { $a } as second_pair\n{\n  $first_pair\n  $second_pair\n  concat\n} as edit\ntrim(value=$edit, range=$a::start..$edit::end)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("ambiguous descendant shorthand");
+    assert_eq!(error.code, "E_AMBIGUOUS_TIMELINE_PLACEMENT");
+    assert!(error.message.contains('a'));
+}
+
+#[test]
+fn contextual_selector_rejects_same_level_duplicate_names() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\n$a\nconcat as edit\ntrim(value=$edit, range=$a::start..$edit::end)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("same-level contextual ambiguity");
+    assert_eq!(error.code, "E_AMBIGUOUS_TIMELINE_PLACEMENT");
+    assert!(error.message.contains("matches 2 placements"));
+}
+
+#[test]
+fn alias_cannot_borrow_an_unnamed_composite_as_its_parent_root() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s) as a\n  image(\"b.ppm\", 1s) as b\n  concat\n}\nbad = $a::start + $b::end\nduring(range=$a::start..$bad) { zoom_in(2%) }\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("aliases require an explicit parent root");
+    assert_eq!(error.code, "E_TIMELINE_ROOT_MISMATCH");
+}
+
+#[test]
+fn anonymous_concat_layers_do_not_change_named_child_paths() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat\nconcat as joined\ntrim(value=$joined, range=$joined::a::start..$joined::b::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("transparent anonymous concat");
+    assert_last_slice_range(&compiled, 0, 20);
+}
+
+#[test]
+fn join_body_anonymous_concat_does_not_change_named_child_paths() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {\n  concat\n} as joined\ntrim(value=$joined, range=$joined::a::start..$joined::b::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("transparent join body concat");
+    assert_last_slice_range(&compiled, 0, 20);
+}
+
+#[test]
+fn anonymous_concat_regrouping_is_associative_for_layout_paths() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat\nimage(\"c.ppm\", 1s) as c\nconcat as joined\ntrim(value=$joined, range=$joined::a::start..$joined::c::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("associative anonymous concat layout");
+    assert_last_slice_range(&compiled, 0, 30);
+}
+
+#[test]
+fn explicit_named_concat_remains_a_selector_boundary() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat as pair\nimage(\"c.ppm\", 1s) as c\nconcat as joined\ntrim(value=$joined, range=$joined::pair::a::start..$joined::c::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("named concat boundary");
+    assert_last_slice_range(&compiled, 0, 30);
+}
+
+#[test]
+fn explicit_named_concat_cannot_be_skipped_in_a_selector_path() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\nconcat as pair\nimage(\"c.ppm\", 1s) as c\nconcat as joined\ntrim(value=$joined, range=$joined::a)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("named boundary must not flatten");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+}
+
+#[test]
+fn join_body_names_work_on_either_side_of_anonymous_concat() {
+    for body in ["concat as j\n  concat", "concat\n  concat as j"] {
+        let source = format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }} }}\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {{\n  {body}\n}}\nend = $j::a::start + $j::b::end\ntrim(value=$j, range=$j::start..$end)\n"
+        );
+        let (_directory, workflow) = project(&source);
+        let compiled = compiler::compile(&workflow).expect("stable join body name");
+        assert_last_slice_range(&compiled, 0, 20);
+    }
+}
+
+#[test]
+fn anonymous_transition_layout_flattens_into_an_outer_concat() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\ncrossfade(400ms)\nimage(\"c.ppm\", 1s)\nconcat as edit\ntrim(value=$edit, range=$edit::overlap)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("transparent unnamed transition");
+    assert_last_slice_range(&compiled, 6, 10);
+}
+
+#[test]
+fn named_transition_layout_remains_nested_in_an_outer_concat() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\ncrossfade(400ms) as transition\nimage(\"c.ppm\", 1s)\nconcat as edit\ntrim(value=$edit, range=$edit::transition::overlap)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("named transition boundary");
+    assert_last_slice_range(&compiled, 6, 10);
+}
+
+#[test]
+fn anonymous_replacement_layout_flattens_into_an_outer_concat() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nduring(1s..2s) {\n  drop<Video>\n  image(\"b.ppm\", 500ms)\n}\nimage(\"c.ppm\", 1s)\nconcat as edit\ntrim(value=$edit, range=$edit::replacement)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("transparent unnamed replacement");
+    assert_last_slice_range(&compiled, 10, 15);
+}
+
+#[test]
+fn media_dependent_marker_range_compiles_without_reading_the_video() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nvideo(\"missing.mkv\") as source\ntrim(range=($source::start + 200ms)..($source::end - 300ms))\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("deferred marker compilation");
+    assert!(compiled.result_domain().is_none());
+    let json = compiled_json(&compiled);
+    assert!(
+        json["nodes"]
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .any(|node| node["kind"]["operation"] == "slice")
+    );
+}
+
+#[test]
+fn media_dependent_during_inherits_its_requested_extent_without_reading_media() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nvideo(\"missing.mkv\") as source\nduring(range=($source::start + 200ms)..($source::end - 300ms)) {\n  drop<Video>\n  image(\"replacement.ppm\")\n}\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("deferred during compilation");
+    assert!(compiled.result_domain().is_none());
+    let document = compiled_json(&compiled);
+    let operations = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .map(|node| node["kind"]["operation"].as_str().expect("operation"))
+        .collect::<Vec<_>>();
+    assert!(operations.contains(&"deferred_image_video"));
+    assert!(operations.contains(&"deferred_replace_range"));
+}
+
+#[test]
+fn crossfade_exposes_before_after_and_overlap_regions() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\ncrossfade(400ms) as transition\ntrim(range=$transition::overlap)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("crossfade overlap marker");
+    assert_eq!(
+        compiled.result_domain().expect("known overlap").frames().0,
+        4
+    );
+    let json = compiled_json(&compiled);
+    let slice = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("overlap slice");
+    assert_eq!(slice["kind"]["range"]["start"], 6);
+    assert_eq!(slice["kind"]["range"]["end"], 10);
+}
+
+#[test]
+fn crossfade_overlap_middle_uses_exact_coordinate_arithmetic() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\ncrossfade(400ms) as transition\ntrim(range=$transition::overlap::middle..$transition::overlap::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("crossfade overlap midpoint");
+    assert_eq!(
+        compiled
+            .result_domain()
+            .expect("known half-overlap")
+            .frames()
+            .0,
+        2
+    );
+}
+
+#[test]
+fn crossfade_input_regions_retain_nested_marker_layouts() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"a.ppm\", 1s) as title\n} as first\n$first\nimage(\"b.ppm\", 1s)\ncrossfade(400ms) as transition\ntrim(range=$transition::before::title)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("nested crossfade input marker");
+    assert_eq!(
+        compiled.result_domain().expect("known title").frames().0,
+        10
+    );
+}
+
+#[test]
+fn flash_cut_exposes_sequential_before_and_after_regions() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 2s)\nflash_cut(400ms) as transition\ntrim(range=$transition::after)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("flash-cut after marker");
+    assert_eq!(
+        compiled.result_domain().expect("known after").frames().0,
+        20
+    );
+}
+
+#[test]
+fn during_splices_unaffected_base_placements_and_rebases_the_suffix() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n  image(\"credits.ppm\", 1s) as credits\n} as edit\n$edit\nduring(range=$edit::main) {\n  drop<Video>\n  image(\"replacement.ppm\", 1s)\n} as revised\ntrim(range=$revised::credits)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("spliced suffix marker");
+    assert_eq!(
+        compiled.result_domain().expect("known credits").frames().0,
+        10
+    );
+    let json = compiled_json(&compiled);
+    let slice = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("credits slice");
+    assert_eq!(slice["kind"]["range"]["start"], 20);
+    assert_eq!(slice["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn during_drops_base_placements_intersecting_the_replaced_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n  image(\"credits.ppm\", 1s) as credits\n} as edit\n$edit\nduring(range=$edit::main) {\n  drop<Video>\n  image(\"replacement.ppm\", 1s)\n} as revised\ntrim(range=$revised::main)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("replaced placement must disappear");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+}
+
+#[test]
+fn during_exposes_the_replacement_and_its_nested_layout() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"base.ppm\", 3s)\nduring(1s..2s) {\n  drop<Video>\n  clip {\n    image(\"lead.ppm\", 500ms) as lead\n    image(\"body.ppm\", 1500ms) as body\n  } as inserted\n  $inserted\n} as revised\ntrim(range=$revised::replacement::lead)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("nested replacement marker");
+    assert_eq!(compiled.result_domain().expect("known lead").frames().0, 5);
+}
+
+#[test]
+fn during_symbolic_replacement_rebases_later_placements_exactly() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  video(\"missing.mkv\") as main\n  image(\"credits.ppm\", 1s) as credits\n} as edit\n$edit\nduring(range=$edit::main) {\n  drop<Video>\n  image(\"replacement.ppm\", 1s)\n} as revised\ntrim(range=$revised::credits)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("symbolic replacement splice");
+    let json = compiled_json(&compiled);
+    let slice = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("credits slice");
+    assert_eq!(slice["kind"]["range"]["start"], 20);
+    assert_eq!(slice["kind"]["range"]["end"], 30);
+}
+
+#[test]
+fn reached_scalar_alias_cycles_are_rejected() {
+    let (_directory, workflow) =
+        project("clipasm 1\na = $b + 1s\nb = $a + 1s\nimage(\"a.ppm\", $a)\n");
+
+    let error = compiler::compile(&workflow).expect_err("reached scalar cycle must fail");
+    assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
+    assert!(error.message.contains("scalar-alias"));
+}
+
+#[test]
+fn scalar_alias_selector_does_not_borrow_later_invocation_context() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"interview.ppm\", 2s) as interview\nclip {\n  image(\"intro.ppm\", 1s)\n  $interview\n} as edit\nstart = $interview::start\nduring(video=$edit, range=$start..($start + 1s)) {\n  zoom_in(2%)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("alias root must remain explicit");
+    assert_eq!(error.code, "E_TIMELINE_ROOT_MISMATCH");
+}
+
+#[test]
+fn scalar_aliases_infer_number_and_duration_types() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nlength = 500ms\ncount = 6 / 2\nimage(\"a.ppm\", $length)\nrepeat($count)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("ordinary scalar aliases");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        15
+    );
+}
+
+#[test]
+fn scalar_aliases_share_the_program_wide_name_namespace() {
+    let (_directory, workflow) =
+        project("clipasm 1\nimage(\"a.ppm\", 1s) as shared\nshared = 500ms\n$shared\n");
+
+    let error = compiler::compile(&workflow).expect_err("duplicate local name must fail");
+    assert_eq!(error.code, "E_DUPLICATE_NAME");
+}
+
+#[test]
+fn scalar_alias_declarations_have_no_stack_effect() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nunused = 500ms\nimage(\"b.ppm\", 2s)\nconcat\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("zero-stack scalar declaration");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        30
+    );
 }
 
 #[test]
@@ -516,6 +1524,71 @@ fn trim_selects_an_authored_time_range() {
 }
 
 #[test]
+fn trim_accepts_a_rooted_timeline_marker_range() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n} as edit\ntrim(value=$edit, range=$edit::main)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("marker-based trim");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        20
+    );
+}
+
+#[test]
+fn trim_rebases_fully_contained_placements() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n  image(\"credits.ppm\", 1s) as credits\n} as edit\n$edit\ntrim(range=$edit::main::start..$edit::end) as tail\ntrim(range=$tail::credits)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("rebased trim markers");
+    assert_eq!(
+        compiled.result_domain().expect("known credits").frames().0,
+        10
+    );
+}
+
+#[test]
+fn trim_drops_partially_surviving_placements() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  image(\"main.ppm\", 2s) as main\n  image(\"credits.ppm\", 1s) as credits\n} as edit\n$edit\ntrim(range=$edit::main::middle..$edit::end) as tail\ntrim(range=$tail::main)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("partial placement must disappear");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+}
+
+#[test]
+fn trim_preserves_the_occurrence_label_for_a_later_clip() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"interview.ppm\", 2s) as interview\nclip {\n  $interview\n  trim(range=500ms..1500ms)\n} as edit\ntrim(value=$edit, range=$edit::interview)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("trimmed implicit placement");
+    let json = compiled_json(&compiled);
+    let range = json["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("placement slice");
+    assert_eq!(range["kind"]["range"]["start"], 0);
+    assert_eq!(range["kind"]["range"]["end"], 10);
+}
+
+#[test]
+fn trim_preserves_a_symbolically_selected_complete_placement() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip {\n  image(\"intro.ppm\", 1s) as intro\n  video(\"missing.mkv\") as main\n} as edit\n$edit\ntrim(range=$edit::main) as selected\ntrim(range=$selected::main)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("symbolic full placement crop");
+    assert!(compiled.result_domain().is_none());
+}
+
+#[test]
 fn nested_stack_blocks_with_concat_preserve_composition_order() {
     let (_directory, workflow) = project(
         "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n{\n  image(\"a.ppm\", 1s)\n  {\n    image(\"b.ppm\", 1s)\n    image(\"c.ppm\", 1s)\n    concat\n  }\n  concat\n}\n",
@@ -776,6 +1849,42 @@ fn during_does_not_hide_selected_input_from_a_source() {
     );
     let error = compiler::compile(&workflow).expect_err("selected plus source");
     assert_eq!(error.code, "E_BODY_OUTPUT_COUNT");
+}
+
+#[test]
+fn join_preserves_nested_markers_from_untouched_inputs() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nclip { image(\"a.ppm\", 1s) as title } as first\nclip { image(\"b.ppm\", 2s) as body } as second\n$first\n$second\njoin {} as joined\ntrim(value=$joined, range=$joined::first::title)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("joined input marker");
+    let document = compiled_json(&compiled);
+    let slice = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("title slice");
+    assert_eq!(slice["kind"]["range"]["start"], 0);
+    assert_eq!(slice["kind"]["range"]["end"], 10);
+}
+
+#[test]
+fn join_exposes_named_values_created_by_its_body() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 1s)\njoin { image(\"bridge.ppm\", 500ms) as bridge } as joined\ntrim(value=$joined, range=$joined::bridge)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("joined body marker");
+    let document = compiled_json(&compiled);
+    let slice = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("bridge slice");
+    assert_eq!(slice["kind"]["range"]["start"], 20);
+    assert_eq!(slice["kind"]["range"]["end"], 25);
 }
 
 #[test]
@@ -1107,6 +2216,26 @@ fn nested_stack_blocks_keep_distinct_resolved_output_sequences() {
             clipasm::model::ValueType::Video,
         ]
     );
+}
+
+#[test]
+fn parenthesized_output_bindings_name_each_timeline_occurrence_in_order() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n@owned {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 2s)\n  image(\"c.ppm\", 3s)\n} as (first, middle, last)\nconcat as edit\ntrim(value=$edit, range=$edit::middle::start..$edit::last::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("ordered tuple placement labels");
+    assert_last_slice_range(&compiled, 10, 60);
+}
+
+#[test]
+fn parenthesized_output_names_follow_reordered_reference_occurrences() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n@owned {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 2s)\n  image(\"c.ppm\", 3s)\n} as (first, middle, last)\nclip {\n  $last\n  $first\n  $middle\n} as edit\ntrim(value=$edit, range=$edit::first::start..$edit::middle::end)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("reordered tuple placement labels");
+    assert_last_slice_range(&compiled, 30, 60);
 }
 
 #[test]

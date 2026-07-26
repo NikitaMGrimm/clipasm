@@ -35,6 +35,9 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::ImageVideo { path, frames, fit } => {
                 media::image(self, compiled_node, path, *frames, *fit)?
             }
+            SemanticNodeKind::DeferredImageVideo { path, extent, fit } => {
+                media::deferred_image(self, compiled_node, path, extent, *fit)?
+            }
             SemanticNodeKind::VideoSource { path, fit } => {
                 media::video_source(self, compiled_node, path, *fit)?
             }
@@ -82,11 +85,19 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::Slice { input, range } => {
                 timeline::video_slice(self, compiled_node, *input, *range)?
             }
+            SemanticNodeKind::DeferredSlice { input, range } => {
+                timeline::deferred_video_slice(self, compiled_node, *input, range)?
+            }
             SemanticNodeKind::ReplaceRange {
                 base,
                 replacement,
                 range,
             } => timeline::replace_range(self, compiled_node, *base, *replacement, *range)?,
+            SemanticNodeKind::DeferredReplaceRange {
+                base,
+                replacement,
+                range,
+            } => timeline::deferred_replace_range(self, compiled_node, *base, *replacement, range)?,
             SemanticNodeKind::ExtractAudio { video } => {
                 media::extract_audio(self, compiled_node, *video)?
             }

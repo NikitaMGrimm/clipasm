@@ -3,12 +3,17 @@ use crate::model::{ValueRef, ValueType};
 use crate::program::{
     BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
     ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
-    ProgramImplementation, ProgramOutputs, ResolvedCall, StackAccess, ValueTypeSpec,
+    ProgramImplementation, ProgramOutputs, RequestedVideoExtent, ResolvedCall, StackAccess,
+    ValueTypeSpec, VideoTimeRange,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
 
 const VIDEO: ValueType = ValueType::Video;
+const JOIN_INPUTS: [crate::program::InputSlot; 2] = [
+    crate::program::InputSlot::new(0),
+    crate::program::InputSlot::new(1),
+];
 
 pub(crate) fn join() -> ProgramDefinition {
     body(
@@ -25,6 +30,9 @@ pub(crate) fn join() -> ProgramDefinition {
                 min: 1,
             },
             count_error_code: "E_EMPTY_JOIN",
+        },
+        crate::program::TimelineBehavior::BodyConcat {
+            inputs: &JOIN_INPUTS,
         },
     )
 }
@@ -46,6 +54,9 @@ pub(crate) fn during() -> ProgramDefinition {
             initial_values: vec![VIDEO.into()],
             outputs: BodyOutputConstraint::Exactly(vec![VIDEO.into()]),
             count_error_code: "E_BODY_OUTPUT_COUNT",
+        },
+        crate::program::TimelineBehavior::Replace {
+            base: crate::program::InputSlot::new(0),
         },
     )
 }
@@ -101,6 +112,7 @@ fn body(
     descriptor: ProgramDescriptor,
     prepare: crate::program::BodyPrepareFn,
     body_contract: BodyContract,
+    timeline_behavior: crate::program::TimelineBehavior,
 ) -> ProgramDefinition {
     ProgramDefinition {
         descriptor,
@@ -108,13 +120,14 @@ fn body(
             prepare,
             contract: body_contract,
         },
+        timeline_behavior,
     }
 }
 
 fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
     Ok(BodyPlan {
         initial_values: vec![call.one_input("before")?, call.one_input("after")?],
-        requested_frames: call.requested_frames(),
+        requested_extent: call.requested_extent().cloned(),
         finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_JOIN")),
     })
 }
@@ -122,11 +135,16 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
 fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
     let base = call.one_input("video")?;
     let (range, span) = call.time_range_parameter("range")?;
-    let range = range.to_frames(builder.video_spec().fps(), span)?;
-    let selected = builder.at_span(span.clone()).slice(base, range)?;
+    let range = range.to_video_range(builder.video_spec().fps(), span)?;
+    let selected = match &range {
+        VideoTimeRange::Concrete(range) => builder.at_span(span.clone()).slice(base, *range)?,
+        VideoTimeRange::Deferred(range) => builder
+            .at_span(span.clone())
+            .deferred_slice(base, range.clone())?,
+    };
     Ok(BodyPlan {
         initial_values: vec![selected],
-        requested_frames: Some(range.frames()),
+        requested_extent: Some(RequestedVideoExtent::from_range(range.clone())),
         finalizer: Box::new(FinalizeDuring {
             base,
             range,
@@ -170,7 +188,7 @@ impl BodyFinalizer for FinalizeConcatBody {
 
 struct FinalizeDuring {
     base: ValueRef,
-    range: crate::model::FrameRange,
+    range: VideoTimeRange,
     span: SourceSpan,
 }
 
@@ -181,11 +199,14 @@ impl BodyFinalizer for FinalizeDuring {
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ProgramOutputs> {
         let replacement = take_one_video("during", stack, &self.span)?;
-        Ok(vec![builder.replace_range(
-            self.base,
-            self.range,
-            replacement,
-        )?])
+        Ok(vec![match self.range {
+            VideoTimeRange::Concrete(range) => {
+                builder.replace_range(self.base, range, replacement)?
+            }
+            VideoTimeRange::Deferred(range) => {
+                builder.deferred_replace_range(self.base, range, replacement)?
+            }
+        }])
     }
 }
 

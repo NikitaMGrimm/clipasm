@@ -24,6 +24,7 @@ pub(crate) enum TokenKind {
     LeftAngle,
     RightAngle,
     Colon,
+    DoubleColon,
     Comma,
     Equal,
     Plus,
@@ -169,6 +170,14 @@ impl Lexer {
     fn punctuation(&mut self) -> Result<Token> {
         let span = self.span();
         let character = self.peek().expect("punctuation begins at a character");
+        if character == ':' && self.peek_next() == Some(':') {
+            self.advance();
+            self.advance();
+            return Ok(Token {
+                kind: TokenKind::DoubleColon,
+                span,
+            });
+        }
         if character == '.' && self.peek_next() == Some('.') {
             self.advance();
             self.advance();

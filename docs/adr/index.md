@@ -27,6 +27,7 @@ rationale. Start from the [ClipAsm ADR template](template.md).
 | [0013](0013-adopt-native-clipasm-language.md) | `accepted` | Use one native `.clipasm` language and keep syntax and sugar language-owned. |
 | [0015](0015-keep-native-operations-phase-owned.md) | `accepted` | Keep native operations closed, exhaustive, and owned by their phases. |
 | [0018](0018-evaluate-scalar-expressions-exactly.md) | `accepted` | Evaluate Number and Duration expressions exactly before parameter constraints. |
+| [0019](0019-model-rooted-timeline-layouts.md) | `accepted` | Keep rooted authored timeline layouts separate from media identity and resolve symbolic boundaries during preflight. |
 
 See the architecture's
 [language and canonical-source](../architecture.md#language-and-canonical-source),

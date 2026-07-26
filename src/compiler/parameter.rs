@@ -1,24 +1,46 @@
 use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ExactNumber, SourceTime, SourceTimeRange};
-use crate::program::{ParameterType, ParameterValue};
+use crate::model::{ExactNumber, SourceTime, SourceTimeRange, TimelineExpression, TimelineViewId};
+use crate::program::{ParameterType, ParameterValue, TimeRangeValue};
 use crate::source::{
     Literal, ScalarBinaryOperator, ScalarExpression, ScalarPostfixOperator, ScalarUnaryOperator,
     SourceSpan, Spanned,
 };
 
-use super::checked::{CheckedScalarExpression, ParameterId};
+use super::checked::{CheckedScalarExpression, ParameterId, ReferenceTarget, ScalarLocalId};
 
-type ParameterResolver<'a> =
-    dyn FnMut(&Spanned<String>) -> Result<(ParameterId, ParameterType)> + 'a;
+pub(super) enum ScalarReference {
+    Parameter(ParameterId, ParameterType),
+    Local(ScalarLocalId, ScalarKind),
+}
+
+type ScalarResolver<'a> = dyn FnMut(&Spanned<String>) -> Result<ScalarReference> + 'a;
+type TimelineResolver<'a> = dyn FnMut(&Spanned<String>) -> Result<ReferenceTarget> + 'a;
+type SelectorEvaluator<'a> = dyn FnMut(ReferenceTarget, &str, &[String], bool, &SourceSpan) -> Result<TimelineSelectorValue>
+    + 'a;
+
+pub(super) enum TimelineSelectorValue {
+    Coordinate {
+        owner: TimelineViewId,
+        expression: TimelineExpression,
+        layout: String,
+    },
+    Range {
+        owner: TimelineViewId,
+        start: TimelineExpression,
+        end: TimelineExpression,
+    },
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ScalarKind {
+pub(super) enum ScalarKind {
     Number,
     Duration,
     File,
     TimeRange,
+    TimelineCoordinate,
+    TimelineRange,
     Keyword,
     Text,
 }
@@ -30,6 +52,8 @@ impl ScalarKind {
             Self::Duration => "Duration",
             Self::File => "File",
             Self::TimeRange => "TimeRange",
+            Self::TimelineCoordinate => "TimelineCoordinate",
+            Self::TimelineRange => "TimelineRange",
             Self::Keyword => "Keyword",
             Self::Text => "text",
         }
@@ -42,6 +66,16 @@ enum ScalarValue {
     Duration(ExactNumber),
     File(PathBuf),
     TimeRange(SourceTimeRange),
+    TimelineCoordinate {
+        owner: TimelineViewId,
+        expression: TimelineExpression,
+        layout: String,
+    },
+    TimelineRange {
+        owner: TimelineViewId,
+        start: TimelineExpression,
+        end: TimelineExpression,
+    },
     Keyword(String),
     Text(String),
 }
@@ -53,6 +87,8 @@ impl ScalarValue {
             Self::Duration(_) => ScalarKind::Duration,
             Self::File(_) => ScalarKind::File,
             Self::TimeRange(_) => ScalarKind::TimeRange,
+            Self::TimelineCoordinate { .. } => ScalarKind::TimelineCoordinate,
+            Self::TimelineRange { .. } => ScalarKind::TimelineRange,
             Self::Keyword(_) => ScalarKind::Keyword,
             Self::Text(_) => ScalarKind::Text,
         }
@@ -64,9 +100,10 @@ pub(super) fn check_expression(
     parameter: &str,
     expected: &ParameterType,
     expression: &ScalarExpression,
-    resolve_parameter: &mut ParameterResolver<'_>,
+    resolve_scalar: &mut ScalarResolver<'_>,
+    resolve_timeline: &mut TimelineResolver<'_>,
 ) -> Result<CheckedScalarExpression> {
-    let (checked, actual) = check(expression, resolve_parameter)?;
+    let (checked, actual) = check(expression, resolve_scalar, resolve_timeline, true)?;
     if kind_matches_parameter(actual, expected) {
         Ok(checked)
     } else {
@@ -82,33 +119,40 @@ pub(super) fn check_expression(
     }
 }
 
+pub(super) fn check_inferred_expression(
+    expression: &ScalarExpression,
+    resolve_scalar: &mut ScalarResolver<'_>,
+    resolve_timeline: &mut TimelineResolver<'_>,
+) -> Result<(CheckedScalarExpression, ScalarKind)> {
+    check(expression, resolve_scalar, resolve_timeline, false)
+}
+
 fn check(
     expression: &ScalarExpression,
-    resolve_parameter: &mut ParameterResolver<'_>,
+    resolve_scalar: &mut ScalarResolver<'_>,
+    resolve_timeline: &mut TimelineResolver<'_>,
+    contextual_selectors: bool,
 ) -> Result<(CheckedScalarExpression, ScalarKind)> {
     match expression {
         ScalarExpression::Literal(literal) => Ok((
             CheckedScalarExpression::Literal(literal.clone()),
             literal_kind(literal)?,
         )),
-        ScalarExpression::Reference(reference) => {
-            let (id, parameter_type) = resolve_parameter(reference)?;
-            let kind = parameter_kind(&parameter_type);
-            Ok((
-                CheckedScalarExpression::Parameter {
-                    id,
-                    name: reference.value.clone(),
-                    span: reference.span.clone(),
-                },
-                kind,
-            ))
+        ScalarExpression::Reference(reference) => check_reference(reference, resolve_scalar),
+        ScalarExpression::Selector { root, path, span } => {
+            check_selector(root, path, span, contextual_selectors, resolve_timeline)
         }
         ScalarExpression::Unary {
             operator,
             operand,
             span,
         } => {
-            let (operand, kind) = check(operand, resolve_parameter)?;
+            let (operand, kind) = check(
+                operand,
+                resolve_scalar,
+                resolve_timeline,
+                contextual_selectors,
+            )?;
             if !matches!(kind, ScalarKind::Number | ScalarKind::Duration) {
                 return Err(operator_type_error(
                     unary_label(*operator),
@@ -131,13 +175,26 @@ fn check(
             left,
             right,
             span,
-        } => check_binary(*operator, left, right, span, resolve_parameter),
+        } => check_binary(
+            *operator,
+            left,
+            right,
+            span,
+            resolve_scalar,
+            resolve_timeline,
+            contextual_selectors,
+        ),
         ScalarExpression::Postfix {
             operator,
             operand,
             span,
         } => {
-            let (operand, kind) = check(operand, resolve_parameter)?;
+            let (operand, kind) = check(
+                operand,
+                resolve_scalar,
+                resolve_timeline,
+                contextual_selectors,
+            )?;
             let result = match operator {
                 ScalarPostfixOperator::Percent if kind == ScalarKind::Number => ScalarKind::Number,
                 ScalarPostfixOperator::Milliseconds | ScalarPostfixOperator::Seconds
@@ -169,20 +226,91 @@ fn check(
     }
 }
 
+fn check_reference(
+    reference: &Spanned<String>,
+    resolve_scalar: &mut ScalarResolver<'_>,
+) -> Result<(CheckedScalarExpression, ScalarKind)> {
+    match resolve_scalar(reference)? {
+        ScalarReference::Parameter(id, parameter_type) => Ok((
+            CheckedScalarExpression::Parameter {
+                id,
+                name: reference.value.clone(),
+                span: reference.span.clone(),
+            },
+            parameter_kind(&parameter_type),
+        )),
+        ScalarReference::Local(id, kind) => Ok((
+            CheckedScalarExpression::ScalarLocal {
+                id,
+                name: reference.value.clone(),
+                span: reference.span.clone(),
+            },
+            kind,
+        )),
+    }
+}
+
+fn check_selector(
+    root: &Spanned<String>,
+    path: &[Spanned<String>],
+    span: &SourceSpan,
+    contextual: bool,
+    resolve_timeline: &mut TimelineResolver<'_>,
+) -> Result<(CheckedScalarExpression, ScalarKind)> {
+    if path.is_empty() {
+        return Err(Diagnostic::new(
+            "E_INVALID_TIMELINE_SELECTOR",
+            "a timeline selector requires a placement or boundary after `::`",
+            span.clone(),
+        ));
+    }
+    let kind = if path
+        .last()
+        .is_some_and(|name| matches!(name.value.as_str(), "start" | "middle" | "end"))
+    {
+        ScalarKind::TimelineCoordinate
+    } else {
+        ScalarKind::TimelineRange
+    };
+    Ok((
+        CheckedScalarExpression::TimelineSelector {
+            root: resolve_timeline(root)?,
+            root_name: root.value.clone(),
+            path: path.iter().map(|part| part.value.clone()).collect(),
+            contextual,
+            span: span.clone(),
+        },
+        kind,
+    ))
+}
+
 fn check_binary(
     operator: ScalarBinaryOperator,
     left: &ScalarExpression,
     right: &ScalarExpression,
     span: &SourceSpan,
-    resolve_parameter: &mut ParameterResolver<'_>,
+    resolve_scalar: &mut ScalarResolver<'_>,
+    resolve_timeline: &mut TimelineResolver<'_>,
+    contextual_selectors: bool,
 ) -> Result<(CheckedScalarExpression, ScalarKind)> {
-    let (left, left_kind) = check(left, resolve_parameter)?;
-    let (right, right_kind) = check(right, resolve_parameter)?;
+    let (left, left_kind) = check(left, resolve_scalar, resolve_timeline, contextual_selectors)?;
+    let (right, right_kind) = check(
+        right,
+        resolve_scalar,
+        resolve_timeline,
+        contextual_selectors,
+    )?;
     let kind = match operator {
         ScalarBinaryOperator::Range
             if left_kind == ScalarKind::Duration && right_kind == ScalarKind::Duration =>
         {
             ScalarKind::TimeRange
+        }
+        ScalarBinaryOperator::Range
+            if left_kind == ScalarKind::TimelineCoordinate
+                && right_kind == ScalarKind::TimelineCoordinate =>
+        {
+            ScalarKind::TimelineRange
         }
         ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract
             if left_kind == right_kind
@@ -190,17 +318,52 @@ fn check_binary(
         {
             left_kind
         }
+        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract
+            if left_kind == ScalarKind::TimelineCoordinate
+                && right_kind == ScalarKind::TimelineCoordinate =>
+        {
+            ScalarKind::TimelineCoordinate
+        }
+        ScalarBinaryOperator::Add
+            if matches!(
+                (left_kind, right_kind),
+                (ScalarKind::TimelineCoordinate, ScalarKind::Duration)
+                    | (ScalarKind::Duration, ScalarKind::TimelineCoordinate)
+            ) =>
+        {
+            ScalarKind::TimelineCoordinate
+        }
+        ScalarBinaryOperator::Subtract
+            if left_kind == ScalarKind::TimelineCoordinate
+                && right_kind == ScalarKind::Duration =>
+        {
+            ScalarKind::TimelineCoordinate
+        }
         ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide
             if left_kind == ScalarKind::Number && right_kind == ScalarKind::Number =>
         {
             ScalarKind::Number
+        }
+        ScalarBinaryOperator::Multiply
+            if matches!(
+                (left_kind, right_kind),
+                (ScalarKind::Number, ScalarKind::TimelineCoordinate)
+                    | (ScalarKind::TimelineCoordinate, ScalarKind::Number)
+            ) =>
+        {
+            ScalarKind::TimelineCoordinate
+        }
+        ScalarBinaryOperator::Divide
+            if left_kind == ScalarKind::TimelineCoordinate && right_kind == ScalarKind::Number =>
+        {
+            ScalarKind::TimelineCoordinate
         }
         ScalarBinaryOperator::Range => {
             return Err(operator_type_error(
                 "..",
                 &[left_kind, right_kind],
                 span,
-                "Duration operands",
+                "matching Duration operands or matching timeline coordinates",
             ));
         }
         ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract => {
@@ -208,7 +371,7 @@ fn check_binary(
                 binary_label(operator),
                 &[left_kind, right_kind],
                 span,
-                "matching Number operands or matching Duration operands",
+                "compatible Number, Duration, or timeline-coordinate operands",
             ));
         }
         ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide => {
@@ -216,7 +379,7 @@ fn check_binary(
                 binary_label(operator),
                 &[left_kind, right_kind],
                 span,
-                "Number operands",
+                "Number operands, or a timeline coordinate scaled by Number",
             ));
         }
     };
@@ -237,9 +400,11 @@ pub(super) fn evaluate_expression(
     expected: &ParameterType,
     expression: &CheckedScalarExpression,
     parameters: &[Spanned<ParameterValue>],
+    scalar_locals: &[Option<CheckedScalarExpression>],
+    resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<Spanned<ParameterValue>> {
     let result = (|| {
-        let value = evaluate(expression, parameters)?;
+        let value = evaluate(expression, parameters, scalar_locals, resolve_selector)?;
         let value = coerce(
             program,
             parameter,
@@ -261,14 +426,42 @@ pub(super) fn from_expression(
     expected: &ParameterType,
     expression: &ScalarExpression,
 ) -> Result<ParameterValue> {
-    let checked = check_expression(program, parameter, expected, expression, &mut |reference| {
-        Err(Diagnostic::new(
-            "E_INVALID_PARAMETER_DEFAULT",
-            "parameter defaults cannot contain references",
-            reference.span.clone(),
-        ))
-    })?;
-    evaluate_expression(program, parameter, expected, &checked, &[]).map(|value| value.value)
+    let checked = check_expression(
+        program,
+        parameter,
+        expected,
+        expression,
+        &mut |reference| {
+            Err(Diagnostic::new(
+                "E_INVALID_PARAMETER_DEFAULT",
+                "parameter defaults cannot contain references",
+                reference.span.clone(),
+            ))
+        },
+        &mut |reference| {
+            Err(Diagnostic::new(
+                "E_INVALID_PARAMETER_DEFAULT",
+                "parameter defaults cannot contain timeline selectors",
+                reference.span.clone(),
+            ))
+        },
+    )?;
+    evaluate_expression(
+        program,
+        parameter,
+        expected,
+        &checked,
+        &[],
+        &[],
+        &mut |_, _, _, _, span| {
+            Err(Diagnostic::new(
+                "E_INVALID_PARAMETER_DEFAULT",
+                "parameter defaults cannot contain timeline selectors",
+                span.clone(),
+            ))
+        },
+    )
+    .map(|value| value.value)
 }
 
 pub(super) fn from_literal(
@@ -307,6 +500,8 @@ pub(super) fn from_text(
 fn evaluate(
     expression: &CheckedScalarExpression,
     parameters: &[Spanned<ParameterValue>],
+    scalar_locals: &[Option<CheckedScalarExpression>],
+    resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<ScalarValue> {
     match expression {
         CheckedScalarExpression::Literal(literal) => evaluate_literal(literal),
@@ -325,16 +520,50 @@ fn evaluate(
                 }
                 ParameterValue::File(value) => ScalarValue::File(value.clone()),
                 ParameterValue::Duration(value) => ScalarValue::Duration(value.exact_seconds()),
-                ParameterValue::TimeRange(value) => ScalarValue::TimeRange(*value),
+                ParameterValue::TimeRange(TimeRangeValue::Absolute(value)) => {
+                    ScalarValue::TimeRange(*value)
+                }
+                ParameterValue::TimeRange(TimeRangeValue::VideoMarker { owner, range }) => {
+                    ScalarValue::TimelineRange {
+                        owner: *owner,
+                        start: range.start.clone(),
+                        end: range.end.clone(),
+                    }
+                }
                 ParameterValue::Keyword(value) => ScalarValue::Keyword(value.clone()),
             })
         }
+        CheckedScalarExpression::ScalarLocal { id, name, span } => {
+            evaluate_scalar_local(*id, name, span, parameters, scalar_locals, resolve_selector)
+        }
+        CheckedScalarExpression::TimelineSelector {
+            root,
+            root_name,
+            path,
+            contextual,
+            span,
+        } => Ok(
+            match resolve_selector(*root, root_name, path, *contextual, span)? {
+                TimelineSelectorValue::Coordinate {
+                    owner,
+                    expression,
+                    layout,
+                } => ScalarValue::TimelineCoordinate {
+                    owner,
+                    expression,
+                    layout,
+                },
+                TimelineSelectorValue::Range { owner, start, end } => {
+                    ScalarValue::TimelineRange { owner, start, end }
+                }
+            },
+        ),
         CheckedScalarExpression::Unary {
             operator,
             operand,
             span,
         } => {
-            let operand = evaluate(operand, parameters)?;
+            let operand = evaluate(operand, parameters, scalar_locals, resolve_selector)?;
             match (operator, operand) {
                 (
                     ScalarUnaryOperator::Positive,
@@ -360,8 +589,8 @@ fn evaluate(
             right,
             span,
         } => {
-            let left = evaluate(left, parameters)?;
-            let right = evaluate(right, parameters)?;
+            let left = evaluate(left, parameters, scalar_locals, resolve_selector)?;
+            let right = evaluate(right, parameters, scalar_locals, resolve_selector)?;
             evaluate_binary(*operator, left, right, span)
         }
         CheckedScalarExpression::Postfix {
@@ -369,10 +598,31 @@ fn evaluate(
             operand,
             span,
         } => {
-            let operand = evaluate(operand, parameters)?;
+            let operand = evaluate(operand, parameters, scalar_locals, resolve_selector)?;
             evaluate_postfix(*operator, operand, span)
         }
     }
+}
+
+fn evaluate_scalar_local(
+    id: ScalarLocalId,
+    name: &str,
+    span: &SourceSpan,
+    parameters: &[Spanned<ParameterValue>],
+    scalar_locals: &[Option<CheckedScalarExpression>],
+    resolve_selector: &mut SelectorEvaluator<'_>,
+) -> Result<ScalarValue> {
+    let expression = scalar_locals
+        .get(id.index())
+        .and_then(Option::as_ref)
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "E_INTERNAL_BINDING",
+                format!("scalar local `${name}` was not checked before evaluation"),
+                span.clone(),
+            )
+        })?;
+    evaluate(expression, parameters, scalar_locals, resolve_selector)
 }
 
 fn evaluate_literal(literal: &Literal) -> Result<ScalarValue> {
@@ -394,6 +644,11 @@ fn evaluate_binary(
     right: ScalarValue,
     span: &SourceSpan,
 ) -> Result<ScalarValue> {
+    if left.kind() == ScalarKind::TimelineCoordinate
+        || right.kind() == ScalarKind::TimelineCoordinate
+    {
+        return evaluate_timeline_binary(operator, left, right, span);
+    }
     match (operator, left, right) {
         (ScalarBinaryOperator::Range, ScalarValue::Duration(start), ScalarValue::Duration(end)) => {
             let start = SourceTime::from_exact_seconds(&start, span)?;
@@ -441,6 +696,171 @@ fn evaluate_binary(
                 }
                 ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide => "Number operands",
             },
+        )),
+    }
+}
+
+fn require_same_timeline_root(
+    left: TimelineViewId,
+    left_layout: &str,
+    right: TimelineViewId,
+    right_layout: &str,
+    span: &SourceSpan,
+) -> Result<()> {
+    if left == right {
+        Ok(())
+    } else {
+        Err(Diagnostic::new(
+            "E_TIMELINE_ROOT_MISMATCH",
+            "timeline coordinates belong to different timeline roots",
+            span.clone(),
+        )
+        .note(format!(
+            "left coordinate root:
+{left_layout}"
+        ))
+        .note(format!(
+            "right coordinate root:
+{right_layout}"
+        )))
+    }
+}
+
+fn evaluate_timeline_coordinate_pair(
+    operator: ScalarBinaryOperator,
+    left: ScalarValue,
+    right: ScalarValue,
+    span: &SourceSpan,
+) -> Result<ScalarValue> {
+    let ScalarValue::TimelineCoordinate {
+        owner: left_owner,
+        expression: left,
+        layout: left_layout,
+    } = left
+    else {
+        unreachable!("coordinate-pair evaluator receives a left coordinate");
+    };
+    let ScalarValue::TimelineCoordinate {
+        owner: right_owner,
+        expression: right,
+        layout: right_layout,
+    } = right
+    else {
+        unreachable!("coordinate-pair evaluator receives a right coordinate");
+    };
+    require_same_timeline_root(left_owner, &left_layout, right_owner, &right_layout, span)?;
+    match operator {
+        ScalarBinaryOperator::Range => Ok(ScalarValue::TimelineRange {
+            owner: left_owner,
+            start: left,
+            end: right,
+        }),
+        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract => {
+            Ok(ScalarValue::TimelineCoordinate {
+                owner: left_owner,
+                expression: if operator == ScalarBinaryOperator::Add {
+                    left.add(&right)
+                } else {
+                    left.subtract(&right)
+                },
+                layout: left_layout,
+            })
+        }
+        ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide => {
+            unreachable!("coordinate pairs cannot be multiplied or divided")
+        }
+    }
+}
+
+fn evaluate_timeline_binary(
+    operator: ScalarBinaryOperator,
+    left: ScalarValue,
+    right: ScalarValue,
+    span: &SourceSpan,
+) -> Result<ScalarValue> {
+    match (operator, left, right) {
+        (
+            operator @ (ScalarBinaryOperator::Range
+            | ScalarBinaryOperator::Add
+            | ScalarBinaryOperator::Subtract),
+            left @ ScalarValue::TimelineCoordinate { .. },
+            right @ ScalarValue::TimelineCoordinate { .. },
+        ) => evaluate_timeline_coordinate_pair(operator, left, right, span),
+        (
+            operator @ (ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract),
+            ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            },
+            ScalarValue::Duration(duration),
+        ) => Ok(ScalarValue::TimelineCoordinate {
+            owner,
+            expression: if operator == ScalarBinaryOperator::Add {
+                expression.add(&TimelineExpression::constant(duration))
+            } else {
+                expression.subtract(&TimelineExpression::constant(duration))
+            },
+            layout,
+        }),
+        (
+            ScalarBinaryOperator::Add,
+            ScalarValue::Duration(duration),
+            ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            },
+        ) => Ok(ScalarValue::TimelineCoordinate {
+            owner,
+            expression: TimelineExpression::constant(duration).add(&expression),
+            layout,
+        }),
+        (
+            ScalarBinaryOperator::Multiply,
+            ScalarValue::Number(scale),
+            ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            },
+        )
+        | (
+            ScalarBinaryOperator::Multiply,
+            ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            },
+            ScalarValue::Number(scale),
+        ) => Ok(ScalarValue::TimelineCoordinate {
+            owner,
+            expression: expression.multiply(&scale),
+            layout,
+        }),
+        (
+            ScalarBinaryOperator::Divide,
+            ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            },
+            ScalarValue::Number(divisor),
+        ) => expression
+            .divide(&divisor)
+            .map(|expression| ScalarValue::TimelineCoordinate {
+                owner,
+                expression,
+                layout,
+            })
+            .ok_or_else(|| {
+                Diagnostic::new("E_DIVISION_BY_ZERO", "cannot divide by zero", span.clone())
+            }),
+        (operator, left, right) => Err(operator_type_error(
+            binary_label(operator),
+            &[left.kind(), right.kind()],
+            span,
+            "compatible timeline-coordinate, Duration, or Number operands",
         )),
     }
 }
@@ -525,10 +945,16 @@ fn coerce(
         }
         (ParameterType::File, ScalarValue::File(value)) => Ok(ParameterValue::File(value)),
         (ParameterType::TimeRange, ScalarValue::Text(value)) => Ok(ParameterValue::TimeRange(
-            SourceTimeRange::parse(&value, span)?,
+            TimeRangeValue::Absolute(SourceTimeRange::parse(&value, span)?),
         )),
         (ParameterType::TimeRange, ScalarValue::TimeRange(value)) => {
-            Ok(ParameterValue::TimeRange(value))
+            Ok(ParameterValue::TimeRange(TimeRangeValue::Absolute(value)))
+        }
+        (ParameterType::TimeRange, ScalarValue::TimelineRange { owner, start, end }) => {
+            Ok(ParameterValue::TimeRange(TimeRangeValue::VideoMarker {
+                owner,
+                range: crate::model::TimelineRangeExpression { start, end },
+            }))
         }
         (
             ParameterType::Keyword(allowed),
@@ -580,7 +1006,10 @@ fn kind_matches_parameter(kind: ScalarKind, parameter_type: &ParameterType) -> b
         ParameterType::Number | ParameterType::Integer => kind == ScalarKind::Number,
         ParameterType::File => matches!(kind, ScalarKind::File | ScalarKind::Text),
         ParameterType::Duration => matches!(kind, ScalarKind::Duration | ScalarKind::Text),
-        ParameterType::TimeRange => matches!(kind, ScalarKind::TimeRange | ScalarKind::Text),
+        ParameterType::TimeRange => matches!(
+            kind,
+            ScalarKind::TimeRange | ScalarKind::TimelineRange | ScalarKind::Text
+        ),
         ParameterType::Keyword(_) => matches!(kind, ScalarKind::Keyword | ScalarKind::Text),
     }
 }
@@ -628,6 +1057,8 @@ fn expression_span(expression: &CheckedScalarExpression) -> &SourceSpan {
     match expression {
         CheckedScalarExpression::Literal(literal) => literal.span(),
         CheckedScalarExpression::Parameter { span, .. }
+        | CheckedScalarExpression::ScalarLocal { span, .. }
+        | CheckedScalarExpression::TimelineSelector { span, .. }
         | CheckedScalarExpression::Unary { span, .. }
         | CheckedScalarExpression::Binary { span, .. }
         | CheckedScalarExpression::Postfix { span, .. } => span,
@@ -643,6 +1074,8 @@ fn evaluated_span<'a>(
             .get(id.index())
             .map_or_else(|| expression_span(expression), |parameter| &parameter.span),
         CheckedScalarExpression::Literal(_)
+        | CheckedScalarExpression::ScalarLocal { .. }
+        | CheckedScalarExpression::TimelineSelector { .. }
         | CheckedScalarExpression::Unary { .. }
         | CheckedScalarExpression::Binary { .. }
         | CheckedScalarExpression::Postfix { .. } => expression_span(expression),
@@ -694,7 +1127,9 @@ fn collect_parameter_references<'a>(
     references: &mut Vec<(ParameterId, &'a str)>,
 ) {
     match expression {
-        CheckedScalarExpression::Literal(_) => {}
+        CheckedScalarExpression::Literal(_)
+        | CheckedScalarExpression::ScalarLocal { .. }
+        | CheckedScalarExpression::TimelineSelector { .. } => {}
         CheckedScalarExpression::Parameter { id, name, .. } => {
             references.push((*id, name));
         }

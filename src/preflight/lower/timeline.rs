@@ -2,7 +2,8 @@ use std::num::NonZeroU64;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
-    AudioDomain, FrameCount, FrameRange, NodeId, SampleRange, ValueRef, VideoDomain,
+    AudioDomain, FrameCount, FrameRange, NodeId, SampleRange, TimelineRangeExpression, ValueRef,
+    VideoDomain,
 };
 use crate::semantic::CompiledNode;
 use crate::source::SourceSpan;
@@ -139,6 +140,87 @@ pub(super) fn video_concat(
         node.semantic_version(),
         node.origin().clone(),
     )
+}
+
+pub(super) fn deferred_video_slice(
+    lowerer: &mut PreflightLowerer<'_>,
+    node: &CompiledNode,
+    input: ValueRef,
+    range: &TimelineRangeExpression,
+) -> Result<NodeId> {
+    let input_node = lowerer.prepared_dependency(input, node.origin())?;
+    let range = resolve_video_range(lowerer, node, range)?;
+    let (input_domain, input_has_audio) = lowerer.video_domain(input_node, node.origin())?;
+    validate_prepared_range(range, input_domain, &node.origin().span)?;
+    lowerer.add_video_node(
+        PreparedVideoKind::Slice {
+            input: input_node,
+            range,
+        },
+        project_domain(lowerer.compiled.video(), range.frames()),
+        input_has_audio,
+        node.semantic_version(),
+        node.origin().clone(),
+    )
+}
+
+pub(super) fn deferred_replace_range(
+    lowerer: &mut PreflightLowerer<'_>,
+    node: &CompiledNode,
+    base: ValueRef,
+    replacement: ValueRef,
+    range: &TimelineRangeExpression,
+) -> Result<NodeId> {
+    let range = resolve_video_range(lowerer, node, range)?;
+    replace_range(lowerer, node, base, replacement, range)
+}
+
+pub(super) fn resolve_video_extent(
+    lowerer: &PreflightLowerer<'_>,
+    node: &CompiledNode,
+    extent: &crate::model::TimelineExpression,
+) -> Result<FrameCount> {
+    extent
+        .resolve_frame_boundary(
+            lowerer.compiled.video().fps(),
+            |value| {
+                let prepared = lowerer.prepared_dependency(value, node.origin())?;
+                lowerer
+                    .video_domain(prepared, node.origin())
+                    .map(|(domain, _)| domain.frames())
+            },
+            &node.origin().span,
+        )
+        .map(FrameCount)
+}
+
+fn resolve_video_range(
+    lowerer: &PreflightLowerer<'_>,
+    node: &CompiledNode,
+    range: &TimelineRangeExpression,
+) -> Result<FrameRange> {
+    let fps = lowerer.compiled.video().fps();
+    let resolve = |expression: &crate::model::TimelineExpression| {
+        expression.resolve_frame_boundary(
+            fps,
+            |value| {
+                let prepared = lowerer.prepared_dependency(value, node.origin())?;
+                lowerer
+                    .video_domain(prepared, node.origin())
+                    .map(|(domain, _)| domain.frames())
+            },
+            &node.origin().span,
+        )
+    };
+    let start = resolve(&range.start)?;
+    let end = resolve(&range.end)?;
+    FrameRange::new(start, end).ok_or_else(|| {
+        Diagnostic::new(
+            "E_INVALID_TIME_RANGE",
+            "timeline-range start must be earlier than its end",
+            node.origin().span.clone(),
+        )
+    })
 }
 
 pub(super) fn video_slice(

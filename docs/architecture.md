@@ -96,6 +96,18 @@ Duration and TimeRange composition when a checked invocation is bound. Parsing
 therefore knows expression structure but not rational arithmetic or parameter
 constraints. Inputs, parameters, stack plans, and body-port
 identities remain aligned to typed descriptor slots throughout checked source.
+
+Immutable scalar aliases are canonical zero-output items. Name collection gives
+them the same program-wide namespace as parameters, inputs, and graph values,
+while graph type inference treats them as non-stack values. Compact scalar-local
+identities are allocated eagerly, but expression checking is demand-driven. An
+alias moves from unchecked to checking to checked only when a scalar parameter
+use reaches it; recursive entry into a checking alias diagnoses a reached cycle.
+Only reached aliases store checked expressions, and invocation evaluation then
+reduces those expressions through the existing exact scalar evaluator. Unused
+alias expressions contribute neither diagnostics nor executable semantics.
+Timeline selectors in aliases remain explicitly rooted; call-site timeline
+inference applies only to selectors authored directly in that call.
 It consumes the resolver's concrete signatures, stack plans, and output types
 rather than recomputing them. Checked items are complete when constructed; no
 later source/checked lockstep pass repairs references or output bindings. Inline
@@ -147,8 +159,35 @@ nodes, origins, graph construction, graph-local type checks, and semantic
 version propagation. Compilation retains references for dependency analysis,
 infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
-Entrypoint `output` metadata remains separate from the semantic result and its
-structure hash.
+Timeline marker arithmetic is normalized into exact linear expressions. A Video
+slice whose marker range depends on unprobed media remains a deferred semantic
+slice; its extent terms are semantic dependencies and its identity uses upstream
+value hashes rather than engine-assigned IDs. Preflight resolves those terms to
+ordinary exact frame ranges after probing. Evaluated stack occurrences carry a
+separate timeline-view identity with symbolic extent and one canonical ordered
+child sequence. Composition splices the children of unnamed occurrences into
+the parent and preserves named occurrences as selector boundaries. The named
+selector index is derived centrally from that sequence and stores every
+immediate occurrence for each spelling. Exact paths require one occurrence at
+each level; no label origin shadows another. Selector evaluation in a
+timeline-anchored call may search this canonical graph for one
+uniquely matching descendant suffix; aliases and explicitly rooted selectors
+do not use that contextual search. Selector failures format the canonical
+occurrence graph as a bounded root-relative tree;
+mixed-root failures carry the two originating trees through scalar evaluation.
+Program definitions declare their layout mapping: identity mappings preserve an
+input view, direct concat and body-concat finalizers create cumulative placements
+from evaluated occurrences, crop mappings retain and
+rebase only fully contained child regions, replacement mappings splice
+unaffected base regions with a nested replacement view, and transitions create
+operation-owned regions. Crossfade maps `before` and `after` into overlapping
+coordinates and exposes their shared `overlap`; flash cut maps its inputs
+sequentially. `during` rejects a surviving base placement named `replacement`
+because that spelling is reserved by its result contract. Anonymous concat
+identity and associativity follow from the one normalization rule rather than
+from operation-specific exceptions. Media values and timeline views therefore
+remain distinct. Entrypoint `output` metadata remains separate from the semantic
+result and its structure hash.
 
 Project media formats are invariant-protected model values: Video dimensions,
 frame-rate components, audio sample rate, and channel count are positive by
@@ -181,9 +220,12 @@ external implementations that own their runtime specification. Implementation-
 specific data is carried by the applicable variant rather than optional
 sidecars on every definition.
 
-Direct programs lower immediately. Body programs prepare initial values and a
-requested-duration context. Their resolved fixed graph inputs are exposed in
-the body as lexical references named after the ports; argument expressions are
+Direct programs lower immediately. Body programs prepare initial values and an
+optional requested Video extent. The extent is an exact concrete frame count
+when compilation knows it and otherwise a symbolic timeline expression that
+preflight resolves from prepared media domains. Their resolved fixed graph
+inputs are exposed in the body as lexical references named after the ports;
+argument expressions are
 evaluated before that child scope is entered. The evaluator opens one recursive
 frame on the
 shared evaluation stack, executes the body once, extracts only entries owned by

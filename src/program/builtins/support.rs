@@ -12,6 +12,19 @@ pub(super) fn direct(
     ProgramDefinition {
         descriptor,
         implementation: ProgramImplementation::Direct(lower),
+        timeline_behavior: crate::program::TimelineBehavior::Fresh,
+    }
+}
+
+pub(super) fn direct_with_timeline(
+    descriptor: ProgramDescriptor,
+    lower: crate::program::DirectLowerFn,
+    timeline_behavior: crate::program::TimelineBehavior,
+) -> ProgramDefinition {
+    ProgramDefinition {
+        descriptor,
+        implementation: ProgramImplementation::Direct(lower),
+        timeline_behavior,
     }
 }
 

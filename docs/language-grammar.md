@@ -111,7 +111,11 @@ newlines, the closing brace of the containing block, or end of file.
 ## Statements and invocations
 
 ```ebnf
-statement           = statement-expression, [ output-binding ], statement-end ;
+statement           = ( scalar-binding
+                      | statement-expression, [ output-binding ] ),
+                      statement-end ;
+
+scalar-binding      = identifier, "=", scalar-expression ;
 
 statement-expression = invocation
                      | reference-expression
@@ -156,6 +160,13 @@ caller body. Sugar applies the same rule when it defines a body-capable
 construct. Consequently `join`, `join()`, `join {}`, and `join() {}` are
 equivalent before normal binding and body-contract validation.
 
+A scalar binding is immutable, has no stack effect, and infers its scalar type
+from the right-hand expression. Scalar bindings, parameters, inputs, and graph
+output names share one program-wide namespace. Scalar bindings may refer
+forward to other scalar bindings; cycles are errors. A timeline selector inside
+a scalar binding resolves only from its explicit root and never borrows a later
+invocation's contextual timeline root.
+
 ## Scalar expressions
 
 ```ebnf
@@ -179,7 +190,12 @@ primary-expression = number
                    | string
                    | identifier
                    | reference-expression
+                   | timeline-selector
                    | "(", scalar-expression, ")" ;
+
+timeline-selector  = "$", identifier,
+                     "::", identifier,
+                     { "::", identifier } ;
 ```
 
 Postfix operators associate from left to right and may repeat. Thus `800%%`
@@ -190,4 +206,11 @@ compositions; checked scalar types determine whether each operation exists.
 whose exact result satisfies Integer and construct Duration. Number supports
 `+`, `-`, `*`, and `/`; Duration supports unary signs and
 `Duration + Duration` or `Duration - Duration`. `..` requires two Duration
-expressions and constructs TimeRange.
+expressions and constructs TimeRange. A timeline selector ending in `start`,
+`middle`, or `end` denotes a coordinate; a selector ending in a placement name
+denotes that placement's complete closed-open range. Two coordinates with the
+same timeline root may also be joined with `..` to construct a frame-native
+TimeRange. Timeline coordinates with the same root support `+` and `-`; Number
+may scale a coordinate with `*`, and a coordinate may be divided by Number.
+Duration may offset a coordinate with `+` or `-`. These expressions are checked
+for exact frame alignment and bounds only when consumed as a TimeRange.

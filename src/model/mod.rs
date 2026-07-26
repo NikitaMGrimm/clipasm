@@ -7,6 +7,7 @@ mod audio;
 mod number;
 mod time;
 mod timeline;
+mod timeline_expression;
 mod video;
 
 pub use audio::{AudioDomain, AudioSpec};
@@ -15,6 +16,7 @@ pub(crate) use number::Number as ExactNumber;
 pub use time::{FrameCount, FrameRange, SampleRange};
 pub(crate) use time::{SourceTime, SourceTimeRange};
 pub(crate) use timeline::{FrameSampleStep, TimelineRate};
+pub(crate) use timeline_expression::{TimelineExpression, TimelineRangeExpression};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
 
 use serde::{Deserialize, Serialize};
@@ -32,6 +34,9 @@ pub struct ValueId(u32);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 /// An engine-assigned identifier in a prepared plan's node space.
 pub struct NodeId(u32);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct TimelineViewId(u32);
 
 impl ValueId {
     pub(crate) const fn new(value: u32) -> Self {
@@ -57,7 +62,17 @@ impl NodeId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+impl TimelineViewId {
+    pub(crate) const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 /// The closed set of semantic value types understood by `ClipAsm`.
 pub enum ValueType {
@@ -87,7 +102,7 @@ impl std::fmt::Display for ValueType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 /// An immutable typed reference to a compiled semantic value.
 ///
 /// Multiple stack occurrences can contain the same reference without copying

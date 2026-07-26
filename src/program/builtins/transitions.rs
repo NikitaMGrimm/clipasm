@@ -3,13 +3,13 @@ use crate::model::{FrameCount, ValueType};
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
 
-use super::support::{direct, exact_descriptor, input, one_output, parameter};
+use super::support::{direct_with_timeline, exact_descriptor, input, one_output, parameter};
 
 const DEFAULT_FLASH_CUT_MILLISECONDS: u64 = 160;
 const DEFAULT_CROSSFADE_MILLISECONDS: u64 = 500;
 
 pub(super) fn crossfade() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         exact_descriptor(
             "crossfade",
             1,
@@ -21,11 +21,15 @@ pub(super) fn crossfade() -> ProgramDefinition {
             ValueType::Video,
         ),
         lower_crossfade,
+        crate::program::TimelineBehavior::Crossfade {
+            before: crate::program::InputSlot::new(0),
+            after: crate::program::InputSlot::new(1),
+        },
     )
 }
 
 pub(super) fn flash_cut() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         exact_descriptor(
             "flash_cut",
             2,
@@ -37,6 +41,10 @@ pub(super) fn flash_cut() -> ProgramDefinition {
             ValueType::Video,
         ),
         lower_flash_cut,
+        crate::program::TimelineBehavior::FlashCut {
+            before: crate::program::InputSlot::new(0),
+            after: crate::program::InputSlot::new(1),
+        },
     )
 }
 

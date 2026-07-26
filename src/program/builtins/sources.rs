@@ -1,6 +1,8 @@
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueType};
-use crate::program::{ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
+use crate::program::{
+    ParameterType, ProgramDefinition, ProgramOutputs, RequestedVideoExtent, ResolvedCall,
+};
 use crate::semantic::GraphBuilder;
 
 use super::support::{direct, exact_descriptor, one_output, parameter};
@@ -69,13 +71,24 @@ fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
     let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
         FrameCount(duration.to_frames(builder.video_spec().fps(), span)?)
     } else {
-        call.requested_frames().ok_or_else(|| {
-            Diagnostic::new(
-                "E_MISSING_IMAGE_DURATION",
-                "`image.duration` is required outside a context with a requested duration",
-                call.origin().span.clone(),
-            )
-        })?
+        match call.requested_extent() {
+            Some(RequestedVideoExtent::Concrete(frames)) => *frames,
+            Some(RequestedVideoExtent::Deferred(extent)) => {
+                let fit = image_fit(call)?;
+                return one_output(builder.at_span(path_span.clone()).deferred_image_video(
+                    path.to_path_buf(),
+                    extent.clone(),
+                    fit,
+                ));
+            }
+            None => {
+                return Err(Diagnostic::new(
+                    "E_MISSING_IMAGE_DURATION",
+                    "`image.duration` is required outside a context with a requested duration",
+                    call.origin().span.clone(),
+                ));
+            }
+        }
     };
     if frames.0 == 0 {
         return Err(Diagnostic::new(

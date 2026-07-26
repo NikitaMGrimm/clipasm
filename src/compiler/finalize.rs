@@ -250,6 +250,7 @@ mod tests {
             name,
             declared_at: SourceSpan::file_start("test.clipasm"),
             value: Some(value),
+            timeline_view: None,
             value_type: ValueType::Video,
         }
     }

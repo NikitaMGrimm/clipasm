@@ -1,13 +1,16 @@
 use std::num::NonZeroU64;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
+use crate::program::{
+    Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall, TimeRangeValue,
+    VideoTimeRange,
+};
 use crate::semantic::GraphBuilder;
 
-use super::support::{direct, generic_descriptor, one_output, parameter};
+use super::support::{direct, direct_with_timeline, generic_descriptor, one_output, parameter};
 
 pub(super) fn concat() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         generic_descriptor(
             "concat",
             2,
@@ -17,6 +20,9 @@ pub(super) fn concat() -> ProgramDefinition {
             true,
         ),
         lower_concat,
+        crate::program::TimelineBehavior::Concat {
+            input: crate::program::InputSlot::new(0),
+        },
     )
 }
 
@@ -35,7 +41,7 @@ pub(super) fn repeat() -> ProgramDefinition {
 }
 
 pub(super) fn trim() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         generic_descriptor(
             "trim",
             2,
@@ -45,6 +51,9 @@ pub(super) fn trim() -> ProgramDefinition {
             true,
         ),
         lower_trim,
+        crate::program::TimelineBehavior::Crop {
+            input: crate::program::InputSlot::new(0),
+        },
     )
 }
 
@@ -78,7 +87,24 @@ fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
 fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let value = call.one_input("value")?;
     let (range, span) = call.time_range_parameter("range")?;
-    one_output(builder.at_span(span.clone()).trim(value, range))
+    one_output(match value.value_type() {
+        crate::model::ValueType::Video => match range
+            .to_video_range(builder.video_spec().fps(), span)?
+        {
+            VideoTimeRange::Concrete(range) => builder.at_span(span.clone()).slice(value, range),
+            VideoTimeRange::Deferred(range) => {
+                builder.at_span(span.clone()).deferred_slice(value, range)
+            }
+        },
+        crate::model::ValueType::Audio => match range {
+            TimeRangeValue::Absolute(range) => builder.at_span(span.clone()).trim(value, *range),
+            TimeRangeValue::VideoMarker { .. } => Err(Diagnostic::new(
+                "E_TIMELINE_ROOT_MISMATCH",
+                "a Video marker range cannot trim an Audio timeline",
+                span.clone(),
+            )),
+        },
+    })
 }
 
 #[allow(clippy::unnecessary_wraps)]

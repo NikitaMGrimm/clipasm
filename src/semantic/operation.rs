@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::external::ExternalInvocation;
 use crate::model::{
-    ExactNumber, FrameCount, FrameRange, ImageFit, SampleRange, ValueRef, ValueType,
+    ExactNumber, FrameCount, FrameRange, ImageFit, SampleRange, TimelineRangeExpression, ValueRef,
+    ValueType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -30,6 +31,11 @@ pub(crate) enum SemanticNodeKind {
     ImageVideo {
         path: PathBuf,
         frames: FrameCount,
+        fit: ImageFit,
+    },
+    DeferredImageVideo {
+        path: PathBuf,
+        extent: crate::model::TimelineExpression,
         fit: ImageFit,
     },
     VideoSource {
@@ -75,6 +81,10 @@ pub(crate) enum SemanticNodeKind {
         input: ValueRef,
         range: FrameRange,
     },
+    DeferredSlice {
+        input: ValueRef,
+        range: TimelineRangeExpression,
+    },
     AudioSlice {
         input: ValueRef,
         range: SampleRange,
@@ -83,6 +93,11 @@ pub(crate) enum SemanticNodeKind {
         base: ValueRef,
         replacement: ValueRef,
         range: FrameRange,
+    },
+    DeferredReplaceRange {
+        base: ValueRef,
+        replacement: ValueRef,
+        range: TimelineRangeExpression,
     },
     ExtractAudio {
         video: ValueRef,
@@ -116,6 +131,7 @@ impl SemanticNodeKind {
             | Self::ExtractAudio { .. } => ValueType::Audio,
             Self::Reference { value_type, .. } => *value_type,
             Self::ImageVideo { .. }
+            | Self::DeferredImageVideo { .. }
             | Self::VideoSource { .. }
             | Self::Repeat { .. }
             | Self::ZoomIn { .. }
@@ -123,7 +139,9 @@ impl SemanticNodeKind {
             | Self::Crossfade { .. }
             | Self::Concat { .. }
             | Self::Slice { .. }
+            | Self::DeferredSlice { .. }
             | Self::ReplaceRange { .. }
+            | Self::DeferredReplaceRange { .. }
             | Self::SetAudio { .. }
             | Self::AudioOnBlack { .. }
             | Self::ExternalVideo { .. } => ValueType::Video,
@@ -148,6 +166,22 @@ impl SemanticNodeKind {
             {
                 value(*input)
             }
+            Self::DeferredSlice { input, range } => {
+                if index == 0 {
+                    return value(*input);
+                }
+                range
+                    .start
+                    .terms()
+                    .iter()
+                    .chain(range.end.terms())
+                    .nth(index - 1)
+                    .map(|term| SemanticDependency::Value(term.value))
+            }
+            Self::DeferredImageVideo { extent, .. } => extent
+                .terms()
+                .get(index)
+                .map(|term| SemanticDependency::Value(term.value)),
             Self::Concat { inputs } | Self::AudioConcat { inputs } => {
                 inputs.get(index).copied().map(SemanticDependency::Value)
             }
@@ -163,6 +197,22 @@ impl SemanticNodeKind {
                 .get(index)
                 .copied()
                 .map(SemanticDependency::Value),
+            Self::DeferredReplaceRange {
+                base,
+                replacement,
+                range,
+            } => {
+                if let Some(value) = [*base, *replacement].get(index).copied() {
+                    return Some(SemanticDependency::Value(value));
+                }
+                range
+                    .start
+                    .terms()
+                    .iter()
+                    .chain(range.end.terms())
+                    .nth(index - 2)
+                    .map(|term| SemanticDependency::Value(term.value))
+            }
             Self::SetAudio { audio, video } => [*audio, *video]
                 .get(index)
                 .copied()

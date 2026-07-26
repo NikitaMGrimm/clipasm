@@ -94,6 +94,12 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "frames": frames,
             "fit": fit,
         }),
+        SemanticNodeKind::DeferredImageVideo { path, extent, fit } => serde_json::json!({
+            "operation": "deferred_image_video",
+            "path": path,
+            "extent": extent,
+            "fit": fit,
+        }),
         SemanticNodeKind::VideoSource { path, fit } => serde_json::json!({
             "operation": "video_source",
             "path": path,
@@ -103,19 +109,7 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "audio_source",
             "path": path,
         }),
-        SemanticNodeKind::Reference { symbol, .. } => {
-            let target = program.symbol_value(*symbol).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_COMPILED_JSON",
-                    format!("reference names unknown symbol {}", symbol.index()),
-                    node.origin().span.clone(),
-                )
-            })?;
-            serde_json::json!({
-                "operation": "reference",
-                "target": target,
-            })
-        }
+        SemanticNodeKind::Reference { symbol, .. } => reference_document(program, node, *symbol)?,
         SemanticNodeKind::Repeat { input, count } => serde_json::json!({
             "operation": "repeat", "input": input, "count": count,
         }),
@@ -146,6 +140,9 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         SemanticNodeKind::Slice { input, range } => serde_json::json!({
             "operation": "slice", "input": input, "range": range,
         }),
+        SemanticNodeKind::DeferredSlice { input, range } => serde_json::json!({
+            "operation": "slice", "input": input, "range": range,
+        }),
         SemanticNodeKind::AudioSlice { input, range } => serde_json::json!({
             "operation": "audio_slice", "input": input, "range": range,
         }),
@@ -155,6 +152,16 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             range,
         } => serde_json::json!({
             "operation": "replace_range",
+            "base": base,
+            "replacement": replacement,
+            "range": range,
+        }),
+        SemanticNodeKind::DeferredReplaceRange {
+            base,
+            replacement,
+            range,
+        } => serde_json::json!({
+            "operation": "deferred_replace_range",
             "base": base,
             "replacement": replacement,
             "range": range,
@@ -172,14 +179,36 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "audio_on_black",
             "audio": audio,
         }),
-        SemanticNodeKind::ExternalVideo { invocation } => serde_json::json!({
-            "operation": "external_video",
-            "executable": invocation.executable.value,
-            "arguments": external_argument_documents(&invocation.arguments),
-            "preserve_input": invocation.preserve_input,
-            "inputs": invocation.inputs,
-            "parameters": invocation.parameters,
-        }),
+        SemanticNodeKind::ExternalVideo { invocation } => external_video_document(invocation),
+    })
+}
+
+fn reference_document(
+    program: &CompiledProgram,
+    node: &CompiledNode,
+    symbol: crate::semantic::SymbolId,
+) -> Result<serde_json::Value> {
+    let target = program.symbol_value(symbol).ok_or_else(|| {
+        Diagnostic::new(
+            "E_COMPILED_JSON",
+            format!("reference names unknown symbol {}", symbol.index()),
+            node.origin().span.clone(),
+        )
+    })?;
+    Ok(serde_json::json!({
+        "operation": "reference",
+        "target": target,
+    }))
+}
+
+fn external_video_document(invocation: &crate::external::ExternalInvocation) -> serde_json::Value {
+    serde_json::json!({
+        "operation": "external_video",
+        "executable": invocation.executable.value,
+        "arguments": external_argument_documents(&invocation.arguments),
+        "preserve_input": invocation.preserve_input,
+        "inputs": invocation.inputs,
+        "parameters": invocation.parameters,
     })
 }
 

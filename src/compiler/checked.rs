@@ -1,7 +1,9 @@
 use crate::model::ValueType;
 use crate::program::{ProgramId, ProgramRegistry, ResolvedSignature};
 
-pub(super) use super::ids::{BodyInputId, ParameterId, ReferenceTarget, ValueLocalId};
+pub(super) use super::ids::{
+    BodyInputId, ParameterId, ReferenceTarget, ScalarLocalId, ValueLocalId,
+};
 use super::stack::StackBindingPlan;
 
 #[derive(Clone, Debug)]
@@ -9,6 +11,11 @@ pub(super) struct CheckedParameter {
     pub(super) name: String,
     pub(super) declared_at: crate::source::SourceSpan,
     pub(super) default: Option<crate::source::Spanned<crate::program::ParameterValue>>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CheckedScalarLocal {
+    pub(super) expression: CheckedScalarExpression,
 }
 
 #[derive(Clone, Debug)]
@@ -28,6 +35,18 @@ pub(super) enum CheckedScalarExpression {
     Parameter {
         id: ParameterId,
         name: String,
+        span: crate::source::SourceSpan,
+    },
+    ScalarLocal {
+        id: ScalarLocalId,
+        name: String,
+        span: crate::source::SourceSpan,
+    },
+    TimelineSelector {
+        root: ReferenceTarget,
+        root_name: String,
+        path: Vec<String>,
+        contextual: bool,
         span: crate::source::SourceSpan,
     },
     Unary {
@@ -95,6 +114,7 @@ pub(super) struct CheckedProgram {
     pub(super) inputs: Vec<CheckedProgramInput>,
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
+    pub(super) scalar_locals: Vec<Option<CheckedScalarLocal>>,
     pub(super) body_input_count: usize,
     pub(super) body: CheckedBody,
 }

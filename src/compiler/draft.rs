@@ -94,9 +94,42 @@ pub(super) struct DraftItem {
     pub(super) kind: DraftItemKind,
 }
 
+impl DraftItem {
+    pub(super) fn validate_output_binding_count(&self, output_count: usize) -> Result<()> {
+        let (binding, span, valid) = match &self.output_bindings {
+            OutputBindings::None => return Ok(()),
+            OutputBindings::One(name) => (
+                "`as name` requires exactly one output".to_owned(),
+                &name.span,
+                output_count == 1,
+            ),
+            OutputBindings::Many(names, span) => (
+                format!("`as (...)` contains {} name(s)", names.len()),
+                span,
+                names.len() > 1 && output_count == names.len(),
+            ),
+        };
+        if valid {
+            return Ok(());
+        }
+        Err(Diagnostic::new(
+            "E_OUTPUT_BINDING_COUNT",
+            format!(
+                "`{}` produces {output_count} value(s), but {binding}",
+                self.origin.construct
+            ),
+            span.clone(),
+        ))
+    }
+}
+
 #[derive(Debug)]
 pub(super) enum DraftItemKind {
     Reference(Spanned<String>),
+    ScalarBinding {
+        name: Spanned<String>,
+        value: ScalarExpression,
+    },
     Invocation(DraftInvocation),
     StackBlock(DraftStackBlock),
 }
@@ -205,6 +238,10 @@ impl DraftBody {
                         ItemKind::Reference(reference) => {
                             DraftItemKind::Reference(reference.name.clone())
                         }
+                        ItemKind::ScalarBinding(binding) => DraftItemKind::ScalarBinding {
+                            name: binding.name.clone(),
+                            value: binding.value.clone(),
+                        },
                         ItemKind::Invocation(invocation) => {
                             DraftItemKind::Invocation(DraftInvocation::build(
                                 invocation,

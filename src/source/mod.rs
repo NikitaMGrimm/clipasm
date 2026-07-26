@@ -279,8 +279,15 @@ pub(crate) enum OutputBindings {
 #[derive(Clone, Debug)]
 pub(crate) enum ItemKind {
     Reference(Reference),
+    ScalarBinding(ScalarBinding),
     Invocation(Invocation),
     StackBlock(StackBlock),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScalarBinding {
+    pub(crate) name: Spanned<String>,
+    pub(crate) value: ScalarExpression,
 }
 
 #[derive(Clone, Debug)]
@@ -314,6 +321,11 @@ pub(crate) enum ArgumentValue {
 pub(crate) enum ScalarExpression {
     Literal(Literal),
     Reference(Spanned<String>),
+    Selector {
+        root: Spanned<String>,
+        path: Vec<Spanned<String>>,
+        span: SourceSpan,
+    },
     Unary {
         operator: ScalarUnaryOperator,
         operand: Box<Self>,
@@ -378,9 +390,10 @@ impl ScalarExpression {
         match self {
             Self::Literal(literal) => literal.span(),
             Self::Reference(reference) => &reference.span,
-            Self::Unary { span, .. } | Self::Binary { span, .. } | Self::Postfix { span, .. } => {
-                span
-            }
+            Self::Selector { span, .. }
+            | Self::Unary { span, .. }
+            | Self::Binary { span, .. }
+            | Self::Postfix { span, .. } => span,
         }
     }
 }

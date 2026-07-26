@@ -196,7 +196,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 15);
+    assert_eq!(document["format_version"], 17);
     assert_eq!(
         compiled.result_domain().expect("known result").frames().0,
         30
@@ -238,6 +238,47 @@ fn parenthesized_output_bindings_require_multiple_names() {
             .expect_err("invalid output binding syntax");
         assert_eq!(error.code, code);
     }
+}
+
+#[test]
+fn structural_block_bindings_validate_the_actual_output_sequence() {
+    let empty = compile_source(Path::new("empty.clipasm"), "clipasm 1\n{} as empty\n")
+        .expect_err("empty block cannot use one name");
+    assert_eq!(empty.code, "E_OUTPUT_BINDING_COUNT");
+    assert!(empty.message.contains("produces 0 value(s)"));
+
+    let single = compile_source(
+        Path::new("single.clipasm"),
+        "clipasm 1\n{\n  image(\"morning.png\", 1s)\n  image(\"meadow.png\", 1s)\n  image(\"evening.png\", 1s)\n} as one_day\n",
+    )
+    .expect_err("three block outputs cannot use one name");
+    assert_eq!(single.code, "E_OUTPUT_BINDING_COUNT");
+    assert_eq!((single.span.line, single.span.column), (6, 6));
+    assert_eq!(
+        single.message,
+        "`stack block` produces 3 value(s), but `as name` requires exactly one output"
+    );
+
+    let tuple = compile_source(
+        Path::new("tuple.clipasm"),
+        "clipasm 1\n{\n  image(\"morning.png\", 1s)\n  image(\"meadow.png\", 1s)\n  image(\"evening.png\", 1s)\n} as (first, second)\n",
+    )
+    .expect_err("tuple must name every block output");
+    assert_eq!(tuple.code, "E_OUTPUT_BINDING_COUNT");
+    assert!(tuple.message.contains("produces 3 value(s)"));
+    assert!(tuple.message.contains("contains 2 name(s)"));
+
+    compile_source(
+        Path::new("single-valid.clipasm"),
+        "clipasm 1\n{ image(\"card.png\", 1s) } as card\n",
+    )
+    .expect("single block output binding");
+
+    compile_source(
+        Path::new("complete.clipasm"),
+        "clipasm 1\n{\n  image(\"morning.png\", 1s)\n  image(\"meadow.png\", 1s)\n  image(\"evening.png\", 1s)\n} as (morning, meadow, evening)\n",
+    )
+    .expect("complete tuple binding");
 }
 
 #[test]

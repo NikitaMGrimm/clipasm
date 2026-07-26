@@ -56,6 +56,22 @@ authoring semantics. The native `.clipasm` grammar is implemented under
   Integer constraints are checked after exact expression evaluation.
 - A **Duration** is an exact time quantity distinct from Number. The postfix
   units `ms` and `s` construct a Duration from an Integer expression.
+- A **timeline view** is compiler-owned marker metadata for one authored
+  timeline occurrence. It is distinct from semantic media identity, so two
+  placements may share one immutable value while retaining different marker
+  roots.
+- A **placement marker** is a named closed-open child region of a composed
+  Video timeline. Explicit output bindings name placements; one uniquely
+  referenced value may also contribute its reference name implicitly.
+- A timeline view retains one canonical ordered child sequence. Anonymous
+  composition layers are transparent and contribute their children directly;
+  naming an occurrence creates a deliberate selector boundary. Selector lookup
+  is a derived spelling-to-occurrences index rather than separately authored
+  state.
+- A placement spelling is addressable at one selector level only when exactly
+  one occurrence has that spelling. Explicit, inferred, and operation-created
+  names do not shadow one another. Duplicates remain visible in diagnostics and
+  are ambiguous.
 - The **evaluation stack** is the ordered sequence of value occurrences used
   while compiling one source program.
 - A body's **visible values** are stack entries whose ownership lies within
@@ -167,9 +183,65 @@ values. Expressions evaluate before the target parameter constraint, so
 semantic identity; equivalent forms such as `8%`, `0.08`, and `2 / 25` hash
 identically.
 
-An inline input body starts empty, inherits the enclosing requested-frame
-context, and must leave exactly one value accepted by its input port after any
-direct adaptation.
+`name = expression` declares an immutable scalar alias with an inferred scalar
+type and no stack effect. Aliases, parameters, inputs, and graph output names
+share one program-wide namespace. Alias references may be forward. Alias
+expressions are checked and evaluated on demand only when a scalar parameter use
+reaches them; transitive references are followed at that point and reached
+cycles are rejected. An unused alias may therefore contain an unknown name, an
+invalid operator, division by zero, mixed timeline roots, or an invalid value
+without affecting compilation. Declaration syntax and duplicate names remain
+eager because they determine whether a binding exists. Timeline bounds,
+alignment, and parameter constraints are likewise validated only at the final
+use. Timeline selectors inside aliases are explicitly rooted and do not borrow
+contextual roots from later invocations.
+
+Timeline selectors use `::` and remain frame-native. A selector such as
+`$edit::credits::start` addresses a boundary in the marker layout rooted at
+`$edit`; nested placement paths are permitted. A placement selector without a
+boundary, such as `$edit::credits`, denotes that placement's complete
+closed-open range. `::middle` denotes its exact arithmetic midpoint and need
+not itself be frame-aligned until used as a frame boundary. Two selector
+boundaries with the same root construct a TimeRange without converting through
+the nanosecond Duration grid. Coordinates with the same root may be added or
+subtracted, scaled or divided by Number, and offset by Duration. Coordinate
+arithmetic is exact and may temporarily leave the owning timeline; frame
+alignment, range ordering, and bounds are checked only when the result is
+consumed as a TimeRange. A bound timeline provides context for a selector
+suffix such as `$interview::start` or `$chapter::interview::start`. The suffix
+may begin at any uniquely matching addressable descendant; multiple matches are
+ambiguous and require more leading placement names or the owning timeline.
+Explicitly rooted selectors remain exact paths, and aliases never borrow this
+invocation-local context. The consuming timeline input must have the same root.
+`concat` and the `join` body finalizer create canonical placement layouts
+from their actual surviving occurrences. Anonymous composition is associative
+and transparent: blocks, redundant one-input concatenations, and regrouping do
+not change selector paths. A named occurrence remains one nested selector
+boundary. Identity mappings copy layouts, while
+Video `trim` rebases only child placements whose complete regions are provably
+contained by the selected range; partial or uncertain placements disappear.
+`during` retains base placements provably before its selected range, shifts
+placements provably after it by the replacement-duration delta, drops
+intersecting or uncertain placements, and exposes the inserted body as the
+reserved `replacement` region with its nested layout. If a base placement named
+`replacement` survives the edit, `during` rejects the structural collision
+instead of shadowing either occurrence. Transition mappings are operation-owned:
+`flash_cut` exposes sequential `before` and `after` regions, while `crossfade`
+exposes overlapping `before` and `after` regions plus their shared `overlap`.
+Transition input regions retain their nested layouts. Marker coordinates are
+canonical linear expressions in exact seconds.
+Known frame boundaries reduce to constants; unknown Video extents remain terms
+referencing semantic values. Video `trim` and `during` may carry such ranges
+through the compiled graph, where preflight substitutes probed project-frame
+domains and then validates exact alignment, ordering, and final bounds.
+`during` also propagates the selected extent as a symbolic requested-duration
+context, allowing duration-inheriting images in its body to remain pure until
+preflight resolves their concrete frame counts.
+
+An inline input body starts empty, inherits the enclosing requested Video
+extent, and must leave exactly one value accepted by its input port after any
+direct adaptation. The extent is concrete when known and otherwise remains an
+exact symbolic expression until preflight.
 
 A full-duration video source is quantized to the smallest integral project frame
 count that covers its complete source interval. Audio domains use exact sample

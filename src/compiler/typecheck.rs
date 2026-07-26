@@ -346,7 +346,7 @@ fn allocate_body_generics(
 ) {
     for item in &body.items {
         match &item.kind {
-            DraftItemKind::Reference(_) => {}
+            DraftItemKind::Reference(_) | DraftItemKind::ScalarBinding { .. } => {}
             DraftItemKind::Invocation(invocation) => {
                 let definition = &definitions[invocation.program.index()];
                 if definition.descriptor.is_generic() {
@@ -403,7 +403,7 @@ fn prepare_type_state(
         .map(|(name, local)| {
             let slot = match local {
                 LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
-                LocalType::Parameter(_) => LocalSlot::Parameter,
+                LocalType::Parameter(_) | LocalType::ScalarAlias { .. } => LocalSlot::Parameter,
                 LocalType::Inferred { .. } => LocalSlot::Value(arena.allocate()),
             };
             (name.clone(), slot)
@@ -593,6 +593,7 @@ fn infer_body(
                     &reference.span,
                 )?]
             }
+            DraftItemKind::ScalarBinding { .. } => Vec::new(),
             DraftItemKind::Invocation(invocation) => infer_invocation(
                 &item.origin,
                 invocation,
@@ -633,13 +634,7 @@ fn infer_body(
                 outputs
             }
         };
-        constrain_bindings(
-            globals,
-            &item.output_bindings,
-            &outputs,
-            arena,
-            &item.origin.span,
-        )?;
+        constrain_bindings(globals, item, &outputs, arena)?;
         stack.extend(frame, outputs);
     }
     Ok(())
@@ -1132,30 +1127,32 @@ fn compatibility(
 
 fn constrain_bindings(
     globals: &BTreeMap<String, LocalSlot>,
-    bindings: &OutputBindings,
+    item: &super::draft::DraftItem,
     outputs: &[TypeVarId],
     arena: &mut TypeArena,
-    span: &SourceSpan,
 ) -> Result<()> {
-    match bindings {
+    item.validate_output_binding_count(outputs.len())?;
+    match &item.output_bindings {
         OutputBindings::None => {}
         OutputBindings::One(name) => {
-            if let [output] = outputs {
-                equate(
-                    arena,
-                    value_slot(globals, &name.value, &name.span)?,
-                    *output,
-                    span,
-                )?;
-            }
+            let [output] = outputs else {
+                unreachable!("validated single output binding")
+            };
+            equate(
+                arena,
+                value_slot(globals, &name.value, &name.span)?,
+                *output,
+                &item.origin.span,
+            )?;
         }
         OutputBindings::Many(names, _) => {
+            debug_assert_eq!(names.len(), outputs.len());
             for (name, output) in names.iter().zip(outputs) {
                 equate(
                     arena,
                     value_slot(globals, &name.value, &name.span)?,
                     *output,
-                    span,
+                    &item.origin.span,
                 )?;
             }
         }

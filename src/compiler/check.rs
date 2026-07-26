@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostic::{Diagnostic, Result};
@@ -20,6 +21,9 @@ use super::draft::{
 pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
+    ScalarAlias {
+        expression: crate::source::ScalarExpression,
+    },
     Inferred {
         dependencies: BTreeSet<String>,
         span: crate::source::SourceSpan,
@@ -29,8 +33,9 @@ pub(super) enum LocalType {
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
     CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
-    CheckedProgram, CheckedProgramInput, CheckedSourceProgram, CheckedStackBlock, ParameterId,
-    ReferenceTarget, ValueLocalId,
+    CheckedProgram, CheckedProgramInput, CheckedScalarExpression, CheckedScalarLocal,
+    CheckedSourceProgram, CheckedStackBlock, ParameterId, ReferenceTarget, ScalarLocalId,
+    ValueLocalId,
 };
 
 pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
@@ -187,6 +192,7 @@ fn clipasm_definition(
             outputs: outputs.into_iter().map(Into::into).collect(),
         },
         implementation: ProgramImplementation::ClipAsm(unit),
+        timeline_behavior: crate::program::TimelineBehavior::Fresh,
     })
 }
 
@@ -269,6 +275,7 @@ fn external_definition(
             InputSlot::new(preserve_index),
             parameter_defaults,
         )),
+        timeline_behavior: crate::program::TimelineBehavior::Fresh,
     })
 }
 
@@ -358,6 +365,12 @@ impl super::typecheck::ResolvedDraftProgram {
         definitions: &[ProgramDefinition],
     ) -> Result<(Vec<ValueType>, CheckedProgram)> {
         let bindings = prepare_program_bindings(program, &self.draft, local_types)?;
+        let alias_checker = ScalarAliasChecker::new(
+            local_types,
+            &bindings.local_ids,
+            &bindings.parameter_ids,
+            &bindings.scalar_ids,
+        );
         let Self {
             draft,
             invocations,
@@ -367,7 +380,7 @@ impl super::typecheck::ResolvedDraftProgram {
         let mut materializer = CheckedMaterializer {
             local_types,
             local_ids: &bindings.local_ids,
-            parameter_ids: &bindings.parameter_ids,
+            alias_checker: &alias_checker,
             definitions,
             invocations,
             stack_blocks,
@@ -376,6 +389,8 @@ impl super::typecheck::ResolvedDraftProgram {
         let checked_body = materializer.body(draft.body, &BTreeMap::new())?;
         materializer.ensure_consumed(&draft.span)?;
         let body_input_count = materializer.body_input_count;
+        drop(materializer);
+        let scalar_locals = alias_checker.finish();
         Ok((
             outputs,
             CheckedProgram {
@@ -392,6 +407,7 @@ impl super::typecheck::ResolvedDraftProgram {
                     .collect(),
                 locals: bindings.locals,
                 parameters: bindings.parameters,
+                scalar_locals,
                 body_input_count,
                 body: checked_body,
             },
@@ -404,6 +420,7 @@ struct ProgramBindings {
     local_ids: BTreeMap<String, ValueLocalId>,
     parameters: Vec<CheckedParameter>,
     parameter_ids: BTreeMap<String, ParameterId>,
+    scalar_ids: BTreeMap<String, ScalarLocalId>,
 }
 
 fn prepare_program_bindings(
@@ -466,12 +483,157 @@ fn prepare_program_bindings(
     }
     declare_body_outputs(&draft.body, &mut declare)?;
 
+    let scalar_ids = local_types
+        .iter()
+        .filter(|(_, local)| matches!(local, LocalType::ScalarAlias { .. }))
+        .enumerate()
+        .map(|(index, (name, _))| {
+            Ok((
+                name.clone(),
+                ScalarLocalId(u32::try_from(index).map_err(|_| {
+                    Diagnostic::new(
+                        "E_GRAPH_TOO_LARGE",
+                        "too many scalar aliases were declared",
+                        program.span().clone(),
+                    )
+                })?),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+
     Ok(ProgramBindings {
         locals,
         local_ids,
         parameters,
         parameter_ids,
+        scalar_ids,
     })
+}
+
+enum ScalarAliasState {
+    Unchecked,
+    Checking,
+    Checked {
+        expression: CheckedScalarExpression,
+        kind: super::parameter::ScalarKind,
+    },
+}
+
+struct ScalarAliasChecker<'a> {
+    local_types: &'a BTreeMap<String, LocalType>,
+    local_ids: &'a BTreeMap<String, ValueLocalId>,
+    parameter_ids: &'a BTreeMap<String, ParameterId>,
+    scalar_ids: &'a BTreeMap<String, ScalarLocalId>,
+    states: RefCell<Vec<ScalarAliasState>>,
+}
+
+impl<'a> ScalarAliasChecker<'a> {
+    fn new(
+        local_types: &'a BTreeMap<String, LocalType>,
+        local_ids: &'a BTreeMap<String, ValueLocalId>,
+        parameter_ids: &'a BTreeMap<String, ParameterId>,
+        scalar_ids: &'a BTreeMap<String, ScalarLocalId>,
+    ) -> Self {
+        Self {
+            local_types,
+            local_ids,
+            parameter_ids,
+            scalar_ids,
+            states: RefCell::new(
+                std::iter::repeat_with(|| ScalarAliasState::Unchecked)
+                    .take(scalar_ids.len())
+                    .collect(),
+            ),
+        }
+    }
+
+    fn resolve_scalar(
+        &self,
+        reference: &Spanned<String>,
+    ) -> Result<super::parameter::ScalarReference> {
+        match self.local_types.get(&reference.value) {
+            Some(LocalType::Parameter(parameter_type)) => {
+                Ok(super::parameter::ScalarReference::Parameter(
+                    self.parameter_ids[&reference.value],
+                    parameter_type.clone(),
+                ))
+            }
+            Some(LocalType::ScalarAlias { .. }) => {
+                let (id, kind) = self.check_alias(reference)?;
+                Ok(super::parameter::ScalarReference::Local(id, kind))
+            }
+            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                format!(
+                    "graph value `${}` cannot be used as a scalar alias",
+                    reference.value
+                ),
+                reference.span.clone(),
+            )),
+            None => Err(missing_reference(&reference.value, &reference.span)),
+        }
+    }
+
+    fn resolve_timeline(&self, reference: &Spanned<String>) -> Result<ReferenceTarget> {
+        self.local_ids
+            .get(&reference.value)
+            .copied()
+            .map(ReferenceTarget::Local)
+            .ok_or_else(|| missing_reference(&reference.value, &reference.span))
+    }
+
+    fn check_alias(
+        &self,
+        reference: &Spanned<String>,
+    ) -> Result<(ScalarLocalId, super::parameter::ScalarKind)> {
+        let id = self.scalar_ids[&reference.value];
+        {
+            let states = self.states.borrow();
+            match &states[id.index()] {
+                ScalarAliasState::Checked { kind, .. } => return Ok((id, *kind)),
+                ScalarAliasState::Checking => {
+                    return Err(Diagnostic::new(
+                        "E_DEPENDENCY_CYCLE",
+                        format!(
+                            "scalar-alias dependency cycle includes `{}`",
+                            reference.value
+                        ),
+                        reference.span.clone(),
+                    ));
+                }
+                ScalarAliasState::Unchecked => {}
+            }
+        }
+        let Some(LocalType::ScalarAlias { expression, .. }) =
+            self.local_types.get(&reference.value)
+        else {
+            unreachable!("scalar alias IDs refer to scalar alias declarations");
+        };
+        self.states.borrow_mut()[id.index()] = ScalarAliasState::Checking;
+        let (expression, kind) = super::parameter::check_inferred_expression(
+            expression,
+            &mut |nested| self.resolve_scalar(nested),
+            &mut |timeline| self.resolve_timeline(timeline),
+        )?;
+        self.states.borrow_mut()[id.index()] = ScalarAliasState::Checked { expression, kind };
+        Ok((id, kind))
+    }
+
+    fn finish(self) -> Vec<Option<CheckedScalarLocal>> {
+        self.states
+            .into_inner()
+            .into_iter()
+            .map(|state| match state {
+                ScalarAliasState::Unchecked => None,
+                ScalarAliasState::Checked { expression, .. } => {
+                    Some(CheckedScalarLocal { expression })
+                }
+                ScalarAliasState::Checking => {
+                    unreachable!("successful checking cannot leave a scalar alias in progress")
+                }
+            })
+            .collect()
+    }
 }
 
 fn declare_body_outputs(
@@ -489,7 +651,7 @@ fn declare_body_outputs(
             }
         }
         match &item.kind {
-            DraftItemKind::Reference(_) => {}
+            DraftItemKind::Reference(_) | DraftItemKind::ScalarBinding { .. } => {}
             DraftItemKind::Invocation(invocation) => {
                 if let Some(body) = invocation.body.as_deref() {
                     declare_body_outputs(body, declare)?;
@@ -528,27 +690,15 @@ fn collect_body_names(
         match &item.output_bindings {
             OutputBindings::None => {}
             OutputBindings::One(name) => {
-                let output_types = item_output_types(item, definitions);
+                let output_types = binding_output_types(item, definitions, 1)?;
                 let [output] = output_types.as_slice() else {
-                    return Err(binding_count_error(
-                        item,
-                        output_types.len(),
-                        "`as name` requires exactly one output",
-                        &name.span,
-                    ));
+                    unreachable!("validated single output binding")
                 };
                 insert_local(locals, &name.value, output.clone(), &name.span)?;
             }
-            OutputBindings::Many(names, span) => {
-                let output_types = item_output_types(item, definitions);
-                if output_types.len() <= 1 || output_types.len() != names.len() {
-                    return Err(binding_count_error(
-                        item,
-                        output_types.len(),
-                        &format!("`as (...)` contains {} name(s)", names.len()),
-                        span,
-                    ));
-                }
+            OutputBindings::Many(names, _) => {
+                let output_types = binding_output_types(item, definitions, names.len())?;
+                debug_assert_eq!(output_types.len(), names.len());
                 for (name, output) in names.iter().zip(output_types) {
                     insert_local(locals, &name.value, output, &name.span)?;
                 }
@@ -556,6 +706,16 @@ fn collect_body_names(
         }
         match &item.kind {
             DraftItemKind::Reference(_) => {}
+            DraftItemKind::ScalarBinding { name, value } => {
+                insert_local(
+                    locals,
+                    &name.value,
+                    LocalType::ScalarAlias {
+                        expression: value.clone(),
+                    },
+                    &name.span,
+                )?;
+            }
             DraftItemKind::Invocation(invocation) => {
                 if let Some(body) = invocation.body.as_deref() {
                     collect_body_names(body, locals, definitions)?;
@@ -574,15 +734,29 @@ fn collect_body_names(
     Ok(())
 }
 
-fn item_output_types(
+fn binding_output_types(
     item: &super::draft::DraftItem,
     definitions: &[ProgramDefinition],
-) -> Vec<LocalType> {
+    binding_count: usize,
+) -> Result<Vec<LocalType>> {
+    if let Some(output_types) = statically_known_output_types(item, definitions) {
+        item.validate_output_binding_count(output_types.len())?;
+        return Ok(output_types);
+    }
+    let output_type = inferred_stack_block_output_type(item, definitions);
+    Ok(vec![output_type; binding_count])
+}
+
+fn statically_known_output_types(
+    item: &super::draft::DraftItem,
+    definitions: &[ProgramDefinition],
+) -> Option<Vec<LocalType>> {
     match &item.kind {
-        DraftItemKind::Reference(reference) => vec![LocalType::Inferred {
+        DraftItemKind::Reference(reference) => Some(vec![LocalType::Inferred {
             dependencies: BTreeSet::from([reference.value.clone()]),
             span: item.origin.span.clone(),
-        }],
+        }]),
+        DraftItemKind::ScalarBinding { .. } => Some(Vec::new()),
         DraftItemKind::Invocation(invocation) => {
             let definition = &definitions[invocation.program.index()];
             let mut dependencies = BTreeSet::new();
@@ -592,40 +766,43 @@ fn item_output_types(
                 &BTreeSet::new(),
                 &mut dependencies,
             );
-            definition
-                .descriptor
-                .outputs
-                .iter()
-                .copied()
-                .map(|output| match output {
-                    ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
-                    ValueTypeSpec::Generic => LocalType::Inferred {
-                        dependencies: dependencies.clone(),
-                        span: item.origin.span.clone(),
-                    },
-                })
-                .collect()
+            Some(
+                definition
+                    .descriptor
+                    .outputs
+                    .iter()
+                    .copied()
+                    .map(|output| match output {
+                        ValueTypeSpec::Exact(value_type) => LocalType::Value(value_type),
+                        ValueTypeSpec::Generic => LocalType::Inferred {
+                            dependencies: dependencies.clone(),
+                            span: item.origin.span.clone(),
+                        },
+                    })
+                    .collect(),
+            )
         }
-        DraftItemKind::StackBlock(block) => {
-            let mut dependencies = BTreeSet::new();
-            collect_body_dependencies(
-                &block.body,
-                definitions,
-                &BTreeSet::new(),
-                &mut dependencies,
-            );
-            let count = match &item.output_bindings {
-                OutputBindings::None => 0,
-                OutputBindings::One(_) => 1,
-                OutputBindings::Many(names, _) => names.len(),
-            };
-            (0..count)
-                .map(|_| LocalType::Inferred {
-                    dependencies: dependencies.clone(),
-                    span: item.origin.span.clone(),
-                })
-                .collect()
-        }
+        DraftItemKind::StackBlock(_) => None,
+    }
+}
+
+fn inferred_stack_block_output_type(
+    item: &super::draft::DraftItem,
+    definitions: &[ProgramDefinition],
+) -> LocalType {
+    let DraftItemKind::StackBlock(block) = &item.kind else {
+        unreachable!("only structural blocks have statically unknown output counts")
+    };
+    let mut dependencies = BTreeSet::new();
+    collect_body_dependencies(
+        &block.body,
+        definitions,
+        &BTreeSet::new(),
+        &mut dependencies,
+    );
+    LocalType::Inferred {
+        dependencies,
+        span: item.origin.span.clone(),
     }
 }
 
@@ -668,7 +845,7 @@ fn checked_outputs(
 struct CheckedMaterializer<'a> {
     local_types: &'a BTreeMap<String, LocalType>,
     local_ids: &'a BTreeMap<String, ValueLocalId>,
-    parameter_ids: &'a BTreeMap<String, ParameterId>,
+    alias_checker: &'a ScalarAliasChecker<'a>,
     definitions: &'a [ProgramDefinition],
     invocations: IdTable<InvocationId, super::typecheck::ResolvedInvocation>,
     stack_blocks: IdTable<StackBlockId, Vec<ValueType>>,
@@ -695,6 +872,9 @@ impl CheckedMaterializer<'_> {
     ) -> Result<CheckedBody> {
         let mut checked_items = Vec::with_capacity(body.items.len());
         for item in body.items {
+            if matches!(item.kind, DraftItemKind::ScalarBinding { .. }) {
+                continue;
+            }
             let checked = match item.kind {
                 DraftItemKind::Reference(reference) => {
                     let output = resolved_value_type(
@@ -714,6 +894,9 @@ impl CheckedMaterializer<'_> {
                         outputs: checked_outputs(item.output_bindings, &[output], self.local_ids)?,
                         kind: CheckedItemKind::Reference { target },
                     }
+                }
+                DraftItemKind::ScalarBinding { .. } => {
+                    unreachable!("scalar bindings are removed before checked item materialization")
                 }
                 DraftItemKind::Invocation(invocation) => {
                     let DraftInvocation {
@@ -882,8 +1065,7 @@ impl CheckedMaterializer<'_> {
                             program_name,
                             parameter,
                             argument,
-                            self.local_types,
-                            self.parameter_ids,
+                            self.alias_checker,
                         )
                     })
                     .transpose()
@@ -922,8 +1104,7 @@ fn check_parameter_argument(
     program: &str,
     parameter: &ParameterDescriptor,
     argument: DraftParameter,
-    local_types: &BTreeMap<String, LocalType>,
-    parameter_ids: &BTreeMap<String, ParameterId>,
+    aliases: &ScalarAliasChecker<'_>,
 ) -> Result<CheckedParameterValue> {
     let DraftParameter::Expression(expression) = argument;
     let checked = super::parameter::check_expression(
@@ -931,23 +1112,8 @@ fn check_parameter_argument(
         &parameter.name,
         &parameter.parameter_type,
         &expression,
-        &mut |reference| match local_types.get(&reference.value) {
-            Some(LocalType::Parameter(actual)) => Ok((
-                *parameter_ids
-                    .get(&reference.value)
-                    .ok_or_else(|| missing_reference(&reference.value, &reference.span))?,
-                actual.clone(),
-            )),
-            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!(
-                    "graph value `${}` cannot be used in scalar parameter `{program}.{}`",
-                    reference.value, parameter.name
-                ),
-                reference.span.clone(),
-            )),
-            None => Err(missing_reference(&reference.value, &reference.span)),
-        },
+        &mut |reference| aliases.resolve_scalar(reference),
+        &mut |reference| aliases.resolve_timeline(reference),
     )?;
     Ok(CheckedParameterValue::Expression(checked))
 }
@@ -993,7 +1159,7 @@ fn validate_local_dependencies(locals: &BTreeMap<String, LocalType>) -> Result<(
             LocalType::Inferred {
                 dependencies, span, ..
             } => Some((name.clone(), (dependencies.clone(), span.clone()))),
-            LocalType::Value(_) | LocalType::Parameter(_) => None,
+            LocalType::Value(_) | LocalType::Parameter(_) | LocalType::ScalarAlias { .. } => None,
         })
         .collect::<BTreeMap<_, _>>();
     let mut states = BTreeMap::<String, u8>::new();
@@ -1088,6 +1254,7 @@ fn collect_body_dependencies(
                     dependencies.insert(reference.value.clone());
                 }
             }
+            DraftItemKind::ScalarBinding { .. } => {}
             DraftItemKind::Invocation(invocation) => {
                 collect_invocation_dependencies(invocation, definitions, shadows, dependencies);
             }
@@ -1141,6 +1308,11 @@ fn value_local(
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
+        Some(LocalType::ScalarAlias { .. }) => Err(Diagnostic::new(
+            "E_SCALAR_NOT_VALUE",
+            format!("scalar alias `${name}` is not a graph value"),
+            span.clone(),
+        )),
         Some(LocalType::Inferred { .. }) => Err(Diagnostic::new(
             "E_UNRESOLVED_LOCAL_TYPE",
             format!("named value `${name}` has not finished type inference"),
@@ -1168,22 +1340,6 @@ fn missing_reference(name: &str, span: &crate::source::SourceSpan) -> Diagnostic
         "E_MISSING_REFERENCE",
         format!(
             "reference `${name}` does not name an input, parameter, body alias, or output binding"
-        ),
-        span.clone(),
-    )
-}
-
-fn binding_count_error(
-    item: &super::draft::DraftItem,
-    output_count: usize,
-    binding: &str,
-    span: &crate::source::SourceSpan,
-) -> Diagnostic {
-    Diagnostic::new(
-        "E_OUTPUT_BINDING_COUNT",
-        format!(
-            "`{}` produces {output_count} value(s), but {binding}",
-            item.origin.construct
         ),
         span.clone(),
     )

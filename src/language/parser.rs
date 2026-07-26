@@ -475,7 +475,11 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement> {
         let span = self.current().span.clone();
         let expression = self.parse_statement_expression()?;
-        let output_bindings = self.parse_output_bindings()?;
+        let output_bindings = if matches!(expression, Expression::ScalarBinding { .. }) {
+            OutputBindings::None
+        } else {
+            self.parse_output_bindings()?
+        };
         self.expect_statement_end("statement")?;
         Ok(Statement {
             expression,
@@ -488,6 +492,9 @@ impl Parser {
         let access = self.parse_access()?;
         match &self.current().kind {
             TokenKind::LeftBrace => Ok(Expression::Block(self.parse_block(access)?)),
+            TokenKind::Identifier(_) if access.is_none() && self.peek_is(1, &TokenKind::Equal) => {
+                self.parse_scalar_binding()
+            }
             TokenKind::Identifier(_) => Ok(Expression::Invocation(self.parse_invocation(access)?)),
             TokenKind::Dollar if access.is_none() => self.parse_reference(),
             TokenKind::Dollar => Err(Diagnostic::new(
@@ -497,6 +504,14 @@ impl Parser {
             )),
             _ => Err(self.expected("an invocation, reference, or stack block")),
         }
+    }
+
+    fn parse_scalar_binding(&mut self) -> Result<Expression> {
+        let name = self.expect_identifier("a scalar alias name")?;
+        let span = name.span.clone();
+        self.expect(&TokenKind::Equal, "`=` after a scalar alias name")?;
+        let value = self.parse_scalar_expression()?;
+        Ok(Expression::ScalarBinding { name, value, span })
     }
 
     fn parse_expression(&mut self) -> Result<Expression> {
@@ -658,9 +673,19 @@ impl Parser {
             TokenKind::Number(value) | TokenKind::Identifier(value) => {
                 Ok(ScalarExpression::Atom(Spanned::new(value, token.span)))
             }
-            TokenKind::Dollar => Ok(ScalarExpression::Reference(
-                self.expect_identifier("a scalar parameter name after `$`")?,
-            )),
+            TokenKind::Dollar => {
+                let root = self.expect_identifier("a name after `$`")?;
+                let mut path = Vec::new();
+                while self.consume(&TokenKind::DoubleColon) {
+                    path.push(self.expect_identifier("a selector name after `::`")?);
+                }
+                if path.is_empty() {
+                    Ok(ScalarExpression::Reference(root))
+                } else {
+                    let span = root.span.clone();
+                    Ok(ScalarExpression::Selector { root, path, span })
+                }
+            }
             TokenKind::LeftParen => {
                 let span = token.span;
                 self.with_syntax_nesting(span, |parser| {
@@ -1123,6 +1148,26 @@ mod tests {
             panic!("reference");
         };
         assert_eq!(reference.value, "test-name");
+    }
+
+    #[test]
+    fn parses_immutable_scalar_alias_statements() {
+        let syntax = parse_text("clipasm 1\nlead-in = $edit::credits::start - 500ms\n");
+        let Expression::ScalarBinding { name, value, .. } = &syntax.statements[0].expression else {
+            panic!("scalar binding");
+        };
+        assert_eq!(name.value, "lead-in");
+        assert!(matches!(
+            value,
+            ScalarExpression::Binary {
+                operator: BinaryOperator::Subtract,
+                ..
+            }
+        ));
+        assert!(matches!(
+            syntax.statements[0].output_bindings,
+            OutputBindings::None
+        ));
     }
 
     #[test]

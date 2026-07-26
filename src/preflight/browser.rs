@@ -153,7 +153,8 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
     for value in order {
         let node = &compiled.nodes()[value.id().get() as usize];
         match node.kind() {
-            SemanticNodeKind::ImageVideo { path, .. } => {
+            SemanticNodeKind::ImageVideo { path, .. }
+            | SemanticNodeKind::DeferredImageVideo { path, .. } => {
                 let path = virtual_path(path, &node.origin().span)?;
                 if !paths.contains_key(&path) {
                     paths.insert(path.clone(), requests.len());
@@ -196,8 +197,10 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
             | SemanticNodeKind::Concat { .. }
             | SemanticNodeKind::AudioConcat { .. }
             | SemanticNodeKind::Slice { .. }
+            | SemanticNodeKind::DeferredSlice { .. }
             | SemanticNodeKind::AudioSlice { .. }
             | SemanticNodeKind::ReplaceRange { .. }
+            | SemanticNodeKind::DeferredReplaceRange { .. }
             | SemanticNodeKind::ExtractAudio { .. }
             | SemanticNodeKind::SetAudio { .. }
             | SemanticNodeKind::AudioOnBlack { .. } => {}

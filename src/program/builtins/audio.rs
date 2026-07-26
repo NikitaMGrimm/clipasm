@@ -3,7 +3,7 @@ use crate::model::ValueType;
 use crate::program::{Cardinality, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
 
-use super::support::{direct, exact_descriptor, input, one_output};
+use super::support::{direct, direct_with_timeline, exact_descriptor, input, one_output};
 
 pub(super) fn extract_audio() -> ProgramDefinition {
     direct(
@@ -19,7 +19,7 @@ pub(super) fn extract_audio() -> ProgramDefinition {
 }
 
 pub(super) fn set_audio() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         exact_descriptor(
             "set_audio",
             1,
@@ -31,6 +31,9 @@ pub(super) fn set_audio() -> ProgramDefinition {
             ValueType::Video,
         ),
         lower_set_audio,
+        crate::program::TimelineBehavior::Identity {
+            input: crate::program::InputSlot::new(0),
+        },
     )
 }
 

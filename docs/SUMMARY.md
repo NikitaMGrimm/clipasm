@@ -57,6 +57,7 @@
   - [0016: Overlap audiovisual transitions on exact boundaries](adr/0016-overlap-audiovisual-transitions-exactly.md)
   - [0017: Run FFmpeg recipes through host adapters](adr/0017-run-ffmpeg-recipes-through-host-adapters.md)
   - [0018: Evaluate scalar expressions exactly](adr/0018-evaluate-scalar-expressions-exactly.md)
+  - [0019: Model rooted timeline layouts separately from media values](adr/0019-model-rooted-timeline-layouts.md)
 
 # Development
 

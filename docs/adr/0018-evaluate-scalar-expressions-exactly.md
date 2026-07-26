@@ -12,10 +12,14 @@ through binary floating point.
 
 The native parser owns precedence and produces a source-located scalar
 expression tree. It does not evaluate arithmetic or inspect the implementation
-of exact numbers. Checked-source construction resolves scalar parameter
-references and validates operator types. Invocation evaluation then reduces the
-checked expression exactly before applying the destination parameter
-constraint.
+of exact numbers. Checked-source construction validates a scalar expression only
+when an invocation parameter reaches it. Reached immutable scalar aliases are
+resolved recursively, inferred, and cached as checked expressions; recursive
+entry diagnoses a reached dependency cycle. Invocation evaluation then reduces
+the reached expression exactly before applying the destination parameter
+constraint. Scalar aliases have no stack effect, and unused alias expressions
+produce neither diagnostics nor executable semantics. Syntax and duplicate-name
+validation remain eager because they define the source program's bindings.
 
 Postfix `%` is ordinary division by 100 and may repeat. Postfix `ms` and `s`
 require an Integer-valued Number and construct an exact Duration. Duration is a
@@ -40,5 +44,11 @@ to `8%`, and stores the exact fractional increase.
   program-specific parsing or hardcoded expression patterns.
 - The parser, exact evaluator, scalar type checker, and parameter binder remain
   separate phase owners.
+- Scalar aliases may refer forward to one another. Their dependency chain is
+  checked only when reached from a real scalar use, while retaining the same
+  exact evaluator and parameter ABI.
+- Timeline coordinates normalize to linear exact expressions. Media-dependent
+  Video extents may remain symbolic through compilation and are substituted by
+  preflight before final frame-alignment and bounds validation.
 - Adding arithmetic for another scalar quantity requires explicit typed
   operator definitions rather than treating every scalar as Number.

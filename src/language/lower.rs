@@ -69,9 +69,12 @@ pub(crate) fn lower_source(
         .iter()
         .map(|parameter| parameter.name.value.clone())
         .collect();
+    let mut scalar_aliases = BTreeSet::new();
+    collect_scalar_alias_names(&syntax.statements, &mut scalar_aliases);
     let lowerer = Lowerer {
         programs,
         parameters,
+        scalar_aliases,
     };
     let implementation = match declarations.external {
         Some(external) => {
@@ -394,6 +397,11 @@ fn lower_scalar_expression(expression: &ScalarExpression) -> SourceScalarExpress
         ScalarExpression::Reference(reference) => {
             SourceScalarExpression::Reference(reference.clone())
         }
+        ScalarExpression::Selector { root, path, span } => SourceScalarExpression::Selector {
+            root: root.clone(),
+            path: path.clone(),
+            span: span.clone(),
+        },
         ScalarExpression::Unary {
             operator,
             operand,
@@ -442,6 +450,7 @@ fn lower_scalar_expression(expression: &ScalarExpression) -> SourceScalarExpress
 struct Lowerer<'a> {
     programs: &'a BTreeMap<String, CallableShape>,
     parameters: BTreeSet<String>,
+    scalar_aliases: BTreeSet<String>,
 }
 
 impl Lowerer<'_> {
@@ -470,6 +479,14 @@ impl Lowerer<'_> {
                 }),
                 output_bindings: bindings,
                 origin: ItemOrigin::authored("reference", statement.span.clone()),
+            }]),
+            Expression::ScalarBinding { name, value, .. } => Ok(vec![Item {
+                kind: ItemKind::ScalarBinding(crate::source::ScalarBinding {
+                    name: name.clone(),
+                    value: lower_scalar_expression(value),
+                }),
+                output_bindings: OutputBindings::None,
+                origin: ItemOrigin::authored("scalar binding", statement.span.clone()),
             }]),
             Expression::Invocation(invocation) => {
                 self.lower_invocation(invocation, bindings, lexical)
@@ -703,11 +720,13 @@ impl Lowerer<'_> {
             Expression::Reference(reference) => Ok(ArgumentValue::Scalar(
                 SourceScalarExpression::Reference(reference.clone()),
             )),
-            Expression::Invocation(_) | Expression::Block(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
-                format!("parameter `{program}.{parameter}` requires a scalar value"),
-                expression.span().clone(),
-            )),
+            Expression::ScalarBinding { .. } | Expression::Invocation(_) | Expression::Block(_) => {
+                Err(Diagnostic::new(
+                    "E_INVALID_ARGUMENT_TYPE",
+                    format!("parameter `{program}.{parameter}` requires a scalar value"),
+                    expression.span().clone(),
+                ))
+            }
         }
     }
 
@@ -724,13 +743,14 @@ impl Lowerer<'_> {
                     span: expression.span().clone(),
                 }))
             }
-            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
-                Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    "a graph input requires a reference, invocation, or stack block",
-                    expression.span().clone(),
-                ))
-            }
+            Expression::ScalarBinding { .. }
+            | Expression::String(_)
+            | Expression::Atom(_)
+            | Expression::Scalar(_) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                "a graph input requires a reference, invocation, or stack block",
+                expression.span().clone(),
+            )),
         }
     }
 
@@ -756,13 +776,14 @@ impl Lowerer<'_> {
                 lexical,
                 block.span.clone(),
             )?]),
-            Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
-                Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
-                    "expected a graph-producing expression",
-                    expression.span().clone(),
-                ))
-            }
+            Expression::ScalarBinding { .. }
+            | Expression::String(_)
+            | Expression::Atom(_)
+            | Expression::Scalar(_) => Err(Diagnostic::new(
+                "E_INVALID_ARGUMENT_TYPE",
+                "expected a graph-producing expression",
+                expression.span().clone(),
+            )),
         }
     }
 
@@ -797,10 +818,48 @@ impl Lowerer<'_> {
         match expression {
             Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => true,
             Expression::Reference(reference) => {
-                !lexical.contains(&reference.value) && self.parameters.contains(&reference.value)
+                !lexical.contains(&reference.value)
+                    && (self.parameters.contains(&reference.value)
+                        || self.scalar_aliases.contains(&reference.value))
             }
-            Expression::Invocation(_) | Expression::Block(_) => false,
+            Expression::ScalarBinding { .. } | Expression::Invocation(_) | Expression::Block(_) => {
+                false
+            }
         }
+    }
+}
+
+fn collect_scalar_alias_names(statements: &[Statement], names: &mut BTreeSet<String>) {
+    for statement in statements {
+        if let Expression::ScalarBinding { name, .. } = &statement.expression {
+            names.insert(name.value.clone());
+        }
+        collect_scalar_alias_names_from_expression(&statement.expression, names);
+    }
+}
+
+fn collect_scalar_alias_names_from_expression(
+    expression: &Expression,
+    names: &mut BTreeSet<String>,
+) {
+    match expression {
+        Expression::Invocation(invocation) => {
+            if let Some(body) = &invocation.body {
+                collect_scalar_alias_names(&body.statements, names);
+            }
+            for argument in &invocation.arguments {
+                let value = match argument {
+                    Argument::Positional(value) | Argument::Named { value, .. } => value,
+                };
+                collect_scalar_alias_names_from_expression(value, names);
+            }
+        }
+        Expression::Block(block) => collect_scalar_alias_names(&block.statements, names),
+        Expression::Reference(_)
+        | Expression::ScalarBinding { .. }
+        | Expression::String(_)
+        | Expression::Atom(_)
+        | Expression::Scalar(_) => {}
     }
 }
 
