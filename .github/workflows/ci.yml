@@ -44,6 +44,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
           toolchain: 1.95.0
+      - if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress --yes
       - name: Check all targets
         run: cargo check --all-targets
       - name: Run portable tests
