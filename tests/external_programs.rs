@@ -238,15 +238,15 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     let Some(preflight::PreparedExternalParameterValue::File(asset)) = parameters.get("lut") else {
         panic!("prepared file parameter");
     };
-    assert_eq!(asset.source_path(), directory.path().join("lut.bin"));
+    let lut = fs::canonicalize(directory.path().join("lut.bin")).expect("canonical LUT path");
+    assert_eq!(asset.source_path(), lut);
     assert!(!asset.content_hash().is_empty());
     let [preflight::PreparedExternalArgument::File(argument_asset)] = arguments.as_slice() else {
         panic!("prepared file argument");
     };
-    assert_eq!(
-        argument_asset.source_path(),
-        directory.path().join("script-data.bin")
-    );
+    let script_data =
+        fs::canonicalize(directory.path().join("script-data.bin")).expect("canonical script data");
+    assert_eq!(argument_asset.source_path(), script_data);
     assert!(!argument_asset.content_hash().is_empty());
     let document: serde_json::Value =
         serde_json::from_str(&prepared.prepared_json().expect("prepared JSON"))
@@ -263,7 +263,7 @@ fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     );
     assert_eq!(
         external["kind"]["parameters"]["lut"]["source_path"],
-        directory.path().join("lut.bin").to_string_lossy().as_ref()
+        lut.to_string_lossy().as_ref()
     );
     assert!(external["kind"]["executable"]["executable"].is_string());
     assert!(external["kind"]["executable"]["content_hash"].is_string());
