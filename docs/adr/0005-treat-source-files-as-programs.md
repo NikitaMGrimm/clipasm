@@ -4,44 +4,32 @@ status: accepted
 
 # Treat source files as programs
 
-ADR 0006 refines the stack-storage and visibility wording below. ADR 0007
-supersedes the single-source-result restriction: source programs now return
-their ordered final owned values, while publication still requires exactly one Video among the outputs.
-Inline fixed-input bodies remain isolated and single-valued.
-
-ADR 0009 subsequently adds source-program signatures, imports, runtime-owned
-program definitions, and ordinary calls between authored source files. The
-file-as-program and entrypoint-publication decisions below remain unchanged.
-
 A ClipAsm source file defines one typed stack program whose outputs are its
-ordered final owned values. Non-executable file declarations own language
-versioning, project settings, imports, inputs, parameters, and optional
-entrypoint publication. Executable statements form the source-program body.
+ordered final owned values. Non-executable declarations own language versioning,
+project settings, imports, inputs, parameters, and optional entrypoint
+publication. Executable statements form the source-program body.
 
-The source-program body starts with an empty evaluation stack and receives no
-implicit finalizer. Zero, one, or multiple remaining owned values are returned
-in order. Authors use `concat` or an explicit nested `glue` when several Videos
-should become one Video. The
-registered `glue` body program remains available, but it has no privileged
-role in source-file evaluation.
+The body starts with an empty evaluation stack and receives no implicit
+finalizer. Zero, one, or multiple remaining owned values return in order.
+Authors use `concat` or an explicit nested `glue` when several Videos should
+become one Video; `glue` has no privileged source-file role.
 
-The source program's ordered outputs belong to compilation semantics. A header
-`output` path requires exactly one Video, whose publication belongs to
-entrypoint render orchestration. The output path does not alter semantic graph
-identity and must not become a graph value or operation. As added by ADR 0009,
-an invocation from another source program returns the authored outputs without
-publishing an imported file's output default; imported files may not declare
-that root-only setting.
+Source outputs belong to compilation semantics. A root `output` path requires
+exactly one Video, whose publication belongs to render orchestration. The path
+is publication metadata, not a graph value or semantic-identity input. Calling
+an imported source program returns its outputs without publishing anything;
+imported files may not declare root-only project or output settings.
 
-A fixed, single-value graph input may be supplied by an inline input body.
-That body starts with an empty stack, inherits the enclosing requested-frame
-context, evaluates ordinary items, and must leave exactly one value of the
-declared input type. Its values do not enter or consume the surrounding local
-stack. IDs and references inside it use the existing global named-value
-namespace and dependency machinery.
+A fixed graph input may be supplied by an inline input body. That body starts
+with an empty stack, inherits the enclosing requested-duration context,
+evaluates ordinary items, and must leave exactly one value of the declared
+type. It neither enters nor consumes the surrounding stack.
 
-This decision deliberately did not add source-program signatures, imports,
-runtime-owned registry definitions, scalar-producing programs, or variadic
-input bodies. ADR 0007 added multiple outputs, and ADR 0009 later added callable
-authored programs, signatures, imports, and runtime-owned definitions. Scalar
-programs and variadic input bodies remain outside this decision.
+## Consequences
+
+- Pure compilation may accept a source program with zero, one, or multiple
+  outputs even when it is not a valid render entrypoint.
+- Source programs and registered body programs share the stack evaluator
+  without granting source files an implicit finalizer.
+- Publication stays separate from authored-program calls and graph identity.
+- Inline fixed-input bodies remain isolated and single-valued.

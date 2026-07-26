@@ -56,10 +56,11 @@ cargo run -- render examples/external-brighten.clipasm
 ```
 
 During preflight, ClipAsm resolves and hashes the executable and declared file
-argument and prepares its input dependencies. During rendering, it re-verifies
-those hashes, executes the external program with a versioned JSON request, and
-verifies the artifact before accepting it. The example publishes
-`examples/external-brighten.mp4`.
+argument and prepares its input dependencies. During rendering, it rehashes
+those files when the external node is reached, executes the program with a
+versioned JSON request, and verifies the artifact before accepting it. Files are
+not snapshotted, and a concurrent change after the final hash can still affect
+the process. The example publishes `examples/external-brighten.mp4`.
 
 Cache identity cannot discover undeclared inputs such as environment variables,
 clock or random state, network responses, imported modules, or arbitrary files.

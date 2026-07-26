@@ -37,8 +37,8 @@ outputs return to the caller.
 
 Semantic references use typed internal symbol identities. Public root names
 remain a separate compiled interface. Compiled JSON serializes a reference's
-resolved semantic target rather than an internal symbol identity. This changes
-the compiled format to version 9.
+resolved semantic target rather than an internal symbol identity, so internal
+symbol allocation does not define the serialized contract.
 
 Import paths are resolved relative to the importing file, parsed units are
 deduplicated by canonical filesystem path, and import cycles are rejected during

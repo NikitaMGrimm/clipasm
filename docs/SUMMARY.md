@@ -42,7 +42,6 @@
   - [0003: Separate semantic and execution identities](adr/0003-separate-semantic-and-execution-identities.md)
   - [0004: Quantize source duration by coverage](adr/0004-quantize-source-duration-by-coverage.md)
   - [0005: Treat source files as programs](adr/0005-treat-source-files-as-programs.md)
-  - [0006: Add explicit stack access (superseded by 0010)](adr/0006-add-explicit-stack-access.md)
   - [0007: Support ordered program outputs](adr/0007-support-ordered-program-outputs.md)
   - [0008: Separate parsing from canonical source](adr/0008-separate-parsing-from-canonical-source.md)
   - [0009: Call authored source programs](adr/0009-call-authored-source-programs.md)

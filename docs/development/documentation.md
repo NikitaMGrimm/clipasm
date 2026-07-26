@@ -89,11 +89,11 @@ repeating its contents. After adding, moving, or renaming a page:
 ## Record durable decisions
 
 Write an ADR when a change establishes or revisits a durable architectural
-boundary, non-obvious trade-off, identity rule, or phase owner. Use the
-[ADR template](../adr/template.md), link related and superseded records, and
-state how the decision is confirmed. Do not rewrite historical records merely
-to make their style uniform. If a decision changes, add a new record and update
-the old record's status or relationship explicitly.
+boundary, non-obvious trade-off, identity rule, or phase owner. Keep the public
+ADR set focused on active decisions and let Git preserve obsolete history. When
+a decision changes, transfer any still-relevant rationale to the replacement,
+remove the superseded record and its inbound links, and state how the new
+decision is confirmed. Use the [ADR template](../adr/template.md).
 
 ## Mark volatile material selectively
 

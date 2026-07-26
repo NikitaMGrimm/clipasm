@@ -72,7 +72,7 @@ Forward references therefore participate in the same resolution path as
 ordinary stack values, while dependency cycles remain explicit errors.
 
 After the fixpoint stabilizes, the same recursive resolver performs final
-resolution. The resulting type-resolved draft owns the linked draft, every
+resolution. The resulting resolved draft owns the linked draft, every
 invocation's concrete signature and stack-binding plan, and the ordered output
 types of structural stack blocks and the source body. There is no separate
 concrete type or stack interpreter. Imported definitions and built-ins share
@@ -349,6 +349,8 @@ external executables, and declared external files are rehashed when their node
 is reached; a verified downstream artifact makes the pruned upstream subtree
 irrelevant. FFmpeg/FFprobe identity verification and final export remain
 unconditional.
+Rehashing detects ordinary changes but does not snapshot files or make the
+check atomic with a renderer or external process opening the path.
 
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated

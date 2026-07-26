@@ -1,31 +1,21 @@
 # Architecture decision records
 
-Architecture decision records (ADRs) preserve the context, trade-offs, and
-consequences of decisions that shape ClipAsm. Read the relevant records before
-changing a phase boundary, semantic or execution identity, program model,
-authoring contract, or media-timing rule.
+Architecture decision records (ADRs) describe the active durable decisions that
+shape ClipAsm. Read the relevant records before changing a phase boundary,
+identity, program model, authoring contract, or media-timing rule.
 
-ADRs explain why a decision was made; they are not the normative language
-reference. Use
+ADRs explain constraints and trade-offs; they are not the normative language
+reference or an implementation history. Git retains superseded decisions. Use
 [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md)
 for current domain language and settled authoring semantics, the
 [language reference](../language-reference.md) for current public syntax and
 behavior, and the [architecture](../architecture.md) for current phase
 responsibilities.
 
-Write a new ADR when a change creates or revises a durable boundary,
-non-obvious trade-off, identity rule, or phase owner. Do not rewrite an accepted
-record to make history look current. Record a superseding decision separately
-and update the relationships and statuses of both records. Start from the
-[ClipAsm ADR template](template.md).
-
-> **Current stack model:** ADR 0010 supersedes ADR 0006. Read ADR 0006 only for
-> its historical context. Current documentation must use per-occurrence
-> ownership and exact-type binding from
-> [ADR 0010](0010-add-typed-audio-and-body-input-scopes.md) and
-> [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#settled-stack-semantics),
-> not ADR 0006's
-> contiguous visible/owned suffix model.
+Write an ADR for a durable boundary, non-obvious trade-off, identity rule, or
+phase owner. Keep accepted records focused on the active decision and remove
+superseded records from the public book after transferring any still-relevant
+rationale. Start from the [ClipAsm ADR template](template.md).
 
 ## Language, compilation, and phase boundaries
 
@@ -47,9 +37,8 @@ responsibility map.
 
 | ADR | Status | Decision |
 | --- | --- | --- |
-| [0002](0002-use-one-program-model.md) | `accepted` | Use one typed model for direct and body programs. |
+| [0002](0002-use-one-program-model.md) | `accepted` | Use one typed call model for every program implementation. |
 | [0005](0005-treat-source-files-as-programs.md) | `accepted` | Treat a source file as a stack program and keep publication separate. |
-| [0006](0006-add-explicit-stack-access.md) | **`superseded by ADR 0010`** | Historical explicit stack-access model; use [ADR 0010](0010-add-typed-audio-and-body-input-scopes.md) for current ownership semantics. |
 | [0007](0007-support-ordered-program-outputs.md) | `accepted` | Give programs an ordered sequence of typed outputs. |
 | [0009](0009-call-authored-source-programs.md) | `accepted` | Make imported authored source programs ordinary callable definitions with isolated invocations. |
 | [0010](0010-add-typed-audio-and-body-input-scopes.md) | `accepted` | Add typed Audio, per-occurrence stack ownership, exact-type binding, and body-input aliases. |
@@ -59,8 +48,7 @@ For current vocabulary and behavior, see
 [settled stack semantics](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#settled-stack-semantics)
 and
 [names, references, and dependencies](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#names-references-and-dependencies).
-Older records can contain historical surface syntax; use the
-[language reference](../language-reference.md) for authored examples.
+Use the [language reference](../language-reference.md) for authored examples.
 
 ## Media domains, execution, and rendering
 

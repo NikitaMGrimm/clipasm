@@ -83,7 +83,7 @@ can execute.
 Rendering verifies the prepared tool identities, then plans backward from the
 result. A verified cache artifact satisfies that node and prunes its upstream
 subtree; a miss makes the node's inputs part of the execution frontier. Source
-hashes and external executables are reverified when their node is reached, and
+files and external executables are rehashed when their node is reached, and
 missing renderer primitives are executed in topological order. Reached
 [external programs](external-programs-and-trust.md) are trusted native code.
 Produced artifacts are checked before they enter the cache or publication

@@ -40,6 +40,6 @@ policy. Decoded source-sample counts divided by the source sample rate are a
 fallback only when stream duration metadata is absent; codec priming or discard
 padding therefore does not redefine an otherwise declared timeline.
 
-This changes execution behavior but not compiled or prepared semantics. The
-cache execution format is therefore bumped, while compiled and prepared format
-versions and semantic hashes remain unchanged.
+This mapping belongs to renderer compatibility rather than authored semantics.
+An incompatible mapping change must invalidate affected working artifacts
+without changing compiled meaning.
