@@ -9,6 +9,10 @@ FFprobe to verify it.
 > **Pre-release:** ClipAsm's language, file formats, Rust API, and CLI may
 > change without compatibility guarantees.
 
+You can
+[try browser-based validation and graph inspection](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
+without installing ClipAsm. Rendering remains a native workflow.
+
 ## Install
 
 Install ClipAsm from crates.io:

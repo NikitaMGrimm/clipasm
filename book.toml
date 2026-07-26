@@ -12,6 +12,10 @@ edition = "2024"
 build-dir = "target/book"
 create-missing = false
 
+[output.html]
+additional-css = ["theme/clipasm-playground.css"]
+additional-js = ["theme/clipasm-playground.js"]
+
 [output.html.playground]
 runnable = false
 

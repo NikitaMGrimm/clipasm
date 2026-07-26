@@ -20,10 +20,24 @@ include = [
     "/examples/programs/**/*.clipasm",
     "/examples/assets/gentle-motion.mkv",
     "/examples/assets/morning.png",
+    "/theme/**",
     "/Cargo.lock",
     "/LICENSE",
     "/README.md",
 ]
+
+[workspace]
+members = ["playground"]
+default-members = ["."]
+resolver = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
 
 [lib]
 name = "clipasm"
@@ -48,11 +62,5 @@ tempfile = "3"
 [dev-dependencies]
 trycmd = { version = "1.2.1", default-features = false, features = ["diff"] }
 
-
-[lints.rust]
-unsafe_code = "forbid"
-missing_docs = "warn"
-
-[lints.clippy]
-all = "warn"
-pedantic = "warn"
+[lints]
+workspace = true

@@ -120,6 +120,34 @@ change. State what was verified and against which source or condition; update
 the note when rechecking the content. Do not add dates to stable explanations
 or use a freshness marker as a substitute for verification.
 
+## Add an interactive ClipAsm example
+
+Put a normal `clipasm` code block immediately before an empty
+`<div data-clipasm-playground></div>`. The published book progressively replaces
+that pair with the browser editor; readers without JavaScript still see the
+source. Prefer an mdBook `{{#include}}` of a committed example so the book and
+repository do not drift.
+
+The browser adapter deliberately exposes only media-pure, single-file
+compilation. Do not imply that the playground opens assets, resolves imports,
+runs external programs, or renders video. Changes to its response must update
+the response version in `playground/src/lib.rs` and
+`theme/clipasm-playground.js`.
+
+To build the WebAssembly assets locally, install the pinned target and binding
+tool, build the book, and run the asset script:
+
+```console
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.126 --locked
+mdbook build
+./scripts/build_playground.sh
+```
+
+Serve `target/book` over HTTP to test the worker; browsers do not load the
+WebAssembly module correctly from a `file://` URL. CI checks the adapter and
+JavaScript, while the Pages workflow builds the same assets before deployment.
+
 ## Check the result
 
 During documentation work, run targeted checks early:

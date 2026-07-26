@@ -42,6 +42,23 @@ jobs:
       - run: cargo install mdbook --version 0.5.4 --locked
       - run: ./scripts/check.sh
 
+  browser-playground:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd1 # v6.0.2
+      - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+      - name: Install WebAssembly bindings
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Build browser compiler
+        run: ./scripts/build_playground.sh target/playground
+      - name: Check browser JavaScript
+        run: >-
+          node --check theme/clipasm-playground.js &&
+          node --check playground/web/clipasm-playground-worker.js
+
   portable-rust:
     strategy:
       matrix:

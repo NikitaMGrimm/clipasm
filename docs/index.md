@@ -10,14 +10,18 @@ Compilation creates a pure semantic graph without opening media files;
 preflight resolves reachable media and tools; rendering uses FFmpeg to produce
 the configured MP4 and FFprobe to verify it.
 
+You can [try validation and inspect a compiled graph](try-clipasm.md) in the
+browser before installing anything.
+
 ## Recommended learning path
 
-1. [Check the requirements and complete a first render](getting-started/first-render.md).
-2. [Build the scenic sequence](tutorials/scenic-sequence.md) to learn the
+1. [Try ClipAsm in the browser](try-clipasm.md), or skip directly to installation.
+2. [Check the requirements and complete a first render](getting-started/first-render.md).
+3. [Build the scenic sequence](tutorials/scenic-sequence.md) to learn the
    configuration, values, and `glue` body as they become useful.
-3. [Build a reusable composition](tutorials/reusable-composition.md) to work
+4. [Build a reusable composition](tutorials/reusable-composition.md) to work
    with names, references, and composition.
-4. Choose a task guide or concept below as your next project requires it.
+5. Choose a task guide or concept below as your next project requires it.
 
 Each tutorial uses committed source and assets from the repository. The
 [examples catalog](examples.md) collects the programs and their exact commands.

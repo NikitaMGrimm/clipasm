@@ -2,6 +2,8 @@
 
 [Introduction](index.md)
 
+[Try ClipAsm](try-clipasm.md)
+
 # Getting started
 
 - [Install and render ClipAsm](getting-started/first-render.md)

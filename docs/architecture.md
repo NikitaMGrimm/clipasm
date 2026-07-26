@@ -150,6 +150,12 @@ serialized view of compiled semantics, not an authored source representation,
 and its schema is not derived implicitly from the internal `CompiledProgram`
 layout.
 
+The `playground` workspace crate is a downstream browser host adapter. It keeps
+WebAssembly bindings out of the core crate and exposes only in-memory parsing,
+pure compilation, and compiled JSON through a versioned response. The book runs
+that adapter in a worker and accepts one source unit; native package loading,
+preflight, external processes, and rendering do not enter the browser boundary.
+
 ## Programs
 
 All programs are runtime `ProgramDefinition` values in one crate-private
