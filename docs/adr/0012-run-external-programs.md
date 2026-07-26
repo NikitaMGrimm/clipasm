@@ -85,11 +85,18 @@ access the network or filesystem, or produce different results for identical
 requests.
 
 Cache identity covers the declared semantic version, executable and file-argument
-bytes, bound parameters, upstream artifacts, project settings, and provided
-FFmpeg/FFprobe identities. It cannot automatically discover imported modules,
-environment variables, clocks, random input, network responses, or undeclared
-files. Authors must declare file dependencies or increment the semantic version
-whenever such dependencies change output semantics.
+content hashes observed during preflight, bound parameters, upstream artifacts,
+project settings, and provided FFmpeg/FFprobe identities. Re-hashing detects
+ordinary changes before cache reuse or process launch, but it does not make the
+filesystem immutable: verification and the process opening a path are separate
+operations, so a concurrent mutation may change the bytes the process observes.
+ClipAsm does not snapshot these files or defend against hostile local filesystem
+changes.
+
+Identity cannot automatically discover imported modules, environment variables,
+clocks, random input, network responses, or undeclared files. Authors must
+declare file dependencies or increment the semantic version whenever such
+dependencies change output semantics.
 
 ## Consequences
 
@@ -99,8 +106,9 @@ whenever such dependencies change output semantics.
   authored programs.
 - Scripts can be launched through an explicit interpreter and `file(...)`
   argument while their callable interface remains native ClipAsm source.
-- Executable bytes, file-argument bytes, parameters, and upstream artifacts
-  invalidate cache identity.
+- Preflight-observed executable, file-argument, and File-parameter bytes
+  participate in prepared identity; ordinary later changes are rejected when
+  the external node is reached.
 - Nondeterministic or environmentally dependent external programs may reuse a
   cached prior result; reproducibility remains the external author's contract.
 - Output-changing programs that do not preserve an input domain require a later

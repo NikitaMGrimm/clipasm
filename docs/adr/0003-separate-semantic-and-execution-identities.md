@@ -6,13 +6,14 @@ status: accepted
 
 ClipAsm uses separate identities for meaning and execution. Compiled structure
 hashes identify the authored language and semantic graph. Prepared semantic
-hashes additionally include resolved source content and exact prepared domains.
-The cache execution namespace separately identifies renderer compatibility,
-including its artifact-contract revision, artifact-cache policy, and FFmpeg and
-FFprobe identities. The policy covers the verified working media shape and the
-native renderer's codec and container choices; external-program artifacts may
-use any encoding that satisfies the verified prepared-artifact contract. The
-final export profile is execution policy but does not define intermediate-cache
+hashes additionally include content hashes observed while resolving source
+assets during preflight and exact prepared domains. The cache execution
+namespace separately identifies renderer compatibility, including its
+artifact-contract revision, artifact-cache policy, and FFmpeg and FFprobe
+identities. The policy covers the verified working media shape and the native
+renderer's codec and container choices; external-program artifacts may use any
+encoding that satisfies the verified prepared-artifact contract. The final
+export profile is execution policy but does not define intermediate-cache
 compatibility because publication always re-exports the result. Cargo package
 versions remain metadata rather than inputs to semantic or cache identity.
 
