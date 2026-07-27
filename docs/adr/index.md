@@ -19,13 +19,13 @@ rationale. Start from the [ClipAsm ADR template](template.md).
 
 | ADR | Status | Decision |
 | --- | --- | --- |
-| [0001](records.md#keep-compilation-pure) | `accepted` | Keep compilation pure and defer media and tool inspection to preflight. |
-| [0003](records.md#separate-semantic-and-execution-identities) | `accepted` | Separate authored semantic identity, prepared identity, and renderer compatibility. |
-| [0008](records.md#separate-parsing-from-canonical-source) | `accepted` | Keep parsing and lowering separate from crate-private canonical source. |
-| [0013](records.md#adopt-the-native-clipasm-language) | `accepted` | Use one native `.clipasm` language and keep syntax and sugar language-owned. |
-| [0015](records.md#keep-native-operations-closed-and-phase-owned) | `accepted` | Keep native operations closed, exhaustive, and owned by their phases. |
-| [0018](records.md#evaluate-scalar-expressions-exactly) | `accepted` | Evaluate Number and Duration expressions exactly before parameter constraints. |
-| [0019](records.md#0019-model-rooted-timeline-layouts-separately-from-media-values) | `accepted` | Keep rooted authored timeline layouts separate from media identity and resolve symbolic boundaries during preflight. |
+| [0001](0001-keep-compilation-pure.md) | `accepted` | Keep compilation pure and defer media and tool inspection to preflight. |
+| [0003](0003-separate-semantic-and-execution-identities.md) | `accepted` | Separate authored semantic identity, prepared identity, and renderer compatibility. |
+| [0008](0008-separate-parsing-from-canonical-source.md) | `accepted` | Keep parsing and lowering separate from crate-private canonical source. |
+| [0013](0013-adopt-native-clipasm-language.md) | `accepted` | Use one native `.clipasm` language and keep syntax and sugar language-owned. |
+| [0015](0015-keep-native-operations-phase-owned.md) | `accepted` | Keep native operations closed, exhaustive, and owned by their phases. |
+| [0018](0018-evaluate-scalar-expressions-exactly.md) | `accepted` | Evaluate Number and Duration expressions exactly before parameter constraints. |
+| [0019](0019-model-rooted-timeline-layouts.md) | `accepted` | Keep rooted authored timeline layouts separate from media identity and resolve symbolic boundaries during preflight. |
 
 See the architecture's
 [language and canonical-source](../architecture.md#language-and-canonical-source),
@@ -37,12 +37,12 @@ responsibility map.
 
 | ADR | Status | Decision |
 | --- | --- | --- |
-| [0002](records.md#use-one-program-model) | `accepted` | Use one typed call model for every program implementation. |
-| [0005](records.md#treat-source-files-as-programs) | `accepted` | Treat a source file as a stack program and keep publication separate. |
-| [0007](records.md#support-ordered-program-outputs) | `accepted` | Give programs an ordered sequence of typed outputs. |
-| [0009](records.md#call-authored-source-programs) | `accepted` | Make imported authored source programs ordinary callable definitions with isolated invocations. |
-| [0010](records.md#add-typed-audio-and-body-input-scopes) | `accepted` | Add typed Audio, per-occurrence stack ownership, exact-type binding, and body-input aliases. |
-| [0011](records.md#add-type-preserving-timeline-programs) | `accepted` | Resolve type-preserving Video or Audio timeline programs during checking. |
+| [0002](0002-use-one-program-model.md) | `accepted` | Use one typed call model for every program implementation. |
+| [0005](0005-treat-source-files-as-programs.md) | `accepted` | Treat a source file as a stack program and keep publication separate. |
+| [0007](0007-support-ordered-program-outputs.md) | `accepted` | Give programs an ordered sequence of typed outputs. |
+| [0009](0009-call-authored-source-programs.md) | `accepted` | Make imported authored source programs ordinary callable definitions with isolated invocations. |
+| [0010](0010-add-typed-audio-and-body-input-scopes.md) | `accepted` | Add typed Audio, per-occurrence stack ownership, exact-type binding, and body-input aliases. |
+| [0011](0011-add-type-preserving-timeline-programs.md) | `accepted` | Resolve type-preserving Video or Audio timeline programs during checking. |
 
 For current behavior, see the language reference sections on
 [arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
@@ -52,15 +52,15 @@ and [references and output names](../language-reference.md#references-and-output
 
 | ADR | Status | Decision |
 | --- | --- | --- |
-| [0004](records.md#quantize-source-duration-by-coverage) | `accepted` | Quantize source video duration to the smallest covering project-frame count. |
-| [0012](records.md#run-registered-external-programs) | `accepted` | Run typed external programs only as trusted rendering-time executables. |
-| [0014](records.md#map-frame-and-sample-boundaries-cumulatively) | `accepted` | Map cumulative frame and sample boundaries exactly without a shared master tick. |
-| [0016](records.md#overlap-audiovisual-transitions-on-exact-boundaries) | `accepted` | Overlap crossfade picture and Audio on the same exact output boundaries. |
-| [0017](records.md#0017-run-ffmpeg-recipes-through-host-adapters) | `accepted` | Share closed FFmpeg recipes between explicit native and browser runtime adapters. |
+| [0004](0004-quantize-source-duration-by-coverage.md) | `accepted` | Quantize source video duration to the smallest covering project-frame count. |
+| [0012](0012-run-external-programs.md) | `accepted` | Run typed external programs only as trusted rendering-time executables. |
+| [0014](0014-map-frame-and-sample-boundaries.md) | `accepted` | Map cumulative frame and sample boundaries exactly without a shared master tick. |
+| [0016](0016-overlap-audiovisual-transitions-exactly.md) | `accepted` | Overlap crossfade picture and Audio on the same exact output boundaries. |
+| [0017](0017-run-ffmpeg-recipes-through-host-adapters.md) | `accepted` | Share closed FFmpeg recipes between explicit native and browser runtime adapters. |
 
 See the architecture's [preflight](../architecture.md#preflight) and
 [rendering](../architecture.md#rendering) sections for current execution
 ownership. External executables are trusted code; the complete trust boundary
-is recorded in [ADR 0012](records.md#run-registered-external-programs). The native/browser
+is recorded in [ADR 0012](0012-run-external-programs.md). The native/browser
 runtime boundary is recorded in
-[ADR 0017](records.md#0017-run-ffmpeg-recipes-through-host-adapters).
+[ADR 0017](0017-run-ffmpeg-recipes-through-host-adapters.md).

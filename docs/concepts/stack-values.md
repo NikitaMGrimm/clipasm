@@ -7,7 +7,7 @@ boundaries keep nested bodies predictable.
 This page explains the model. The
 [language reference](../language-reference.md#arguments-and-stack-binding) owns
 the authored behavior, and
-[ADR 0010](../adr/records.md#add-typed-audio-and-body-input-scopes) records the
+[ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) records the
 current typed ownership design.
 
 ## Values and occurrences are different
@@ -109,9 +109,9 @@ only the program's ordered outputs return to its caller.
 - The [language reference](../language-reference.md#arguments-and-stack-binding)
   owns binding, visibility, adaptation, blocks, references, output bindings,
   and call syntax.
-- [ADR 0010](../adr/records.md#add-typed-audio-and-body-input-scopes) replaces the
+- [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) replaces the
   earlier contiguous stack-access model with typed per-occurrence ownership.
-- [ADR 0011](../adr/records.md#add-type-preserving-timeline-programs) explains
+- [ADR 0011](../adr/0011-add-type-preserving-timeline-programs.md) explains
   checked Video-or-Audio type inference.
 - The [architecture](../architecture.md#compilation) describes how checked stack
   plans are evaluated.

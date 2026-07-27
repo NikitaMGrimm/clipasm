@@ -13,6 +13,26 @@ from urllib.parse import unquote, urlsplit
 
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
 SUMMARY_LINK = re.compile(r"\[[^\]]+\]\(([^)#?]+\.md)(?:#[^)]+)?\)")
+EXPECTED_ADR_ROUTES = (
+    Path("adr/0001-keep-compilation-pure.html"),
+    Path("adr/0002-use-one-program-model.html"),
+    Path("adr/0003-separate-semantic-and-execution-identities.html"),
+    Path("adr/0004-quantize-source-duration-by-coverage.html"),
+    Path("adr/0005-treat-source-files-as-programs.html"),
+    Path("adr/0007-support-ordered-program-outputs.html"),
+    Path("adr/0008-separate-parsing-from-canonical-source.html"),
+    Path("adr/0009-call-authored-source-programs.html"),
+    Path("adr/0010-add-typed-audio-and-body-input-scopes.html"),
+    Path("adr/0011-add-type-preserving-timeline-programs.html"),
+    Path("adr/0012-run-external-programs.html"),
+    Path("adr/0013-adopt-native-clipasm-language.html"),
+    Path("adr/0014-map-frame-and-sample-boundaries.html"),
+    Path("adr/0015-keep-native-operations-phase-owned.html"),
+    Path("adr/0016-overlap-audiovisual-transitions-exactly.html"),
+    Path("adr/0017-run-ffmpeg-recipes-through-host-adapters.html"),
+    Path("adr/0018-evaluate-scalar-expressions-exactly.html"),
+    Path("adr/0019-model-rooted-timeline-layouts.html"),
+)
 
 
 class HtmlLinks(HTMLParser):
@@ -62,13 +82,16 @@ def book_coverage(root: Path) -> list[str]:
     listed = {Path(path) for path in SUMMARY_LINK.findall(summary)}
     excluded = {Path("SUMMARY.md"), Path("repository-history.md")}
     excluded.update(path.relative_to(docs) for path in (docs / "agents").glob("*.md"))
-    excluded.update(
-        path.relative_to(docs)
-        for path in (docs / "adr").glob("*.md")
-        if path.name not in {"index.md", "template.md"}
-    )
     public = {path.relative_to(docs) for path in docs.rglob("*.md")} - excluded
     return [f"docs/{path}: public page is missing from docs/SUMMARY.md" for path in sorted(public - listed)]
+
+
+def expected_adr_routes(book: Path) -> list[str]:
+    return [
+        f"{book}: missing generated ADR page: {route}"
+        for route in EXPECTED_ADR_ROUTES
+        if not (book / route).is_file()
+    ]
 
 
 def generated_html_links(root: Path, book: Path) -> list[str]:
@@ -115,6 +138,7 @@ def main() -> int:
     if not book.is_dir():
         problems.append(f"generated book directory does not exist: {book.relative_to(root)}")
     else:
+        problems.extend(expected_adr_routes(book))
         problems.extend(generated_html_links(root, book))
     if problems:
         print("documentation checks failed:", file=sys.stderr)

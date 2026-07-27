@@ -7,7 +7,7 @@ their stacks and names.
 This page explains the relationship between files, packages, and calls.
 The [language reference](../language-reference.md#imports) owns current syntax
 and behavior, while
-[ADR 0009](../adr/records.md#call-authored-source-programs) records the import and
+[ADR 0009](../adr/0009-call-authored-source-programs.md) records the import and
 invocation design.
 
 ## Units form one linked package
@@ -93,9 +93,9 @@ tools reachable from the Video being prepared. See
 - The [language reference](../language-reference.md#configuration-and-declarations)
   specifies declarations, source programs, root-only configuration, imports,
   inputs, parameters, namespaces, and path behavior.
-- [ADR 0005](../adr/records.md#treat-source-files-as-programs) separates source
+- [ADR 0005](../adr/0005-treat-source-files-as-programs.md) separates source
   program outputs from entrypoint publication.
-- [ADR 0009](../adr/records.md#call-authored-source-programs) records linked
+- [ADR 0009](../adr/0009-call-authored-source-programs.md) records linked
   packages, aliases, callable authored programs, and isolated invocations.
 - The [architecture](../architecture.md#language-and-canonical-source) describes
   package loading and canonical source ownership.
