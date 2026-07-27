@@ -10,14 +10,14 @@ rendering uses FFmpeg and FFprobe to publish an MP4.
 [Try ClipAsm in the browser](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
 to edit, validate, inspect, and render the scenic sequence without installing
 anything. The native CLI supports complete source packages, imports, and
-unrestricted preflight.
+the full native feature set.
 
 ## Install and make a first video
 
 Install requires Rust 1.95 or newer. Rendering also requires FFmpeg and FFprobe
 on `PATH`.
 
-```console,ignore
+```console
 cargo install clipasm --locked
 clipasm init hello-video
 cd hello-video

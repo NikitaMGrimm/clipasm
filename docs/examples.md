@@ -4,20 +4,21 @@ The committed `.clipasm` programs under `examples/` are small executable
 language demonstrations. Run their commands from the repository root.
 Validation is pure; rendering additionally requires FFmpeg and FFprobe.
 
-## Canonical starter sequence
+## Starter project
 
 `clipasm init [PATH]` creates a standalone project without a repository
-checkout. Its `main.clipasm` is byte-for-byte the canonical
-`examples/scenic-sequence.clipasm` program, with the same three images copied
-to `assets/`. In an initialized project, run:
+checkout. Its bundled starter includes `main.clipasm` and three images in
+`assets/`. In an initialized project, run:
 
 ```console,ignore
 clipasm validate main.clipasm
 clipasm render main.clipasm
 ```
 
-The starter is a starting point, not a managed template. Later ClipAsm releases
-may create different new starter bytes but never update existing projects.
+The starter is a starting point, not a managed template. The
+[CLI reference](reference/cli.md#init) defines its compatibility and lifecycle.
+The repository programs below are development examples; they may differ from
+the starter shipped by an installed binary.
 
 ## Scenic sequence
 

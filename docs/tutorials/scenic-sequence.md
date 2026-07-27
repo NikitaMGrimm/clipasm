@@ -11,9 +11,10 @@ clipasm init scenic-video
 cd scenic-video
 ```
 
-Open `main.clipasm` in an editor. It has the same bytes as the committed
-[canonical scenic sequence](https://github.com/NikitaMGrimm/clipasm/blob/main/examples/scenic-sequence.clipasm);
-it is not managed by ClipAsm after initialization.
+Open `main.clipasm` in an editor. It is your ordinary project file, not a
+managed template; ClipAsm will not rewrite it after initialization. The
+[CLI reference](../reference/cli.md#init) defines the bundled starter's
+compatibility and lifecycle.
 
 ## 1. Predict the project timeline
 
@@ -106,7 +107,7 @@ clipasm render main.clipasm
 
 **Observe:** validation reports 96 frames, and
 `generated/scenic-sequence.mp4` has a shorter middle scene. You may restore
-`1500ms` whenever you want the canonical 4.5-second sequence again.
+`1500ms` whenever you want the original 4.5-second sequence again.
 
 ## What you learned
 

@@ -32,8 +32,10 @@ clipasm init hello-video
 
 `init` creates the directory and writes `main.clipasm`, its three `assets/`
 images, a project README, and `.gitignore`. It does not invoke Git, render,
-inspect media, or contact the network. Its success message gives the next
-commands; enter the new project:
+inspect media, or contact the network. The result is an ordinary project you
+control; see the [CLI reference](../reference/cli.md#init) for the starter's
+compatibility and lifecycle. Its success message gives the next commands;
+enter the new project:
 
 ```console,ignore
 cd hello-video
@@ -41,8 +43,7 @@ cd hello-video
 
 ## Validate the starter program
 
-The generated `main.clipasm` is the canonical scenic sequence. Validate it
-before rendering:
+Validate the generated `main.clipasm` before rendering:
 
 ```console,ignore
 clipasm validate main.clipasm

@@ -19,7 +19,8 @@ Give each page one job and keep exact rules in one place.
 | Durable decisions and trade-offs | `docs/adr/` |
 | Change impact and identity review | `docs/development/change-guide.md` |
 | Runnable source programs | `examples/` |
-| Starter source and images | `examples/scenic-sequence.clipasm` and `examples/assets/*.png` |
+| Installed starter compatibility and lifecycle | `docs/reference/cli.md#init` |
+| Repository development examples | `examples/` |
 | Starter README and ignore rules | `examples/starter/` |
 | Contribution workflow | `CONTRIBUTING.md` |
 

@@ -2,9 +2,10 @@
 
 Run the examples below from the repository root.
 
-`clipasm init` copies the canonical `scenic-sequence.clipasm` source bytes as
-an initialized project's `main.clipasm`, along with its three PNG assets. See
-[the starter README](starter/README.md) for commands to run outside a checkout.
+These are development examples, not the starter contract for an installed
+binary. The bundled starter may differ. See [the starter README](starter/README.md)
+for commands to run outside a checkout, and the [CLI reference](../docs/reference/cli.md#init)
+for the starter's compatibility and lifecycle.
 
 The canonical explanation of each source program and its validation/render
 commands is in [the examples chapter](../docs/examples.md).

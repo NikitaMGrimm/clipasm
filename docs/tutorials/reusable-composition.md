@@ -16,7 +16,7 @@ available for comparison.
 
 ## Start with the project and two named clips
 
-Set the same project properties as the starter, but choose a separate output:
+Set these project properties, using a separate output:
 
 ```clipasm
 clipasm 1
@@ -72,9 +72,8 @@ standalone occurrence. The `after` body starts with an empty stack, produces one
 meadow Video, and supplies that Video to `flash_cut`. Finally, `$closing` and
 `concat` make one ordered result.
 
-Use the committed [canonical reusable-composition source](https://github.com/NikitaMGrimm/clipasm/blob/main/examples/reusable-composition.clipasm)
-to compare your complete file rather than copying a repository tree. The
-[references and output names](../language-reference.md#references-and-output-names)
+The snippets above make the complete file, so no repository checkout is
+needed. The [references and output names](../language-reference.md#references-and-output-names)
 and [arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
 sections own the exact rules.
 

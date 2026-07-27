@@ -22,7 +22,7 @@ bounded operation/work budget.
 Still-image and video-file sources, plus every native operation reachable from
 them, are supported. Standalone Audio-file sources, imports, and external
 programs remain unavailable in the browser. The installed CLI supports complete
-source packages and unrestricted native preflight and rendering; continue with
+source packages and the full native feature set; continue with
 [Install and render ClipAsm](getting-started/first-render.md) to initialize a
 project, use those features, or render larger projects.
 

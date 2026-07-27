@@ -23,8 +23,9 @@ browser before installing anything.
 
 `clipasm init` creates a standalone project, so the getting-started path does
 not require a repository checkout. The [examples catalog](examples.md) is for
-the committed programs in a source checkout and identifies the canonical
-starter sequence.
+development examples in a source checkout; those examples may differ from the
+starter bundled with an installed CLI. The [command-line reference](reference/cli.md)
+defines the starter lifecycle and compatibility contract.
 
 ## Find what you need
 
