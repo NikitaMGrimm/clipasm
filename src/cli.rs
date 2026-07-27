@@ -10,8 +10,14 @@ use clipasm::diagnostic::{Diagnostic, Result};
 use clipasm::source::{SourceFile, SourceSpan};
 use clipasm::{compiler, language, preflight, render};
 
+mod init;
+
 #[derive(Debug, Parser)]
-#[command(name = "clipasm", version, about)]
+#[command(
+    name = "clipasm",
+    version,
+    about = "Compile and render typed Video and Audio graphs."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -19,14 +25,27 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Parse, type-check, and infer source-independent video domains.
+    /// Create a self-contained `ClipAsm` starter project.
+    #[command(
+        about = "Create a self-contained ClipAsm starter project",
+        long_about = "Create a self-contained ClipAsm starter project.\n\n\
+            PATH defaults to the current directory and is created when needed. \
+            Existing directories are supported only when every starter path is available. \
+            Existing files and incompatible directories are never replaced.",
+        after_long_help = "Examples:\n  clipasm init hello-video\n  clipasm init"
+    )]
+    Init {
+        /// Directory to initialize. Defaults to the current directory.
+        path: Option<PathBuf>,
+    },
+    /// Parse, type-check, and infer source-independent Video and Audio domains.
     Validate {
         /// Native `.clipasm` source program.
         source: PathBuf,
         #[command(flatten)]
         bindings: BindingArgs,
     },
-    /// Inspect the compiled semantic program as JSON.
+    /// Inspect compiled Video and Audio semantics as JSON.
     Inspect {
         /// Native `.clipasm` source program.
         source: PathBuf,
@@ -36,7 +55,8 @@ enum Command {
         #[command(flatten)]
         bindings: BindingArgs,
     },
-    /// Compile and render the source program using `FFmpeg`.
+    /// Compile and render a Video, including attached Audio, using `FFmpeg`.
+    #[command(about = "Compile and render a Video, including attached Audio, using FFmpeg")]
     Render {
         /// Native `.clipasm` source program. Relative paths resolve from its directory.
         source: PathBuf,
@@ -74,6 +94,15 @@ pub(crate) fn run() -> ExitCode {
 
 fn execute(cli: Cli) -> Result<()> {
     match cli.command {
+        Command::Init { path } => {
+            let target = path.as_deref().unwrap_or_else(|| Path::new("."));
+            let initialized_target = init::initialize(target)?;
+            let displayed_target = displayed_init_target(target, &initialized_target);
+            print_init_success(
+                &displayed_target,
+                path.is_none() || target_is_current_directory(&initialized_target),
+            );
+        }
         Command::Validate { source, bindings } => {
             let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;
@@ -140,6 +169,56 @@ fn execute(cli: Cli) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_init_success(target: &Path, initializes_current_directory: bool) {
+    println!("Created ClipAsm project at `{}`.", target.display());
+    println!("\nNext:");
+    if !initializes_current_directory {
+        if let Some(target) = portable_shell_path(target) {
+            println!("  cd \"{target}\"");
+        } else {
+            println!("  In the created project directory, run:");
+        }
+    }
+    println!("  clipasm validate main.clipasm");
+    println!("  clipasm render main.clipasm");
+}
+
+fn portable_shell_path(path: &Path) -> Option<&str> {
+    let path = path.to_str()?;
+    if path.ends_with('\\')
+        || path.chars().any(|character| {
+            character.is_control() || matches!(character, '"' | '$' | '`' | '%' | '!')
+        })
+    {
+        return None;
+    }
+    Some(path)
+}
+
+fn displayed_init_target(requested: &Path, initialized: &Path) -> PathBuf {
+    if requested.is_absolute() {
+        return initialized.to_path_buf();
+    }
+    let Ok(current_directory) = std::env::current_dir() else {
+        return requested.to_path_buf();
+    };
+    match initialized.strip_prefix(current_directory) {
+        Ok(relative) if relative.as_os_str().is_empty() => PathBuf::from("."),
+        Ok(relative) => relative.to_path_buf(),
+        Err(_) => initialized.to_path_buf(),
+    }
+}
+
+fn target_is_current_directory(target: &Path) -> bool {
+    let Ok(target) = std::fs::canonicalize(target) else {
+        return target == Path::new(".");
+    };
+    let Ok(current_directory) = std::env::current_dir().and_then(std::fs::canonicalize) else {
+        return false;
+    };
+    target == current_directory
 }
 
 fn entrypoint_bindings(

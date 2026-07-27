@@ -9,7 +9,7 @@ External programs are an explicit trust boundary. Read this page before
 rendering a project that imports one. The
 [language reference](../language-reference.md#external-implementations) owns
 the current declaration syntax, and
-[ADR 0012](../adr/0012-run-external-programs.md) records the complete execution
+[ADR 0012](../adr/records.md#run-registered-external-programs) records the complete execution
 and cache contract.
 
 ## Compilation records meaning without execution
@@ -104,7 +104,7 @@ author's contract.
 
 - The [language reference](../language-reference.md#external-implementations)
   owns the declaration form, supported interface, and path behavior.
-- [ADR 0012](../adr/0012-run-external-programs.md) records execution,
+- [ADR 0012](../adr/records.md#run-registered-external-programs) records execution,
   verification, cache identity, protocol limits, and the trust boundary.
 - The architecture's
   [external-program](../architecture.md#external-programs),

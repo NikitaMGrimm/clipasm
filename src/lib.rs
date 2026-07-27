@@ -1,6 +1,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 
-//! Embed the `ClipAsm` typed video compiler and renderer.
+//! Embed the `ClipAsm` typed Video and Audio compiler and renderer.
 //!
 //! `ClipAsm` separates authoring from execution. Parse a native `.clipasm`
 //! [`source::SourcePackage`] through [`language`],

@@ -1,16 +1,22 @@
 # Build a reusable composition
 
-This tutorial builds on the
-[scenic sequence](scenic-sequence.md). You will use `clip` blocks to prepare
-named Video values, reuse one value in more than one place, provide an inline
-Video input, and concatenate the final stack. The committed result is a
-four-second, 320x180 MP4.
+This tutorial adds named values, references, and an inline input body to a
+safe project you control. Start in the initialized project from the
+[scenic-sequence tutorial](scenic-sequence.md), or create a new one now:
 
-Run every command from the repository root.
+```console,ignore
+clipasm init reusable-video
+cd reusable-video
+```
 
-## Read the complete source
+There is no repository checkout or directory copying in this workflow. The
+starter supplies the three image assets used below. Create a new file named
+`composition.clipasm` in your editor, so your existing `main.clipasm` remains
+available for comparison.
 
-Open `examples/reusable-composition.clipasm`:
+## Start with the project and two named clips
+
+Set the same project properties as the starter, but choose a separate output:
 
 ```clipasm
 clipasm 1
@@ -23,7 +29,11 @@ config {
     }
     output = "generated/reusable-composition.mp4"
 }
+```
 
+Then add two `clip` blocks:
+
+```clipasm
 clip {
     image("assets/morning.png", 1s, contain)
     zoom_in
@@ -32,7 +42,17 @@ clip {
 clip {
     image("assets/evening.png", 1s, contain)
 } as closing
+```
 
+Each block produces one Video and gives it an immutable name without leaving an
+occurrence on the outer stack. `opening` is zoomed; `closing` is unchanged.
+The exact lowering rules are in [`clip` sugar](../language-reference.md#clip-sugar).
+
+## Reuse a named value and build an inline input
+
+Append the composition:
+
+```clipasm
 $opening
 flash_cut(
     before=$opening,
@@ -46,177 +66,49 @@ $closing
 concat
 ```
 
-The version and project configuration follow the same pattern as the scenic
-sequence. The executable part introduces the new ideas.
+The standalone `$opening` starts the output sequence. The `before=$opening`
+argument reads the same immutable named value again; it does not consume the
+standalone occurrence. The `after` body starts with an empty stack, produces one
+meadow Video, and supplies that Video to `flash_cut`. Finally, `$closing` and
+`concat` make one ordered result.
 
-## Prepare a named opening
+Use the committed [canonical reusable-composition source](https://github.com/NikitaMGrimm/clipasm/blob/main/examples/reusable-composition.clipasm)
+to compare your complete file rather than copying a repository tree. The
+[references and output names](../language-reference.md#references-and-output-names)
+and [arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
+sections own the exact rules.
 
-The first `clip` block prepares the opening:
-
-```clipasm
-clip {
-    image("assets/morning.png", 1s, contain)
-    zoom_in
-} as opening
-```
-
-Inside the block, `image` produces a one-second Video. The following `zoom_in`
-uses the compatible Video owned by that body and returns the processed Video.
-
-`as opening` gives the block's result an immutable name. A `clip` block is
-language sugar for running an owned stack block with a generated `concat`,
-naming its result, and removing that result's stack occurrence. The value
-remains available through `$opening`, but it is not yet waiting on the outer
-stack for final concatenation.
-
-The closing uses the same pattern without an effect:
-
-```clipasm
-clip {
-    image("assets/evening.png", 1s, contain)
-} as closing
-```
-
-For the exact lowering and stack rules, see
-[`clip` sugar](../language-reference.md#clip-sugar).
-
-## Reuse the opening
-
-The standalone reference places the named opening into the executable
-sequence:
-
-```clipasm
-$opening
-```
-
-References read immutable named values without consuming them. That allows the
-same opening to be supplied again as an explicit input to `flash_cut`:
-
-```clipasm
-flash_cut(
-    before=$opening,
-```
-
-The explicit `before` input reads the named value without consuming the
-standalone opening already waiting on the caller's stack. Names identify
-already-produced results; they do not change statement order or stack effects.
-The normative rules are in
-[references and output names](../language-reference.md#references-and-output-names).
-
-## Build an inline input
-
-The `after` input is produced by an inline body:
-
-```clipasm
-    after={
-        image("assets/meadow.png", 1s, contain)
-        zoom_in(2%)
-    },
-```
-
-An inline input body starts with an empty stack and must produce exactly one
-value accepted by the input port. Here `image` creates the meadow Video and
-`zoom_in(2%)` processes it, so the body supplies one Video to `after`.
-
-The last argument chooses a 200-millisecond flash cut:
-
-```clipasm
-    duration=200ms,
-)
-```
-
-At 24 fps, 200 milliseconds is covered by five project frames. `flash_cut`
-returns its own Video result to the caller's stack.
-
-## Concatenate the final stack
-
-The last reference and call complete the program:
-
-```clipasm
-$closing
-concat
-```
-
-At this point, the accessible Video values are ordered as:
-
-1. the standalone `$opening`;
-2. the Video returned by `flash_cut`;
-3. the standalone `$closing`.
-
-`concat` consumes that homogeneous Video sequence in physical order and
-produces the program's final Video. The
-[arguments and stack binding reference](../language-reference.md#arguments-and-stack-binding)
-describes the general binding rules.
-
-## Validate, inspect, and render
-
-Validate the committed source:
-
-```console
-$ clipasm validate examples/reusable-composition.clipasm
-valid: 10 semantic value(s), 96 frame(s)
-
-```
-
-Inspect the compiled JSON document if you want to trace the named values,
-references, and final output:
+## Validate and render your composition
 
 ```console,ignore
-clipasm inspect examples/reusable-composition.clipasm
+clipasm validate composition.clipasm
+clipasm render composition.clipasm
 ```
 
-The JSON includes diagnostic source metadata and identity hashes. Use the
-`nodes`, `named_values`, and `outputs` relationships for this walkthrough
-instead of copying incidental fields.
+Validation reports 96 frames. Rendering writes
+`generated/reusable-composition.mp4`, a four-second Video at 24 fps. The middle
+transition overlaps its inputs; the composition still has the authored
+four-second result.
 
-Render the program:
+## Experiment safely
+
+Change only `duration=200ms` to `duration=320ms`, save, then validate and
+render again:
 
 ```console,ignore
-clipasm render examples/reusable-composition.clipasm
+clipasm validate composition.clipasm
+clipasm render composition.clipasm
 ```
 
-The output is
-`examples/generated/reusable-composition.mp4`, a four-second Video at 24 frames
-per second. Cache counts may vary between runs.
-
-## Exercise: lengthen the flash cut
-
-Make an ignored practice copy:
-
-```console,ignore
-mkdir -p local
-cp -R examples local/reusable-practice
-```
-
-In `local/reusable-practice/reusable-composition.clipasm`, change
-`duration=200ms` to `duration=320ms`. Validate the change:
-
-```console,ignore
-clipasm validate local/reusable-practice/reusable-composition.clipasm
-```
-
-The program still validates to 96 frames because the change affects the
-`flash_cut` within the same overall composition. Render the practice copy and
-compare the transition:
-
-```console,ignore
-clipasm render local/reusable-practice/reusable-composition.clipasm
-```
-
-The copied assets, generated output, manifest, and cache remain under the
-ignored `local/reusable-practice/` tree.
+The program remains 96 frames because the transition changes the overlap within
+the same composition. Compare the rendered transition, then keep or revert the
+edit in your own file.
 
 ## What you learned
 
-You have used:
-
-- `clip` blocks to prepare named values without leaving them on the outer
-  stack;
-- `as` and `$name` to retain and reuse immutable graph results;
-- explicit arguments without consuming a caller stack occurrence;
-- an isolated inline input body to produce one Video;
-- `flash_cut` and `concat` to build the final ordered composition.
-
-Use the [examples catalog](../examples.md) to choose another runnable program,
-or consult the [language reference](../language-reference.md) for exact
-signatures, name behavior, and stack semantics.
+You prepared named values with `clip`, read an immutable value more than once,
+provided an isolated inline input body, and assembled an ordered Video with
+`flash_cut` and `concat`. Choose another committed program in the
+[examples catalog](../examples.md), or use the
+[language reference](../language-reference.md) for exact signatures and stack
+semantics.

@@ -1,30 +1,30 @@
 # The ClipAsm guide
 
-This guide is for people deciding whether ClipAsm fits a media workflow,
-learning to render their first program, looking up exact language behavior, or
-changing the project safely. ClipAsm is pre-release software, so its language,
-file formats, Rust API, and CLI may change without compatibility guarantees.
-
 ClipAsm is a typed, stack-based language for assembling Video and Audio graphs.
 Compilation creates a pure semantic graph without opening media files;
 preflight resolves reachable media and tools; rendering uses FFmpeg to produce
 the configured MP4 and FFprobe to verify it.
+
+ClipAsm is pre-release software, so its language, file formats, Rust API, and
+CLI may change without compatibility guarantees.
 
 You can [edit, validate, inspect, and render a video](try-clipasm.md) in the
 browser before installing anything.
 
 ## Recommended learning path
 
-1. [Try ClipAsm in the browser](try-clipasm.md), or skip directly to installation.
-2. [Check the requirements and complete a first render](getting-started/first-render.md).
-3. [Build the scenic sequence](tutorials/scenic-sequence.md) to learn the
-   configuration, stack blocks, values, and `concat` as they become useful.
+1. [Try ClipAsm in the browser](try-clipasm.md), or install the CLI.
+2. [Initialize a project and make your first render](getting-started/first-render.md).
+3. [Build the scenic sequence](tutorials/scenic-sequence.md) by predicting and
+   checking one source concept at a time.
 4. [Build a reusable composition](tutorials/reusable-composition.md) to work
    with names, references, and composition.
 5. Choose a task guide or concept below as your next project requires it.
 
-Each tutorial uses committed source and assets from the repository. The
-[examples catalog](examples.md) collects the programs and their exact commands.
+`clipasm init` creates a standalone project, so the getting-started path does
+not require a repository checkout. The [examples catalog](examples.md) is for
+the committed programs in a source checkout and identifies the canonical
+starter sequence.
 
 ## Find what you need
 
@@ -36,10 +36,9 @@ To accomplish a specific task:
 - [Review and run an external program](guides/external-programs.md).
 - [Diagnose common failures](guides/troubleshooting.md).
 
-To look up exact behavior, use the
-[command-line reference](reference/cli.md) and normative
-[language reference](language-reference.md). To build a mental model first,
-read about:
+To look up exact behavior, use the [command-line reference](reference/cli.md)
+and normative [language reference](language-reference.md). To build a mental
+model first, read about:
 
 - [compilation, preflight, and rendering](concepts/pipeline.md);
 - [stack values, ownership, and visibility](concepts/stack-values.md);

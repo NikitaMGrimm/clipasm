@@ -3,7 +3,10 @@
 mod common;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use sha2::{Digest as _, Sha256};
 
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let directory = tempfile::tempdir().expect("temporary directory");
@@ -19,6 +22,433 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     )
     .expect("workflow");
     (directory, workflow)
+}
+
+fn run_clipasm(current_directory: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(current_directory)
+        .args(arguments)
+        .output()
+        .expect("run clipasm")
+}
+
+fn project_inventory(root: &Path) -> Vec<PathBuf> {
+    fn collect(root: &Path, directory: &Path, inventory: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(directory).expect("read project directory") {
+            let entry = entry.expect("project entry");
+            let path = entry.path();
+            inventory.push(
+                path.strip_prefix(root)
+                    .expect("project-relative path")
+                    .into(),
+            );
+            if path.is_dir() {
+                collect(root, &path, inventory);
+            }
+        }
+    }
+
+    let mut inventory = Vec::new();
+    collect(root, root, &mut inventory);
+    inventory.sort();
+    inventory
+}
+
+#[test]
+fn init_help_is_exact() {
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args(["init", "--help"])
+        .output()
+        .expect("run clipasm");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 help"),
+        "\
+Create a self-contained ClipAsm starter project.
+
+PATH defaults to the current directory and is created when needed. Existing directories are supported only when every starter path is available. Existing files and incompatible directories are never replaced.
+
+Usage: clipasm init [PATH]
+
+Arguments:
+  [PATH]
+          Directory to initialize. Defaults to the current directory
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Examples:
+  clipasm init hello-video
+  clipasm init
+"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn root_help_lists_init_and_video_audio_descriptions() {
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .arg("--help")
+        .output()
+        .expect("run clipasm");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 help"),
+        "\
+Compile and render typed Video and Audio graphs.
+
+Usage: clipasm <COMMAND>
+
+Commands:
+  init      Create a self-contained ClipAsm starter project
+  validate  Parse, type-check, and infer source-independent Video and Audio domains
+  inspect   Inspect compiled Video and Audio semantics as JSON
+  render    Compile and render a Video, including attached Audio, using FFmpeg
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn init_creates_the_canonical_starter_in_a_new_nested_path() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target = directory.path().join("projects/hello-video");
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .args(["init", "projects/hello-video"])
+        .env("PATH", "")
+        .output()
+        .expect("run clipasm");
+
+    assert!(
+        output.status.success(),
+        "initialization failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 output"),
+        "\
+Created ClipAsm project at `projects/hello-video`.
+
+Next:
+  cd \"projects/hello-video\"
+  clipasm validate main.clipasm
+  clipasm render main.clipasm
+"
+    );
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        project_inventory(&target),
+        [
+            ".gitignore",
+            "README.md",
+            "assets",
+            "assets/evening.png",
+            "assets/meadow.png",
+            "assets/morning.png",
+            "main.clipasm",
+        ]
+        .map(PathBuf::from)
+    );
+    let ignore = fs::read_to_string(target.join(".gitignore")).expect("generated ignore");
+    assert_eq!(ignore, "/.clipasm/\n/generated/\n");
+    assert!(!ignore.contains("*.mp4"));
+    let readme = fs::read_to_string(target.join("README.md")).expect("generated readme");
+    assert_eq!(
+        readme.as_bytes(),
+        include_bytes!("../examples/starter/README.md")
+    );
+    for command in [
+        "clipasm validate main.clipasm",
+        "clipasm render main.clipasm",
+    ] {
+        assert!(readme.contains(command));
+    }
+    assert_eq!(
+        fs::read(target.join("main.clipasm")).expect("generated source"),
+        include_bytes!("../examples/scenic-sequence.clipasm")
+    );
+    for (asset, expected_hash) in [
+        (
+            "morning.png",
+            "27276968af71e810cea6e3d85372555af2cfb6b04a772478aba71b5bf4d72083",
+        ),
+        (
+            "meadow.png",
+            "3c907bd3bf187adc816b583c4bc32c83f43dcc06f5202d5231b6b5de9c6c142d",
+        ),
+        (
+            "evening.png",
+            "7981d3472637275cf410d7f5bca952d1ce87bb01ebf656f401962cdab8a79a40",
+        ),
+    ] {
+        let generated = fs::read(target.join("assets").join(asset)).expect("generated asset");
+        assert_eq!(
+            generated,
+            fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("examples/assets")
+                    .join(asset)
+            )
+            .expect("canonical asset")
+        );
+        assert_eq!(hex::encode(Sha256::digest(&generated)), expected_hash);
+    }
+    assert!(!target.join(".git").exists());
+
+    let validation = run_clipasm(&target, &["validate", "main.clipasm"]);
+    assert!(
+        validation.status.success(),
+        "generated source failed validation: {}",
+        String::from_utf8_lossy(&validation.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(validation.stdout).expect("UTF-8 validation"),
+        "valid: 4 semantic value(s), 108 frame(s)\n"
+    );
+}
+
+#[test]
+fn init_uses_the_current_directory_and_preserves_unrelated_content() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::create_dir(directory.path().join("assets")).expect("compatible asset directory");
+    fs::write(directory.path().join("notes.txt"), b"keep me").expect("unrelated content");
+
+    let output = run_clipasm(directory.path(), &["init"]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 output"),
+        "\
+Created ClipAsm project at `.`.
+
+Next:
+  clipasm validate main.clipasm
+  clipasm render main.clipasm
+"
+    );
+    assert_eq!(
+        fs::read(directory.path().join("notes.txt")).expect("unrelated content"),
+        b"keep me"
+    );
+    assert!(directory.path().join("main.clipasm").is_file());
+}
+
+#[test]
+fn init_with_an_absolute_current_directory_omits_cd() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target = directory.path().to_str().expect("UTF-8 temporary path");
+
+    let output = run_clipasm(directory.path(), &["init", target]);
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("cd \""));
+}
+
+#[test]
+fn init_detects_all_predictable_conflicts_before_writing() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target = directory.path().join("existing");
+    fs::create_dir(&target).expect("target");
+    fs::write(target.join("main.clipasm"), b"owned source").expect("conflicting source");
+    fs::write(target.join("assets"), b"owned asset path").expect("conflicting directory");
+
+    let output = run_clipasm(directory.path(), &["init", "existing"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("[E_INIT_CONFLICT]"), "{stderr}");
+    assert!(stderr.contains("main.clipasm"), "{stderr}");
+    assert!(stderr.contains("assets"), "{stderr}");
+    assert_eq!(
+        fs::read(target.join("main.clipasm")).expect("preserved source"),
+        b"owned source"
+    );
+    assert_eq!(
+        fs::read(target.join("assets")).expect("preserved asset path"),
+        b"owned asset path"
+    );
+    assert!(!target.join("README.md").exists());
+    assert!(!target.join(".gitignore").exists());
+}
+
+#[test]
+fn init_rejects_repeated_initialization_without_replacing_files() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let first = run_clipasm(directory.path(), &["init"]);
+    assert!(first.status.success());
+    fs::write(directory.path().join("README.md"), b"my project").expect("edit readme");
+
+    let repeated = run_clipasm(directory.path(), &["init"]);
+
+    assert!(!repeated.status.success());
+    assert!(String::from_utf8_lossy(&repeated.stderr).contains("[E_INIT_CONFLICT]"));
+    assert_eq!(
+        fs::read(directory.path().join("README.md")).expect("preserved readme"),
+        b"my project"
+    );
+}
+
+#[test]
+fn init_rejects_a_target_that_is_a_file() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(directory.path().join("project"), b"owned").expect("target file");
+
+    let output = run_clipasm(directory.path(), &["init", "project"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_INIT_CONFLICT]"));
+    assert_eq!(
+        fs::read(directory.path().join("project")).expect("preserved target"),
+        b"owned"
+    );
+}
+
+#[test]
+fn initialized_project_renders_when_media_tools_are_available() {
+    if !common::media_tools_available() {
+        eprintln!("skipping initialized-project render because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let initialized = run_clipasm(directory.path(), &["init"]);
+    assert!(initialized.status.success());
+
+    let rendered = run_clipasm(directory.path(), &["render", "main.clipasm"]);
+
+    assert!(
+        rendered.status.success(),
+        "starter render failed: {}",
+        String::from_utf8_lossy(&rendered.stderr)
+    );
+    assert!(
+        directory
+            .path()
+            .join("generated/scenic-sequence.mp4")
+            .is_file()
+    );
+    assert!(
+        directory
+            .path()
+            .join("generated/scenic-sequence.mp4.manifest.json")
+            .is_file()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn init_accepts_a_non_utf8_target_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt as _;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target_name = OsString::from_vec(b"project-\xFF".to_vec());
+    let target = directory.path().join(&target_name);
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .arg("init")
+        .arg(&target_name)
+        .output()
+        .expect("run clipasm");
+
+    assert!(
+        output.status.success(),
+        "initialization failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(target.join("main.clipasm").is_file());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("  cd \""), "{stdout}");
+    assert!(
+        stdout.contains("In the created project directory, run:"),
+        "{stdout}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn init_rejects_a_symlink_target_without_following_it() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let owned = directory.path().join("owned");
+    fs::create_dir(&owned).expect("owned directory");
+    fs::write(owned.join("notes.txt"), b"keep me").expect("owned content");
+    symlink(&owned, directory.path().join("project")).expect("target symlink");
+
+    let output = run_clipasm(directory.path(), &["init", "project"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_INIT_CONFLICT]"));
+    assert_eq!(
+        fs::read(owned.join("notes.txt")).expect("preserved content"),
+        b"keep me"
+    );
+    assert!(!owned.join("main.clipasm").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn init_rejects_a_target_below_a_symlinked_ancestor() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let owned = directory.path().join("owned");
+    fs::create_dir(&owned).expect("owned directory");
+    symlink(&owned, directory.path().join("link")).expect("ancestor symlink");
+
+    let output = run_clipasm(directory.path(), &["init", "link/project"]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("[E_INIT_CONFLICT]"));
+    assert!(!owned.join("project").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn init_omits_an_unsafe_cd_command_for_a_quoted_path() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target = "project-\"quoted";
+
+    let output = run_clipasm(directory.path(), &["init", target]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(directory.path().join(target).join("main.clipasm").is_file());
+    assert!(!stdout.contains("  cd \""), "{stdout}");
+    assert!(
+        stdout.contains("In the created project directory, run:"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn init_normalizes_parent_components_without_creating_extra_directories() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+
+    let output = run_clipasm(directory.path(), &["init", "unused/../project"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(directory.path().join("project/main.clipasm").is_file());
+    assert!(!directory.path().join("unused").exists());
+    assert!(
+        stdout.contains("Created ClipAsm project at `project`."),
+        "{stdout}"
+    );
+    assert!(stdout.contains("  cd \"project\""), "{stdout}");
 }
 
 #[test]

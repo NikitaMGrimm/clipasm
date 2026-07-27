@@ -1,49 +1,23 @@
-# Understand the scenic sequence
+# Build the scenic sequence
 
-In this tutorial, you will read the scenic sequence from declarations to
-executable statements, inspect the graph it describes, and make a duration
-change in an ignored practice copy. The result is the same 4.5-second sequence
-rendered in [the first-render guide](../getting-started/first-render.md).
+In this tutorial, you will use an initialized project to understand one idea at
+a time: project settings, image values, ordered stack statements, and `concat`.
+You will predict an outcome, validate it, make one safe deliberate error, and
+repair it. Create a fresh lesson project from the directory where you keep your
+projects, then enter it:
 
-Run every command from the repository root.
-
-## Read the program
-
-Open `examples/scenic-sequence.clipasm` in your editor. The complete source is:
-
-```clipasm
-clipasm 1
-
-config {
-    video {
-        width = 320
-        height = 180
-        fps = 24
-    }
-    output = "generated/scenic-sequence.mp4"
-}
-
-{
-    image("assets/morning.png", 1500ms, contain)
-    image("assets/meadow.png", 1500ms, contain)
-    image("assets/evening.png", 1500ms, contain)
-    concat
-}
+```console,ignore
+clipasm init scenic-video
+cd scenic-video
 ```
 
-The first line selects version 1 of the native language:
+Open `main.clipasm` in an editor. It has the same bytes as the committed
+[canonical scenic sequence](https://github.com/NikitaMGrimm/clipasm/blob/main/examples/scenic-sequence.clipasm);
+it is not managed by ClipAsm after initialization.
 
-```clipasm
-clipasm 1
-```
+## 1. Predict the project timeline
 
-Every `.clipasm` source file begins with this line. File declarations follow it,
-before any executable statements.
-
-## Set the project video
-
-The `config` declaration sets the project's Video properties and publication
-path:
+Read the configuration:
 
 ```clipasm
 config {
@@ -56,121 +30,89 @@ config {
 }
 ```
 
-The project is 320x180 at 24 frames per second. The authored output path
-resolves from the source file, so this program publishes under
-`examples/generated/`.
+**Predict:** this selects a 320x180 project at 24 frames per second and tells
+rendering where to publish the MP4. It does not load an image.
 
-Only the root source unit may declare project configuration and publication
-settings. See
-[configuration and declarations](../language-reference.md#configuration-and-declarations)
-for the complete rules.
+Validate without changing the file:
 
-## Produce and concatenate three Video values
+```console,ignore
+clipasm validate main.clipasm
+```
 
-The executable stack block is:
+**Observe:** validation succeeds with 108 frames. That confirms the complete
+program has an authored duration; it has still not checked whether the image
+files can be opened. The exact declaration rules are in
+[configuration and declarations](../language-reference.md#configuration-and-declarations).
+
+## 2. Predict the values on the stack
+
+Now read the first three statements in the executable block:
 
 ```clipasm
-{
-    image("assets/morning.png", 1500ms, contain)
-    image("assets/meadow.png", 1500ms, contain)
-    image("assets/evening.png", 1500ms, contain)
-    concat
-}
+image("assets/morning.png", 1500ms, contain)
+image("assets/meadow.png", 1500ms, contain)
+image("assets/evening.png", 1500ms, contain)
 ```
 
-Each `image` call produces one Video. Its arguments are:
+**Predict:** each `image` statement produces one 1.5-second Video. The paths
+are relative to `main.clipasm`, and `contain` states how each image fits the
+project frame. Three such scenes at 24 fps should account for 108 frames.
 
-1. a file path, resolved from `examples/scenic-sequence.clipasm`;
-2. the image duration, here 1,500 milliseconds;
-3. the `contain` fit mode.
+**Observe:** the previous validation result is that prediction: `3 × 1.5 × 24`
+is 108. The [built-in program table](../language-reference.md#built-in-programs)
+owns the exact `image` signature.
 
-The committed images already match the 320x180 project, but the explicit fit
-mode makes the intended behavior visible in the example.
+## 3. Join those values
 
-Statements run in order. The block produces the three Video values in that
-order, and `concat` consumes that homogeneous sequence. The block returns the
-one combined Video, lasting 4.5 seconds.
+The final statement is:
 
-The [built-in program table](../language-reference.md#built-in-programs)
-defines `image` and `concat`. Use it as the reference rather than treating this
-tutorial as a complete signature listing.
-
-## Validate and inspect
-
-Validate the program:
-
-```console
-$ clipasm validate examples/scenic-sequence.clipasm
-valid: 4 semantic value(s), 108 frame(s)
-
+```clipasm
+concat
 ```
 
-The 108 frames are the three 1.5-second sections on a 24-frame-per-second
-project timeline.
+**Predict:** `concat` consumes the accessible Video values in their statement
+order and returns one combined Video. Rendering should show morning, meadow,
+then evening.
 
-Now inspect the compiled JSON document:
+Test a harmless diagnostic before rendering. Change only `concat` to
+`concatt`, save, and validate:
 
 ```console,ignore
-clipasm inspect examples/scenic-sequence.clipasm
+clipasm validate main.clipasm
 ```
 
-The command writes JSON to standard output. At a high level, its `nodes` show
-three image operations followed by their concatenation, and `outputs` selects
-the combined Video. The document also carries diagnostic source metadata and
-identity hashes; focus here on the graph relationships rather than copying
-incidental fields.
-
-## Render the sequence
-
-Render once you are satisfied with validation:
+**Observe:** validation fails at `concatt` because it is not a known program.
+No media is opened and no output is written. Restore the spelling to `concat`,
+save, and validate again:
 
 ```console,ignore
-clipasm render examples/scenic-sequence.clipasm
+clipasm validate main.clipasm
 ```
 
-The expected result is `examples/generated/scenic-sequence.mp4`: morning,
-meadow, and evening, each shown for 1.5 seconds. A successful render also writes
-its sibling manifest and reusable cache entries.
+**Observe:** it is valid again with 108 frames. This is a safe way to use a
+source-location diagnostic while learning: repair the source before rendering.
 
-## Exercise: shorten the middle scene
+## 4. Change one duration and render
 
-Keep the committed example unchanged by copying the examples tree into the
-ignored `local/` directory:
+Change the meadow duration, and nothing else, from `1500ms` to `1s`.
+
+**Predict:** the sequence becomes four seconds, so validation should report 96
+frames at 24 fps. Check it, then render:
 
 ```console,ignore
-mkdir -p local
-cp -R examples local/scenic-practice
+clipasm validate main.clipasm
+clipasm render main.clipasm
 ```
 
-In `local/scenic-practice/scenic-sequence.clipasm`, change the meadow duration
-from `1500ms` to `1s`. Then validate the practice copy:
-
-```console,ignore
-clipasm validate local/scenic-practice/scenic-sequence.clipasm
-```
-
-The result is now 96 frames: four seconds at 24 frames per second. Render it
-with:
-
-```console,ignore
-clipasm render local/scenic-practice/scenic-sequence.clipasm
-```
-
-Because authored asset and output paths resolve from the copied source, its
-inputs, output, manifest, and cache all remain within the ignored practice
-tree.
+**Observe:** validation reports 96 frames, and
+`generated/scenic-sequence.mp4` has a shorter middle scene. You may restore
+`1500ms` whenever you want the canonical 4.5-second sequence again.
 
 ## What you learned
 
-You have seen how a ClipAsm file:
-
-- selects its language version and declares project configuration;
-- resolves authored paths from the source that contains them;
-- produces Video values with `image`;
-- uses a stack block, statement order, and `concat` to form one sequence;
-- moves from pure validation and inspection to rendering.
-
-Continue with [build a reusable composition](reusable-composition.md) to name
-and reuse graph values, supply an inline input body, and assemble a richer
-stack. For exact syntax and stack behavior, use the
-[language reference](../language-reference.md).
+You used project configuration, created Video values with `image`, relied on
+statement order, and used `concat` to produce one output. You also used pure
+validation to diagnose and repair a source error before rendering. Next, [build
+a reusable composition](reusable-composition.md), or consult the
+[language reference](../language-reference.md) for exact syntax and stack
+behavior.

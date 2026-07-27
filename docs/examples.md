@@ -1,15 +1,30 @@
 # Examples
 
 The committed `.clipasm` programs under `examples/` are small executable
-language demonstrations. Run commands from the repository root. Validation is
-pure; rendering additionally requires FFmpeg and FFprobe.
+language demonstrations. Run their commands from the repository root.
+Validation is pure; rendering additionally requires FFmpeg and FFprobe.
+
+## Canonical starter sequence
+
+`clipasm init [PATH]` creates a standalone project without a repository
+checkout. Its `main.clipasm` is byte-for-byte the canonical
+`examples/scenic-sequence.clipasm` program, with the same three images copied
+to `assets/`. In an initialized project, run:
+
+```console,ignore
+clipasm validate main.clipasm
+clipasm render main.clipasm
+```
+
+The starter is a starting point, not a managed template. Later ClipAsm releases
+may create different new starter bytes but never update existing projects.
 
 ## Scenic sequence
 
 `examples/scenic-sequence.clipasm` combines three still images with `concat`
 inside a stack block.
 
-```console
+```console,ignore
 clipasm validate examples/scenic-sequence.clipasm
 clipasm render examples/scenic-sequence.clipasm
 ```
@@ -19,7 +34,7 @@ clipasm render examples/scenic-sequence.clipasm
 `examples/crossfade.clipasm` overlaps two still images for 500 milliseconds.
 The Video and attached Audio timelines use the same exact frame boundaries.
 
-```console
+```console,ignore
 clipasm validate examples/crossfade.clipasm
 clipasm render examples/crossfade.clipasm
 ```
@@ -29,7 +44,7 @@ clipasm render examples/crossfade.clipasm
 `examples/gentle-motion-edit.clipasm` applies `zoom_in` only to a selected range
 through `during`.
 
-```console
+```console,ignore
 clipasm validate examples/gentle-motion-edit.clipasm
 clipasm render examples/gentle-motion-edit.clipasm
 ```
@@ -39,7 +54,7 @@ clipasm render examples/gentle-motion-edit.clipasm
 `examples/reusable-composition.clipasm` demonstrates `clip`, immutable
 references, named graph inputs, and final concatenation.
 
-```console
+```console,ignore
 clipasm validate examples/reusable-composition.clipasm
 clipasm render examples/reusable-composition.clipasm
 ```
@@ -49,7 +64,7 @@ clipasm render examples/reusable-composition.clipasm
 `examples/imported-program.clipasm` imports
 `examples/programs/polish.clipasm` as an ordinary typed program.
 
-```console
+```console,ignore
 clipasm validate examples/imported-program.clipasm
 clipasm render examples/imported-program.clipasm
 ```
@@ -62,7 +77,7 @@ and content-hashed file argument. It uses the ordinary typed binder and a native
 parameter default. External programs are trusted code and execute during
 rendering; this example requires `python3` on `PATH`.
 
-```console
+```console,ignore
 clipasm validate examples/external-brighten.clipasm
 clipasm inspect examples/external-brighten.clipasm
 clipasm render examples/external-brighten.clipasm
@@ -73,7 +88,7 @@ clipasm render examples/external-brighten.clipasm
 `examples/root-bindings.clipasm` declares one Video input and two required
 scalar parameters.
 
-```console
+```console,ignore
 clipasm validate examples/root-bindings.clipasm \
   --video-input video=examples/assets/gentle-motion.mkv \
   --arg range=500ms..1500ms \
@@ -86,4 +101,5 @@ clipasm render examples/root-bindings.clipasm \
   --output root-bindings.mp4
 ```
 
-Generated outputs, manifests, and caches are ignored by Git.
+Generated outputs, manifests, and caches are ignored by Git in the repository
+and by the starter project's `.gitignore`.

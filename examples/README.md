@@ -1,6 +1,10 @@
 # Examples
 
-Run commands from the repository root.
+Run the examples below from the repository root.
+
+`clipasm init` copies the canonical `scenic-sequence.clipasm` source bytes as
+an initialized project's `main.clipasm`, along with its three PNG assets. See
+[the starter README](starter/README.md) for commands to run outside a checkout.
 
 The canonical explanation of each source program and its validation/render
 commands is in [the examples chapter](../docs/examples.md).

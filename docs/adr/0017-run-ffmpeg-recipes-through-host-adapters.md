@@ -63,9 +63,9 @@ sequence and an uploaded video source before release.
 
 ## Related decisions
 
-- [ADR 0001](0001-keep-compilation-pure.md)
-- [ADR 0003](0003-separate-semantic-and-execution-identities.md)
-- [ADR 0012](0012-run-external-programs.md)
-- [ADR 0014](0014-map-frame-and-sample-boundaries.md)
-- [ADR 0015](0015-keep-native-operations-phase-owned.md)
-- [ADR 0016](0016-overlap-audiovisual-transitions-exactly.md)
+- [ADR 0001](records.md#keep-compilation-pure)
+- [ADR 0003](records.md#separate-semantic-and-execution-identities)
+- [ADR 0012](records.md#run-registered-external-programs)
+- [ADR 0014](records.md#map-frame-and-sample-boundaries-cumulatively)
+- [ADR 0015](records.md#keep-native-operations-closed-and-phase-owned)
+- [ADR 0016](records.md#overlap-audiovisual-transitions-on-exact-boundaries)

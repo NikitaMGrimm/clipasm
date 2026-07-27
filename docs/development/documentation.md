@@ -19,6 +19,8 @@ Give each page one job and keep exact rules in one place.
 | Durable decisions and trade-offs | `docs/adr/` |
 | Change impact and identity review | `docs/development/change-guide.md` |
 | Runnable source programs | `examples/` |
+| Starter source and images | `examples/scenic-sequence.clipasm` and `examples/assets/*.png` |
+| Starter README and ignore rules | `examples/starter/` |
 | Contribution workflow | `CONTRIBUTING.md` |
 
 Reader-oriented pages may summarize these sources for their audience, but should
@@ -39,13 +41,17 @@ Prefer committed examples. For every documented command:
 4. Report unavailable tools or assets.
 
 Use `clipasm` fences for ClipAsm source and `console` fences for terminal
-sessions. Keep generated media, render output, manifests, and caches untracked.
+sessions. Mark commands that change state or have nondeterministic output as
+`console,ignore`; this includes installation, initialization, rendering, and
+tool-version checks. Keep generated media, render output, manifests, and caches
+untracked.
 
 ### Exact CLI output
 
-When a page promises exact CLI output, use one terminal transcript beginning
-with `$` and register the page in `tests/documented_cli.rs`. Mark command-only
-blocks on a registered page as `console,ignore`.
+When a page promises exact, deterministic CLI output, use one terminal
+transcript beginning with `$` and register the page in
+`tests/documented_cli.rs`. Mark command-only blocks and any side-effecting or
+nondeterministic command on a registered page as `console,ignore`.
 
 Regenerate intentional transcript changes with:
 

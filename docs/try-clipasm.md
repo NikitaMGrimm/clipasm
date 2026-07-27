@@ -23,8 +23,8 @@ Still-image and video-file sources, plus every native operation reachable from
 them, are supported. Standalone Audio-file sources, imports, and external
 programs remain unavailable in the browser. The installed CLI supports complete
 source packages and unrestricted native preflight and rendering; continue with
-[Install and render ClipAsm](getting-started/first-render.md) when you want to
-use those features or render larger projects.
+[Install and render ClipAsm](getting-started/first-render.md) to initialize a
+project, use those features, or render larger projects.
 
 The renderer is downloaded only when selected. It is separate GPL-licensed
 software; see the

@@ -5,13 +5,15 @@ document when you need to understand what compilation produced. Neither command
 opens media files, probes media, invokes FFmpeg or FFprobe, or executes an
 external program.
 
-This guide uses the committed scenic-sequence example. Run all commands from the
-repository root.
+This guide uses the starter scenic sequence. Run the commands from an
+initialized project directory, such as the one created in the
+[first-render guide](../getting-started/first-render.md). In a repository
+checkout, replace `main.clipasm` with `examples/scenic-sequence.clipasm`.
 
 ## Validate the source package
 
-```console
-clipasm validate examples/scenic-sequence.clipasm
+```console,ignore
+clipasm validate main.clipasm
 ```
 
 Validation parses and checks the complete source package, evaluates its stack
@@ -25,8 +27,8 @@ Fix that error before inspecting or rendering the program.
 
 ## Inspect the compiled JSON document
 
-```console
-clipasm inspect examples/scenic-sequence.clipasm
+```console,ignore
+clipasm inspect main.clipasm
 ```
 
 Inspection prints a downstream serialization of compiled semantics as JSON.
@@ -48,8 +50,8 @@ rendered media.
 
 Run `render` only when you are ready for preflight to resolve assets and tools:
 
-```console
-clipasm render examples/scenic-sequence.clipasm
+```console,ignore
+clipasm render main.clipasm
 ```
 
 For the phase boundaries, read

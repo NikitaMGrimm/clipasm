@@ -45,8 +45,9 @@ Report the exact limitation when a required check cannot run.
 - Prefer narrow visibility and exhaustive matches.
 - Handle user-controlled and runtime fallibility explicitly.
 - Reserve `expect`, `unreachable!`, and assertions for established internal invariants.
+- Avoid unchecked `unwrap()` and unsafe code on runtime-fallible paths; document every unsafe block with a `SAFETY` comment.
 - Explain non-obvious reasons and invariants; do not narrate visible code.
-- Fix Clippy findings when practical. Prefer `#[expect(..., reason = "...")]` over `#[allow(...)]` for justified exceptions.
+- Verify whether Clippy findings are new before treating them as pre-existing. Fix them when practical; prefer `#[expect(..., reason = "...")]` over `#[allow(...)]` for justified exceptions.
 - Avoid speculative traits, context objects, and generic machinery without demonstrated reuse.
 - Prefer an existing abstraction over a parallel implementation, but fix the owning abstraction rather than adding a local workaround.
 

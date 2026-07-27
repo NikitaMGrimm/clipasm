@@ -19,6 +19,7 @@ cargo test --workspace --doc
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 mdbook build
 python3 scripts/check_docs.py
+python3 scripts/check_package_contents.py
 node --check theme/clipasm-playground.js
 node --check playground/web/clipasm-playground-worker.js
 node --check playground/web/clipasm-playground-render-worker.js

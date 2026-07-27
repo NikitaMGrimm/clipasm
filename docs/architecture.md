@@ -301,7 +301,8 @@ supported operation. Operation-specific work may live in family modules, but a
 native operation is not a dynamically registered cross-phase plugin. Branching
 on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
-implementations. See [ADR 0015](adr/0015-keep-native-operations-phase-owned.md).
+implementations. See
+[ADR 0015](adr/records.md#keep-native-operations-closed-and-phase-owned).
 
 Native file declarations are language syntax, not registered invocations. The
 evaluator treats the executable body uniformly without granting any registered
@@ -410,8 +411,8 @@ therefore telescope to the exact combined sample count, so arbitrary source
 segmentation cannot accumulate audio drift. Crossfade uses the same mapper for
 its shortened prefix, overlap, and suffix, including phase-adjusting the latter
 input to global output boundaries. See
-[ADR 0014](adr/0014-map-frame-and-sample-boundaries.md) and
-[ADR 0016](adr/0016-overlap-audiovisual-transitions-exactly.md).
+[ADR 0014](adr/records.md#map-frame-and-sample-boundaries-cumulatively) and
+[ADR 0016](adr/records.md#overlap-audiovisual-transitions-on-exact-boundaries).
 
 ## Rendering
 
@@ -475,7 +476,7 @@ deletes artifacts after their last use, and returns a verified MP4. Runtime and
 work limits are browser policy rather than semantic Video limits. The pinned
 single-threaded FFmpeg WebAssembly runtime loads only when rendering starts;
 cancellation terminates the worker. Browser rendering has no persistent cache.
-See [ADR 0017](adr/0017-run-ffmpeg-recipes-through-host-adapters.md).
+See [ADR 0017](adr/records.md#0017-run-ffmpeg-recipes-through-host-adapters).
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

@@ -3,7 +3,7 @@ name = "clipasm"
 version = "0.2.1"
 edition = "2024"
 rust-version = "1.95"
-description = "A strict, typed, stack-based programmatic video compiler"
+description = "A strict, typed language for compiling and rendering Video and Audio graphs"
 license = "MIT"
 repository = "https://github.com/NikitaMGrimm/clipasm"
 homepage = "https://nikitamgrimm.github.io/clipasm/"
@@ -18,6 +18,8 @@ include = [
     "/tests/**",
     "/examples/?*.clipasm",
     "/examples/programs/**/*.clipasm",
+    "/examples/programs/**/*.py",
+    "/examples/starter/**",
     "/examples/assets/gentle-motion.mkv",
     "/examples/assets/*.png",
     "/theme/**",

@@ -60,7 +60,7 @@ def book_coverage(root: Path) -> list[str]:
     docs = root / "docs"
     summary = (docs / "SUMMARY.md").read_text(encoding="utf-8")
     listed = {Path(path) for path in SUMMARY_LINK.findall(summary)}
-    excluded = {Path("SUMMARY.md")}
+    excluded = {Path("SUMMARY.md"), Path("repository-history.md")}
     excluded.update(path.relative_to(docs) for path in (docs / "agents").glob("*.md"))
     excluded.update(
         path.relative_to(docs)
