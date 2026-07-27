@@ -29,7 +29,9 @@ clipasm render main.clipasm
 images. Open `generated/scenic-sequence.mp4` after rendering. Continue with the
 [first-render guide](https://nikitamgrimm.github.io/clipasm/getting-started/first-render.html)
 to edit it, or browse the [full guide](https://nikitamgrimm.github.io/clipasm/)
-for tutorials, task guides, the language reference, and CLI reference.
+for tutorials, task guides, the language reference, and CLI reference. Use
+`clipasm programs [NAME]` without a project, or browse the
+[built-in program reference](https://nikitamgrimm.github.io/clipasm/reference/programs/index.html).
 
 ## Contribute and report security issues
 

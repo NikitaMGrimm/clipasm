@@ -1,6 +1,7 @@
 # Command-line reference
 
-ClipAsm provides four commands: `init`, `validate`, `inspect`, and `render`.
+ClipAsm provides five commands: `init`, `programs`, `validate`, `inspect`, and
+`render`.
 Run commands from the directory whose relative CLI paths you intend to use.
 From a source checkout, `cargo run -- <COMMAND>` is the equivalent development
 form.
@@ -86,16 +87,34 @@ ship different starter files, but they do not alter existing projects. The
 development examples in a source checkout are not the installed binary's
 starter contract and may differ from it.
 
+## `programs`
+
+```text
+clipasm programs [NAME]
+```
+
+With no `NAME`, this command lists every built-in program in deterministic
+categories. With `NAME`, it prints the terminal reference for that exact
+built-in, including its call shape, inputs, parameters, defaults, outputs,
+binding behavior, body contract, example, and full guide URL. An unknown name
+fails with `E_UNKNOWN_BUILTIN_PROGRAM`.
+
+`programs` always describes programs built into the installed ClipAsm binary.
+It never inspects a project, source file, imported program, media asset, FFmpeg,
+or FFprobe, and it does not require a repository checkout. See the generated
+[built-in program index](programs/index.md) for the browsable reference.
+
 ## Common source argument
 
-The remaining commands accept one native `.clipasm` source program:
+The `validate`, `inspect`, and `render` commands accept one native `.clipasm`
+source program:
 
 ```text
 clipasm <COMMAND> [OPTIONS] <SOURCE>
 ```
 
 The source file and paths authored inside it resolve according to the source
-unit rules in the [language reference](../language-reference.md). Paths supplied
+unit rules in the [language reference](language/index.md). Paths supplied
 through CLI options resolve from the caller's working directory.
 
 ## Root bindings
@@ -112,6 +131,24 @@ on the root source program:
 Names must match declarations exactly. Duplicate, unknown, missing, or
 type-incompatible bindings are errors. Media and `File` paths supplied through
 these options resolve from the working directory.
+
+Binding options work the same way for validation and rendering:
+
+```console,ignore
+clipasm validate template.clipasm \
+  --video-input source=footage.mp4 \
+  --arg range=1s..3s \
+  --arg count=2
+
+clipasm render template.clipasm \
+  --video-input source=footage.mp4 \
+  --arg range=1s..3s \
+  --arg count=2 \
+  --output final.mp4
+```
+
+CLI paths resolve from the caller's working directory. Authored paths resolve
+from the source file that contains them.
 
 ## `validate`
 
@@ -184,4 +221,4 @@ clipasm --version
 - [Validate and inspect a program](../guides/validate-and-inspect.md)
 - [Supply root inputs and parameters](../guides/root-inputs-and-parameters.md)
 - [Troubleshooting](../guides/troubleshooting.md)
-- [Language reference](../language-reference.md)
+- [Language reference](language/index.md)

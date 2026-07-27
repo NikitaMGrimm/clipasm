@@ -23,9 +23,34 @@
 
 # Reference
 
+- [Language](reference/language/index.md)
+  - [Files and configuration](reference/language/files-and-configuration.md)
+  - [Scalar values and expressions](reference/language/scalar-values-and-expressions.md)
+  - [Timeline selectors and ranges](reference/language/timeline-selectors.md)
+  - [Imports and external programs](reference/language/imports-and-external-programs.md)
+  - [Statements and calls](reference/language/statements-and-calls.md)
+  - [Stack binding](reference/language/stack-binding.md)
+  - [Names, blocks, and `clip`](reference/language/names-blocks-and-clip.md)
+  - [Legacy language-reference links](language-reference.md)
+<!-- BEGIN GENERATED PROGRAM REFERENCE NAVIGATION -->
+- [Built-in programs](reference/programs/index.md)
+  - [`image`](reference/programs/image.md)
+  - [`video`](reference/programs/video.md)
+  - [`audio`](reference/programs/audio.md)
+  - [`extract_audio`](reference/programs/extract_audio.md)
+  - [`set_audio`](reference/programs/set_audio.md)
+  - [`concat`](reference/programs/concat.md)
+  - [`repeat`](reference/programs/repeat.md)
+  - [`trim`](reference/programs/trim.md)
+  - [`drop`](reference/programs/drop.md)
+  - [`zoom_in`](reference/programs/zoom_in.md)
+  - [`flash_cut`](reference/programs/flash_cut.md)
+  - [`crossfade`](reference/programs/crossfade.md)
+  - [`join`](reference/programs/join.md)
+  - [`during`](reference/programs/during.md)
+<!-- END GENERATED PROGRAM REFERENCE NAVIGATION -->
 - [Command-line reference](reference/cli.md)
-- [Language reference](language-reference.md)
-- [Language grammar](language-grammar.md)
+- [Formal grammar](language-grammar.md)
 - [Runnable examples](examples.md)
 
 # Concepts and explanation

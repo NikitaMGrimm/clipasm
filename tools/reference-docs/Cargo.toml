@@ -1,0 +1,15 @@
+[package]
+name = "clipasm-reference-docs"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+clipasm = { path = "../.." }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

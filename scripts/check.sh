@@ -17,6 +17,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets
 cargo test --workspace --doc
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+cargo run --locked -p clipasm-reference-docs -- check
 mdbook build
 python3 scripts/check_docs.py
 python3 scripts/check_package_contents.py

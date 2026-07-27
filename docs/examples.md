@@ -3,6 +3,8 @@
 The committed `.clipasm` programs under `examples/` are small executable
 language demonstrations. Run their commands from the repository root.
 Validation is pure; rendering additionally requires FFmpeg and FFprobe.
+Follow the links below for the exact
+[built-in program contracts](reference/programs/index.md) used by each example.
 
 ## Starter project
 
@@ -32,8 +34,9 @@ clipasm render examples/scenic-sequence.clipasm
 
 ## Exact crossfade
 
-`examples/crossfade.clipasm` overlaps two still images for 500 milliseconds.
-The Video and attached Audio timelines use the same exact frame boundaries.
+`examples/crossfade.clipasm` overlaps two still images for 500 milliseconds
+with [`crossfade`](reference/programs/crossfade.md). The Video and attached
+Audio timelines use the same exact frame boundaries.
 
 ```console,ignore
 clipasm validate examples/crossfade.clipasm
@@ -42,8 +45,9 @@ clipasm render examples/crossfade.clipasm
 
 ## Gentle motion edit
 
-`examples/gentle-motion-edit.clipasm` applies `zoom_in` only to a selected range
-through `during`.
+`examples/gentle-motion-edit.clipasm` applies
+[`zoom_in`](reference/programs/zoom_in.md) only to a selected range through
+[`during`](reference/programs/during.md).
 
 ```console,ignore
 clipasm validate examples/gentle-motion-edit.clipasm

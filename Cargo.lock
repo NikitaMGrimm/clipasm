@@ -162,6 +162,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "clipasm-reference-docs"
+version = "0.0.0"
+dependencies = [
+ "clipasm",
+ "tempfile",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

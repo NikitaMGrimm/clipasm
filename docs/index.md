@@ -37,9 +37,10 @@ To accomplish a specific task:
 - [Review and run an external program](guides/external-programs.md).
 - [Diagnose common failures](guides/troubleshooting.md).
 
-To look up exact behavior, use the [command-line reference](reference/cli.md)
-and normative [language reference](language-reference.md). To build a mental
-model first, read about:
+To look up exact behavior, use the [command-line reference](reference/cli.md),
+[built-in program reference](reference/programs/index.md), and normative
+[language reference](reference/language/index.md). To build a mental model
+first, read about:
 
 - [compilation, preflight, and rendering](concepts/pipeline.md);
 - [stack values, ownership, and visibility](concepts/stack-values.md);

@@ -29,7 +29,7 @@ include = [
 ]
 
 [workspace]
-members = ["playground"]
+members = ["playground", "tools/reference-docs"]
 default-members = ["."]
 resolver = "3"
 
