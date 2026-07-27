@@ -24,7 +24,7 @@ const FFMPEG_CORE_VERSION: &str = "0.12.10";
 const BROWSER_RUNTIME_POLICY: &str = "ffv1-flac-matroska-v1";
 
 /// Serialize a prepared browser graph as closed `FFmpeg` recipes and virtual
-/// artifact contracts.
+/// artifact contracts for ClipAsm's matching bundled browser host.
 ///
 /// The document contains no executable program names or shell commands. A
 /// browser host mounts each requested asset at the supplied virtual path,

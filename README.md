@@ -4,8 +4,8 @@ ClipAsm is a typed, stack-based language for assembling Video and Audio graphs.
 Compilation is media-pure; preflight resolves reachable assets and tools; and
 rendering uses FFmpeg and FFprobe to publish an MP4.
 
-> **Pre-release:** ClipAsm's language, file formats, Rust API, and CLI may
-> change without compatibility guarantees.
+> **Pre-release:** ClipAsm's language, Rust API, and CLI may change. Supported
+> machine-readable contracts use explicit version fields.
 
 [Try ClipAsm in the browser](https://nikitamgrimm.github.io/clipasm/try-clipasm.html)
 to edit, validate, inspect, and render the scenic sequence without installing

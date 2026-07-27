@@ -165,3 +165,52 @@ fn diagnostic_reference_metadata_does_not_affect_compiled_identity() {
         );
     }
 }
+
+#[test]
+fn machine_contract_catalog_matches_the_documented_versions() {
+    use clipasm::reference::{
+        MachineContractAudience, MachineContractStability, machine_contracts,
+    };
+
+    let contracts = machine_contracts();
+    assert_eq!(contracts.len(), 5);
+    assert_eq!(contracts[0].title(), "Compiled inspection JSON");
+    assert_eq!(contracts[0].versions()[0].value(), 20);
+    assert_eq!(contracts[1].versions()[0].value(), 1);
+    assert_eq!(contracts[2].versions()[0].value(), 1);
+    assert_eq!(contracts[3].versions()[0].value(), 11);
+    assert_eq!(contracts[4].versions()[0].value(), 1);
+    assert_eq!(contracts[4].versions()[1].value(), 1);
+
+    assert_eq!(
+        contracts[0].stability(),
+        MachineContractStability::Versioned
+    );
+    assert_eq!(
+        contracts[2].audience(),
+        MachineContractAudience::ExternalPrograms
+    );
+    assert_eq!(
+        contracts[3].stability(),
+        MachineContractStability::HostInternal
+    );
+
+    let page = include_str!("../docs/reference/machine-contracts.md");
+    for contract in contracts {
+        assert!(
+            page.contains(contract.title()),
+            "missing {}",
+            contract.title()
+        );
+        for version in contract.versions() {
+            assert!(
+                page.contains(&format!("{}: {}", version.field(), version.value())),
+                "missing documented {} version {}",
+                contract.title(),
+                version.value()
+            );
+        }
+    }
+    assert!(page.contains("Cache entry metadata"));
+    assert!(page.contains("Private implementation detail"));
+}

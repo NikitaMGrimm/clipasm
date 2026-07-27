@@ -42,6 +42,7 @@ decisions. Run `./scripts/check.sh` before handoff.
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
 | Add or change a built-in diagnostic | diagnostic catalog and emitting phase | title, category, retry and stability guidance, `explain` output, generated diagnostic reference, compatibility note, focused tests |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
+| Change a machine-readable boundary | serialization owner and `src/contracts.rs` | support level, version bump, reference page, consumers, serialization tests |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
 | Change public terminology | `docs/reference/language/` or the built-in catalog | generated program reference, concepts, diagnostics, examples |
 | Change internal terminology | `docs/architecture.md` | code names, ADRs, development docs |
@@ -52,7 +53,7 @@ decisions. Run `./scripts/check.sh` before handoff.
 - Does the language reference still describe the parser exactly?
 - Are authored names, spans, and sugar diagnostics preserved?
 - Did program signatures or stack behavior change?
-- Does a semantic or format version need incrementing?
+- Does a semantic or machine-contract version need incrementing?
 - Did every exhaustive semantic/prepared/render owner change together?
 - Are examples, Rustdoc, and CLI help current?
 - Does every changed built-in diagnostic retain its compatibility meaning and generated reference entry?

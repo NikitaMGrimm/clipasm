@@ -63,6 +63,7 @@
   - [Browser runtime](reference/diagnostics/browser.md)
   - [Internal contract failures](reference/diagnostics/internal.md)
 <!-- END GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->
+- [Machine-readable contracts](reference/machine-contracts.md)
 - [Command-line reference](reference/cli.md)
 - [Formal grammar](language-grammar.md)
 - [Runnable examples](examples.md)

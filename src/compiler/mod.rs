@@ -62,7 +62,10 @@ impl CompiledProgram {
         self.nodes.len()
     }
 
-    /// Serialize the pure compiled structure as stable, pretty JSON.
+    /// Serialize the pure compiled structure as versioned inspection JSON.
+    ///
+    /// Consumers must check the document `format_version`. The document is not
+    /// canonical source and is not accepted as compiler input.
     ///
     /// # Errors
     ///

@@ -31,8 +31,11 @@ Fix that error before inspecting or rendering the program.
 clipasm inspect main.clipasm
 ```
 
-Inspection prints a downstream serialization of compiled semantics as JSON.
-It is not canonical source or an authoring format. The useful categories are:
+Inspection prints a versioned downstream serialization of compiled semantics as
+JSON. It is not canonical source or an authoring format. Check `format_version`
+before using it in tooling; the compatibility rules are in
+[Machine-readable contracts](../reference/machine-contracts.md#compiled-inspection-json).
+The useful categories are:
 
 - project Video and Audio settings;
 - semantic graph nodes, their operations, and value types;

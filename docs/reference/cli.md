@@ -205,8 +205,9 @@ clipasm inspect main.clipasm
 
 Use `-o` or `--output` to write a new file. Create the parent directory first
 when it does not already exist. The destination must not already exist.
-Inspection JSON is a downstream view of compiled semantics, not canonical source
-or a stable authoring format.
+Inspection JSON is a versioned downstream view of compiled semantics, not canonical
+source or an authoring format. Consumers must check `format_version`; see
+[Machine-readable contracts](machine-contracts.md#compiled-inspection-json).
 
 ## `render`
 
@@ -215,7 +216,9 @@ clipasm render [OPTIONS] <SOURCE>
 ```
 
 `render` compiles the source, performs preflight, executes the prepared plan,
-verifies produced artifacts, and publishes an MP4 and sibling manifest.
+verifies produced artifacts, and publishes an MP4 and sibling versioned manifest.
+See [Machine-readable contracts](machine-contracts.md#render-manifest) before
+consuming that JSON.
 
 ```console,ignore
 clipasm render main.clipasm

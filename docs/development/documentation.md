@@ -17,6 +17,7 @@ Give each page one job and keep exact rules in one place.
 | Public syntax and behavior | `docs/reference/language/` and `docs/language-grammar.md` |
 | Built-in program facts and generated reference pages | The Rust built-in catalog |
 | Built-in diagnostic facts and generated reference pages | The Rust diagnostic catalog |
+| Machine-contract versions and support levels | `src/contracts.rs` and `docs/reference/machine-contracts.md` |
 | Phase responsibilities and internal terms | `docs/architecture.md` |
 | Durable decisions and trade-offs | `docs/adr/` |
 | Change impact and identity review | `docs/development/change-guide.md` |
@@ -162,6 +163,17 @@ When adding or changing a built-in diagnostic:
 This keeps the catalog, terminal `clipasm explain <CODE>` output, and generated
 documentation together. Do not add a production error string first and defer
 its catalog entry or documentation.
+
+## Machine-readable contracts
+
+Keep version values in `src/contracts.rs`; serialization owners must consume
+those constants rather than declaring local copies. Update the machine-contract
+reference whenever a supported document changes shape or meaning.
+
+Compiled inspection JSON, render manifests, and external-program requests are
+versioned integration contracts. Prepared inspection JSON and browser render
+plans are host-internal. Cache metadata remains private. A version bump requires
+focused serialization tests and a review of every consumer.
 
 ## Checks
 

@@ -59,6 +59,9 @@ A successful exit only means the process claims to have written its result.
 ClipAsm still verifies the produced artifact against the prepared media
 contract before committing it to the cache.
 
+The exact request fields and version-handling rule are summarized in
+[Machine-readable contracts](../reference/machine-contracts.md#external-program-request).
+
 Separating the executable from its arguments avoids treating authored text as
 shell source. It does not make the executable safe or isolated.
 

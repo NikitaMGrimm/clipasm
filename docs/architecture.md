@@ -226,9 +226,12 @@ with a `VideoSpec`; Audio domains compose an exact sample count with an
 schemas.
 
 Compiled JSON is produced by an explicit downstream document adapter. It is a
-serialized view of compiled semantics, not an authored source representation,
-and its schema is not derived implicitly from the internal `CompiledProgram`
-layout.
+versioned inspection view of compiled semantics, not an authored source
+representation, and its schema is not derived implicitly from the internal
+`CompiledProgram` layout. Render manifests and external-program requests are
+also versioned integration contracts. Prepared inspection JSON and browser
+render plans remain host-internal; cache metadata remains private. Canonical
+versions and support levels live in `src/contracts.rs`.
 
 The `playground` workspace crate is a downstream browser host adapter. It keeps
 WebAssembly bindings out of the core crate and exposes versioned in-memory

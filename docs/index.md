@@ -5,8 +5,9 @@ Compilation creates a pure semantic graph without opening media files;
 preflight resolves reachable media and tools; rendering uses FFmpeg to produce
 the configured MP4 and FFprobe to verify it.
 
-ClipAsm is pre-release software, so its language, file formats, Rust API, and
-CLI may change without compatibility guarantees.
+ClipAsm is pre-release software, so its language, Rust API, and CLI may change.
+Supported machine-readable contracts carry explicit version fields; consumers
+must reject versions they do not support.
 
 You can [edit, validate, inspect, and render a video](try-clipasm.md) in the
 browser before installing anything.
@@ -39,7 +40,8 @@ To accomplish a specific task:
 
 To look up exact behavior, use the [command-line reference](reference/cli.md),
 [built-in program reference](reference/programs/index.md),
-[diagnostic reference](reference/diagnostics/index.md), and normative
+[diagnostic reference](reference/diagnostics/index.md),
+[machine-readable contracts](reference/machine-contracts.md), and normative
 [language reference](reference/language/index.md). Run `clipasm explain <CODE>`
 after an error for an installed-binary lookup. To build a mental model
 first, read about:

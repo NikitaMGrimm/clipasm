@@ -110,9 +110,10 @@ impl PreparedPlan {
 
     /// Serialize the explicit prepared-plan inspection document.
     ///
-    /// This local inspection format includes resolved paths, tool identities,
-    /// renderer primitives, and cache metadata. It is distinct from the
-    /// path-free render manifest.
+    /// This host-internal inspection format includes resolved paths, tool
+    /// identities, renderer primitives, and cache metadata. It is distinct
+    /// from the path-free, versioned render manifest and is not a persistence
+    /// or interchange contract.
     ///
     /// # Errors
     ///
