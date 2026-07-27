@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool;
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedPlan, RenderPolicy};
@@ -75,8 +75,8 @@ impl<'a> RenderContext<'a> {
             .get(id.get() as usize)
             .and_then(Option::as_deref)
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     format!("primitive input {} is not available", id.get()),
                     self.span().clone(),
                 )
@@ -94,7 +94,7 @@ impl<'a> RenderContext<'a> {
                     .and_then(Option::as_deref)
             },
         )?;
-        run_command(command, "E_FFMPEG", self.span())
+        run_command(command, BuiltinDiagnostic::Ffmpeg, self.span())
     }
 }
 
@@ -107,7 +107,7 @@ pub(in crate::render) struct StagedArtifact {
 
 impl StagedArtifact {
     pub(super) fn new(destination: &Path, extension: &str) -> Result<Self> {
-        let staging = StagingDirectory::beside(destination, "cache", "E_CACHE_IO")?;
+        let staging = StagingDirectory::beside(destination, "cache", BuiltinDiagnostic::CacheIo)?;
         Ok(Self {
             path: staging.path(&format!("artifact.{extension}")),
             metadata: staging.path("artifact.cache.json"),
@@ -125,8 +125,12 @@ impl StagedArtifact {
     }
 }
 
-pub(super) fn run_command(command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {
-    media_tool::run(command, code, span)
+pub(super) fn run_command(
+    command: Command,
+    diagnostic: BuiltinDiagnostic,
+    span: &SourceSpan,
+) -> Result<()> {
+    media_tool::run(command, diagnostic, span)
 }
 
 #[cfg(test)]

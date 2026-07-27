@@ -148,8 +148,8 @@ pub fn prepare_render(source: &str, assets_json: &str) -> String {
         let assets =
             serde_json::from_str::<Vec<clipasm::preflight::browser::BrowserAsset>>(assets_json)
                 .map_err(|error| {
-                    clipasm::diagnostic::Diagnostic::new(
-                        "E_BROWSER_ASSET_FACTS",
+                    clipasm::diagnostic::Diagnostic::builtin(
+                        clipasm::diagnostic::BuiltinDiagnostic::BrowserAssetFacts,
                         format!("invalid browser asset facts: {error}"),
                         clipasm::source::SourceSpan::file_start(SOURCE_NAME),
                     )

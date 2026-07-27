@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::diagnostic::Result;
+use crate::diagnostic::{BuiltinDiagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoDomain, VideoSpec};
 use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
@@ -78,7 +78,11 @@ fn export_video(
     let command = recipe.materialize(ffmpeg, output, &SourceSpan::file_start(output), |node| {
         (node == result).then_some(artifact)
     })?;
-    run_command(command, "E_FFMPEG", &SourceSpan::file_start(output))
+    run_command(
+        command,
+        BuiltinDiagnostic::Ffmpeg,
+        &SourceSpan::file_start(output),
+    )
 }
 
 pub(crate) fn export_recipe(

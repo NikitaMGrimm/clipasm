@@ -15,6 +15,13 @@ use crate::program::{
     TimelineBehavior as ProgramTimelineBehavior, ValueTypeSpec,
 };
 
+mod diagnostics;
+
+pub use diagnostics::{
+    DiagnosticCategory, DiagnosticReference, DiagnosticStability, RelatedReference, RetryGuidance,
+    diagnostic, diagnostics,
+};
+
 /// Return a deterministic snapshot of every built-in program reference.
 #[must_use]
 pub fn builtin_programs() -> Vec<BuiltinProgram> {
@@ -180,7 +187,7 @@ impl BuiltinProgram {
                 .metadata
                 .diagnostics
                 .iter()
-                .map(|diagnostic| (*diagnostic).to_owned())
+                .map(|diagnostic| diagnostic.code().to_owned())
                 .collect(),
             behavior_notes: program
                 .metadata

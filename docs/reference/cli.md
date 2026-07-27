@@ -1,7 +1,7 @@
 # Command-line reference
 
-ClipAsm provides five commands: `init`, `programs`, `validate`, `inspect`, and
-`render`.
+ClipAsm provides six commands: `init`, `programs`, `explain`, `validate`,
+`inspect`, and `render`.
 Run commands from the directory whose relative CLI paths you intend to use.
 From a source checkout, `cargo run -- <COMMAND>` is the equivalent development
 form.
@@ -103,6 +103,27 @@ fails with `E_UNKNOWN_BUILTIN_PROGRAM`.
 It never inspects a project, source file, imported program, media asset, FFmpeg,
 or FFprobe, and it does not require a repository checkout. See the generated
 [built-in program index](programs/index.md) for the browsable reference.
+
+## `explain`
+
+```text
+clipasm explain <CODE>
+```
+
+`explain` looks up one built-in ClipAsm diagnostic code, such as
+`E_UNKNOWN_PROGRAM`, and prints its title, category, explanation, common
+causes, recommended actions, retry guidance, and a link to the relevant
+reference page. The code identifies the diagnostic class; its original error
+message and source location provide the instance-specific context.
+
+This command reads only the diagnostic catalog compiled into the installed
+binary. It never parses source, discovers a project, opens media, or inspects
+FFmpeg, FFprobe, or external programs, and it does not require a repository
+checkout. Unknown codes fail with a dedicated diagnostic and direct readers to
+the [diagnostic index](diagnostics/index.md).
+
+For a complete, searchable list of built-in diagnostics and their stability
+policy, see the [diagnostic reference](diagnostics/index.md).
 
 ## Common source argument
 

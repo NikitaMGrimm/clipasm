@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
@@ -27,8 +27,8 @@ fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pro
     let by = match call.optional_number_parameter("by")? {
         Some((by, _)) if by.is_positive() => by.clone(),
         Some((_, span)) => {
-            return Err(Diagnostic::new(
-                "E_INVALID_ZOOM_AMOUNT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidZoomAmount,
                 "`zoom_in.by` must be positive",
                 span.clone(),
             ));

@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::program::{
     Cardinality, NativeTimeRange, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall,
 };
@@ -77,8 +77,8 @@ fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
         .ok()
         .and_then(NonZeroU64::new)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_REPEAT_COUNT",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidRepeatCount,
                 "`repeat.count` must be an integer greater than or equal to one",
                 span.clone(),
             )

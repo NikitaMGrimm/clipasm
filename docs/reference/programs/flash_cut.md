@@ -62,7 +62,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_INVALID_FLASH_CUT_DURATION`
+- [`E_INVALID_FLASH_CUT_DURATION`](../diagnostics/compilation-and-timelines.md#e_invalid_flash_cut_duration) — Invalid flash-cut duration
 
 ## Related reference
 

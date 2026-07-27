@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     AudioDomain, AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, SampleRange,
     ValueType, VideoDomain, VideoSpec,
@@ -169,8 +169,8 @@ pub(crate) fn prepared_plan(plan: &PreparedPlan) -> Result<String> {
         execution_namespace: plan.execution_namespace(),
     };
     serde_json::to_string_pretty(&document).map_err(|error| {
-        Diagnostic::new(
-            "E_PREPARED_JSON",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::PreparedJson,
             format!("could not serialize prepared plan: {error}"),
             SourceSpan::source_start(plan.entrypoint_source().clone()),
         )

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     ParameterValue, ProgramDefinition, ProgramImplementation, ProgramRegistry, ResolvedCall,
@@ -155,8 +155,8 @@ pub(super) fn bind_root_call<'a>(
             .exact()
             .expect("root source inputs are concrete");
         if input_type != binding.value_type {
-            return Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidArgumentType,
                 format!(
                     "root input `{name}` is {input_type}, but the supplied binding is {}",
                     binding.value_type
@@ -245,8 +245,8 @@ fn bind_root_inputs(
         .zip(program.inputs())
         .map(|(input, source_input)| {
             let binding = bindings.media_inputs.get(&input.name).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_MISSING_REQUIRED_INPUT",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingRequiredInput,
                     format!("root program is missing input `{}`", input.name),
                     source_input.declared_at.clone(),
                 )
@@ -304,15 +304,15 @@ fn lower_media_binding(
     );
     let outputs = lower(&call, &mut builder)?;
     let [output] = outputs.as_slice() else {
-        return Err(Diagnostic::new(
-            "E_PROGRAM_OUTPUT_TYPE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ProgramOutputType,
             "native media input adapter returned outputs outside its declared signature",
             span,
         ));
     };
     if signature.outputs != [output.value_type()] {
-        return Err(Diagnostic::new(
-            "E_PROGRAM_OUTPUT_TYPE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ProgramOutputType,
             "native media input adapter returned outputs outside its declared signature",
             span,
         ));
@@ -321,8 +321,8 @@ fn lower_media_binding(
 }
 
 fn unknown_binding(name: &str, span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_UNKNOWN_PROGRAM_ARGUMENT",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::UnknownProgramArgument,
         format!("unknown argument `{name}` for root program"),
         span.clone(),
     )
@@ -334,8 +334,8 @@ fn duplicate_binding(
     span: SourceSpan,
     previous: &SourceSpan,
 ) -> Diagnostic {
-    Diagnostic::new(
-        "E_DUPLICATE_ARGUMENT",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::DuplicateArgument,
         format!("root {role} `{name}` was supplied more than once"),
         span,
     )

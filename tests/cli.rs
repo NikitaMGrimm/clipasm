@@ -105,6 +105,7 @@ Usage: clipasm <COMMAND>
 Commands:
   init      Create a self-contained ClipAsm starter project
   programs  List built-in programs or show one built-in program reference
+  explain   Explain a ClipAsm diagnostic code
   validate  Parse, type-check, and infer source-independent Video and Audio domains
   inspect   Inspect compiled Video and Audio semantics as JSON
   render    Compile and render a Video, including attached Audio, using FFmpeg and FFprobe
@@ -116,6 +117,131 @@ Options:
 "
     );
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn explain_help_is_exact() {
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .args(["explain", "--help"])
+        .output()
+        .expect("run clipasm");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 help"),
+        "\
+Explain one built-in ClipAsm diagnostic code.
+
+This command uses the catalog built into the executable. It never inspects a project, source file, media asset, FFmpeg, or FFprobe.
+
+Usage: clipasm explain <CODE>
+
+Arguments:
+  <CODE>
+          Built-in diagnostic code such as `E_UNKNOWN_PROGRAM`
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn explain_resolves_every_catalog_code_without_inspecting_the_environment() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+
+    for reference in clipasm::reference::diagnostics() {
+        let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+            .current_dir(directory.path())
+            .env("PATH", "")
+            .args(["explain", reference.code()])
+            .output()
+            .unwrap_or_else(|error| panic!("run explain for {}: {error}", reference.code()));
+
+        assert!(
+            output.status.success(),
+            "{} failed: {}",
+            reference.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 explanation");
+        assert!(
+            stdout.starts_with(&format!("{}: {}\n", reference.code(), reference.title())),
+            "{}",
+            reference.code()
+        );
+        assert!(stdout.contains(&reference.documentation_url()));
+        assert!(output.stderr.is_empty(), "{}", reference.code());
+    }
+
+    assert!(project_inventory(directory.path()).is_empty());
+}
+
+#[test]
+fn explain_rejects_unknown_codes_with_bounded_ascii_safe_output() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let unknown = format!("E_BAD\u{1b}[31m\u{e9}{}", "X".repeat(1_000));
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .env("PATH", "")
+        .args(["explain", &unknown])
+        .output()
+        .expect("run explain");
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_ascii());
+    assert!(!output.stderr.contains(&0x1b));
+    assert!(output.stderr.len() < 2_000);
+    let stderr = String::from_utf8(output.stderr).expect("ASCII diagnostic");
+    assert!(stderr.contains("[E_UNKNOWN_DIAGNOSTIC_CODE]"));
+    assert!(stderr.contains(r"\u{1B}"));
+    assert!(stderr.contains(r"\u{E9}"));
+    assert!(stderr.contains("...`"));
+    assert!(stderr.contains("check the code's spelling"));
+    assert!(stderr.contains("reference/diagnostics/"));
+    assert!(project_inventory(directory.path()).is_empty());
+}
+
+#[test]
+fn explain_unknown_program_output_is_exact() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let output = run_clipasm(directory.path(), &["explain", "E_UNKNOWN_PROGRAM"]);
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("UTF-8 explanation"),
+        "\
+E_UNKNOWN_PROGRAM: Unknown program
+
+Category: Imports and declarations
+
+ClipAsm could not resolve a called name as a built-in, imported, or locally declared program.
+
+Common causes:
+  - The program name is misspelled.
+  - The source defining the program was not imported.
+  - An import alias or locally declared name differs from the call.
+
+Try:
+  - Run `clipasm programs` when the intended target is a built-in program.
+  - Check imports, aliases, and the exact program spelling.
+  - Use the source location and notes from the original diagnostic.
+
+Retry:
+  Retry after correcting the source.
+
+Stability:
+  This released built-in code is a durable identifier; wording and source locations may improve.
+
+Reference:
+  https://nikitamgrimm.github.io/clipasm/reference/diagnostics/imports-and-declarations.html#e_unknown_program
+"
+    );
+    assert!(output.stderr.is_empty());
+    assert!(project_inventory(directory.path()).is_empty());
 }
 
 #[test]
@@ -227,7 +353,7 @@ Inputs:
 
 Parameters:
   path: File (required)
-  duration: Duration (optional; when omitted: uses a requested Video extent supplied by the surrounding body; without one, the call reports E_MISSING_IMAGE_DURATION)
+  duration: Duration (optional; when omitted: uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required)
   fit: Keyword(cover | contain | stretch) (optional; default: cover)
 
 Outputs:

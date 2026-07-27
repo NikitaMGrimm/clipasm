@@ -60,7 +60,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_INVALID_ZOOM_AMOUNT`
+- [`E_INVALID_ZOOM_AMOUNT`](../diagnostics/compilation-and-timelines.md#e_invalid_zoom_amount) — Invalid zoom amount
 
 ## Related reference
 

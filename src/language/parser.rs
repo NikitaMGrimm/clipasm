@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{ParameterType, StackAccess};
 use crate::source::{SourceFile, SourceSpan, Spanned};
@@ -40,7 +40,7 @@ impl Parser {
         self.skip_newlines();
         self.expect_keyword(
             "clipasm",
-            "E_MISSING_VERSION",
+            BuiltinDiagnostic::MissingVersion,
             "source must begin with `clipasm 1`",
         )?;
         let version = self.parse_version()?;
@@ -53,8 +53,8 @@ impl Parser {
         while !self.at(&TokenKind::End) {
             if self.starts_declaration() {
                 if saw_statement {
-                    return Err(Diagnostic::new(
-                        "E_DECLARATION_AFTER_STATEMENT",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::DeclarationAfterStatement,
                         "file declarations must appear before executable statements",
                         self.current().span.clone(),
                     ));
@@ -78,22 +78,22 @@ impl Parser {
     fn parse_version(&mut self) -> Result<Spanned<u32>> {
         let token = self.advance().clone();
         let TokenKind::Number(value) = token.kind else {
-            return Err(Diagnostic::new(
-                "E_INVALID_VERSION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidVersion,
                 "`clipasm` must be followed by language version `1`",
                 token.span,
             ));
         };
         let version = value.parse::<u32>().map_err(|_| {
-            Diagnostic::new(
-                "E_INVALID_VERSION",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidVersion,
                 "the language version must be an unsigned integer",
                 token.span.clone(),
             )
         })?;
         if version != 1 {
-            return Err(Diagnostic::new(
-                "E_UNSUPPORTED_VERSION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::UnsupportedVersion,
                 format!("unsupported ClipAsm language version `{version}`; expected `1`"),
                 token.span,
             ));
@@ -116,7 +116,11 @@ impl Parser {
 
     fn parse_config(&mut self) -> Result<ConfigDeclaration> {
         let span = self.current().span.clone();
-        self.expect_keyword("config", "E_EXPECTED_TOKEN", "expected `config`")?;
+        self.expect_keyword(
+            "config",
+            BuiltinDiagnostic::ExpectedToken,
+            "expected `config`",
+        )?;
         self.expect(&TokenKind::LeftBrace, "`{` after `config`")?;
         self.skip_newlines();
 
@@ -125,8 +129,8 @@ impl Parser {
         let mut output = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
-                return Err(Diagnostic::new(
-                    "E_UNTERMINATED_CONFIG",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnterminatedConfig,
                     "config block is missing its closing `}`",
                     span,
                 ));
@@ -153,8 +157,8 @@ impl Parser {
                     output = Some(self.expect_string("an output path")?);
                 }
                 _ => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_CONFIG_FIELD",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::UnknownConfigField,
                         format!("unknown config field `{}`", field.value),
                         field.span,
                     ));
@@ -179,8 +183,8 @@ impl Parser {
         let mut fps = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
-                return Err(Diagnostic::new(
-                    "E_UNTERMINATED_CONFIG",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnterminatedConfig,
                     "video config block is missing its closing `}`",
                     span,
                 ));
@@ -198,8 +202,8 @@ impl Parser {
                 "height" => &mut height,
                 "fps" => &mut fps,
                 _ => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_VIDEO_FIELD",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::UnknownVideoField,
                         format!("unknown video config field `{}`", field.value),
                         field.span,
                     ));
@@ -229,8 +233,8 @@ impl Parser {
         let mut sample_rate = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
-                return Err(Diagnostic::new(
-                    "E_UNTERMINATED_CONFIG",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnterminatedConfig,
                     "audio config block is missing its closing `}`",
                     span,
                 ));
@@ -241,8 +245,8 @@ impl Parser {
             let target = match field.value.as_str() {
                 "sample_rate" => &mut sample_rate,
                 _ => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_AUDIO_FIELD",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::UnknownAudioField,
                         format!("unknown audio config field `{}`", field.value),
                         field.span,
                     ));
@@ -267,7 +271,7 @@ impl Parser {
         let path = self.expect_string(&format!("a path after `{keyword}`"))?;
         self.expect_keyword(
             "as",
-            "E_MISSING_IMPORT_ALIAS",
+            BuiltinDiagnostic::MissingImportAlias,
             &format!("`{keyword}` requires `as alias`"),
         )?;
         let alias = self.expect_identifier("an import alias")?;
@@ -276,7 +280,11 @@ impl Parser {
 
     fn parse_external(&mut self) -> Result<ExternalDeclaration> {
         let span = self.current().span.clone();
-        self.expect_keyword("external", "E_EXPECTED_TOKEN", "expected `external`")?;
+        self.expect_keyword(
+            "external",
+            BuiltinDiagnostic::ExpectedToken,
+            "expected `external`",
+        )?;
         self.expect(&TokenKind::LeftBrace, "`{` after `external`")?;
         self.skip_newlines();
 
@@ -286,8 +294,8 @@ impl Parser {
         let mut preserve = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
-                return Err(Diagnostic::new(
-                    "E_UNTERMINATED_EXTERNAL",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnterminatedExternal,
                     "external block is missing its closing `}`",
                     span,
                 ));
@@ -334,8 +342,8 @@ impl Parser {
                     preserve = Some(self.expect_identifier("an input name")?);
                 }
                 _ => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_EXTERNAL_FIELD",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::UnknownExternalField,
                         format!("unknown external field `{}`", field.value),
                         field.span,
                     ));
@@ -415,8 +423,8 @@ impl Parser {
     fn parse_value_type(&mut self, expected: &str) -> Result<Spanned<ValueType>> {
         let name = self.expect_identifier(expected)?;
         let value = ValueType::from_source_name(&name.value).ok_or_else(|| {
-            Diagnostic::new(
-                "E_UNKNOWN_VALUE_TYPE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::UnknownValueType,
                 format!(
                     "unknown value type `{}`; expected `Video` or `Audio`",
                     name.value
@@ -433,8 +441,8 @@ impl Parser {
             self.expect(&TokenKind::LeftParen, "`(` after `Keyword`")?;
             self.skip_newlines();
             if self.at(&TokenKind::RightParen) {
-                return Err(Diagnostic::new(
-                    "E_MISSING_KEYWORD_VALUES",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingKeywordValues,
                     "a `Keyword` parameter requires at least one allowed value",
                     name.span,
                 ));
@@ -455,8 +463,8 @@ impl Parser {
         };
         let parameter_type = ParameterType::from_source_name(&name.value, keyword_values)
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_UNKNOWN_PARAMETER_TYPE",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::UnknownParameterType,
                     format!("unknown parameter type `{}`", name.value),
                     name.span.clone(),
                 )
@@ -497,8 +505,8 @@ impl Parser {
             }
             TokenKind::Identifier(_) => Ok(Expression::Invocation(self.parse_invocation(access)?)),
             TokenKind::Dollar if access.is_none() => self.parse_reference(),
-            TokenKind::Dollar => Err(Diagnostic::new(
-                "E_INVALID_ACCESS_TARGET",
+            TokenKind::Dollar => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidAccessTarget,
                 "stack access may modify an invocation or stack block, not a reference",
                 self.current().span.clone(),
             )),
@@ -517,8 +525,8 @@ impl Parser {
     fn parse_expression(&mut self) -> Result<Expression> {
         let access = self.parse_access()?;
         match &self.current().kind {
-            TokenKind::Dollar if access.is_some() => Err(Diagnostic::new(
-                "E_INVALID_ACCESS_TARGET",
+            TokenKind::Dollar if access.is_some() => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidAccessTarget,
                 "stack access may modify an invocation or block, not a reference",
                 self.current().span.clone(),
             )),
@@ -694,8 +702,8 @@ impl Parser {
                     Ok(expression)
                 })
             }
-            _ => Err(Diagnostic::new(
-                "E_EXPECTED_TOKEN",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ExpectedToken,
                 "expected a scalar expression",
                 token.span,
             )),
@@ -753,8 +761,8 @@ impl Parser {
     fn parse_type_argument(&mut self) -> Result<Spanned<ValueType>> {
         let value = self.expect_identifier("`Video` or `Audio`")?;
         let value_type = ValueType::from_source_name(&value.value).ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_TYPE_ARGUMENT",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTypeArgument,
                 "type argument must be `Video` or `Audio`",
                 value.span.clone(),
             )
@@ -782,8 +790,8 @@ impl Parser {
                 }
             } else {
                 if saw_named {
-                    return Err(Diagnostic::new(
-                        "E_POSITIONAL_AFTER_NAMED",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::PositionalAfterNamed,
                         "positional arguments must appear before named arguments",
                         self.current().span.clone(),
                     ));
@@ -823,8 +831,8 @@ impl Parser {
         let mut statements = Vec::new();
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
-                return Err(Diagnostic::new(
-                    "E_UNTERMINATED_BLOCK",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnterminatedBlock,
                     "block is missing its closing `}`",
                     span,
                 ));
@@ -846,8 +854,8 @@ impl Parser {
         parse: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
         if self.syntax_depth >= crate::source::MAX_SYNTAX_NESTING {
-            return Err(Diagnostic::new(
-                "E_SYNTAX_NESTING_DEPTH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::SyntaxNestingDepth,
                 format!(
                     "source syntax nesting exceeds the supported depth of {}",
                     crate::source::MAX_SYNTAX_NESTING
@@ -884,8 +892,8 @@ impl Parser {
             self.skip_newlines();
         }
         if names.len() < 2 {
-            return Err(Diagnostic::new(
-                "E_INVALID_OUTPUT_BINDING",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidOutputBinding,
                 "parenthesized output binding must contain at least two names",
                 span,
             ));
@@ -903,8 +911,8 @@ impl Parser {
             "owned" => StackAccess::Owned,
             "visible" => StackAccess::Visible,
             _ => {
-                return Err(Diagnostic::new(
-                    "E_INVALID_STACK_ACCESS",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidStackAccess,
                     "stack access must be `@owned` or `@visible`",
                     access.span,
                 ));
@@ -921,8 +929,8 @@ impl Parser {
         if self.at(&TokenKind::RightBrace) || self.at(&TokenKind::End) {
             return Ok(());
         }
-        Err(Diagnostic::new(
-            "E_EXPECTED_STATEMENT_END",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ExpectedStatementEnd,
             format!("{owner} must end before the next token"),
             self.current().span.clone(),
         ))
@@ -952,8 +960,8 @@ impl Parser {
         let token = self.advance().clone();
         match token.kind {
             TokenKind::String(value) => Ok(Spanned::new(value, token.span)),
-            _ => Err(Diagnostic::new(
-                "E_EXPECTED_TOKEN",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ExpectedToken,
                 format!("expected {expected}"),
                 token.span,
             )),
@@ -966,8 +974,8 @@ impl Parser {
             TokenKind::String(value) | TokenKind::Number(value) | TokenKind::Identifier(value) => {
                 Ok(Spanned::new(value, token.span))
             }
-            _ => Err(Diagnostic::new(
-                "E_EXPECTED_TOKEN",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ExpectedToken,
                 format!("expected {expected}"),
                 token.span,
             )),
@@ -978,19 +986,28 @@ impl Parser {
         let token = self.advance().clone();
         match token.kind {
             TokenKind::Identifier(value) => Ok(Spanned::new(value, token.span)),
-            _ => Err(Diagnostic::new(
-                "E_EXPECTED_TOKEN",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ExpectedToken,
                 format!("expected {expected}"),
                 token.span,
             )),
         }
     }
 
-    fn expect_keyword(&mut self, keyword: &str, code: &'static str, message: &str) -> Result<()> {
+    fn expect_keyword(
+        &mut self,
+        keyword: &str,
+        diagnostic: BuiltinDiagnostic,
+        message: &str,
+    ) -> Result<()> {
         if self.consume_keyword(keyword) {
             Ok(())
         } else {
-            Err(Diagnostic::new(code, message, self.current().span.clone()))
+            Err(Diagnostic::builtin(
+                diagnostic,
+                message,
+                self.current().span.clone(),
+            ))
         }
     }
 
@@ -1012,8 +1029,8 @@ impl Parser {
     }
 
     fn expected(&self, expected: &str) -> Diagnostic {
-        Diagnostic::new(
-            "E_EXPECTED_TOKEN",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ExpectedToken,
             format!("expected {expected}"),
             self.current().span.clone(),
         )
@@ -1060,8 +1077,8 @@ impl Parser {
 }
 
 fn duplicate_declaration_field(owner: &str, field: &str, span: SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_DUPLICATE_DECLARATION_FIELD",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::DuplicateDeclarationField,
         format!("duplicate {owner} field `{field}`"),
         span,
     )

@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use clipasm::reference::{BuiltinCategory, builtin_programs};
+use clipasm::reference::{
+    BuiltinCategory, DiagnosticCategory, DiagnosticStability, RetryGuidance, builtin_programs,
+    diagnostic, diagnostics,
+};
 
 #[test]
 fn every_builtin_reference_example_compiles_and_uses_its_program() {
@@ -62,4 +65,103 @@ fn every_builtin_reference_example_compiles_and_uses_its_program() {
         categories,
         BuiltinCategory::ALL.into_iter().collect::<BTreeSet<_>>()
     );
+}
+
+#[test]
+fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
+    let references = diagnostics();
+    assert_eq!(references.len(), 164);
+
+    let mut codes = BTreeSet::new();
+    let mut categories = BTreeSet::new();
+    let mut previous_code = None;
+    for reference in references {
+        let code = reference.code();
+        assert!(codes.insert(code), "duplicate diagnostic code {code}");
+        assert!(
+            code.starts_with("E_")
+                && code
+                    .bytes()
+                    .all(|byte| byte == b'_' || byte.is_ascii_uppercase() || byte.is_ascii_digit()),
+            "invalid diagnostic code {code}"
+        );
+        if let Some(previous_code) = previous_code {
+            assert!(previous_code < code, "catalog is not ordered at {code}");
+        }
+        previous_code = Some(code);
+
+        assert!(!reference.title().trim().is_empty(), "{code}");
+        assert!(!reference.summary().trim().is_empty(), "{code}");
+        assert!(!reference.common_causes().is_empty(), "{code}");
+        assert!(!reference.recommended_actions().is_empty(), "{code}");
+        assert!(
+            matches!(
+                reference.retry_guidance(),
+                RetryGuidance::FixSource
+                    | RetryGuidance::FixArguments
+                    | RetryGuidance::FixEnvironment
+                    | RetryGuidance::RetryAfterExternalChange
+                    | RetryGuidance::RetryMayHelp
+                    | RetryGuidance::RetryWillNotHelp
+                    | RetryGuidance::ReportBug
+            ),
+            "{code}"
+        );
+        assert!(
+            matches!(
+                reference.stability(),
+                DiagnosticStability::Durable | DiagnosticStability::Internal
+            ),
+            "{code}"
+        );
+        assert!(
+            reference
+                .documentation_route()
+                .starts_with("reference/diagnostics/"),
+            "{code}"
+        );
+        assert_eq!(reference.documentation_anchor(), code.to_ascii_lowercase());
+        assert_eq!(diagnostic(code), Some(reference));
+        assert_eq!(reference.diagnostic().code(), code);
+        categories.insert(reference.category());
+    }
+
+    assert_eq!(
+        categories,
+        DiagnosticCategory::ALL.into_iter().collect::<BTreeSet<_>>()
+    );
+    assert!(diagnostic("E_NOT_A_CLIPASM_DIAGNOSTIC").is_none());
+}
+
+#[test]
+fn diagnostic_reference_metadata_does_not_affect_compiled_identity() {
+    let source = "clipasm 1\nimage(\"card.ppm\", 1s)\n";
+    let package = clipasm::language::parse_str(Path::new("identity.clipasm"), source)
+        .expect("reference identity source parses");
+    let before = clipasm::compiler::compile(&package).expect("first compile");
+    let before_hash = before.structure_hash().to_owned();
+    let before_json = before.compiled_json().expect("first compiled JSON");
+
+    let metadata_prose = diagnostics()
+        .iter()
+        .flat_map(|reference| {
+            [
+                reference.title(),
+                reference.summary(),
+                reference.retry_guidance().explanation(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert!(metadata_prose.iter().all(|prose| !prose.trim().is_empty()));
+
+    let after = clipasm::compiler::compile(&package).expect("second compile");
+    let after_json = after.compiled_json().expect("second compiled JSON");
+    assert_eq!(after.structure_hash(), before_hash);
+    assert_eq!(after_json, before_json);
+    for prose in metadata_prose {
+        assert!(
+            !after_json.contains(prose),
+            "diagnostic reference prose leaked into compiled JSON"
+        );
+    }
 }

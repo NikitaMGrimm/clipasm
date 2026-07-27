@@ -1,7 +1,7 @@
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::external::ExternalInvocation;
 use crate::model::{
     AudioSpec, ExactNumber, FrameCount, ImageFit, NativeRange, TimelineRangeExpression, ValueId,
@@ -114,8 +114,8 @@ impl<'a> GraphBuilder<'a> {
             .get(&invocation.preserve_input)
             .copied()
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_EXTERNAL_PROGRAM",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalExternalProgram,
                     "external invocation is missing its preserved input",
                     self.origin.span.clone(),
                 )
@@ -211,8 +211,8 @@ impl<'a> GraphBuilder<'a> {
     /// Returns a diagnostic for empty, mistyped, or oversized graphs.
     pub(crate) fn concat(&mut self, inputs: Vec<ValueRef>) -> Result<ValueRef> {
         let Some(first) = inputs.first().copied() else {
-            return Err(Diagnostic::new(
-                "E_EMPTY_CONCAT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::EmptyConcat,
                 format!(
                     "`{}` requires at least one Video or Audio value",
                     self.origin.construct
@@ -223,8 +223,8 @@ impl<'a> GraphBuilder<'a> {
         let value_type = first.value_type();
         for input in &inputs {
             if input.value_type() != value_type {
-                return Err(Diagnostic::new(
-                    "E_TYPE_MISMATCH",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::TypeMismatch,
                     format!(
                         "program `{}` concat inputs must all be {value_type}",
                         self.origin.construct
@@ -270,8 +270,8 @@ impl<'a> GraphBuilder<'a> {
         replacement: ValueRef,
     ) -> Result<ValueRef> {
         if base.value_type() != replacement.value_type() {
-            return Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::TypeMismatch,
                 format!(
                     "program `{}` replacement must have the same type as its base timeline",
                     self.origin.construct
@@ -289,8 +289,8 @@ impl<'a> GraphBuilder<'a> {
     fn push(&mut self, kind: SemanticNodeKind) -> Result<ValueRef> {
         let value_type = kind.value_type();
         let id = ValueId::new(u32::try_from(self.nodes.len()).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "semantic graph contains too many values",
                 self.origin.span.clone(),
             )
@@ -324,8 +324,8 @@ pub(crate) fn require_value_type(
     if actual.value_type() == expected {
         return Ok(());
     }
-    Err(Diagnostic::new(
-        "E_TYPE_MISMATCH",
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::TypeMismatch,
         format!(
             "program `{program}` port `{port}` expected {expected}, but the bound value is {}",
             actual.value_type()

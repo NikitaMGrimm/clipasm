@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::{SourceFile, SourceSpan};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -147,8 +147,8 @@ impl Lexer {
                         Some('r') => '\r',
                         Some('t') => '\t',
                         Some(character) => {
-                            return Err(Diagnostic::new(
-                                "E_INVALID_ESCAPE",
+                            return Err(Diagnostic::builtin(
+                                BuiltinDiagnostic::InvalidEscape,
                                 format!("unsupported string escape `\\{character}`"),
                                 self.span(),
                             ));
@@ -206,8 +206,8 @@ impl Lexer {
             '/' => TokenKind::Slash,
             '%' => TokenKind::Percent,
             _ => {
-                return Err(Diagnostic::new(
-                    "E_INVALID_TOKEN",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidToken,
                     format!("unexpected character `{character}`"),
                     span,
                 ));
@@ -224,8 +224,8 @@ impl Lexer {
     }
 
     fn unterminated_string(span: SourceSpan) -> Diagnostic {
-        Diagnostic::new(
-            "E_UNTERMINATED_STRING",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::UnterminatedString,
             "string literal is missing its closing quote",
             span,
         )

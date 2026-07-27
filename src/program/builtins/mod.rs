@@ -8,7 +8,7 @@ mod transitions;
 
 use std::collections::BTreeSet;
 
-use crate::diagnostic::Result;
+use crate::diagnostic::{BuiltinDiagnostic, Result};
 use crate::model::{ExactNumber, ValueType};
 use crate::reference::BuiltinCategory;
 
@@ -92,7 +92,7 @@ pub(crate) struct BuiltinMetadata {
     pub(crate) example: &'static str,
     pub(crate) example_expected_outputs: Option<&'static [ValueType]>,
     pub(crate) example_expected_frames: Option<u64>,
-    pub(crate) diagnostics: &'static [&'static str],
+    pub(crate) diagnostics: &'static [BuiltinDiagnostic],
     pub(crate) behavior_notes: &'static [&'static str],
     pub(crate) constraints: &'static [&'static str],
     pub(crate) related_programs: &'static [&'static str],
@@ -137,7 +137,7 @@ impl BuiltinMetadata {
         self
     }
 
-    fn with_diagnostics(mut self, diagnostics: &'static [&'static str]) -> Self {
+    fn with_diagnostics(mut self, diagnostics: &'static [BuiltinDiagnostic]) -> Self {
         self.diagnostics = diagnostics;
         self
     }
@@ -193,7 +193,7 @@ const FIT_DEFAULT: [BuiltinParameterDefault; 1] = [BuiltinParameterDefault {
 }];
 const IMAGE_PARAMETER_OMISSIONS: [BuiltinParameterOmission; 1] = [BuiltinParameterOmission {
     parameter: "duration",
-    behavior: "uses a requested Video extent supplied by the surrounding body; without one, the call reports E_MISSING_IMAGE_DURATION",
+    behavior: "uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required",
 }];
 const ZOOM_DEFAULT: [BuiltinParameterDefault; 1] = [BuiltinParameterDefault {
     parameter: "by",
@@ -237,7 +237,10 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
             .with_parameter_omissions(&IMAGE_PARAMETER_OMISSIONS)
-            .with_diagnostics(&["E_MISSING_IMAGE_DURATION", "E_INVALID_DURATION"])
+            .with_diagnostics(&[
+                BuiltinDiagnostic::MissingImageDuration,
+                BuiltinDiagnostic::InvalidDuration,
+            ])
             .with_behavior_notes(&[
                 "The image is fitted to the project Video dimensions; cover fills the frame and crops overflow, contain pads, and stretch may distort.",
                 "A surrounding Video body may supply the requested duration when duration is omitted.",
@@ -327,7 +330,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             )
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(90)
-            .with_diagnostics(&["E_INVALID_REPEAT_COUNT"])
+            .with_diagnostics(&[BuiltinDiagnostic::InvalidRepeatCount])
             .with_behavior_notes(&[
                 "repeat(1) is a true identity and preserves nested timeline placements.",
                 "Larger counts create a fresh repeated timeline; child placements are unavailable until occurrence indexing exists.",
@@ -344,7 +347,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             )
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
-            .with_diagnostics(&["E_INVALID_TIME_RANGE"])
+            .with_diagnostics(&[BuiltinDiagnostic::InvalidTimeRange])
             .with_behavior_notes(&[
                 "Absolute ranges and rooted timeline-marker ranges are accepted for both Video and Audio.",
                 "Complete child placements inside the selected range are preserved and rebased; partial or uncertain placements are omitted.",
@@ -377,7 +380,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_defaults(&ZOOM_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
-            .with_diagnostics(&["E_INVALID_ZOOM_AMOUNT"])
+            .with_diagnostics(&[BuiltinDiagnostic::InvalidZoomAmount])
             .with_behavior_notes(&[
                 "For a multi-frame Video, scale increases linearly from 100% on the first frame to exactly 100% + by on the last frame.",
                 "The Video timeline and attached meaningful-Audio state are preserved.",
@@ -394,7 +397,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_defaults(&FLASH_CUT_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(120)
-            .with_diagnostics(&["E_INVALID_FLASH_CUT_DURATION"])
+            .with_diagnostics(&[BuiltinDiagnostic::InvalidFlashCutDuration])
             .with_behavior_notes(&[
                 "duration becomes the smallest whole project-frame count that covers the authored duration.",
                 "The output exposes sequential before and after timeline regions.",
@@ -412,7 +415,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_defaults(&CROSSFADE_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(105)
-            .with_diagnostics(&["E_INVALID_CROSSFADE_DURATION"])
+            .with_diagnostics(&[BuiltinDiagnostic::InvalidCrossfadeDuration])
             .with_behavior_notes(&[
                 "duration becomes the smallest whole project-frame count that covers the authored duration.",
                 "The output exposes before, overlap, and after timeline regions.",
@@ -432,7 +435,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_body_initial_values(&JOIN_INITIAL_VALUES)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
-            .with_diagnostics(&["E_EMPTY_JOIN"])
+            .with_diagnostics(&[BuiltinDiagnostic::EmptyJoin])
             .with_behavior_notes(&[
                 "The body starts with before followed by after and exposes them as lexical $before and $after references.",
                 "Every homogeneous value left by the body is concatenated in stack order into one output timeline.",
@@ -453,7 +456,7 @@ fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_body_initial_values(&DURING_INITIAL_VALUES)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(90)
-            .with_diagnostics(&["E_BODY_OUTPUT_COUNT"])
+            .with_diagnostics(&[BuiltinDiagnostic::BodyOutputCount])
             .with_behavior_notes(&[
                 "The body starts with the selected range and exposes the complete bound input as lexical $timeline.",
                 "The body must return exactly one matching value, which is spliced into the original timeline.",
@@ -617,7 +620,6 @@ fn validate_builtin_catalog(catalog: &[BuiltinProgram]) -> Result<()> {
             ("behavior note", program.metadata.behavior_notes),
             ("constraint", program.metadata.constraints),
             ("related program", program.metadata.related_programs),
-            ("diagnostic", program.metadata.diagnostics),
         ] {
             if values.iter().any(|value| value.trim().is_empty()) {
                 return Err(definition_error(format!(

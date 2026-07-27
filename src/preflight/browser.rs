@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, AudioSpec, FrameCount, NodeId, VideoSpec};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 use crate::source::SourceSpan;
@@ -221,8 +221,8 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
     let mut prepared_assets = BTreeMap::new();
     for request in requests {
         let Some(facts) = supplied.get(request.path()) else {
-            return Err(Diagnostic::new(
-                "E_BROWSER_MISSING_ASSET",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserMissingAsset,
                 format!("browser asset `{}` has not been supplied", request.path()),
                 SourceSpan::file_start(request.path()),
             ));
@@ -303,8 +303,8 @@ fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, BrowserAs
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
         {
-            return Err(Diagnostic::new(
-                "E_BROWSER_ASSET_HASH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserAssetHash,
                 format!("browser asset `{path}` does not have a valid SHA-256 digest"),
                 span,
             ));
@@ -319,8 +319,8 @@ fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, BrowserAs
             )
             .is_some()
         {
-            return Err(Diagnostic::new(
-                "E_BROWSER_DUPLICATE_ASSET",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserDuplicateAsset,
                 format!("browser asset path `{path}` was supplied more than once"),
                 SourceSpan::file_start(path),
             ));
@@ -374,8 +374,8 @@ fn normalize_relative(path: &Path, span: &SourceSpan) -> Result<String> {
 }
 
 fn invalid_browser_path(path: &Path, span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_BROWSER_ASSET_PATH",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::BrowserAssetPath,
         format!(
             "browser asset path `{}` must be a project-relative UTF-8 path without traversal",
             path.display()
@@ -385,7 +385,11 @@ fn invalid_browser_path(path: &Path, span: &SourceSpan) -> Diagnostic {
 }
 
 fn browser_unsupported(message: &str, span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new("E_BROWSER_RENDER_UNSUPPORTED", message, span.clone())
+    Diagnostic::builtin(
+        BuiltinDiagnostic::BrowserRenderUnsupported,
+        message,
+        span.clone(),
+    )
 }
 
 struct BrowserPreparationHost {
@@ -404,8 +408,8 @@ impl PreparationHost for BrowserPreparationHost {
             .get(&path)
             .map(|asset| asset.asset.clone())
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_BROWSER_MISSING_ASSET",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::BrowserMissingAsset,
                     format!("browser asset `{}` has not been supplied", path.display()),
                     origin.span.clone(),
                 )
@@ -420,15 +424,15 @@ impl PreparationHost for BrowserPreparationHost {
     ) -> Result<(PreparedAsset, FrameCount, bool)> {
         let path = PathBuf::from(virtual_path(authored, &origin.span)?);
         let prepared = self.assets.get(&path).ok_or_else(|| {
-            Diagnostic::new(
-                "E_BROWSER_MISSING_ASSET",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserMissingAsset,
                 format!("browser asset `{}` has not been supplied", path.display()),
                 origin.span.clone(),
             )
         })?;
         let probe = prepared.video_probe.as_deref().ok_or_else(|| {
-            Diagnostic::new(
-                "E_BROWSER_ASSET_PROBE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserAssetProbe,
                 format!("browser video `{}` has not been probed", path.display()),
                 origin.span.clone(),
             )

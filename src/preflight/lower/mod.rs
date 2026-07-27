@@ -8,7 +8,7 @@ mod transitions;
 use std::collections::HashMap;
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, FrameCount, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 
@@ -46,8 +46,8 @@ impl PreflightLowerer<'_> {
             }
             SemanticNodeKind::Reference { symbol, .. } => {
                 let target = self.compiled.symbol_value(*symbol).ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_MISSING_REFERENCE",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::MissingReference,
                         format!("reference names unknown symbol {}", symbol.index()),
                         compiled_node.origin().span.clone(),
                     )
@@ -110,8 +110,8 @@ impl PreflightLowerer<'_> {
         origin: &SourceOrigin,
     ) -> Result<NodeId> {
         self.lowered.get(&value.id()).copied().ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_GRAPH",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidGraph,
                 format!(
                     "semantic dependency {} was not prepared before its consumer",
                     value.id().get()
@@ -130,8 +130,8 @@ impl PreflightLowerer<'_> {
             PreparedMedia::Video {
                 domain, has_audio, ..
             } => Ok((domain, *has_audio)),
-            PreparedMedia::Audio { .. } => Err(Diagnostic::new(
-                "E_INVALID_GRAPH",
+            PreparedMedia::Audio { .. } => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidGraph,
                 format!(
                     "prepared dependency {} is Audio, but Video is required",
                     node.get()
@@ -144,8 +144,8 @@ impl PreflightLowerer<'_> {
     pub(super) fn audio_domain(&self, node: NodeId, origin: &SourceOrigin) -> Result<&AudioDomain> {
         match self.nodes[node.get() as usize].prepared_media() {
             PreparedMedia::Audio { domain, .. } => Ok(domain),
-            PreparedMedia::Video { .. } => Err(Diagnostic::new(
-                "E_INVALID_GRAPH",
+            PreparedMedia::Video { .. } => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidGraph,
                 format!(
                     "prepared dependency {} is Video, but Audio is required",
                     node.get()
@@ -208,8 +208,8 @@ impl PreflightLowerer<'_> {
         origin: SourceOrigin,
     ) -> Result<NodeId> {
         let id = NodeId::new(u32::try_from(self.nodes.len()).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "prepared graph contains too many primitive nodes",
                 origin.span.clone(),
             )

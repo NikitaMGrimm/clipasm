@@ -74,7 +74,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_EMPTY_JOIN`
+- [`E_EMPTY_JOIN`](../diagnostics/compilation-and-timelines.md#e_empty_join) — Empty join result
 
 ## Related reference
 

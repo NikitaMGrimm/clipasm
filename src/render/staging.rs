@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 /// A private, same-filesystem directory for tool outputs and rollback backups.
@@ -9,7 +9,7 @@ pub(super) struct StagingDirectory {
 }
 
 impl StagingDirectory {
-    pub(super) fn beside(path: &Path, role: &str, code: &'static str) -> Result<Self> {
+    pub(super) fn beside(path: &Path, role: &str, diagnostic: BuiltinDiagnostic) -> Result<Self> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         let prefix = format!(
             ".{}.{role}-",
@@ -19,8 +19,8 @@ impl StagingDirectory {
             .prefix(&prefix)
             .tempdir_in(parent)
             .map_err(|error| {
-                Diagnostic::new(
-                    code,
+                Diagnostic::builtin(
+                    diagnostic,
                     format!(
                         "could not create private {role} staging directory beside `{}`: {error}",
                         path.display()

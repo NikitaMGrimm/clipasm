@@ -23,7 +23,7 @@ mod typecheck;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
 #[cfg(test)]
 use crate::program::ProgramRegistry;
@@ -145,8 +145,8 @@ impl CompiledProgram {
     pub(crate) fn render_output(&self) -> Result<ValueRef> {
         let (output, count) = video_output(&self.outputs);
         let Some(output) = output.filter(|_| count == 1) else {
-            return Err(Diagnostic::new(
-                "E_ENTRYPOINT_OUTPUT_COUNT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::EntrypointOutputCount,
                 format!(
                     "rendering requires exactly one Video output, but {count} Video values were produced"
                 ),
@@ -315,8 +315,8 @@ fn validate_publication_output(
     }
     let (output, count) = video_output(&evaluation.outputs);
     let Some(output) = output.filter(|_| count == 1) else {
-        return Err(Diagnostic::new(
-            "E_ENTRYPOINT_OUTPUT_COUNT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::EntrypointOutputCount,
             format!(
                 "a source program with `output` must produce exactly one Video, but {count} Video values remain"
             ),
@@ -370,8 +370,8 @@ fn resolve_audio_spec(entrypoint: &SourceUnit) -> Result<AudioSpec> {
     };
     let sample_rate = match &project.value.audio.sample_rate {
         Some(sample_rate) if sample_rate.value == 0 => {
-            return Err(Diagnostic::new(
-                "E_INVALID_AUDIO_SPEC",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidAudioSpec,
                 "`sample_rate` must be greater than zero",
                 sample_rate.span.clone(),
             ));
@@ -385,8 +385,8 @@ fn resolve_audio_spec(entrypoint: &SourceUnit) -> Result<AudioSpec> {
 
 fn resolve_dimension(setting: Option<&Spanned<u32>>, default: u32, name: &str) -> Result<u32> {
     match setting {
-        Some(setting) if setting.value == 0 => Err(Diagnostic::new(
-            "E_INVALID_VIDEO_SPEC",
+        Some(setting) if setting.value == 0 => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidVideoSpec,
             format!("`{name}` must be greater than zero"),
             setting.span.clone(),
         )),

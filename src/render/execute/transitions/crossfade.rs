@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{FrameCount, NodeId, TimelineRate, VideoDomain};
 use crate::preflight::PreparedNode;
 
@@ -275,8 +275,8 @@ impl CrossfadeLayout {
             .get(before.get() as usize)
             .and_then(PreparedNode::video_domain)
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     format!("crossfade input {} is not an available Video", before.get()),
                     context.span().clone(),
                 )
@@ -288,8 +288,8 @@ impl CrossfadeLayout {
             .get(after.get() as usize)
             .and_then(PreparedNode::video_domain)
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     format!("crossfade input {} is not an available Video", after.get()),
                     context.span().clone(),
                 )
@@ -297,8 +297,8 @@ impl CrossfadeLayout {
             .frames()
             .0;
         if frames.0 == 0 || frames.0 > before_frames || frames.0 > after_frames {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 "prepared crossfade overlap is outside its input domains",
                 context.span().clone(),
             ));
@@ -307,15 +307,15 @@ impl CrossfadeLayout {
             .checked_add(after_frames)
             .and_then(|combined| combined.checked_sub(frames.0))
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_FRAME_OVERFLOW",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::FrameOverflow,
                     "crossfade duration exceeds the supported frame count",
                     context.span().clone(),
                 )
             })?;
         if output_frames != domain.frames().0 {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 format!(
                     "prepared crossfade domain has {} frames, but its inputs and overlap require {output_frames}",
                     domain.frames().0
@@ -340,8 +340,8 @@ impl CrossfadeLayout {
         let output_samples =
             timeline.samples_for_frames(FrameCount(output_frames), context.span())?;
         if overlap_samples > i64::MAX as u64 {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 "prepared crossfade Audio overlap exceeds the renderer limit",
                 context.span().clone(),
             ));

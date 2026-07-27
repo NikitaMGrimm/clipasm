@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 use super::{AudioSpec, FrameCount, VideoSpec};
@@ -100,8 +100,8 @@ impl TimelineRate {
         span: &SourceSpan,
     ) -> Result<u64> {
         if start > end {
-            return Err(Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "frame boundary start must not follow its end",
                 span.clone(),
             ));
@@ -156,16 +156,16 @@ fn ceil_div(numerator: u128, denominator: u128) -> Option<u128> {
 }
 
 fn audio_overflow(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_AUDIO_DURATION_OVERFLOW",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::AudioDurationOverflow,
         "audio duration exceeds the supported range",
         span.clone(),
     )
 }
 
 fn frame_overflow(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_FRAME_OVERFLOW",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::FrameOverflow,
         "duration exceeds the supported frame count",
         span.clone(),
     )

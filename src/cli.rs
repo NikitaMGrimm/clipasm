@@ -7,10 +7,11 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
-use clipasm::diagnostic::{Diagnostic, Result};
+use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use clipasm::source::{SourceFile, SourceSpan};
 use clipasm::{compiler, language, preflight, render};
 
+mod explain;
 mod init;
 mod programs;
 
@@ -50,6 +51,18 @@ enum Command {
         /// Built-in program name. Omit to list every built-in program.
         #[arg(value_name = "NAME")]
         name: Option<String>,
+    },
+    /// Explain a `ClipAsm` diagnostic code.
+    #[command(
+        about = "Explain a ClipAsm diagnostic code",
+        long_about = "Explain one built-in ClipAsm diagnostic code.\n\n\
+            This command uses the catalog built into the executable. It never inspects a project, \
+            source file, media asset, FFmpeg, or FFprobe."
+    )]
+    Explain {
+        /// Built-in diagnostic code such as `E_UNKNOWN_PROGRAM`.
+        #[arg(value_name = "CODE")]
+        code: String,
     },
     /// Parse, type-check, and infer source-independent Video and Audio domains.
     Validate {
@@ -119,6 +132,7 @@ fn execute(cli: Cli) -> Result<()> {
             );
         }
         Command::Programs { name } => programs::print(name.as_deref())?,
+        Command::Explain { code } => explain::print(&code)?,
         Command::Validate { source, bindings } => {
             let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;
@@ -249,8 +263,8 @@ fn entrypoint_bindings(
     output: Option<PathBuf>,
 ) -> Result<compiler::EntrypointBindings> {
     let current_directory = std::env::current_dir().map_err(|error| {
-        Diagnostic::new(
-            "E_PATH_RESOLUTION",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::PathResolution,
             format!("could not determine the caller's working directory: {error}"),
             SourceSpan::file_start("<command-line>"),
         )
@@ -310,8 +324,8 @@ fn split_binding<'a>(
 }
 
 fn invalid_cli_binding(option: &str, message: &str, source: &SourceFile) -> Diagnostic {
-    Diagnostic::new(
-        "E_INVALID_CLI_BINDING",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidCliBinding,
         format!("invalid {option} binding: {message}"),
         SourceSpan::source_start(source.clone()),
     )
@@ -321,8 +335,8 @@ fn write_new_inspection(path: &Path, contents: &[u8]) -> Result<()> {
     let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            return Err(Diagnostic::new(
-                "E_INSPECTION_EXISTS",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InspectionExists,
                 format!(
                     "refusing to replace existing inspection destination `{}`",
                     path.display()
@@ -331,16 +345,16 @@ fn write_new_inspection(path: &Path, contents: &[u8]) -> Result<()> {
             ));
         }
         Err(error) => {
-            return Err(Diagnostic::new(
-                "E_INSPECTION_IO",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InspectionIo,
                 format!("could not create inspection `{}`: {error}", path.display()),
                 SourceSpan::file_start(path),
             ));
         }
     };
     if let Err(error) = file.write_all(contents) {
-        let diagnostic = Diagnostic::new(
-            "E_INSPECTION_IO",
+        let diagnostic = Diagnostic::builtin(
+            BuiltinDiagnostic::InspectionIo,
             format!("could not write inspection `{}`: {error}", path.display()),
             SourceSpan::file_start(path),
         );

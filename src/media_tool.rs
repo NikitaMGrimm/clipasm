@@ -4,7 +4,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 const CAPTURE_LIMIT: usize = 8 * 1024 * 1024;
@@ -24,26 +24,26 @@ struct RetainedOutput {
 
 pub(crate) fn capture(
     mut command: Command,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
 ) -> Result<CapturedOutput> {
     let debug = format!("{command:?}");
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = spawn(command, code, span, &debug)?;
+    let mut child = spawn(command, diagnostic, span, &debug)?;
     let stdout = child.stdout.take().expect("piped media-tool stdout");
     let stderr = child.stderr.take().expect("piped media-tool stderr");
     let stdout_reader = std::thread::spawn(move || read_prefix(stdout, CAPTURE_LIMIT));
     let stderr_reader = std::thread::spawn(move || read_tail(stderr, CAPTURE_LIMIT));
-    let status = wait(&mut child, code, span, &debug);
-    let stdout = join_reader(stdout_reader, "stdout", code, span, &debug);
-    let stderr = join_reader(stderr_reader, "stderr", code, span, &debug);
+    let status = wait(&mut child, diagnostic, span, &debug);
+    let stdout = join_reader(stdout_reader, "stdout", diagnostic, span, &debug);
+    let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
     let status = status?;
     let stdout = stdout?;
     let stderr = stderr?;
 
     if !status.success() {
         return Err(exit_diagnostic(
-            code,
+            diagnostic,
             span,
             &debug,
             status,
@@ -54,7 +54,7 @@ pub(crate) fn capture(
     }
     if stdout.truncated {
         return Err(output_limit_diagnostic(
-            code,
+            diagnostic,
             span,
             &debug,
             "stdout",
@@ -63,7 +63,7 @@ pub(crate) fn capture(
     }
     if stderr.truncated {
         return Err(output_limit_diagnostic(
-            code,
+            diagnostic,
             span,
             &debug,
             "stderr",
@@ -77,19 +77,23 @@ pub(crate) fn capture(
     })
 }
 
-pub(crate) fn run(mut command: Command, code: &'static str, span: &SourceSpan) -> Result<()> {
+pub(crate) fn run(
+    mut command: Command,
+    diagnostic: BuiltinDiagnostic,
+    span: &SourceSpan,
+) -> Result<()> {
     let debug = format!("{command:?}");
     command.stdout(Stdio::null()).stderr(Stdio::piped());
-    let mut child = spawn(command, code, span, &debug)?;
+    let mut child = spawn(command, diagnostic, span, &debug)?;
     let stderr = child.stderr.take().expect("piped media-tool stderr");
     let stderr_reader = std::thread::spawn(move || read_tail(stderr, STDERR_TAIL_LIMIT));
-    let status = wait(&mut child, code, span, &debug);
-    let stderr = join_reader(stderr_reader, "stderr", code, span, &debug);
+    let status = wait(&mut child, diagnostic, span, &debug);
+    let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
     let status = status?;
     let stderr = stderr?;
     if !status.success() {
         return Err(exit_diagnostic(
-            code,
+            diagnostic,
             span,
             &debug,
             status,
@@ -104,23 +108,29 @@ pub(crate) fn run(mut command: Command, code: &'static str, span: &SourceSpan) -
 pub(crate) fn stream_stdout_lines(
     mut command: Command,
     line_limit: usize,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     mut visitor: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
     let debug = format!("{command:?}");
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = spawn(command, code, span, &debug)?;
+    let mut child = spawn(command, diagnostic, span, &debug)?;
     let stdout = child.stdout.take().expect("piped media-tool stdout");
     let stderr = child.stderr.take().expect("piped media-tool stderr");
     let stderr_reader = std::thread::spawn(move || read_tail(stderr, STDERR_TAIL_LIMIT));
 
-    let lines = for_each_bounded_line(BufReader::new(stdout), line_limit, code, span, &mut visitor);
+    let lines = for_each_bounded_line(
+        BufReader::new(stdout),
+        line_limit,
+        diagnostic,
+        span,
+        &mut visitor,
+    );
     if lines.is_err() {
         let _ = child.kill();
     }
-    let status = wait(&mut child, code, span, &debug);
-    let stderr = join_reader(stderr_reader, "stderr", code, span, &debug);
+    let status = wait(&mut child, diagnostic, span, &debug);
+    let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
     let status = status?;
     let stderr = stderr?;
 
@@ -129,7 +139,7 @@ pub(crate) fn stream_stdout_lines(
     }
     if !status.success() {
         return Err(exit_diagnostic(
-            code,
+            diagnostic,
             span,
             &debug,
             status,
@@ -143,7 +153,7 @@ pub(crate) fn stream_stdout_lines(
 
 fn spawn(
     mut command: Command,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
 ) -> Result<Child> {
@@ -154,8 +164,8 @@ fn spawn(
                 std::thread::sleep(START_RETRY_DELAY);
             }
             Err(error) => {
-                return Err(Diagnostic::new(
-                    code,
+                return Err(Diagnostic::builtin(
+                    diagnostic,
                     format!("could not start external media tool: {error}"),
                     span.clone(),
                 )
@@ -168,7 +178,7 @@ fn spawn(
 
 fn wait(
     child: &mut Child,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
 ) -> Result<ExitStatus> {
@@ -177,8 +187,8 @@ fn wait(
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
-            Err(Diagnostic::new(
-                code,
+            Err(Diagnostic::builtin(
+                diagnostic,
                 format!("could not wait for external media tool: {error}"),
                 span.clone(),
             )
@@ -190,23 +200,23 @@ fn wait(
 fn join_reader(
     reader: JoinHandle<io::Result<RetainedOutput>>,
     stream: &str,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
 ) -> Result<RetainedOutput> {
     reader
         .join()
         .map_err(|_| {
-            Diagnostic::new(
-                code,
+            Diagnostic::builtin(
+                diagnostic,
                 format!("external media-tool {stream} reader panicked"),
                 span.clone(),
             )
             .note(debug)
         })?
         .map_err(|error| {
-            Diagnostic::new(
-                code,
+            Diagnostic::builtin(
+                diagnostic,
                 format!("could not read external media-tool {stream}: {error}"),
                 span.clone(),
             )
@@ -262,7 +272,7 @@ fn read_tail(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput> 
 fn for_each_bounded_line(
     mut reader: impl BufRead,
     limit: usize,
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     visitor: &mut impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
@@ -270,8 +280,8 @@ fn for_each_bounded_line(
     let mut overflow = false;
     loop {
         let available = reader.fill_buf().map_err(|error| {
-            Diagnostic::new(
-                code,
+            Diagnostic::builtin(
+                diagnostic,
                 format!("could not read streamed media-tool output: {error}"),
                 span.clone(),
             )
@@ -309,15 +319,15 @@ fn for_each_bounded_line(
 }
 
 fn line_limit_diagnostic(limit: usize, span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_TOOL_OUTPUT_LIMIT",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::ToolOutputLimit,
         format!("external media-tool output line exceeds the {limit}-byte limit"),
         span.clone(),
     )
 }
 
 fn exit_diagnostic(
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
     status: ExitStatus,
@@ -331,8 +341,8 @@ fn exit_diagnostic(
     } else {
         String::new()
     };
-    Diagnostic::new(
-        code,
+    Diagnostic::builtin(
+        diagnostic,
         format!(
             "external media tool exited with {status}\n{marker}{}",
             stderr.trim()
@@ -343,14 +353,14 @@ fn exit_diagnostic(
 }
 
 fn output_limit_diagnostic(
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
     stream: &str,
     limit: usize,
 ) -> Diagnostic {
-    Diagnostic::new(
-        code,
+    Diagnostic::builtin(
+        diagnostic,
         format!("external media-tool {stream} exceeds the {limit}-byte capture limit"),
         span.clone(),
     )
@@ -442,11 +452,17 @@ mod tests {
         );
         let mut lines = 0_u64;
         let span = SourceSpan::file_start("test");
-        for_each_bounded_line(reader, 16, "E_TEST", &span, &mut |line| {
-            assert_eq!(line, b"1024");
-            lines += 1;
-            Ok(())
-        })
+        for_each_bounded_line(
+            reader,
+            16,
+            BuiltinDiagnostic::ToolOutputLimit,
+            &span,
+            &mut |line| {
+                assert_eq!(line, b"1024");
+                lines += 1;
+                Ok(())
+            },
+        )
         .expect("streamed lines");
         assert_eq!(lines, 100_000);
     }
@@ -455,8 +471,14 @@ mod tests {
     fn streamed_lines_reject_one_overlong_record() {
         let reader = BufReader::new(std::io::Cursor::new(vec![b'x'; 257]));
         let span = SourceSpan::file_start("test");
-        let error = for_each_bounded_line(reader, 256, "E_TEST", &span, &mut |_| Ok(()))
-            .expect_err("long line");
+        let error = for_each_bounded_line(
+            reader,
+            256,
+            BuiltinDiagnostic::ToolOutputLimit,
+            &span,
+            &mut |_| Ok(()),
+        )
+        .expect_err("long line");
         assert_eq!(error.code, "E_TOOL_OUTPUT_LIMIT");
     }
 }

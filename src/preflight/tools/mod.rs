@@ -15,7 +15,7 @@ use std::process::Command;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool::{self, CapturedOutput};
 use crate::preflight::RenderPolicy;
 use crate::source::SourceSpan;
@@ -57,20 +57,20 @@ pub(crate) fn inspect_external_tool(
     } else {
         resolve_executable(
             authored.to_str().ok_or_else(|| {
-                Diagnostic::new(
-                    "E_EXTERNAL_EXECUTABLE",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::ExternalExecutable,
                     "external executable name is not valid UTF-8",
                     span.clone(),
                 )
             })?,
-            "E_EXTERNAL_EXECUTABLE",
+            BuiltinDiagnostic::ExternalExecutable,
         )?
     };
     #[cfg(windows)]
     let candidate = windows_command_candidate(&candidate);
     let executable = fs::canonicalize(&candidate).map_err(|error| {
-        Diagnostic::new(
-            "E_EXTERNAL_EXECUTABLE",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalExecutable,
             format!(
                 "could not resolve external executable `{}`: {error}",
                 candidate.display()
@@ -79,8 +79,8 @@ pub(crate) fn inspect_external_tool(
         )
     })?;
     if !is_executable_file(&executable) {
-        return Err(Diagnostic::new(
-            "E_EXTERNAL_EXECUTABLE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalExecutable,
             format!(
                 "external executable `{}` is not executable",
                 executable.display()
@@ -88,7 +88,7 @@ pub(crate) fn inspect_external_tool(
             span.clone(),
         ));
     }
-    let content_hash = hash_tool_executable(&executable, "E_EXTERNAL_EXECUTABLE")?;
+    let content_hash = hash_tool_executable(&executable, BuiltinDiagnostic::ExternalExecutable)?;
     Ok(ExternalToolIdentity {
         executable,
         content_hash,
@@ -99,12 +99,13 @@ pub(crate) fn verify_external_tool(
     identity: &ExternalToolIdentity,
     span: &SourceSpan,
 ) -> Result<()> {
-    let current = hash_tool_executable(identity.executable(), "E_EXTERNAL_EXECUTABLE")?;
+    let current =
+        hash_tool_executable(identity.executable(), BuiltinDiagnostic::ExternalExecutable)?;
     if current == identity.content_hash {
         return Ok(());
     }
-    Err(Diagnostic::new(
-        "E_EXTERNAL_CHANGED",
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::ExternalChanged,
         format!(
             "external executable `{}` changed after preflight; prepare the program again",
             identity.executable.display()
@@ -189,12 +190,12 @@ impl FfmpegRequirements {
 }
 
 pub(crate) fn verify_tool_identity(tool: &ToolIdentity, role: &str) -> Result<()> {
-    let current = inspect_tool_identity(tool.executable(), "E_TOOL_CHANGED")?;
+    let current = inspect_tool_identity(tool.executable(), BuiltinDiagnostic::ToolChanged)?;
     if current.build_fingerprint() == tool.build_fingerprint() {
         return Ok(());
     }
-    Err(Diagnostic::new(
-        "E_TOOL_CHANGED",
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::ToolChanged,
         format!(
             "{role} executable `{}` changed after preflight; prepare the program again",
             tool.executable().display()
@@ -204,13 +205,13 @@ pub(crate) fn verify_tool_identity(tool: &ToolIdentity, role: &str) -> Result<()
 }
 
 pub(super) fn inspect_ffmpeg() -> Result<ToolIdentity> {
-    inspect_ffmpeg_at(&resolve_executable("ffmpeg", "E_FFMPEG")?)
+    inspect_ffmpeg_at(&resolve_executable("ffmpeg", BuiltinDiagnostic::Ffmpeg)?)
 }
 
 fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
     let tool = fs::canonicalize(tool).map_err(|error| {
-        Diagnostic::new(
-            "E_FFMPEG",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::Ffmpeg,
             format!(
                 "could not resolve FFmpeg executable `{}`: {error}",
                 tool.display()
@@ -218,7 +219,7 @@ fn inspect_ffmpeg_at(tool: &Path) -> Result<ToolIdentity> {
             SourceSpan::file_start(tool),
         )
     })?;
-    inspect_tool_identity(&tool, "E_FFMPEG")
+    inspect_tool_identity(&tool, BuiltinDiagnostic::Ffmpeg)
 }
 
 pub(super) fn validate_ffmpeg_capabilities(
@@ -254,13 +255,13 @@ fn validate_capability_group(
     if requirements.is_empty() {
         return Ok(());
     }
-    let output = tool_output(tool.executable(), arguments, "E_FFMPEG")?;
+    let output = tool_output(tool.executable(), arguments, BuiltinDiagnostic::Ffmpeg)?;
     if let Some(missing) = requirements
         .iter()
         .find(|capability| capability_missing(&output, capability))
     {
-        return Err(Diagnostic::new(
-            "E_FFMPEG_CAPABILITY",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::FfmpegCapability,
             format!(
                 "installed FFmpeg does not provide the required `{missing}` {role} for this prepared plan"
             ),
@@ -277,18 +278,18 @@ fn capability_missing(output: &str, capability: &str) -> bool {
 }
 
 pub(super) fn inspect_ffprobe() -> Result<ToolIdentity> {
-    let executable = resolve_executable("ffprobe", "E_FFPROBE")?;
-    inspect_tool_identity(&executable, "E_FFPROBE")
+    let executable = resolve_executable("ffprobe", BuiltinDiagnostic::Ffprobe)?;
+    inspect_tool_identity(&executable, BuiltinDiagnostic::Ffprobe)
 }
 
-fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
+fn resolve_executable(name: &str, code: BuiltinDiagnostic) -> Result<PathBuf> {
     let authored = Path::new(name);
     #[cfg(windows)]
     {
         let direct = windows_command_candidate(authored);
         if is_executable_file(&direct) {
             return fs::canonicalize(&direct).map_err(|error| {
-                Diagnostic::new(
+                Diagnostic::builtin(
                     code,
                     format!("could not resolve executable `{name}`: {error}"),
                     SourceSpan::file_start(authored),
@@ -307,7 +308,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             .find(|candidate| is_executable_file(candidate))
             .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
-                Diagnostic::new(
+                Diagnostic::builtin(
                     code,
                     format!("could not resolve executable `{name}` through Windows command lookup"),
                     SourceSpan::file_start(authored),
@@ -320,7 +321,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             vec![authored.to_path_buf()]
         } else {
             let path = std::env::var_os("PATH").ok_or_else(|| {
-                Diagnostic::new(
+                Diagnostic::builtin(
                     code,
                     format!("could not resolve `{name}` because PATH is not set"),
                     SourceSpan::file_start(authored),
@@ -335,7 +336,7 @@ fn resolve_executable(name: &str, code: &'static str) -> Result<PathBuf> {
             .find(|candidate| is_executable_file(candidate))
             .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
-                Diagnostic::new(
+                Diagnostic::builtin(
                     code,
                     format!("could not resolve executable `{name}` on PATH"),
                     SourceSpan::file_start(authored),
@@ -387,13 +388,13 @@ fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-fn inspect_tool_identity(tool: &Path, code: &'static str) -> Result<ToolIdentity> {
+fn inspect_tool_identity(tool: &Path, code: BuiltinDiagnostic) -> Result<ToolIdentity> {
     #[cfg(windows)]
     let tool = windows_command_candidate(tool);
     #[cfg(not(windows))]
     let tool = tool.to_path_buf();
     let executable = fs::canonicalize(&tool).map_err(|error| {
-        Diagnostic::new(
+        Diagnostic::builtin(
             code,
             format!(
                 "could not resolve executable `{}` for identity: {error}",
@@ -436,9 +437,9 @@ fn normalize_tool_output(bytes: &[u8]) -> String {
         .to_owned()
 }
 
-fn hash_tool_executable(tool: &Path, code: &'static str) -> Result<String> {
+fn hash_tool_executable(tool: &Path, code: BuiltinDiagnostic) -> Result<String> {
     let file = fs::File::open(tool).map_err(|error| {
-        Diagnostic::new(
+        Diagnostic::builtin(
             code,
             format!(
                 "could not read executable `{}` for identity: {error}",
@@ -452,7 +453,7 @@ fn hash_tool_executable(tool: &Path, code: &'static str) -> Result<String> {
     let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let read = reader.read(&mut buffer).map_err(|error| {
-            Diagnostic::new(
+            Diagnostic::builtin(
                 code,
                 format!(
                     "could not fingerprint executable `{}`: {error}",
@@ -469,7 +470,7 @@ fn hash_tool_executable(tool: &Path, code: &'static str) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-fn tool_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<String> {
+fn tool_output(tool: &Path, arguments: &[&str], code: BuiltinDiagnostic) -> Result<String> {
     let output = tool_command_output(tool, arguments, code)?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned()
         + &String::from_utf8_lossy(&output.stderr))
@@ -478,7 +479,7 @@ fn tool_output(tool: &Path, arguments: &[&str], code: &'static str) -> Result<St
 fn tool_command_output(
     tool: &Path,
     arguments: &[&str],
-    code: &'static str,
+    code: BuiltinDiagnostic,
 ) -> Result<CapturedOutput> {
     let mut command = Command::new(tool);
     command.args(arguments);
@@ -595,8 +596,10 @@ mod tests {
             executable_script("#!/bin/sh\nprintf 'tool 1\\nconfiguration alpha  \\r\\n'\n");
         let (_second_directory, second) =
             executable_script("#!/bin/sh\nprintf 'tool 1\\nconfiguration beta\\n'\n");
-        let first_identity = inspect_tool_identity(&first, "E_TOOL").expect("first identity");
-        let second_identity = inspect_tool_identity(&second, "E_TOOL").expect("second identity");
+        let first_identity =
+            inspect_tool_identity(&first, BuiltinDiagnostic::ToolChanged).expect("first identity");
+        let second_identity = inspect_tool_identity(&second, BuiltinDiagnostic::ToolChanged)
+            .expect("second identity");
         assert_eq!(first_identity.version(), "tool 1");
         assert_ne!(
             first_identity.build_fingerprint,
@@ -605,8 +608,8 @@ mod tests {
 
         let (_relocated_directory, relocated) =
             executable_script("#!/bin/sh\nprintf 'tool 1\\nconfiguration alpha  \\r\\n'\n");
-        let relocated_identity =
-            inspect_tool_identity(&relocated, "E_TOOL").expect("relocated identity");
+        let relocated_identity = inspect_tool_identity(&relocated, BuiltinDiagnostic::ToolChanged)
+            .expect("relocated identity");
         assert_eq!(
             first_identity.build_fingerprint,
             relocated_identity.build_fingerprint
@@ -618,7 +621,8 @@ mod tests {
     fn render_identity_check_rejects_a_tool_changed_after_preflight() {
         let _guard = fake_tool_test_lock();
         let (_directory, tool) = executable_script("#!/bin/sh\necho 'tool 1'\n");
-        let identity = inspect_tool_identity(&tool, "E_TOOL").expect("initial identity");
+        let identity =
+            inspect_tool_identity(&tool, BuiltinDiagnostic::ToolChanged).expect("initial identity");
 
         fs::write(&tool, "#!/bin/sh\necho 'tool 2'\n").expect("replace tool");
         let error = verify_tool_identity(&identity, "test tool").expect_err("changed tool");

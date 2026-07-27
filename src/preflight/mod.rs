@@ -21,7 +21,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::Result;
+use crate::diagnostic::{BuiltinDiagnostic, Result};
 use crate::source::SourceSpan;
 
 mod assets;
@@ -63,22 +63,30 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
     let render_policy = RenderPolicy::CURRENT;
     let output = prepare_output_path(compiled, render_policy)?;
     let manifest = manifest_path(&output);
-    validate_destination(&output, "output", "E_INVALID_OUTPUT_DESTINATION")?;
-    validate_destination(&manifest, "manifest", "E_INVALID_MANIFEST_DESTINATION")?;
+    validate_destination(
+        &output,
+        "output",
+        BuiltinDiagnostic::InvalidOutputDestination,
+    )?;
+    validate_destination(
+        &manifest,
+        "manifest",
+        BuiltinDiagnostic::InvalidManifestDestination,
+    )?;
     if let Some(source_path) = compiled.entrypoint_source().filesystem_path() {
         reject_path_collision(
             &output,
             "output",
             source_path,
             "source program",
-            "E_OUTPUT_COLLISION",
+            BuiltinDiagnostic::OutputCollision,
         )?;
         reject_path_collision(
             &manifest,
             "manifest",
             source_path,
             "source program",
-            "E_MANIFEST_COLLISION",
+            BuiltinDiagnostic::ManifestCollision,
         )?;
     }
     let video = *compiled.video();

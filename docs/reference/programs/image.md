@@ -21,7 +21,7 @@ This program has no graph-valued inputs.
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `path` | `File` | required | — |
-| `duration` | `Duration` | optional | uses a requested Video extent supplied by the surrounding body; without one, the call reports E_MISSING_IMAGE_DURATION |
+| `duration` | `Duration` | optional | uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required |
 | `fit` | `Keyword(cover \| contain \| stretch)` | optional | cover |
 
 ## Outputs and binding
@@ -59,8 +59,8 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_MISSING_IMAGE_DURATION`
-- `E_INVALID_DURATION`
+- [`E_MISSING_IMAGE_DURATION`](../diagnostics/types-and-stack.md#e_missing_image_duration) — Missing image duration
+- [`E_INVALID_DURATION`](../diagnostics/parsing-and-source.md#e_invalid_duration) — Invalid duration
 
 ## Related reference
 

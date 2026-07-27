@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 pub(super) struct FileLock {
@@ -11,7 +11,7 @@ pub(super) struct FileLock {
 impl FileLock {
     pub(super) fn acquire(
         path: &Path,
-        code: &'static str,
+        diagnostic: BuiltinDiagnostic,
         role: &str,
         span: &SourceSpan,
     ) -> Result<Self> {
@@ -22,15 +22,15 @@ impl FileLock {
             .write(true)
             .open(path)
             .map_err(|error| {
-                Diagnostic::new(
-                    code,
+                Diagnostic::builtin(
+                    diagnostic,
                     format!("could not open {role} lock `{}`: {error}", path.display()),
                     span.clone(),
                 )
             })?;
         file.lock().map_err(|error| {
-            Diagnostic::new(
-                code,
+            Diagnostic::builtin(
+                diagnostic,
                 format!(
                     "could not acquire {role} lock `{}`: {error}",
                     path.display()
@@ -60,7 +60,8 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("artifact.lock");
         let span = SourceSpan::file_start(&path);
-        let _first = FileLock::acquire(&path, "E_TEST_LOCK", "test", &span).expect("first lock");
+        let _first = FileLock::acquire(&path, BuiltinDiagnostic::PublicationLock, "test", &span)
+            .expect("first lock");
         let second = OpenOptions::new()
             .create(true)
             .truncate(false)

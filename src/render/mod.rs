@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::preflight::PreparedPlan;
 use crate::source::SourceSpan;
 use execution_plan::ExecutionPlan;
@@ -64,8 +64,8 @@ pub struct RenderReport {
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
     let source_directory = plan.entrypoint_source().base_directory().ok_or_else(|| {
-        Diagnostic::new(
-            "E_INVALID_PLAN",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidPlan,
             "prepared plan has no entrypoint base directory",
             SourceSpan::source_start(plan.entrypoint_source().clone()),
         )
@@ -75,8 +75,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
         .join("cache")
         .join(plan.execution_namespace());
     fs::create_dir_all(&cache_directory).map_err(|error| {
-        Diagnostic::new(
-            "E_CACHE_IO",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::CacheIo,
             format!(
                 "could not create cache directory `{}`: {error}",
                 cache_directory.display()
@@ -90,8 +90,8 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     let result_artifact = execution.artifact(plan.result(), &result_node.origin().span)?;
     if let Some(parent) = plan.output().parent() {
         fs::create_dir_all(parent).map_err(|error| {
-            Diagnostic::new(
-                "E_OUTPUT_IO",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::OutputIo,
                 format!(
                     "could not create output directory `{}`: {error}",
                     parent.display()
@@ -104,7 +104,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
     let publication_lock_path = sibling_lock_path(plan.output(), "publication");
     let _publication_lock = FileLock::acquire(
         &publication_lock_path,
-        "E_PUBLICATION_LOCK",
+        BuiltinDiagnostic::PublicationLock,
         "publication",
         &SourceSpan::file_start(plan.output()),
     )?;

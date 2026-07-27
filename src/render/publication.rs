@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 use super::staging::StagingDirectory;
@@ -24,7 +24,8 @@ struct PublicationFile {
 
 impl PublicationTransaction {
     pub(super) fn new(output: &Path, manifest: &Path) -> Result<Self> {
-        let staging = StagingDirectory::beside(output, "publication", "E_PUBLICATION")?;
+        let staging =
+            StagingDirectory::beside(output, "publication", BuiltinDiagnostic::Publication)?;
         Ok(Self {
             output: PublicationFile::new(
                 "output",
@@ -48,8 +49,8 @@ impl PublicationTransaction {
 
     pub(super) fn stage_manifest(&self, contents: &[u8]) -> Result<()> {
         fs::write(&self.manifest.staged, contents).map_err(|error| {
-            Diagnostic::new(
-                "E_MANIFEST",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::Manifest,
                 format!(
                     "could not write staged manifest `{}`: {error}",
                     self.manifest.staged.display()
@@ -93,8 +94,8 @@ impl PublicationTransaction {
             match fs::metadata(&file.staged) {
                 Ok(metadata) if metadata.is_file() => {}
                 Ok(_) => {
-                    return Err(Diagnostic::new(
-                        "E_PUBLICATION",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::Publication,
                         format!(
                             "staged {} `{}` is not a regular file",
                             file.role,
@@ -104,8 +105,8 @@ impl PublicationTransaction {
                     ));
                 }
                 Err(error) => {
-                    return Err(Diagnostic::new(
-                        "E_PUBLICATION",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::Publication,
                         format!(
                             "staged {} `{}` cannot be inspected: {error}",
                             file.role,
@@ -201,7 +202,7 @@ impl PublicationFile {
 
 fn validate_destination(file: &PublicationFile) -> Result<()> {
     match fs::symlink_metadata(&file.destination) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::builtin(
             destination_code(file.role),
             format!(
                 "{} destination `{}` is a symlink; publication destinations must be regular files",
@@ -213,7 +214,7 @@ fn validate_destination(file: &PublicationFile) -> Result<()> {
         Ok(metadata) if metadata.is_file() => Ok(()),
         Ok(_) => Err(invalid_destination(file)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(Diagnostic::new(
+        Err(error) => Err(Diagnostic::builtin(
             destination_code(file.role),
             format!(
                 "{} destination `{}` cannot be inspected: {error}",
@@ -226,7 +227,7 @@ fn validate_destination(file: &PublicationFile) -> Result<()> {
 }
 
 fn invalid_destination(file: &PublicationFile) -> Diagnostic {
-    Diagnostic::new(
+    Diagnostic::builtin(
         destination_code(file.role),
         format!(
             "{} destination `{}` is not a regular file",
@@ -237,11 +238,11 @@ fn invalid_destination(file: &PublicationFile) -> Diagnostic {
     )
 }
 
-fn destination_code(role: &str) -> &'static str {
+fn destination_code(role: &str) -> BuiltinDiagnostic {
     match role {
-        "output" => "E_INVALID_OUTPUT_DESTINATION",
-        "manifest" => "E_INVALID_MANIFEST_DESTINATION",
-        _ => "E_PUBLICATION",
+        "output" => BuiltinDiagnostic::InvalidOutputDestination,
+        "manifest" => BuiltinDiagnostic::InvalidManifestDestination,
+        _ => BuiltinDiagnostic::Publication,
     }
 }
 
@@ -264,8 +265,8 @@ fn backup(
             Ok(())
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(Diagnostic::new(
-            "E_PUBLICATION",
+        Err(error) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::Publication,
             format!(
                 "could not inspect existing {} destination `{}`: {error}",
                 file.role,
@@ -300,8 +301,8 @@ fn rename_error(
     destination: &Path,
     error: &io::Error,
 ) -> Diagnostic {
-    Diagnostic::new(
-        "E_PUBLICATION",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::Publication,
         format!(
             "could not {action} for {} from `{}` to `{}`: {error}",
             file.role,

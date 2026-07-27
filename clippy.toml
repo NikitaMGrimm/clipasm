@@ -1,0 +1,4 @@
+disallowed-methods = [
+  { path = "clipasm::diagnostic::Diagnostic::new", reason = "ClipAsm production diagnostics must use the typed built-in catalog; untyped construction is reserved for embedding applications and explicit tests" },
+  { path = "clipasm::diagnostic::Diagnostic::io", reason = "ClipAsm production diagnostics must use the typed built-in catalog; untyped construction is reserved for embedding applications and explicit tests" },
+]

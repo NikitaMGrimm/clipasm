@@ -38,8 +38,10 @@ To accomplish a specific task:
 - [Diagnose common failures](guides/troubleshooting.md).
 
 To look up exact behavior, use the [command-line reference](reference/cli.md),
-[built-in program reference](reference/programs/index.md), and normative
-[language reference](reference/language/index.md). To build a mental model
+[built-in program reference](reference/programs/index.md),
+[diagnostic reference](reference/diagnostics/index.md), and normative
+[language reference](reference/language/index.md). Run `clipasm explain <CODE>`
+after an error for an installed-binary lookup. To build a mental model
 first, read about:
 
 - [compilation, preflight, and rendering](concepts/pipeline.md);

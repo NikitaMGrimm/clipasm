@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
     ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
@@ -76,8 +76,8 @@ pub(crate) fn lower_source(
     let implementation = match declarations.external {
         Some(external) => {
             if !syntax.statements.is_empty() {
-                return Err(Diagnostic::new(
-                    "E_EXTERNAL_WITH_BODY",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::ExternalWithBody,
                     "an external program cannot also contain executable statements",
                     syntax.statements[0].span.clone(),
                 ));
@@ -173,8 +173,8 @@ fn reject_file_backed_declarations(syntax: &SourceFileSyntax) -> Result<()> {
     for declaration in &syntax.declarations {
         match declaration {
             Declaration::Import(import) => {
-                return Err(Diagnostic::new(
-                    "E_IMPORT_REQUIRES_FILE",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::ImportRequiresFile,
                     "imports require file-backed package loading",
                     import.path.span.clone(),
                 ));
@@ -210,8 +210,8 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
         match declaration {
             Declaration::Config(config) => {
                 if config_span.replace(config.span.clone()).is_some() {
-                    return Err(Diagnostic::new(
-                        "E_DUPLICATE_CONFIG",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::DuplicateConfig,
                         "a source file may declare at most one `config` block",
                         config.span,
                     ));
@@ -261,8 +261,8 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
             }),
             Declaration::External(declaration) => {
                 if external.is_some() {
-                    return Err(Diagnostic::new(
-                        "E_DUPLICATE_EXTERNAL",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::DuplicateExternal,
                         "a source file may declare at most one `external` block",
                         declaration.span,
                     ));
@@ -297,15 +297,15 @@ fn lower_external_declaration(
     declaration: super::syntax::ExternalDeclaration,
 ) -> Result<SourceExternalImplementation> {
     let executable = declaration.executable.ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_EXTERNAL_FIELD",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::MissingExternalField,
             "external program requires `executable`",
             declaration.span.clone(),
         )
     })?;
     if executable.value.is_empty() {
-        return Err(Diagnostic::new(
-            "E_INVALID_EXTERNAL_PROGRAM",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidExternalProgram,
             "external `executable` must not be empty",
             executable.span,
         ));
@@ -322,29 +322,29 @@ fn lower_external_declaration(
         })
         .collect();
     let semantic_version = declaration.semantic_version.ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_EXTERNAL_FIELD",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::MissingExternalField,
             "external program requires `semantic_version`",
             declaration.span.clone(),
         )
     })?;
     let semantic_version_value = semantic_version.value.parse::<u32>().map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_EXTERNAL_PROGRAM",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidExternalProgram,
             "external `semantic_version` must be a positive unsigned integer",
             semantic_version.span.clone(),
         )
     })?;
     if semantic_version_value == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_EXTERNAL_PROGRAM",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidExternalProgram,
             "external `semantic_version` must be greater than zero",
             semantic_version.span,
         ));
     }
     let preserve = declaration.preserve.ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_EXTERNAL_FIELD",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::MissingExternalField,
             "external program requires `preserve`",
             declaration.span,
         )
@@ -359,8 +359,8 @@ fn lower_external_declaration(
 
 fn parse_u32(value: Spanned<String>, field: &str) -> Result<Spanned<u32>> {
     let parsed = value.value.parse::<u32>().map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_VIDEO_SPEC",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidVideoSpec,
             format!("`{field}` must be an unsigned integer"),
             value.span.clone(),
         )
@@ -499,8 +499,8 @@ impl Lowerer<'_> {
                 statement.span.clone(),
             )?]),
             Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
-                Err(Diagnostic::new(
-                    "E_INVALID_STATEMENT",
+                Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidStatement,
                     "scalar values cannot be used as executable statements",
                     statement.span.clone(),
                 ))
@@ -519,8 +519,8 @@ impl Lowerer<'_> {
             return self.lower_sugar(sugar, invocation, output_bindings, lexical, scalars);
         }
         let shape = self.programs.get(&invocation.name.value).ok_or_else(|| {
-            Diagnostic::new(
-                "E_UNKNOWN_PROGRAM",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::UnknownProgram,
                 format!("unknown program `{}`", invocation.name.value),
                 invocation.name.span.clone(),
             )
@@ -536,8 +536,8 @@ impl Lowerer<'_> {
                 continue;
             };
             if arguments.contains_key(&name.value) {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_ARGUMENT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::DuplicateArgument,
                     format!("duplicate argument `{}`", name.value),
                     name.span.clone(),
                 ));
@@ -549,8 +549,8 @@ impl Lowerer<'_> {
                 assigned_parameters.insert(slot);
                 Self::lower_scalar_argument(value, &invocation.name.value, &name.value)?
             } else {
-                return Err(Diagnostic::new(
-                    "E_UNKNOWN_PROGRAM_ARGUMENT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnknownProgramArgument,
                     format!(
                         "unknown argument `{}` for program `{}`",
                         name.value, invocation.name.value
@@ -571,8 +571,8 @@ impl Lowerer<'_> {
                     next_parameter += 1;
                 }
                 let Some(parameter) = shape.parameters.get(next_parameter) else {
-                    return Err(Diagnostic::new(
-                        "E_TOO_MANY_POSITIONAL_ARGUMENTS",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::TooManyPositionalArguments,
                         format!(
                             "program `{}` has no remaining scalar parameter for this argument",
                             invocation.name.value
@@ -588,8 +588,8 @@ impl Lowerer<'_> {
                 next_parameter += 1;
             } else {
                 if has_named_graph_input {
-                    return Err(Diagnostic::new(
-                        "E_MIXED_GRAPH_ARGUMENT_STYLES",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::MixedGraphArgumentStyles,
                         "positional graph expressions cannot be mixed with named graph inputs",
                         value.span().clone(),
                     ));
@@ -645,8 +645,8 @@ impl Lowerer<'_> {
                 Argument::Positional(value) => value.span(),
                 Argument::Named { name, .. } => &name.span,
             };
-            return Err(Diagnostic::new(
-                "E_UNEXPECTED_SUGAR_ARGUMENT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::UnexpectedSugarArgument,
                 "`clip` does not accept arguments; put operations inside its body",
                 span.clone(),
             ));
@@ -725,8 +725,8 @@ impl Lowerer<'_> {
                 SourceScalarExpression::Reference(reference.clone()),
             )),
             Expression::ScalarBinding { .. } | Expression::Invocation(_) | Expression::Block(_) => {
-                Err(Diagnostic::new(
-                    "E_INVALID_ARGUMENT_TYPE",
+                Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidArgumentType,
                     format!("parameter `{program}.{parameter}` requires a scalar value"),
                     expression.span().clone(),
                 ))
@@ -751,8 +751,8 @@ impl Lowerer<'_> {
             Expression::ScalarBinding { .. }
             | Expression::String(_)
             | Expression::Atom(_)
-            | Expression::Scalar(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
+            | Expression::Scalar(_) => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidArgumentType,
                 "a graph input requires a reference, invocation, or stack block",
                 expression.span().clone(),
             )),
@@ -786,8 +786,8 @@ impl Lowerer<'_> {
             Expression::ScalarBinding { .. }
             | Expression::String(_)
             | Expression::Atom(_)
-            | Expression::Scalar(_) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
+            | Expression::Scalar(_) => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidArgumentType,
                 "expected a graph-producing expression",
                 expression.span().clone(),
             )),

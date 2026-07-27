@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 const ENTRY_FORMAT_VERSION: u32 = 1;
@@ -174,7 +174,11 @@ fn hash_file(path: &Path) -> Result<String> {
 }
 
 fn cache_error(path: &Path, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new("E_CACHE_IO", message, SourceSpan::file_start(path))
+    Diagnostic::builtin(
+        BuiltinDiagnostic::CacheIo,
+        message,
+        SourceSpan::file_start(path),
+    )
 }
 
 #[cfg(test)]

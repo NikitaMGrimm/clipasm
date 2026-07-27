@@ -40,6 +40,7 @@ decisions. Run `./scripts/check.sh` before handoff.
 | Change preflight behavior | `src/preflight` | pure-compile boundary, capability tests, prepared identity |
 | Change media formats or frame/sample mapping | `src/model`, preflight, render | ADR 0014, exact-domain tests, serialized shape, cache identity |
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
+| Add or change a built-in diagnostic | diagnostic catalog and emitting phase | title, category, retry and stability guidance, `explain` output, generated diagnostic reference, compatibility note, focused tests |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
 | Change public terminology | `docs/reference/language/` or the built-in catalog | generated program reference, concepts, diagnostics, examples |
@@ -54,4 +55,5 @@ decisions. Run `./scripts/check.sh` before handoff.
 - Does a semantic or format version need incrementing?
 - Did every exhaustive semantic/prepared/render owner change together?
 - Are examples, Rustdoc, and CLI help current?
+- Does every changed built-in diagnostic retain its compatibility meaning and generated reference entry?
 - Did `./scripts/check.sh` pass?

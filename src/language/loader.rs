@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::{
     ResolvedImport, SourceFile, SourcePackage, SourceProgramImplementation, SourceSpan, SourceUnit,
     SourceUnitId,
@@ -60,8 +60,8 @@ impl Loader {
         depth: usize,
     ) -> Result<SourceUnitId> {
         if depth > MAX_IMPORT_DEPTH {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_IMPORT_DEPTH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramImportDepth,
                 format!("program import nesting exceeds the supported depth of {MAX_IMPORT_DEPTH}"),
                 import_span
                     .cloned()
@@ -69,8 +69,8 @@ impl Loader {
             ));
         }
         require_clipasm_extension(path, import_span)?;
-        let canonical =
-            fs::canonicalize(path).map_err(|error| Diagnostic::io("E_SOURCE_IO", path, &error))?;
+        let canonical = fs::canonicalize(path)
+            .map_err(|error| Diagnostic::builtin_io(BuiltinDiagnostic::SourceIo, path, &error))?;
         if let Some(id) = self.loaded.get(&canonical).copied() {
             return Ok(id);
         }
@@ -80,8 +80,8 @@ impl Loader {
                 .map(|path| path.display().to_string())
                 .collect::<Vec<_>>();
             cycle.push(canonical.display().to_string());
-            return Err(Diagnostic::new(
-                "E_PROGRAM_IMPORT_CYCLE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramImportCycle,
                 format!("program import cycle: {}", cycle.join(" -> ")),
                 import_span
                     .cloned()
@@ -89,8 +89,9 @@ impl Loader {
             ));
         }
 
-        let text = fs::read_to_string(&canonical)
-            .map_err(|error| Diagnostic::io("E_SOURCE_IO", &canonical, &error))?;
+        let text = fs::read_to_string(&canonical).map_err(|error| {
+            Diagnostic::builtin_io(BuiltinDiagnostic::SourceIo, &canonical, &error)
+        })?;
         let source = SourceFile::new(canonical.clone(), text);
         let syntax = parser::parse(source.clone())?;
 
@@ -127,23 +128,23 @@ impl Loader {
             SourceProgramImplementation::External(_)
         ) && let Some(import) = unit.imports.first()
         {
-            return Err(Diagnostic::new(
-                "E_EXTERNAL_WITH_IMPORTS",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ExternalWithImports,
                 "an external program cannot import other programs; use a separate ClipAsm wrapper program for composition",
                 import.alias.span.clone(),
             ));
         }
         if !is_root {
             if let Some(project) = &unit.project {
-                return Err(Diagnostic::new(
-                    "E_IMPORTED_PROJECT_SETTINGS",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::ImportedProjectSettings,
                     "imported programs cannot declare project settings",
                     project.span.clone(),
                 ));
             }
             if let Some(output) = &unit.output {
-                return Err(Diagnostic::new(
-                    "E_IMPORTED_OUTPUT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::ImportedOutput,
                     "imported programs cannot declare `config.output`; publication belongs to the root entrypoint",
                     output.span.clone(),
                 ));
@@ -183,29 +184,29 @@ impl Loader {
         span: &SourceSpan,
     ) -> Result<()> {
         if !aliases.insert(alias.to_owned()) {
-            return Err(Diagnostic::new(
-                "E_DUPLICATE_PROGRAM_IMPORT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::DuplicateProgramImport,
                 format!("duplicate program import alias `{alias}`"),
                 span.clone(),
             ));
         }
         if self.builtins.contains_key(alias) {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_IMPORT_COLLISION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramImportCollision,
                 format!("program import alias `{alias}` collides with a built-in program"),
                 span.clone(),
             ));
         }
         if sugar::resolve(alias).is_some() {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_IMPORT_COLLISION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramImportCollision,
                 format!("program import alias `{alias}` collides with language sugar"),
                 span.clone(),
             ));
         }
         if !super::parser::accepts_invocation_name(alias) {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_IMPORT_COLLISION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramImportCollision,
                 format!("program import alias `{alias}` is reserved by the language"),
                 span.clone(),
             ));
@@ -229,8 +230,8 @@ fn require_clipasm_extension(path: &Path, span: Option<&SourceSpan>) -> Result<(
     if path.extension() == Some(OsStr::new("clipasm")) {
         return Ok(());
     }
-    Err(Diagnostic::new(
-        "E_SOURCE_EXTENSION",
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::SourceExtension,
         "ClipAsm source files must use the `.clipasm` extension",
         span.cloned()
             .unwrap_or_else(|| SourceSpan::file_start(path)),

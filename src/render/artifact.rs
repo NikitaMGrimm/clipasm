@@ -3,7 +3,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool;
 use crate::model::{AudioDomain, AudioSpec, TimelineRate, VideoDomain};
 use crate::preflight::tools::decoded_audio_samples;
@@ -58,10 +58,14 @@ fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
             "json",
         ])
         .arg(path);
-    let output = media_tool::capture(command, "E_FFPROBE", &SourceSpan::file_start(path))?;
+    let output = media_tool::capture(
+        command,
+        BuiltinDiagnostic::Ffprobe,
+        &SourceSpan::file_start(path),
+    )?;
     serde_json::from_slice(&output.stdout).map_err(|error| {
-        Diagnostic::new(
-            "E_ARTIFACT_CONTRACT",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ArtifactContract,
             format!(
                 "FFprobe returned invalid JSON for `{}`: {error}",
                 path.display()
@@ -205,7 +209,7 @@ fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()
         ffprobe,
         path,
         &SourceSpan::file_start(path),
-        "E_ARTIFACT_CONTRACT",
+        BuiltinDiagnostic::ArtifactContract,
     )?;
     if actual != expected {
         return Err(contract_error(
@@ -267,8 +271,8 @@ fn verify_zero_start(path: &Path, stream: &ProbeStream) -> Result<()> {
 }
 
 fn contract_error(path: &Path, message: &str) -> Diagnostic {
-    Diagnostic::new(
-        "E_ARTIFACT_CONTRACT",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::ArtifactContract,
         format!(
             "artifact `{}` violates its contract: {message}",
             path.display()

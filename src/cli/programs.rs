@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use clipasm::diagnostic::{Diagnostic, Result};
+use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use clipasm::reference::{
     BodyInitialValueRole, BodyOutputs, BuiltinCategory, BuiltinProgram, Cardinality,
     TimelineBehavior,
@@ -11,8 +11,8 @@ pub(super) fn print(name: Option<&str>) -> Result<()> {
     if let Some(name) = name {
         let program = clipasm::reference::builtin_program(name).ok_or_else(|| {
             let displayed_name = safe_display_text(name);
-            Diagnostic::new(
-                "E_UNKNOWN_BUILTIN_PROGRAM",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::UnknownBuiltinProgram,
                 format!("unknown built-in program `{displayed_name}`"),
                 SourceSpan::file_start("<command-line>"),
             )

@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueRef;
 use crate::semantic::{
     CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SourceOrigin,
@@ -67,8 +67,8 @@ pub(crate) fn topological_order<N: SemanticNodeView>(
                         next_dependency: 0,
                     }),
                     1 => {
-                        return Err(Diagnostic::new(
-                            "E_DEPENDENCY_CYCLE",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::DependencyCycle,
                             "semantic graph contains a dependency cycle",
                             nodes[dependency_index].origin().span.clone(),
                         ));
@@ -96,8 +96,8 @@ fn dependency_at<N: SemanticNodeView>(
         Some(SemanticDependency::Value(value)) => Ok(Some(value)),
         Some(SemanticDependency::Symbol(symbol)) => {
             Ok(Some(*symbols.get(symbol.index()).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_MISSING_REFERENCE",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingReference,
                     format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 )
@@ -112,8 +112,8 @@ fn node_index<N>(value: ValueRef, nodes: &[N]) -> Result<usize> {
     if index < nodes.len() {
         Ok(index)
     } else {
-        Err(Diagnostic::new(
-            "E_INVALID_GRAPH",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidGraph,
             format!(
                 "semantic value {} is outside the graph of {} values",
                 value.id().get(),

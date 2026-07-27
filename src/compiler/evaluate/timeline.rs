@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     ExactNumber, FrameCount, FrameRate, NativeRange, TimelineExpression, TimelineViewId, ValueRef,
     ValueType,
@@ -186,8 +186,8 @@ impl Evaluator {
     ) -> Result<TimelineSelectorValue> {
         let target_view = self.selector_target_view(target, context)?;
         let Some(last) = context.path.last() else {
-            return Err(Diagnostic::new(
-                "E_INVALID_TIMELINE_SELECTOR",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimelineSelector,
                 "a timeline selector requires a placement or boundary",
                 context.span.clone(),
             ));
@@ -247,8 +247,8 @@ impl Evaluator {
             ReferenceTarget::Local(local) => {
                 let symbol = context.scope.local_symbols[local.index()];
                 self.symbols[symbol.index()].timeline_view.ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_UNRESOLVED_TIMELINE",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::UnresolvedTimeline,
                         format!(
                             "timeline `${}` is not resolved at this use",
                             context.root_name
@@ -260,8 +260,8 @@ impl Evaluator {
             ReferenceTarget::BodyInput(input) => context.scope.body_inputs[input.index()]
                 .map(|value| value.timeline_view)
                 .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_UNRESOLVED_TIMELINE",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::UnresolvedTimeline,
                         format!("timeline `${}` is not bound at this use", context.root_name),
                         context.span.clone(),
                     )
@@ -318,8 +318,8 @@ impl Evaluator {
             }
         }
         if ambiguous {
-            let mut diagnostic = Diagnostic::new(
-                "E_AMBIGUOUS_TIMELINE_PLACEMENT",
+            let mut diagnostic = Diagnostic::builtin(
+                BuiltinDiagnostic::AmbiguousTimelinePlacement,
                 format!(
                     "selector `${}` matches multiple placements in the bound timeline context",
                     selector_path.join("::")
@@ -411,8 +411,8 @@ impl Evaluator {
                 let child_index = match view.placements.get(name).map(Vec::as_slice) {
                     Some([child_index]) => *child_index,
                     Some(placements) => {
-                        return Err(Diagnostic::new(
-                            "E_AMBIGUOUS_TIMELINE_PLACEMENT",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::AmbiguousTimelinePlacement,
                             format!(
                                 "timeline `${}` has {} placements named `{name}` at this selector level",
                                 context.root_name,
@@ -424,8 +424,8 @@ impl Evaluator {
                         .note(self.timeline_layout_note(context.root_name, root)));
                     }
                     None => {
-                        return Err(Diagnostic::new(
-                            "E_UNKNOWN_TIMELINE_PLACEMENT",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::UnknownTimelinePlacement,
                             format!(
                                 "timeline `${}` has no placement named `{name}`",
                                 context.root_name
@@ -584,8 +584,8 @@ impl Evaluator {
             .and_then(|values| values.first())
             .copied()
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_BINDING",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalBinding,
                     format!("{behavior} timeline behavior requires one input"),
                     span.clone(),
                 )
@@ -606,8 +606,8 @@ impl Evaluator {
         {
             return Ok(());
         }
-        Err(Diagnostic::new(
-            "E_TIMELINE_PLACEMENT_CONFLICT",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::TimelinePlacementConflict,
             format!(
                 "`{operation}` cannot expose reserved placement `{label}` because the resulting timeline already contains that name"
             ),
@@ -749,8 +749,8 @@ impl Evaluator {
                 Ok(self.native_range_expression(*range))
             }
             crate::semantic::SemanticNodeKind::DeferredSlice { range, .. } => Ok(range.clone()),
-            _ => Err(Diagnostic::new(
-                "E_INTERNAL_BINDING",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalBinding,
                 "crop timeline behavior requires a slice output",
                 span.clone(),
             )),
@@ -769,8 +769,8 @@ impl Evaluator {
             crate::semantic::SemanticNodeKind::DeferredReplaceRange { range, .. } => {
                 Ok(range.clone())
             }
-            _ => Err(Diagnostic::new(
-                "E_INTERNAL_BINDING",
+            _ => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalBinding,
                 "replace timeline behavior requires a replacement output",
                 span.clone(),
             )),
@@ -915,8 +915,8 @@ impl Evaluator {
         span: &SourceSpan,
     ) -> Result<Vec<EvaluatedValue>> {
         let [output] = outputs.as_slice() else {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_PROGRAM_CONTRACT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalProgramContract,
                 "repeat timeline behavior requires exactly one output",
                 span.clone(),
             ));
@@ -927,8 +927,8 @@ impl Evaluator {
         let count = match self.nodes[output.id().get() as usize].kind() {
             crate::semantic::SemanticNodeKind::Repeat { count, .. } => count.get(),
             _ => {
-                return Err(Diagnostic::new(
-                    "E_INTERNAL_PROGRAM_CONTRACT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalProgramContract,
                     "repeat timeline behavior requires a repeat output",
                     span.clone(),
                 ));
@@ -962,8 +962,8 @@ impl Evaluator {
         match behavior {
             crate::program::TimelineBehavior::BodyConcat { inputs } => {
                 if inputs.len() != values.len() {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_PROGRAM_CONTRACT",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalProgramContract,
                         format!(
                             "body-concat timeline behavior maps {} input(s), but the body plan prepared {} initial value(s)",
                             inputs.len(),
@@ -979,8 +979,8 @@ impl Evaluator {
                         let evaluated =
                             Self::timeline_input(slots, *input, "body-concat initial value", span)?;
                         if evaluated.value != *value {
-                            return Err(Diagnostic::new(
-                                "E_INTERNAL_PROGRAM_CONTRACT",
+                            return Err(Diagnostic::builtin(
+                                BuiltinDiagnostic::InternalProgramContract,
                                 "body-concat initial value does not match its mapped input",
                                 span.clone(),
                             ));
@@ -991,8 +991,8 @@ impl Evaluator {
             }
             crate::program::TimelineBehavior::Replace { base } => {
                 let [selected] = values else {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_PROGRAM_CONTRACT",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalProgramContract,
                         "replace timeline behavior requires exactly one selected body value",
                         span.clone(),
                     ));
@@ -1035,8 +1035,8 @@ impl Evaluator {
                     .get(input.index())
                     .and_then(Option::as_ref)
                     .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalBinding,
                             "concat timeline behavior requires its input sequence",
                             span.clone(),
                         )
@@ -1045,8 +1045,8 @@ impl Evaluator {
             }
             crate::program::TimelineBehavior::BodyConcat { .. } => {
                 let values = body_outputs.ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         "body-concat timeline behavior requires body outputs",
                         span.clone(),
                     )
@@ -1060,8 +1060,8 @@ impl Evaluator {
             crate::program::TimelineBehavior::Replace { base } => {
                 let base = Self::timeline_input(slots, base, "replace", span)?;
                 let [replacement] = body_outputs.unwrap_or_default() else {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         "replace timeline behavior requires one body output",
                         span.clone(),
                     ));
@@ -1085,8 +1085,8 @@ impl Evaluator {
                         _ => None,
                     })
                     .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalBinding,
                             "crossfade timeline behavior requires a crossfade output",
                             span.clone(),
                         )

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, TimelineViewId, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation,
@@ -194,11 +194,11 @@ impl Evaluator {
                     call.and_then(|call| call.parameter_at(ParameterSlot::new(index)).cloned())
                         .or_else(|| parameter.default.clone())
                         .ok_or_else(|| {
-                            Diagnostic::new(
+                            Diagnostic::builtin(
                                 if public {
-                                    "E_MISSING_ARGUMENT"
+                                    BuiltinDiagnostic::MissingArgument
                                 } else {
-                                    "E_INTERNAL_BINDING"
+                                    BuiltinDiagnostic::InternalBinding
                                 },
                                 if public {
                                     format!(
@@ -234,8 +234,8 @@ impl Evaluator {
             debug_assert_eq!(checked_program.inputs.len(), call.inputs().len());
             for (input, (_, binding)) in checked_program.inputs.iter().zip(call.inputs()) {
                 let ResolvedInput::One(value) = binding else {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         format!(
                             "authored program input `{}` requires exactly one value",
                             input.name
@@ -248,8 +248,8 @@ impl Evaluator {
                 self.bind_symbol(symbol, evaluated)?;
             }
         } else if let Some(input) = checked_program.inputs.first() {
-            return Err(Diagnostic::new(
-                "E_MISSING_REQUIRED_INPUT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::MissingRequiredInput,
                 format!("root program is missing input `{}`", input.name),
                 input.declared_at.clone(),
             ));
@@ -280,8 +280,8 @@ impl Evaluator {
         value_type: ValueType,
     ) -> Result<SymbolId> {
         let symbol = SymbolId::new(u32::try_from(self.symbols.len()).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "too many named values were declared",
                 span.clone(),
             )
@@ -417,8 +417,8 @@ impl Evaluator {
             }
             ReferenceTarget::BodyInput(input) => {
                 scope.body_inputs[input.index()].ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         "lexical body input was not bound during evaluation",
                         span.clone(),
                     )
@@ -461,8 +461,8 @@ impl Evaluator {
         span: &SourceSpan,
     ) -> Result<()> {
         if values.len() != contract.initial_values.len() {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_PROGRAM_CONTRACT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalProgramContract,
                 format!(
                     "body program `{}` prepared {} initial value(s), but its contract declares {}",
                     definition.descriptor.name,
@@ -475,8 +475,8 @@ impl Evaluator {
         let generic = Self::resolved_generic_type(definition, signature);
         for (index, (value, expected)) in values.iter().zip(&contract.initial_values).enumerate() {
             let expected = expected.exact().or(generic).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_PROGRAM_CONTRACT",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalProgramContract,
                     format!(
                         "body program `{}` has an unresolved generic initial value",
                         definition.descriptor.name
@@ -485,8 +485,8 @@ impl Evaluator {
                 )
             })?;
             if value.value_type() != expected {
-                return Err(Diagnostic::new(
-                    "E_INTERNAL_PROGRAM_CONTRACT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalProgramContract,
                     format!(
                         "body program `{}` prepared initial value {} as {}, but its contract requires {}",
                         definition.descriptor.name,
@@ -555,8 +555,8 @@ impl Evaluator {
             .zip(&slots)
             .map(|(port, values)| {
                 let values = values.as_ref().ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         format!(
                             "checked call to `{construct}` has no binding for input `{}`",
                             port.name
@@ -567,8 +567,8 @@ impl Evaluator {
                 match port.cardinality {
                     Cardinality::One => {
                         let [value] = values.as_slice() else {
-                            return Err(Diagnostic::new(
-                                "E_INTERNAL_BINDING",
+                            return Err(Diagnostic::builtin(
+                                BuiltinDiagnostic::InternalBinding,
                                 format!(
                                     "checked call to `{construct}` has invalid cardinality for input `{}`",
                                     port.name
@@ -633,8 +633,8 @@ impl Evaluator {
                     .flatten()
                     .any(|input| input.timeline_view == owner)
             {
-                let mut diagnostic = Diagnostic::new(
-                    "E_TIMELINE_ROOT_MISMATCH",
+                let mut diagnostic = Diagnostic::builtin(
+                    BuiltinDiagnostic::TimelineRootMismatch,
                     format!(
                         "timeline range for `{}.{}` does not belong to any bound input timeline",
                         construct, descriptor.name
@@ -735,8 +735,8 @@ impl Evaluator {
                         continue;
                     };
                     let Some(values) = slots[index].as_ref() else {
-                        return Err(Diagnostic::new(
-                            "E_INTERNAL_BINDING",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalBinding,
                             format!(
                                 "body input `{}.{}` has no evaluated value",
                                 definition.descriptor.name, port.name
@@ -745,8 +745,8 @@ impl Evaluator {
                         ));
                     };
                     let [value] = values.as_slice() else {
-                        return Err(Diagnostic::new(
-                            "E_INTERNAL_BINDING",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalBinding,
                             format!(
                                 "body input `{}.{}` requires exactly one value",
                                 definition.descriptor.name, port.name
@@ -849,7 +849,7 @@ impl Evaluator {
                 )?;
                 let [result] = local.values() else {
                     return Err(output_count_error(
-                        "E_INPUT_BODY_OUTPUT_COUNT",
+                        BuiltinDiagnostic::InputBodyOutputCount,
                         &format!("inline input body for `{program}.{}`", port.name),
                         local.len(),
                         span,
@@ -866,8 +866,8 @@ impl Evaluator {
                     return Ok(value_ref);
                 }
                 if !matches!(port.value_type, ValueTypeSpec::Exact(_)) {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         format!(
                             "checked `{program}.{}` input expected {}, but evaluated to {}",
                             port.name,
@@ -888,8 +888,8 @@ impl Evaluator {
                 let adapted = match (value_ref.value_type(), expected_type) {
                     (ValueType::Video, ValueType::Audio) => builder.extract_audio(value_ref.value),
                     (ValueType::Audio, ValueType::Video) => builder.audio_on_black(value_ref.value),
-                    _ => Err(Diagnostic::new(
-                        "E_INTERNAL_BINDING",
+                    _ => Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalBinding,
                         format!(
                             "checked `{program}.{}` adaptation cannot convert {} to {}",
                             port.name,
@@ -911,8 +911,8 @@ impl Evaluator {
             .expect("all symbols are collected before evaluation");
         let declared_type = symbol.value_type;
         if declared_type != value.value_type() {
-            return Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::TypeMismatch,
                 format!(
                     "name `{}` was declared as {}, but its value is {}",
                     symbol.name,
@@ -923,8 +923,8 @@ impl Evaluator {
             ));
         }
         if symbol.value.replace(value.value).is_some() {
-            return Err(Diagnostic::new(
-                "E_DUPLICATE_NAME",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::DuplicateName,
                 format!("name `{}` was bound more than once", symbol.name),
                 symbol.declared_at.clone(),
             ));
@@ -941,8 +941,8 @@ fn validate_program_outputs(
     span: &SourceSpan,
 ) -> Result<Vec<ValueRef>> {
     if outputs.len() != expected_outputs.len() {
-        return Err(Diagnostic::new(
-            "E_PROGRAM_OUTPUT_COUNT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ProgramOutputCount,
             format!(
                 "program `{}` declares {} output(s), but its implementation returned {}",
                 definition.descriptor.name,
@@ -954,8 +954,8 @@ fn validate_program_outputs(
     }
     for (index, (output, expected)) in outputs.iter().zip(expected_outputs).enumerate() {
         if output.value_type() != *expected {
-            return Err(Diagnostic::new(
-                "E_PROGRAM_OUTPUT_TYPE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::ProgramOutputType,
                 format!(
                     "program `{}` declares output {} as {}, but its implementation returned {}",
                     definition.descriptor.name,
@@ -971,13 +971,13 @@ fn validate_program_outputs(
 }
 
 fn output_count_error(
-    code: &'static str,
+    diagnostic: BuiltinDiagnostic,
     owner: &str,
     count: usize,
     span: &SourceSpan,
 ) -> Diagnostic {
-    Diagnostic::new(
-        code,
+    Diagnostic::builtin(
+        diagnostic,
         format!("{owner} must leave exactly one value, but {count} values remain"),
         span.clone(),
     )
@@ -1187,7 +1187,9 @@ mod tests {
                         outputs: crate::program::BodyOutputConstraint::Exactly(vec![
                             ValueType::Video.into(),
                         ]),
-                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                        count_diagnostic: crate::program::BodyCountDiagnostic::Builtin(
+                            BuiltinDiagnostic::BodyOutputCount,
+                        ),
                     },
                 },
             ),
@@ -1216,7 +1218,9 @@ mod tests {
                     outputs: crate::program::BodyOutputConstraint::Exactly(vec![
                         ValueType::Video.into(),
                     ]),
-                    count_error_code: "E_BODY_OUTPUT_COUNT",
+                    count_diagnostic: crate::program::BodyCountDiagnostic::Builtin(
+                        BuiltinDiagnostic::BodyOutputCount,
+                    ),
                 },
             },
         );
@@ -1285,7 +1289,9 @@ mod tests {
                         outputs: crate::program::BodyOutputConstraint::Exactly(vec![
                             ValueType::Video.into(),
                         ]),
-                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                        count_diagnostic: crate::program::BodyCountDiagnostic::Builtin(
+                            BuiltinDiagnostic::BodyOutputCount,
+                        ),
                     },
                 },
             ),
@@ -1527,7 +1533,9 @@ mod tests {
                         outputs: crate::program::BodyOutputConstraint::Exactly(vec![
                             ValueType::Video.into(),
                         ]),
-                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                        count_diagnostic: crate::program::BodyCountDiagnostic::Builtin(
+                            BuiltinDiagnostic::BodyOutputCount,
+                        ),
                     },
                 },
             ),

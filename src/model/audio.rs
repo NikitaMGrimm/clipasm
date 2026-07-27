@@ -2,7 +2,7 @@ use std::num::{NonZeroU8, NonZeroU32};
 
 use serde::{Serialize, Serializer};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -75,8 +75,8 @@ impl AudioDomain {
         span: &SourceSpan,
     ) -> Result<Self> {
         let overflow = || {
-            Diagnostic::new(
-                "E_AUDIO_DURATION_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::AudioDurationOverflow,
                 "audio duration exceeds the supported range",
                 span.clone(),
             )

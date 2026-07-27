@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{FrameCount, ImageFit, ValueType};
 use crate::program::{
     ParameterType, ProgramDefinition, ProgramOutputs, RequestedVideoExtent, ResolvedCall,
@@ -83,8 +83,8 @@ fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
                 ));
             }
             None => {
-                return Err(Diagnostic::new(
-                    "E_MISSING_IMAGE_DURATION",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingImageDuration,
                     "`image.duration` is required outside a context with a requested duration",
                     call.origin().span.clone(),
                 ));
@@ -92,8 +92,8 @@ fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
         }
     };
     if frames.0 == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidDuration,
             "image duration must contain at least one frame",
             call.origin().span.clone(),
         ));

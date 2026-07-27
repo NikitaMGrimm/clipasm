@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     AudioDomain, FrameCount, FrameRange, NativeRange, NodeId, SampleRange, TimelineRangeExpression,
     ValueRef, ValueType, VideoDomain,
@@ -98,8 +98,8 @@ fn audio_repeat(
         .samples()
         .checked_mul(count.get())
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_AUDIO_DURATION_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::AudioDurationOverflow,
                 "repeated audio exceeds the supported sample count",
                 node.origin().span.clone(),
             )
@@ -134,8 +134,8 @@ fn add_audio_concat(
         samples = samples
             .checked_add(lowerer.audio_domain(*input, node.origin())?.samples())
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_AUDIO_DURATION_OVERFLOW",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::AudioDurationOverflow,
                     "concatenated audio exceeds the supported sample count",
                     node.origin().span.clone(),
                 )
@@ -321,8 +321,8 @@ fn resolve_timeline_range(
     if start < end {
         Ok((start, end))
     } else {
-        Err(Diagnostic::new(
-            "E_INVALID_TIME_RANGE",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
             "timeline-range start must be earlier than its end",
             span.clone(),
         ))
@@ -449,8 +449,8 @@ fn validate_prepared_range(
     span: &SourceSpan,
 ) -> Result<()> {
     if range.end() > input.frames().0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_TIME_RANGE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
             format!(
                 "frame range {}..{} is outside the base Video domain of {} frames",
                 range.start(),
@@ -469,8 +469,8 @@ fn validate_prepared_audio_range(
     span: &SourceSpan,
 ) -> Result<()> {
     if range.end() > input.samples() {
-        return Err(Diagnostic::new(
-            "E_INVALID_TIME_RANGE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
             format!(
                 "sample range {}..{} is outside the base Audio domain of {} samples",
                 range.start(),

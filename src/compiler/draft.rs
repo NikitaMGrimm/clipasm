@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
     Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess,
@@ -159,8 +159,8 @@ impl DraftItem {
         if valid {
             return Ok(());
         }
-        Err(Diagnostic::new(
-            "E_OUTPUT_BINDING_COUNT",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::OutputBindingCount,
             format!(
                 "`{}` produces {output_count} value(s), but {binding}",
                 self.origin.construct
@@ -258,8 +258,8 @@ impl DraftBody {
         ids: &mut DraftIds,
     ) -> Result<Self> {
         if depth > crate::source::MAX_SYNTAX_NESTING {
-            return Err(Diagnostic::new(
-                "E_BODY_NESTING_DEPTH",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::BodyNestingDepth,
                 format!(
                     "program body nesting exceeds the supported depth of {}",
                     crate::source::MAX_SYNTAX_NESTING
@@ -338,8 +338,8 @@ impl DraftInvocation {
         if let Some(type_argument) = &source.type_argument
             && !definition.descriptor.is_generic()
         {
-            return Err(Diagnostic::new(
-                "E_UNEXPECTED_TYPE_ARGUMENT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::UnexpectedTypeArgument,
                 format!("program `{}` is not generic", source.program.value),
                 type_argument.span.clone(),
             ));
@@ -364,8 +364,8 @@ impl DraftInvocation {
                     ArgumentValue::Reference(reference) => DraftInput::Reference(reference.clone()),
                     ArgumentValue::Body(body) => {
                         if matches!(port.cardinality, Cardinality::Variadic { .. }) {
-                            return Err(Diagnostic::new(
-                                "E_INVALID_ARGUMENT_TYPE",
+                            return Err(Diagnostic::builtin(
+                                BuiltinDiagnostic::InvalidArgumentType,
                                 format!(
                                     "explicit variadic input `{}.{}` must use `$name` references",
                                     source.program.value, port.name
@@ -383,8 +383,8 @@ impl DraftInvocation {
                         )?))
                     }
                     ArgumentValue::Scalar(_) => {
-                        return Err(Diagnostic::new(
-                            "E_INVALID_ARGUMENT_TYPE",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidArgumentType,
                             format!(
                                 "input `{}.{}` requires a graph value",
                                 source.program.value, port.name
@@ -396,8 +396,8 @@ impl DraftInvocation {
                 let count = 1;
                 match port.cardinality {
                     Cardinality::One if count != 1 => {
-                        return Err(Diagnostic::new(
-                            "E_INVALID_ARGUMENT_TYPE",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidArgumentType,
                             format!(
                                 "input `{}.{}` requires exactly one value",
                                 source.program.value, port.name
@@ -406,8 +406,8 @@ impl DraftInvocation {
                         ));
                     }
                     Cardinality::Variadic { min } if count < min => {
-                        return Err(Diagnostic::new(
-                            "E_MISSING_REQUIRED_INPUT",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::MissingRequiredInput,
                             format!(
                                 "input `{}.{}` requires at least {min} value(s)",
                                 source.program.value, port.name
@@ -427,8 +427,8 @@ impl DraftInvocation {
                         DraftParameter::Expression(ScalarExpression::Reference(reference.clone()))
                     }
                     ArgumentValue::Body(_) => {
-                        return Err(Diagnostic::new(
-                            "E_INVALID_ARGUMENT_TYPE",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidArgumentType,
                             format!(
                                 "parameter `{}.{name}` requires a scalar value",
                                 source.program.value
@@ -438,8 +438,8 @@ impl DraftInvocation {
                     }
                 });
             } else {
-                return Err(Diagnostic::new(
-                    "E_UNKNOWN_PROGRAM_ARGUMENT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::UnknownProgramArgument,
                     format!(
                         "unknown argument `{name}` for program `{}`",
                         source.program.value
@@ -451,8 +451,8 @@ impl DraftInvocation {
 
         for (descriptor, argument) in definition.descriptor.parameters.iter().zip(&parameters) {
             if descriptor.required && argument.is_none() {
-                return Err(Diagnostic::new(
-                    "E_MISSING_ARGUMENT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingArgument,
                     format!(
                         "missing required parameter `{}.{}`",
                         source.program.value, descriptor.name
@@ -467,8 +467,8 @@ impl DraftInvocation {
             | ProgramImplementation::ClipAsm(_)
             | ProgramImplementation::External(_) => {
                 if source.body.is_some() {
-                    return Err(Diagnostic::new(
-                        "E_UNEXPECTED_PROGRAM_BODY",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::UnexpectedProgramBody,
                         format!(
                             "program `{}` does not accept a caller-supplied body",
                             source.program.value
@@ -540,8 +540,8 @@ fn program_id_for(
         .or_else(|| namespace.get(name))
         .copied()
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_UNKNOWN_PROGRAM",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::UnknownProgram,
                 format!("unknown program `{name}`"),
                 span.clone(),
             )

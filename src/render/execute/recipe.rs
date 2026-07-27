@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, RenderPolicy};
 use crate::source::SourceSpan;
@@ -160,8 +160,8 @@ impl FfmpegRecipe {
                 }
                 FfmpegArgument::Artifact(node) => {
                     let path = artifact(*node).ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INVALID_PLAN",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidPlan,
                             format!("primitive input {} is not available", node.get()),
                             span.clone(),
                         )

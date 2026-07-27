@@ -1,10 +1,10 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{NativeRange, ValueRef, ValueType};
 use crate::program::{
-    BodyContract, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality, InputPort,
-    NativeTimeRange, ParameterDescriptor, ParameterType, ProgramDefinition, ProgramDescriptor,
-    ProgramImplementation, ProgramOutputs, RequestedVideoExtent, ResolvedCall, StackAccess,
-    ValueTypeSpec,
+    BodyContract, BodyCountDiagnostic, BodyFinalizer, BodyOutputConstraint, BodyPlan, Cardinality,
+    InputPort, NativeTimeRange, ParameterDescriptor, ParameterType, ProgramDefinition,
+    ProgramDescriptor, ProgramImplementation, ProgramOutputs, RequestedVideoExtent, ResolvedCall,
+    StackAccess, ValueTypeSpec,
 };
 use crate::semantic::{GraphBuilder, require_value_type};
 use crate::source::SourceSpan;
@@ -29,7 +29,7 @@ pub(crate) fn join() -> ProgramDefinition {
                 value_type: ValueTypeSpec::Generic,
                 min: 1,
             },
-            count_error_code: "E_EMPTY_JOIN",
+            count_diagnostic: BodyCountDiagnostic::Builtin(BuiltinDiagnostic::EmptyJoin),
         },
         crate::program::TimelineBehavior::BodyConcat {
             inputs: &JOIN_INPUTS,
@@ -53,7 +53,7 @@ pub(crate) fn during() -> ProgramDefinition {
         BodyContract {
             initial_values: vec![ValueTypeSpec::Generic],
             outputs: BodyOutputConstraint::Exactly(vec![ValueTypeSpec::Generic]),
-            count_error_code: "E_BODY_OUTPUT_COUNT",
+            count_diagnostic: BodyCountDiagnostic::Builtin(BuiltinDiagnostic::BodyOutputCount),
         },
         crate::program::TimelineBehavior::Replace {
             base: crate::program::InputSlot::new(0),
@@ -105,7 +105,7 @@ fn prepare_join(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<
     Ok(BodyPlan {
         initial_values: vec![call.one_input("before")?, call.one_input("after")?],
         requested_extent: call.requested_extent().cloned(),
-        finalizer: Box::new(FinalizeConcatBody::for_call(call, "E_EMPTY_JOIN")),
+        finalizer: Box::new(FinalizeConcatBody::for_call(call)),
     })
 }
 
@@ -163,15 +163,13 @@ fn requested_video_extent(range: &NativeTimeRange) -> RequestedVideoExtent {
 
 struct FinalizeConcatBody {
     owner: String,
-    empty_code: &'static str,
     span: SourceSpan,
 }
 
 impl FinalizeConcatBody {
-    fn for_call(call: &ResolvedCall, empty_code: &'static str) -> Self {
+    fn for_call(call: &ResolvedCall) -> Self {
         Self {
             owner: call.program_name().to_owned(),
-            empty_code,
             span: call.origin().span.clone(),
         }
     }
@@ -184,8 +182,8 @@ impl BodyFinalizer for FinalizeConcatBody {
         builder: &mut GraphBuilder<'_>,
     ) -> Result<ProgramOutputs> {
         if stack.is_empty() {
-            return Err(Diagnostic::new(
-                self.empty_code,
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::EmptyJoin,
                 format!("{} must produce at least one Video or Audio", self.owner),
                 self.span,
             ));
@@ -225,8 +223,8 @@ fn take_one_timeline(
     span: &SourceSpan,
 ) -> Result<ValueRef> {
     if stack.len() != 1 {
-        return Err(Diagnostic::new(
-            "E_BODY_OUTPUT_COUNT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::BodyOutputCount,
             format!(
                 "`{owner}` body must leave exactly one value, but {} values remain",
                 stack.len()

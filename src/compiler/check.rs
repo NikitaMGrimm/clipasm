@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
     Cardinality, InputSlot, ParameterDescriptor, ParameterType, ProgramDefinition,
@@ -59,8 +59,8 @@ pub(super) fn check(package: &SourcePackage) -> Result<CheckedPackage> {
             .iter()
             .map(|import| {
                 let program = unit_programs[import.target.index()].ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_PROGRAM_LINK",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InternalProgramLink,
                         format!(
                             "import `{}` refers to a source program that was not linked first",
                             import.alias.value
@@ -205,8 +205,8 @@ fn external_definition(
         .iter()
         .position(|input| input.name == external.preserve.value)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_EXTERNAL_PROGRAM",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidExternalProgram,
                 format!(
                     "external output preserves unknown input `{}`",
                     external.preserve.value
@@ -216,8 +216,8 @@ fn external_definition(
         })?;
     let preserved = &program.inputs()[preserve_index];
     if preserved.value_type.exact() != Some(ValueType::Video) {
-        return Err(Diagnostic::new(
-            "E_INVALID_EXTERNAL_PROGRAM",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidExternalProgram,
             format!(
                 "external preserve input `{}` must be Video",
                 external.preserve.value
@@ -230,8 +230,8 @@ fn external_definition(
             parameter.parameter_type,
             ParameterType::Integer | ParameterType::File | ParameterType::Keyword(_)
         ) {
-            return Err(Diagnostic::new(
-                "E_INVALID_EXTERNAL_PROGRAM",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidExternalProgram,
                 format!(
                     "external parameter `{}` uses unsupported type {:?}",
                     parameter.name.value, parameter.parameter_type
@@ -436,8 +436,8 @@ fn prepare_program_bindings(
     let mut parameter_ids = BTreeMap::new();
     for parameter in program.parameters() {
         let id = ParameterId(u32::try_from(parameters.len()).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "too many scalar parameters were declared",
                 parameter.name.span.clone(),
             )
@@ -468,8 +468,8 @@ fn prepare_program_bindings(
     let mut declare = |name: &str, span: &crate::source::SourceSpan| -> Result<()> {
         let value_type = value_local(local_types, name, span)?;
         let id = ValueLocalId(u32::try_from(locals.len()).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "too many named values were declared",
                 span.clone(),
             )
@@ -558,8 +558,8 @@ impl<'a> ScalarAliasChecker<'a> {
                     parameter_type.clone(),
                 ))
             }
-            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
-                "E_INVALID_ARGUMENT_TYPE",
+            Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidArgumentType,
                 format!(
                     "graph value `${}` cannot be used as a scalar alias",
                     reference.value
@@ -600,8 +600,8 @@ impl<'a> ScalarAliasChecker<'a> {
                         .map(|alias| self.scalar_scopes.declaration(*alias).name.value.clone())
                         .collect::<Vec<_>>();
                     cycle.push(declaration.name.value.clone());
-                    return Err(Diagnostic::new(
-                        "E_DEPENDENCY_CYCLE",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::DependencyCycle,
                         format!("scalar-alias dependency cycle: {}", cycle.join(" -> ")),
                         declaration.name.span.clone(),
                     ));
@@ -611,8 +611,8 @@ impl<'a> ScalarAliasChecker<'a> {
         }
         let declaration = self.scalar_scopes.declaration(id);
         if declaration.scope != scope {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_BINDING",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalBinding,
                 format!(
                     "scalar alias `{}` was reached before its declaration scope was checked",
                     declaration.name.value
@@ -836,8 +836,8 @@ fn checked_outputs(
                 .as_ref()
                 .map(|name| {
                     local_ids.get(name).copied().ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalBinding,
                             format!("checked output `{name}` has no local identity"),
                             crate::source::SourceSpan::file_start("<checked-source>"),
                         )
@@ -927,8 +927,8 @@ impl CheckedMaterializer<'_> {
                     } = invocation;
                     let definition = &self.definitions[program.index()];
                     let resolved = self.invocations.take(id).ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_TYPE_RESOLUTION",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalTypeResolution,
                             format!("invocation {} was consumed more than once", id.0),
                             item.origin.span.clone(),
                         )
@@ -994,8 +994,8 @@ impl CheckedMaterializer<'_> {
                 }
                 DraftItemKind::StackBlock(block) => {
                     let output_types = self.stack_blocks.take(block.id).ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_TYPE_RESOLUTION",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InternalTypeResolution,
                             format!("stack block {} was consumed more than once", block.id.0),
                             item.origin.span.clone(),
                         )
@@ -1023,15 +1023,15 @@ impl CheckedMaterializer<'_> {
 
     fn ensure_consumed(&self, span: &crate::source::SourceSpan) -> Result<()> {
         if let Some(index) = self.invocations.first_present() {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_TYPE_RESOLUTION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalTypeResolution,
                 format!("invocation {index} was resolved but not materialized"),
                 span.clone(),
             ));
         }
         if let Some(index) = self.stack_blocks.first_present() {
-            return Err(Diagnostic::new(
-                "E_INTERNAL_TYPE_RESOLUTION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InternalTypeResolution,
                 format!("stack block {index} was resolved but not materialized"),
                 span.clone(),
             ));
@@ -1041,8 +1041,8 @@ impl CheckedMaterializer<'_> {
 
     fn allocate_body_input(&mut self, span: &crate::source::SourceSpan) -> Result<BodyInputId> {
         let id = BodyInputId(u32::try_from(self.body_input_count).map_err(|_| {
-            Diagnostic::new(
-                "E_GRAPH_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::GraphTooLarge,
                 "too many lexical body inputs were declared",
                 span.clone(),
             )
@@ -1159,8 +1159,8 @@ fn insert_local(
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if locals.insert(name.to_owned(), local).is_some() {
-        return Err(Diagnostic::new(
-            "E_DUPLICATE_NAME",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::DuplicateName,
             format!("duplicate local name `{name}`"),
             span.clone(),
         ));
@@ -1229,8 +1229,8 @@ fn validate_local_dependencies(locals: &BTreeMap<String, LocalType>) -> Result<(
                     let start = positions[&dependency];
                     let mut cycle = path[start..].to_vec();
                     cycle.push(dependency.clone());
-                    return Err(Diagnostic::new(
-                        "E_DEPENDENCY_CYCLE",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::DependencyCycle,
                         format!("named-value dependency cycle: {}", cycle.join(" -> ")),
                         inferred[&dependency].1.clone(),
                     ));
@@ -1254,8 +1254,8 @@ fn ensure_local_types_resolved(locals: &BTreeMap<String, LocalType>) -> Result<(
 }
 
 fn unresolved_local_type(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_TYPE_INFERENCE_DEPENDENCY",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::TypeInferenceDependency,
         format!(
             "cannot infer the type of named value `${name}` from available constraints; add `<Video>` or `<Audio>`"
         ),
@@ -1325,13 +1325,13 @@ fn value_local(
 ) -> Result<ValueType> {
     match locals.get(name) {
         Some(LocalType::Value(value_type)) => Ok(*value_type),
-        Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
-            "E_PARAMETER_NOT_VALUE",
+        Some(LocalType::Parameter(_)) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ParameterNotValue,
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        Some(LocalType::Inferred { .. }) => Err(Diagnostic::new(
-            "E_UNRESOLVED_LOCAL_TYPE",
+        Some(LocalType::Inferred { .. }) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::UnresolvedLocalType,
             format!("named value `${name}` has not finished type inference"),
             span.clone(),
         )),
@@ -1353,8 +1353,8 @@ fn validate_parameter_default(parameter: &crate::source::SourceParameter) -> Res
 }
 
 fn missing_reference(name: &str, span: &crate::source::SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_MISSING_REFERENCE",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::MissingReference,
         format!(
             "reference `${name}` does not name an input, parameter, body alias, or output binding"
         ),

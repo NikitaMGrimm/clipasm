@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{NodeId, ValueType};
 use crate::preflight::tools::verify_external_tool;
 use crate::preflight::{
@@ -90,7 +90,7 @@ impl ExecutionPlan {
                     let lock_path = sibling_lock_path(&action.artifact, "cache");
                     let _lock = FileLock::acquire(
                         &lock_path,
-                        "E_CACHE_LOCK",
+                        BuiltinDiagnostic::CacheLock,
                         "cache artifact",
                         &node.origin().span,
                     )?;
@@ -130,8 +130,8 @@ impl ExecutionResult {
             .get(id.get() as usize)
             .and_then(Option::as_deref)
             .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     "prepared result does not identify an executed artifact",
                     span.clone(),
                 )
@@ -150,8 +150,8 @@ impl ExecutionResult {
 fn validate_prepared_order(plan: &PreparedPlan) -> Result<()> {
     for (index, node) in plan.nodes().iter().enumerate() {
         if node.id().get() as usize != index {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 "prepared nodes are not in stable topological order",
                 node.origin().span.clone(),
             ));
@@ -163,8 +163,8 @@ fn validate_prepared_order(plan: &PreparedPlan) -> Result<()> {
             }
         });
         if let Some(input) = invalid_input {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 format!(
                     "prepared node {} has non-topological input {}",
                     node.id().get(),
@@ -179,15 +179,15 @@ fn validate_prepared_order(plan: &PreparedPlan) -> Result<()> {
         .nodes()
         .get(plan.result().get() as usize)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_PLAN",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 "prepared result does not identify an existing node",
                 SourceSpan::source_start(plan.entrypoint_source().clone()),
             )
         })?;
     if result.value_type() != ValueType::Video {
-        return Err(Diagnostic::new(
-            "E_INVALID_PLAN",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidPlan,
             "prepared result is Audio, but rendering requires Video",
             result.origin().span.clone(),
         ));
@@ -199,7 +199,7 @@ fn probe_cache(plan: &PreparedPlan, node: &PreparedNode, artifact: &Path) -> Res
     let lock_path = sibling_lock_path(artifact, "cache");
     let _lock = FileLock::acquire(
         &lock_path,
-        "E_CACHE_LOCK",
+        BuiltinDiagnostic::CacheLock,
         "cache artifact",
         &node.origin().span,
     )?;

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{ExactNumber, FrameRate, ValueType};
 use crate::source::SourceSpan;
 
@@ -18,8 +18,8 @@ pub(crate) fn exact_seconds_to_frames(
         )))
         .expect("frame-rate denominator is nonzero");
     frames.to_u64().ok_or_else(|| {
-        Diagnostic::new(
-            "E_TIME_NOT_FRAME_ALIGNED",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::TimeNotFrameAligned,
             format!(
                 "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
                 seconds.authored_display(),
@@ -38,8 +38,8 @@ pub(crate) fn exact_seconds_to_samples(
 ) -> Result<u64> {
     let samples = seconds.multiply(&ExactNumber::from_unsigned_integer(u64::from(sample_rate)));
     samples.to_u64().ok_or_else(|| {
-        Diagnostic::new(
-            "E_TIME_NOT_SAMPLE_ALIGNED",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::TimeNotSampleAligned,
             format!(
                 "timeline coordinate {}s is not an exact nonnegative boundary at {sample_rate} Hz",
                 seconds.authored_display()
@@ -66,8 +66,8 @@ impl FrameCount {
     /// Returns `E_FRAME_OVERFLOW` if the sum exceeds `u64`.
     pub(crate) fn checked_add(self, other: Self, span: &SourceSpan) -> Result<Self> {
         self.0.checked_add(other.0).map(Self).ok_or_else(|| {
-            Diagnostic::new(
-                "E_FRAME_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::FrameOverflow,
                 "video duration exceeds the supported frame count",
                 span.clone(),
             )
@@ -81,8 +81,8 @@ impl FrameCount {
     /// Returns `E_FRAME_OVERFLOW` if the product exceeds `u64`.
     pub(crate) fn checked_mul(self, multiplier: u64, span: &SourceSpan) -> Result<Self> {
         self.0.checked_mul(multiplier).map(Self).ok_or_else(|| {
-            Diagnostic::new(
-                "E_FRAME_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::FrameOverflow,
                 "video duration exceeds the supported frame count",
                 span.clone(),
             )
@@ -104,8 +104,8 @@ impl FrameCount {
         span: &SourceSpan,
     ) -> Result<Self> {
         let overflow = || {
-            Diagnostic::new(
-                "E_FRAME_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::FrameOverflow,
                 "duration exceeds the supported frame count",
                 span.clone(),
             )
@@ -244,8 +244,8 @@ impl SourceTime {
     /// Returns a diagnostic for negative, sub-nanosecond, or overflowing values.
     pub(crate) fn from_exact_seconds(value: &ExactNumber, span: &SourceSpan) -> Result<Self> {
         if !value.is_positive() && !value.is_zero() {
-            return Err(Diagnostic::new(
-                "E_INVALID_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!(
                     "duration cannot be negative; got {}",
                     value.authored_display()
@@ -255,8 +255,8 @@ impl SourceTime {
         }
         let nanoseconds = value.multiply(&ExactNumber::from_integer(1_000_000_000));
         let Some(nanoseconds) = nanoseconds.to_u64() else {
-            return Err(Diagnostic::new(
-                "E_INVALID_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!(
                     "duration {}s is not representable as an exact nonnegative nanosecond value",
                     value.authored_display()
@@ -274,8 +274,8 @@ impl SourceTime {
     /// Returns a diagnostic for negative, malformed, or overflowing durations.
     pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         if text.starts_with('-') {
-            return Err(Diagnostic::new(
-                "E_INVALID_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 "durations cannot be negative",
                 span.clone(),
             ));
@@ -285,29 +285,29 @@ impl SourceTime {
         } else if let Some(number) = text.strip_suffix('s') {
             (number, 1_000_000_000_u64)
         } else {
-            return Err(Diagnostic::new(
-                "E_INVALID_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!("`{text}` is not a duration; use forms such as `3s` or `500ms`"),
                 span.clone(),
             ));
         };
         if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(Diagnostic::new(
-                "E_INVALID_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!("`{text}` is not a supported integer duration"),
                 span.clone(),
             ));
         }
         let value = number.parse::<u64>().map_err(|_| {
-            Diagnostic::new(
-                "E_INVALID_DURATION",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!("`{text}` is too large"),
                 span.clone(),
             )
         })?;
         let nanoseconds = value.checked_mul(scale).ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_DURATION",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidDuration,
                 format!("`{text}` is too large"),
                 span.clone(),
             )
@@ -338,8 +338,8 @@ impl SourceTime {
         let numerator = u128::from(self.nanoseconds) * u128::from(fps.numerator());
         let denominator = 1_000_000_000_u128 * u128::from(fps.denominator());
         if numerator % denominator != 0 {
-            return Err(Diagnostic::new(
-                "E_TIME_NOT_FRAME_ALIGNED",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::TimeNotFrameAligned,
                 format!(
                     "time is not exactly representable at {}/{} fps",
                     fps.numerator(),
@@ -349,8 +349,8 @@ impl SourceTime {
             ));
         }
         u64::try_from(numerator / denominator).map_err(|_| {
-            Diagnostic::new(
-                "E_FRAME_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::FrameOverflow,
                 "duration exceeds the supported frame count",
                 span.clone(),
             )
@@ -361,15 +361,15 @@ impl SourceTime {
         let numerator = u128::from(self.nanoseconds) * u128::from(sample_rate);
         let denominator = 1_000_000_000_u128;
         if numerator % denominator != 0 {
-            return Err(Diagnostic::new(
-                "E_TIME_NOT_SAMPLE_ALIGNED",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::TimeNotSampleAligned,
                 format!("time is not exactly representable at {sample_rate} Hz"),
                 span.clone(),
             ));
         }
         u64::try_from(numerator / denominator).map_err(|_| {
-            Diagnostic::new(
-                "E_AUDIO_DURATION_OVERFLOW",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::AudioDurationOverflow,
                 "duration exceeds the supported audio sample count",
                 span.clone(),
             )
@@ -401,15 +401,15 @@ impl SourceTimeRange {
     /// endpoints.
     pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         let Some((start, end)) = text.split_once("..") else {
-            return Err(Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "a time range requires both endpoints, for example `2s..4s`",
                 span.clone(),
             ));
         };
         if start.is_empty() || end.is_empty() || end.contains("..") {
-            return Err(Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "a time range requires exactly two endpoints",
                 span.clone(),
             ));
@@ -419,8 +419,8 @@ impl SourceTimeRange {
             SourceTime::parse(end, span)?,
         )
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "time-range start must be earlier than its end",
                 span.clone(),
             )
@@ -438,8 +438,8 @@ impl SourceTimeRange {
             self.end.to_frames(fps, span)?,
         )
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "time range must contain at least one frame",
                 span.clone(),
             )
@@ -452,8 +452,8 @@ impl SourceTimeRange {
             self.end.to_samples(sample_rate, span)?,
         )
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_TIME_RANGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidTimeRange,
                 "time range must contain at least one audio sample",
                 span.clone(),
             )

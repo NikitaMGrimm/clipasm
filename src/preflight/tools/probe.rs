@@ -3,7 +3,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool;
 use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
 use crate::source::SourceSpan;
@@ -40,15 +40,17 @@ pub(crate) fn verify_image_decodable(
             "json",
         ])
         .arg(path);
-    let output = media_tool::capture(probe, "E_SOURCE_DECODABILITY", span).map_err(|error| {
-        tool_context(
-            error,
-            format!("could not inspect image `{}`", path.display()),
-        )
-    })?;
+    let output = media_tool::capture(probe, BuiltinDiagnostic::SourceDecodability, span).map_err(
+        |error| {
+            tool_context(
+                error,
+                format!("could not inspect image `{}`", path.display()),
+            )
+        },
+    )?;
     let document: ImageProbeDocument = serde_json::from_slice(&output.stdout).map_err(|error| {
-        Diagnostic::new(
-            "E_SOURCE_DECODABILITY",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::SourceDecodability,
             format!(
                 "FFprobe returned invalid image metadata for `{}`: {error}",
                 path.display()
@@ -71,8 +73,8 @@ pub(crate) fn verify_image_decodable(
         .and_then(|stream| stream.nb_read_frames.as_deref())
         .and_then(|frames| frames.parse::<u64>().ok());
     if videos.len() != 1 || audio_count != 0 || frame_count != Some(1) {
-        return Err(Diagnostic::new(
-            "E_SOURCE_CONTRACT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::SourceContract,
             format!(
                 "image `{}` must contain exactly one video stream, no audio, and one decoded frame; found {} video stream(s), {audio_count} audio stream(s), and {frame_count:?} decoded frame(s)",
                 path.display(),
@@ -86,7 +88,7 @@ pub(crate) fn verify_image_decodable(
         .args(["-v", "error", "-loop", "1", "-i"])
         .arg(path)
         .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-f", "null", "-"]);
-    media_tool::run(decode, "E_SOURCE_DECODABILITY", span).map_err(|error| {
+    media_tool::run(decode, BuiltinDiagnostic::SourceDecodability, span).map_err(|error| {
         tool_context(
             error,
             format!(
@@ -101,7 +103,7 @@ pub(crate) fn decoded_audio_samples(
     ffprobe: &Path,
     path: &Path,
     span: &SourceSpan,
-    contract_code: &'static str,
+    contract_code: BuiltinDiagnostic,
 ) -> Result<u64> {
     let mut command = Command::new(ffprobe);
     command
@@ -120,8 +122,8 @@ pub(crate) fn decoded_audio_samples(
     let mut samples = 0_u64;
     media_tool::stream_stdout_lines(command, 64, contract_code, span, |line| {
         let line = std::str::from_utf8(line).map_err(|error| {
-            Diagnostic::new(
-                contract_code,
+            Diagnostic::builtin(
+        contract_code,
                 format!(
                     "FFprobe returned non-UTF-8 audio frame metadata for `{}`: {error}",
                     path.display()
@@ -134,8 +136,8 @@ pub(crate) fn decoded_audio_samples(
             return Ok(());
         }
         let count = line.parse::<u64>().map_err(|error| {
-            Diagnostic::new(
-                contract_code,
+            Diagnostic::builtin(
+        contract_code,
                 format!(
                     "FFprobe returned an invalid decoded audio sample count `{line}` for `{}`: {error}",
                     path.display()
@@ -158,7 +160,7 @@ pub(crate) fn decoded_audio_samples(
         )
     })?;
     if samples == 0 {
-        return Err(Diagnostic::new(
+        return Err(Diagnostic::builtin(
             contract_code,
             format!("audio `{}` contains no decoded samples", path.display()),
             span.clone(),
@@ -235,18 +237,22 @@ pub(crate) fn verify_audio_decodable(
         .iter()
         .find(|stream| stream.codec_type.as_deref() == Some("audio"))
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_SOURCE_CONTRACT",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::SourceContract,
                 format!("audio `{}` contains no audio stream", path.display()),
                 span.clone(),
             )
         })?;
-    let decoded_samples =
-        decoded_audio_samples(ffprobe.executable(), path, span, "E_SOURCE_CONTRACT")?;
+    let decoded_samples = decoded_audio_samples(
+        ffprobe.executable(),
+        path,
+        span,
+        BuiltinDiagnostic::SourceContract,
+    )?;
     let (duration_numerator, duration_denominator) = audio_duration(stream, decoded_samples)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_SOURCE_CONTRACT",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::SourceContract,
                 format!(
                     "audio `{}` does not expose a usable stream duration or sample rate",
                     path.display()
@@ -259,7 +265,7 @@ pub(crate) fn verify_audio_decodable(
         .args(["-v", "error", "-xerror", "-i"])
         .arg(path)
         .args(["-map", "0:a:0", "-frames:a", "1", "-f", "null", "-"]);
-    media_tool::run(decode, "E_SOURCE_DECODABILITY", span).map_err(|error| {
+    media_tool::run(decode, BuiltinDiagnostic::SourceDecodability, span).map_err(|error| {
         tool_context(
             error,
             format!("audio `{}` is not decodable by FFmpeg", path.display()),
@@ -269,8 +275,8 @@ pub(crate) fn verify_audio_decodable(
 }
 
 fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_AUDIO_DURATION_OVERFLOW",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::AudioDurationOverflow,
         "audio duration exceeds the supported range",
         span.clone(),
     )
@@ -293,12 +299,13 @@ fn probe_video(
             "json",
         ])
         .arg(path);
-    let output = media_tool::capture(command, "E_SOURCE_DECODABILITY", span).map_err(|error| {
-        tool_context(
-            error,
-            format!("could not inspect video `{}`", path.display()),
-        )
-    })?;
+    let output = media_tool::capture(command, BuiltinDiagnostic::SourceDecodability, span)
+        .map_err(|error| {
+            tool_context(
+                error,
+                format!("could not inspect video `{}`", path.display()),
+            )
+        })?;
     parse_video_probe(path, span, &output.stdout)
 }
 
@@ -308,8 +315,8 @@ fn parse_video_probe(
     document: &[u8],
 ) -> Result<VideoProbeDocument> {
     serde_json::from_slice(document).map_err(|error| {
-        Diagnostic::new(
-            "E_SOURCE_DECODABILITY",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::SourceDecodability,
             format!(
                 "FFprobe returned invalid video metadata for `{}`: {error}",
                 path.display()
@@ -331,8 +338,8 @@ fn validate_video_document(
         .filter(|stream| stream.codec_type.as_deref() == Some("video"))
         .collect::<Vec<_>>();
     if videos.len() != 1 {
-        return Err(Diagnostic::new(
-            "E_SOURCE_CONTRACT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::SourceContract,
             format!(
                 "video `{}` must contain exactly one video stream; found {}",
                 path.display(),
@@ -347,8 +354,8 @@ fn validate_video_document(
         .as_deref()
         .and_then(|frames| frames.parse::<u64>().ok());
     if decoded_frames.is_none_or(|frames| frames == 0) {
-        return Err(Diagnostic::new(
-            "E_SOURCE_CONTRACT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::SourceContract,
             format!(
                 "video `{}` must contain at least one decodable frame; FFprobe counted {decoded_frames:?}",
                 path.display()
@@ -357,8 +364,8 @@ fn validate_video_document(
         ));
     }
     let Some((available_numerator, available_denominator)) = video_duration(stream) else {
-        return Err(Diagnostic::new(
-            "E_SOURCE_CONTRACT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::SourceContract,
             format!(
                 "video `{}` does not expose a usable stream duration",
                 path.display()
@@ -385,7 +392,7 @@ fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> 
         .args(["-v", "error", "-xerror", "-i"])
         .arg(path)
         .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-f", "null", "-"]);
-    media_tool::run(decode, "E_SOURCE_DECODABILITY", span).map_err(|error| {
+    media_tool::run(decode, BuiltinDiagnostic::SourceDecodability, span).map_err(|error| {
         tool_context(
             error,
             format!(
@@ -467,7 +474,7 @@ mod tests {
             &ffprobe,
             &source,
             &SourceSpan::file_start(&source),
-            "E_TEST_CONTRACT",
+            BuiltinDiagnostic::SourceContract,
         )
         .expect("streamed sample count");
         assert_eq!(samples, 50_000 * 1_024);

@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::{SourcePackage, SourceSpan, SourceUnitId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,8 +53,8 @@ pub(super) fn source_unit_order(package: &SourcePackage) -> Result<Vec<SourceUni
 
             let target = import.target;
             if target.index() >= unit_count {
-                return Err(Diagnostic::new(
-                    "E_INTERNAL_PROGRAM_LINK",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalProgramLink,
                     format!(
                         "import `{}` refers to missing source unit {}",
                         import.alias.value,
@@ -82,8 +82,8 @@ pub(super) fn source_unit_order(package: &SourcePackage) -> Result<Vec<SourceUni
                         .map(|unit| unit_label(package, *unit))
                         .collect::<Vec<_>>();
                     cycle.push(unit_label(package, target));
-                    return Err(Diagnostic::new(
-                        "E_PROGRAM_IMPORT_CYCLE",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::ProgramImportCycle,
                         format!("program import cycle: {}", cycle.join(" -> ")),
                         import.alias.span.clone(),
                     ));
@@ -101,8 +101,8 @@ fn invalid_root(package: &SourcePackage) -> Diagnostic {
         || SourceSpan::file_start("<source-package>"),
         |unit| SourceSpan::source_start(unit.source().clone()),
     );
-    Diagnostic::new(
-        "E_INTERNAL_PROGRAM_LINK",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InternalProgramLink,
         format!(
             "source package root refers to missing source unit {}",
             package.root.index()

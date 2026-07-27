@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, VideoDomain, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan};
 use crate::source::SourceSpan;
@@ -53,8 +53,8 @@ pub(super) fn serialize(
         domain, has_audio, ..
     } = result.media()
     else {
-        return Err(Diagnostic::new(
-            "E_INVALID_PLAN",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidPlan,
             "prepared result is Audio, but a render manifest requires Video",
             result.origin().span.clone(),
         ));
@@ -82,8 +82,8 @@ pub(super) fn serialize(
         },
     };
     serde_json::to_vec_pretty(&document).map_err(|error| {
-        Diagnostic::new(
-            "E_MANIFEST",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::Manifest,
             format!("could not serialize render manifest: {error}"),
             SourceSpan::source_start(plan.entrypoint_source().clone()),
         )

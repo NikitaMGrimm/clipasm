@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::program::{InputSlot, ParameterValue, ResolvedCall, ResolvedInput};
 use crate::source::Spanned;
 
@@ -46,8 +46,8 @@ impl ExternalRuntime {
             .inputs()
             .map(|(input, binding)| match binding {
                 ResolvedInput::One(value) => Ok((input.name.clone(), *value)),
-                ResolvedInput::Variadic(_) => Err(Diagnostic::new(
-                    "E_INVALID_EXTERNAL_PROGRAM",
+                ResolvedInput::Variadic(_) => Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidExternalProgram,
                     format!(
                         "external input `{}` unexpectedly became variadic",
                         input.name
@@ -76,8 +76,8 @@ impl ExternalRuntime {
                     ParameterValue::Number(_)
                     | ParameterValue::Duration(_)
                     | ParameterValue::TimeRange(_) => {
-                        return Err(Diagnostic::new(
-                            "E_INVALID_EXTERNAL_PROGRAM",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidExternalProgram,
                             format!(
                                 "external parameter `{}` uses an unsupported runtime type",
                                 descriptor.name

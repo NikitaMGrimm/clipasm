@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{ExactNumber, SourceTime, ValueRef};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceSpan, Spanned};
@@ -293,7 +293,11 @@ fn parameter_matches(parameter_type: &ParameterType, value: &ParameterValue) -> 
 }
 
 fn binding_error(origin: &SourceOrigin, message: &str) -> Diagnostic {
-    Diagnostic::new("E_INTERNAL_BINDING", message, origin.span.clone())
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InternalBinding,
+        message,
+        origin.span.clone(),
+    )
 }
 
 #[cfg(test)]

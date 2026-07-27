@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::num::NonZeroU64;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     AudioSpec, FrameCount, FrameSampleStep, NodeId, TimelineRate, VideoDomain, VideoSpec,
 };
@@ -50,8 +50,8 @@ pub(super) fn repeat(
         .get(input.get() as usize)
         .and_then(PreparedNode::video_domain)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_PLAN",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 format!("repeat input {} is not an available Video", input.get()),
                 context.span().clone(),
             )
@@ -141,15 +141,15 @@ pub(super) fn video_segment_sample_counts(
         .iter()
         .map(|input| {
             let node = nodes.get(input.get() as usize).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     format!("primitive input {} is not available", input.get()),
                     span.clone(),
                 )
             })?;
             let domain = node.video_domain().ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INVALID_PLAN",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
                     format!("primitive input {} is not Video", input.get()),
                     span.clone(),
                 )
@@ -158,8 +158,8 @@ pub(super) fn video_segment_sample_counts(
             frame_boundary = frame_boundary
                 .checked_add(domain.frames().0)
                 .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_FRAME_OVERFLOW",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::FrameOverflow,
                         "video duration exceeds the supported frame count",
                         span.clone(),
                     )
@@ -185,15 +185,15 @@ fn repeat_audio_filter(
     }
 
     let input_samples = step.covering_samples().ok_or_else(|| {
-        Diagnostic::new(
-            "E_AUDIO_DURATION_OVERFLOW",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::AudioDurationOverflow,
             "repeated audio exceeds the supported sample count",
             span.clone(),
         )
     })?;
     let frame_samples = i32::try_from(input_samples).map_err(|_| {
-        Diagnostic::new(
-            "E_RENDER_AUDIO_TIMELINE",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::RenderAudioTimeline,
             format!(
                 "phase-aligned Video repeat requires at most {} audio samples per input segment, but this segment has {input_samples}",
                 i32::MAX
@@ -254,7 +254,7 @@ mod tests {
             .args(["-filter_complex", &format!("[0:a]{filter}[a]"), "-map", "[a]"])
             .args(["-c:a", "pcm_s16le", "-f", "s16le"])
             .arg(&output);
-        run_command(command, "E_TEST_FFMPEG", &span).expect("phase-aligned repeat");
+        run_command(command, BuiltinDiagnostic::Ffmpeg, &span).expect("phase-aligned repeat");
 
         let bytes = fs::read(output).expect("raw audio");
         assert_eq!(bytes.len(), 8 * 2 * size_of::<i16>());

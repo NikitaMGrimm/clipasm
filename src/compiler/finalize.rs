@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::compiler::evaluate::Evaluation;
 use crate::compiler::{CompiledProgram, ExplainEntry, ExplainOutput};
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueId, VideoSpec};
 use crate::semantic::{CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SymbolId};
 use crate::source::{SourceUnit, Spanned};
@@ -104,23 +104,23 @@ fn validate_references(evaluation: &Evaluation) -> Result<()> {
     for node in &evaluation.nodes {
         if let SemanticNodeKind::Reference { symbol, .. } = node.kind() {
             let Some(binding) = evaluation.symbols.get(symbol.index()) else {
-                return Err(Diagnostic::new(
-                    "E_MISSING_REFERENCE",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingReference,
                     format!("reference names unknown symbol {}", symbol.index()),
                     node.origin().span.clone(),
                 ));
             };
             if binding.value.is_none() {
-                return Err(Diagnostic::new(
-                    "E_MISSING_REFERENCE",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::MissingReference,
                     format!("name `{}` has no compiled value", binding.name),
                     node.origin().span.clone(),
                 ));
             }
             let symbol_type = binding.value_type;
             if symbol_type != node.value_type() {
-                return Err(Diagnostic::new(
-                    "E_TYPE_MISMATCH",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::TypeMismatch,
                     format!(
                         "reference `${}` has type {}, but its expression was recorded as {}",
                         binding.name,
@@ -189,8 +189,8 @@ fn detect_cycles(evaluation: &Evaluation) -> Result<()> {
                             .map(|symbol| evaluation.symbols[symbol.index()].name.clone())
                             .collect::<Vec<_>>();
                         cycle.push(evaluation.symbols[target.index()].name.clone());
-                        return Err(Diagnostic::new(
-                            "E_DEPENDENCY_CYCLE",
+                        return Err(Diagnostic::builtin(
+                            BuiltinDiagnostic::DependencyCycle,
                             format!("named-value dependency cycle: {}", cycle.join(" -> ")),
                             evaluation.symbols[target.index()].declared_at.clone(),
                         ));

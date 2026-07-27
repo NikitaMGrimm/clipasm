@@ -4,7 +4,7 @@ mod call;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     ExactNumber, FrameCount, FrameRange, NativeRange, SampleRange, SourceTime, SourceTimeRange,
     TimelineRangeExpression, TimelineViewId, ValueRef, ValueType, exact_seconds_to_frames,
@@ -234,8 +234,8 @@ impl TimeRangeValue {
 }
 
 fn invalid_timeline_range(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_INVALID_TIME_RANGE",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidTimeRange,
         "timeline-range start must be earlier than its end",
         span.clone(),
     )
@@ -323,7 +323,37 @@ impl ProgramDescriptor {
 pub(crate) struct BodyContract {
     pub(crate) initial_values: Vec<ValueTypeSpec>,
     pub(crate) outputs: BodyOutputConstraint,
-    pub(crate) count_error_code: &'static str,
+    pub(crate) count_diagnostic: BodyCountDiagnostic,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BodyCountDiagnostic {
+    Builtin(BuiltinDiagnostic),
+    #[cfg(test)]
+    Custom(&'static str),
+}
+
+impl BodyCountDiagnostic {
+    pub(crate) fn build(self, message: impl Into<String>, span: SourceSpan) -> Diagnostic {
+        match self {
+            Self::Builtin(diagnostic) => Diagnostic::builtin(diagnostic, message, span),
+            #[cfg(test)]
+            Self::Custom(code) => custom_body_count_diagnostic(code, message, span),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "test program definitions intentionally exercise application-defined diagnostic codes"
+)]
+fn custom_body_count_diagnostic(
+    code: &'static str,
+    message: impl Into<String>,
+    span: SourceSpan,
+) -> Diagnostic {
+    Diagnostic::new(code, message, span)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -734,8 +764,8 @@ fn validate_definition_name(role: &str, name: &str) -> Result<()> {
 }
 
 pub(crate) fn definition_error(message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new(
-        "E_INVALID_PROGRAM_DEFINITION",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidProgramDefinition,
         message,
         SourceSpan::file_start("<program-registry>"),
     )
@@ -840,7 +870,7 @@ mod tests {
                 contract: BodyContract {
                     initial_values: vec![ValueTypeSpec::Generic],
                     outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
-                    count_error_code: "E_TEST",
+                    count_diagnostic: BodyCountDiagnostic::Custom("E_TEST"),
                 },
             },
         );
@@ -862,7 +892,7 @@ mod tests {
                 contract: BodyContract {
                     initial_values: vec![],
                     outputs: BodyOutputConstraint::Exactly(vec![ValueTypeSpec::Generic]),
-                    count_error_code: "E_TEST",
+                    count_diagnostic: BodyCountDiagnostic::Custom("E_TEST"),
                 },
             },
         );
@@ -887,7 +917,7 @@ mod tests {
                 contract: BodyContract {
                     initial_values: vec![],
                     outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
-                    count_error_code: "E_TEST",
+                    count_diagnostic: BodyCountDiagnostic::Custom("E_TEST"),
                 },
             },
         );
@@ -929,7 +959,7 @@ mod tests {
                 contract: BodyContract {
                     initial_values: vec![],
                     outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
-                    count_error_code: "E_TEST",
+                    count_diagnostic: BodyCountDiagnostic::Custom("E_TEST"),
                 },
             },
         );

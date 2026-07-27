@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::{ScalarExpression, Spanned};
 
 use super::draft::{BodyId, DraftBody, DraftInput, DraftItemKind};
@@ -89,8 +89,8 @@ impl ScalarScopeBuilder<'_> {
                 continue;
             };
             if self.reserved_names.contains(&name.value) {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_NAME",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::DuplicateName,
                     format!(
                         "scalar alias `{}` conflicts with a program input, parameter, or named graph value",
                         name.value
@@ -99,22 +99,22 @@ impl ScalarScopeBuilder<'_> {
                 ));
             }
             if aliases.contains_key(&name.value) {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_NAME",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::DuplicateName,
                     format!("duplicate scalar alias `{}` in the same body", name.value),
                     name.span.clone(),
                 ));
             }
             if parent.is_some_and(|scope| self.resolve(scope, &name.value).is_some()) {
-                return Err(Diagnostic::new(
-                    "E_DUPLICATE_NAME",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::DuplicateName,
                     format!("scalar alias `{}` shadows a visible alias", name.value),
                     name.span.clone(),
                 ));
             }
             let id = ScalarAliasId(u32::try_from(self.aliases.len()).map_err(|_| {
-                Diagnostic::new(
-                    "E_GRAPH_TOO_LARGE",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::GraphTooLarge,
                     "too many scalar aliases were declared",
                     name.span.clone(),
                 )

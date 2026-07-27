@@ -5,7 +5,7 @@ use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
 /// One exact, reduced rational number.
@@ -17,8 +17,8 @@ pub struct Number(BigRational);
 impl Number {
     pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
         let invalid = || {
-            Diagnostic::new(
-                "E_INVALID_NUMBER",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidNumber,
                 format!("`{text}` is not a decimal number"),
                 span.clone(),
             )
@@ -47,8 +47,8 @@ impl Number {
         };
         let numerator = digits.parse::<BigInt>().map_err(|_| invalid())?;
         let exponent = u32::try_from(scale).map_err(|_| {
-            Diagnostic::new(
-                "E_NUMBER_TOO_LARGE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::NumberTooLarge,
                 "number literal has too many decimal places",
                 span.clone(),
             )

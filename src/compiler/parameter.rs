@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{ExactNumber, SourceTime, SourceTimeRange, TimelineExpression, TimelineViewId};
 use crate::program::{ParameterType, ParameterValue, TimeRangeValue};
 use crate::source::{
@@ -107,8 +107,8 @@ pub(super) fn check_expression(
     if kind_matches_parameter(actual, expected) {
         Ok(checked)
     } else {
-        Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT_TYPE",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidArgumentType,
             format!(
                 "parameter `{program}.{parameter}` requires {}, but the expression has type {}",
                 parameter_type_label(expected),
@@ -258,8 +258,8 @@ fn check_selector(
     resolve_timeline: &mut TimelineResolver<'_>,
 ) -> Result<(CheckedScalarExpression, ScalarKind)> {
     if path.is_empty() {
-        return Err(Diagnostic::new(
-            "E_INVALID_TIMELINE_SELECTOR",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimelineSelector,
             "a timeline selector requires a placement or boundary after `::`",
             span.clone(),
         ));
@@ -432,15 +432,15 @@ pub(super) fn from_expression(
         expected,
         expression,
         &mut |reference| {
-            Err(Diagnostic::new(
-                "E_INVALID_PARAMETER_DEFAULT",
+            Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidParameterDefault,
                 "parameter defaults cannot contain references",
                 reference.span.clone(),
             ))
         },
         &mut |reference| {
-            Err(Diagnostic::new(
-                "E_INVALID_PARAMETER_DEFAULT",
+            Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidParameterDefault,
                 "parameter defaults cannot contain timeline selectors",
                 reference.span.clone(),
             ))
@@ -454,8 +454,8 @@ pub(super) fn from_expression(
         &[],
         &[],
         &mut |_, _, _, _, span| {
-            Err(Diagnostic::new(
-                "E_INVALID_PARAMETER_DEFAULT",
+            Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidParameterDefault,
                 "parameter defaults cannot contain timeline selectors",
                 span.clone(),
             ))
@@ -507,8 +507,8 @@ fn evaluate(
         CheckedScalarExpression::Literal(literal) => evaluate_literal(literal),
         CheckedScalarExpression::Parameter { id, name, span } => {
             let parameter = parameters.get(id.index()).ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_BINDING",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InternalBinding,
                     format!("scalar parameter `${name}` was not bound"),
                     span.clone(),
                 )
@@ -620,8 +620,8 @@ fn evaluate_scalar_alias(
     resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<ScalarValue> {
     let expression = scalar_aliases.get(id.index()).ok_or_else(|| {
-        Diagnostic::new(
-            "E_INTERNAL_BINDING",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InternalBinding,
             format!("scalar alias `${name}` has no checked expression"),
             span.clone(),
         )
@@ -660,8 +660,8 @@ fn evaluate_binary(
             SourceTimeRange::new(start, end)
                 .map(ScalarValue::TimeRange)
                 .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INVALID_TIME_RANGE",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidTimeRange,
                         "time-range start must be earlier than its end",
                         span.clone(),
                     )
@@ -678,7 +678,11 @@ fn evaluate_binary(
         }
         (ScalarBinaryOperator::Divide, ScalarValue::Number(left), ScalarValue::Number(right)) => {
             left.divide(&right).map(ScalarValue::Number).ok_or_else(|| {
-                Diagnostic::new("E_DIVISION_BY_ZERO", "cannot divide by zero", span.clone())
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::DivisionByZero,
+                    "cannot divide by zero",
+                    span.clone(),
+                )
             })
         }
         (ScalarBinaryOperator::Add, ScalarValue::Duration(left), ScalarValue::Duration(right)) => {
@@ -714,8 +718,8 @@ fn require_same_timeline_root(
     if left == right {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            "E_TIMELINE_ROOT_MISMATCH",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::TimelineRootMismatch,
             "timeline coordinates belong to different timeline roots",
             span.clone(),
         )
@@ -858,7 +862,11 @@ fn evaluate_timeline_binary(
                 layout,
             })
             .ok_or_else(|| {
-                Diagnostic::new("E_DIVISION_BY_ZERO", "cannot divide by zero", span.clone())
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::DivisionByZero,
+                    "cannot divide by zero",
+                    span.clone(),
+                )
             }),
         (operator, left, right) => Err(operator_type_error(
             binary_label(operator),
@@ -921,8 +929,8 @@ fn coerce(
         (ParameterType::Integer, ScalarValue::Number(value)) => {
             let Some(integer) = value.to_i64() else {
                 if value.is_integer() {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_ARGUMENT_VALUE",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidArgumentValue,
                         format!(
                             "parameter `{program}.{parameter}` evaluates outside the supported Integer range"
                         ),
@@ -964,8 +972,8 @@ fn coerce(
             ParameterType::Keyword(allowed),
             ScalarValue::Text(value) | ScalarValue::Keyword(value),
         ) => keyword(program, parameter, allowed, &value, span),
-        (expected, value) => Err(Diagnostic::new(
-            "E_INVALID_ARGUMENT_TYPE",
+        (expected, value) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidArgumentType,
             format!(
                 "parameter `{program}.{parameter}` requires {}, but the expression evaluates to {}",
                 parameter_type_label(expected),
@@ -1024,15 +1032,15 @@ fn parse_duration(value: &str, span: &SourceSpan) -> Result<ExactNumber> {
     } else if let Some(number) = value.strip_suffix('s') {
         (number, ExactNumber::from_integer(1))
     } else {
-        return Err(Diagnostic::new(
-            "E_INVALID_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidDuration,
             format!("`{value}` is not a duration"),
             span.clone(),
         ));
     };
     if !number.bytes().all(|byte| byte.is_ascii_digit()) || number.is_empty() {
-        return Err(Diagnostic::new(
-            "E_INVALID_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidDuration,
             format!("`{value}` is not a supported integer duration"),
             span.clone(),
         ));
@@ -1190,8 +1198,8 @@ fn operator_type_error(
     span: &SourceSpan,
     expected: &str,
 ) -> Diagnostic {
-    Diagnostic::new(
-        "E_INVALID_SCALAR_OPERATION",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidScalarOperation,
         format!(
             "operator `{operator}` requires {expected}, but got {}",
             actual
@@ -1205,8 +1213,8 @@ fn operator_type_error(
 }
 
 fn integer_refinement_error(owner: &str, value: &ExactNumber, span: &SourceSpan) -> Diagnostic {
-    let diagnostic = Diagnostic::new(
-        "E_INVALID_ARGUMENT_TYPE",
+    let diagnostic = Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidArgumentType,
         format!(
             "`{owner}` requires Integer, but the expression evaluates to {}",
             value.authored_display()
@@ -1233,8 +1241,8 @@ fn keyword(
         .cloned()
         .map(ParameterValue::Keyword)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_ARGUMENT_VALUE",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidArgumentValue,
                 format!(
                     "parameter `{program}.{parameter}` must be one of: {}",
                     allowed.join(", ")

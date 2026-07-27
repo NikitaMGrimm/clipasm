@@ -7,7 +7,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::external::EXTERNAL_PROTOCOL_VERSION;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 use crate::preflight::tools::ExternalToolIdentity;
@@ -123,8 +123,8 @@ fn run_external(
     const STDERR_LIMIT: usize = 64 * 1024;
 
     let request = serde_json::to_vec(request).map_err(|error| {
-        Diagnostic::new(
-            "E_EXTERNAL_PROTOCOL",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalProtocol,
             format!("could not serialize external program request: {error}"),
             span.clone(),
         )
@@ -137,8 +137,8 @@ fn run_external(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| {
-            Diagnostic::new(
-                "E_EXTERNAL_EXECUTION",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::ExternalExecution,
                 format!(
                     "could not start external program `{}`: {error}",
                     executable.display()
@@ -173,8 +173,8 @@ fn run_external(
         let _ = child.kill();
         let _ = child.wait();
         let _ = stderr_reader.join();
-        return Err(Diagnostic::new(
-            "E_EXTERNAL_EXECUTION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalExecution,
             format!("could not write external program request: {error}"),
             span.clone(),
         ));
@@ -182,8 +182,8 @@ fn run_external(
     let status = wait_external_with(&mut child, Child::wait);
     let (stderr, truncated) = stderr_reader.join().unwrap_or_default();
     let status = status.map_err(|error| {
-        Diagnostic::new(
-            "E_EXTERNAL_EXECUTION",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalExecution,
             format!("could not wait for external program: {error}"),
             span.clone(),
         )
@@ -200,8 +200,8 @@ fn run_external(
     } else {
         stderr.trim().to_owned()
     };
-    Err(Diagnostic::new(
-        "E_EXTERNAL_EXECUTION",
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::ExternalExecution,
         format!(
             "external program `{}` failed with {}\n{}",
             executable.display(),

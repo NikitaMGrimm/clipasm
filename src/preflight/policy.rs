@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::VideoSpec;
 use crate::source::SourceSpan;
 
@@ -128,8 +128,8 @@ impl RenderPolicy {
         {
             return Ok(());
         }
-        Err(Diagnostic::new(
-            "E_INVALID_OUTPUT_EXTENSION",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidOutputExtension,
             format!(
                 "the foundation export profile requires an `.{}` output path",
                 self.export_extension()
@@ -142,8 +142,8 @@ impl RenderPolicy {
         if video.width().is_multiple_of(2) && video.height().is_multiple_of(2) {
             return Ok(());
         }
-        Err(Diagnostic::new(
-            "E_EXPORT_DIMENSIONS",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ExportDimensions,
             format!(
                 "the MP4/H.264/{} export profile requires even width and height",
                 self.export_pixel_format()

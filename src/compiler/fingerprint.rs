@@ -4,7 +4,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::compiler::evaluate::Evaluation;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::{SemanticDependency, SemanticNodeKind};
 use crate::source::SourceSpan;
@@ -268,8 +268,8 @@ fn identity_value(value: &impl Serialize) -> Result<serde_json::Value> {
 }
 
 fn fingerprint_error(error: &serde_json::Error) -> Diagnostic {
-    Diagnostic::new(
-        "E_FINGERPRINT",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::Fingerprint,
         format!("could not serialize semantic identity: {error}"),
         SourceSpan::file_start("<fingerprint>"),
     )

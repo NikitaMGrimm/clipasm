@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::compiler::{CompiledProgram, ExplainEntry};
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueId, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::{CompiledNode, SemanticNodeKind, SourceOrigin};
 use crate::source::{SourceSpan, Spanned};
@@ -64,8 +64,8 @@ pub(crate) fn compiled_program(program: &CompiledProgram) -> Result<String> {
         output: program.output(),
     };
     serde_json::to_string_pretty(&document).map_err(|error| {
-        Diagnostic::new(
-            "E_COMPILED_JSON",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::CompiledJson,
             format!("could not serialize compiled program: {error}"),
             SourceSpan::file_start("<compiled-program>"),
         )
@@ -216,8 +216,8 @@ fn reference_document(
     symbol: crate::semantic::SymbolId,
 ) -> Result<serde_json::Value> {
     let target = program.symbol_value(symbol).ok_or_else(|| {
-        Diagnostic::new(
-            "E_COMPILED_JSON",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::CompiledJson,
             format!("reference names unknown symbol {}", symbol.index()),
             node.origin().span.clone(),
         )

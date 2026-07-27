@@ -4,7 +4,7 @@ use std::io;
 use std::io::Write as _;
 use std::path::{Component, Path, PathBuf};
 
-use clipasm::diagnostic::{Diagnostic, Result};
+use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use clipasm::source::SourceSpan;
 
 use super::safe_display_path;
@@ -147,8 +147,8 @@ impl ProjectPlan {
 
         let count = conflicts.len();
         Err(conflicts.into_iter().fold(
-            Diagnostic::new(
-                "E_INIT_CONFLICT",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InitConflict,
                 format!(
                     "cannot initialize `{}` because {count} scaffold path(s) conflict",
                     safe_display_path(&self.target)
@@ -271,8 +271,8 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
             }
         }
         Some(conflict) => {
-            return Err(Diagnostic::new(
-                "E_INIT_CONFLICT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InitConflict,
                 conflict,
                 init_source_span(path),
             ));
@@ -293,8 +293,8 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             match directory_conflict(path)? {
                 None => Ok(()),
-                Some(conflict) => Err(Diagnostic::new(
-                    "E_INIT_CONFLICT",
+                Some(conflict) => Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InitConflict,
                     conflict,
                     init_source_span(path),
                 )),
@@ -318,8 +318,8 @@ fn write_new_file(file: &PlannedFile, created_paths: &mut Vec<CreatedPath>) -> R
     {
         Ok(destination) => destination,
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            return Err(Diagnostic::new(
-                "E_INIT_CONFLICT",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InitConflict,
                 format!(
                     "refusing to replace existing path `{}`",
                     safe_display_path(&file.path)
@@ -404,11 +404,15 @@ fn init_path_error(target: &Path, message: impl Into<String>) -> Diagnostic {
     } else {
         target
     };
-    Diagnostic::new("E_INIT_PATH", message, init_source_span(target))
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InitPath,
+        message,
+        init_source_span(target),
+    )
 }
 
 fn init_io_error(path: &Path, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new("E_INIT_IO", message, init_source_span(path))
+    Diagnostic::builtin(BuiltinDiagnostic::InitIo, message, init_source_span(path))
 }
 
 fn init_source_span(path: &Path) -> SourceSpan {
@@ -502,6 +506,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "the cleanup test needs an arbitrary incoming diagnostic to preserve"
+    )]
     fn cleanup_preserves_a_created_path_whose_contents_were_replaced() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("README.md");

@@ -1,4 +1,4 @@
-use crate::diagnostic::Diagnostic;
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic};
 use crate::model::{ValueRef, ValueType};
 use crate::program::{Cardinality, InputSlot, StackAccess};
 use crate::source::SourceSpan;
@@ -355,7 +355,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         &self,
         frame: &StackFrame,
         access: StackAccess,
-        code: &'static str,
+        diagnostic: BuiltinDiagnostic,
         requirement: &str,
         required: ValueType,
         available: usize,
@@ -365,7 +365,7 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
         self.underflow_with(
             frame,
             access,
-            code,
+            diagnostic,
             requirement,
             required,
             available,
@@ -385,7 +385,7 @@ impl<T: Copy> EvaluationStack<T> {
         &self,
         frame: &StackFrame,
         access: StackAccess,
-        code: &'static str,
+        diagnostic: BuiltinDiagnostic,
         requirement: &str,
         required: ValueType,
         available: usize,
@@ -393,8 +393,8 @@ impl<T: Copy> EvaluationStack<T> {
         span: &SourceSpan,
         value_type: impl Fn(T) -> Option<ValueType>,
     ) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new(
-            code,
+        let mut diagnostic = Diagnostic::builtin(
+            diagnostic,
             format!(
                 "{requirement}, but only {available} {} {required} value(s) are available",
                 access.label(),
@@ -509,7 +509,7 @@ mod tests {
                     return Err(self.underflow(
                         frame,
                         access,
-                        "E_STACK_UNDERFLOW",
+                        BuiltinDiagnostic::StackUnderflow,
                         &format!("`{program}.{port}` needs one preceding {required} value"),
                         required,
                         failure.available,
@@ -543,7 +543,7 @@ mod tests {
                     return Err(self.underflow(
                         frame,
                         access,
-                        "E_MISSING_REQUIRED_INPUT",
+                        BuiltinDiagnostic::MissingRequiredInput,
                         &format!("`{program}.{port}` needs at least {min} {required} value(s)"),
                         required,
                         failure.available,

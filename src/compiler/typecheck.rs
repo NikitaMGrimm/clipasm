@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueType;
 use crate::program::{
     Cardinality, InputSlot, ProgramDefinition, ProgramImplementation, ResolvedSignature,
@@ -504,15 +504,15 @@ fn resolve_final_program(
         .resolutions
         .expect("final type-resolution pass owns resolution tables");
     if let Some(index) = resolutions.invocations.first_missing() {
-        return Err(Diagnostic::new(
-            "E_INTERNAL_TYPE_RESOLUTION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InternalTypeResolution,
             format!("invocation {index} was not resolved"),
             program.span.clone(),
         ));
     }
     if let Some(index) = resolutions.stack_blocks.first_missing() {
-        return Err(Diagnostic::new(
-            "E_INTERNAL_TYPE_RESOLUTION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InternalTypeResolution,
             format!("stack block {index} was not resolved"),
             program.span.clone(),
         ));
@@ -575,8 +575,8 @@ fn concrete_values(
 }
 
 fn inference_dependency(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_TYPE_INFERENCE_DEPENDENCY",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::TypeInferenceDependency,
         "generic type inference depends on an unresolved stack selection; add `<Video>` or `<Audio>`",
         span.clone(),
     )
@@ -780,7 +780,7 @@ fn infer_invocation(
             &origin.construct,
             &body_outputs,
             &contract.outputs,
-            contract.count_error_code,
+            contract.count_diagnostic,
             generic,
             arena,
             state,
@@ -862,8 +862,8 @@ fn explicit_values(
                 state,
             )?;
             if stack.len() != 1 {
-                return Err(Diagnostic::new(
-                    "E_INPUT_BODY_OUTPUT_COUNT",
+                return Err(Diagnostic::builtin(
+                    BuiltinDiagnostic::InputBodyOutputCount,
                     format!(
                         "inline input body for `{program}.{port}` must leave exactly one value, but {} values remain",
                         stack.len()
@@ -959,8 +959,8 @@ fn infer_generic_from_stack(
         }
     }
     if possible.len() > 1 && !saw_deferred {
-        return Err(Diagnostic::new(
-            "E_AMBIGUOUS_GENERIC_TYPE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::AmbiguousGenericType,
             format!(
                 "program `{}` can bind both Video and Audio; use `<Video>` or `<Audio>`",
                 origin.construct
@@ -1030,8 +1030,8 @@ fn bind_missing(
                 ValueTypeSpec::Generic => generic
                     .and_then(|variable| arena.domain(variable).concrete())
                     .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_STACK_UNDERFLOW",
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::StackUnderflow,
                             format!(
                                 "program `{}` needs a preceding Video or Audio value",
                                 origin.construct
@@ -1040,16 +1040,16 @@ fn bind_missing(
                         )
                     })?,
             };
-            let (code, requirement) = match port.cardinality {
+            let (diagnostic, requirement) = match port.cardinality {
                 Cardinality::One => (
-                    "E_STACK_UNDERFLOW",
+                    BuiltinDiagnostic::StackUnderflow,
                     format!(
                         "`{}.{}` needs one preceding {required} value",
                         origin.construct, port.name
                     ),
                 ),
                 Cardinality::Variadic { min } => (
-                    "E_MISSING_REQUIRED_INPUT",
+                    BuiltinDiagnostic::MissingRequiredInput,
                     format!(
                         "`{}.{}` needs at least {min} {required} value(s)",
                         origin.construct, port.name
@@ -1059,7 +1059,7 @@ fn bind_missing(
             Err(stack.underflow_with(
                 frame,
                 access,
-                code,
+                diagnostic,
                 &requirement,
                 required,
                 failure.available,
@@ -1079,7 +1079,7 @@ fn constrain_body_outputs(
     program: &str,
     values: &[TypeVarId],
     constraint: &crate::program::BodyOutputConstraint,
-    count_error_code: &'static str,
+    count_diagnostic: crate::program::BodyCountDiagnostic,
     generic: Option<TypeVarId>,
     arena: &mut TypeArena,
     state: &PassState,
@@ -1089,8 +1089,7 @@ fn constrain_body_outputs(
         crate::program::BodyOutputConstraint::Exactly(expected) => {
             if values.len() != expected.len() {
                 if state.is_resolving() {
-                    return Err(Diagnostic::new(
-                        count_error_code,
+                    return Err(count_diagnostic.build(
                         format!(
                             "`{program}` body must leave exactly {} value(s), but {} values remain",
                             expected.len(),
@@ -1108,8 +1107,7 @@ fn constrain_body_outputs(
         crate::program::BodyOutputConstraint::Variadic { value_type, min } => {
             if values.len() < *min {
                 if state.is_resolving() {
-                    return Err(Diagnostic::new(
-                        count_error_code,
+                    return Err(count_diagnostic.build(
                         format!("`{program}` body must produce at least {min} value(s)"),
                         span.clone(),
                     ));
@@ -1137,8 +1135,8 @@ fn constrain_body_output(
         ValueTypeSpec::Generic => arena.equate(actual, generic.expect("generic body output")),
     };
     result.map_err(|_| {
-        Diagnostic::new(
-            "E_GENERIC_TYPE_MISMATCH",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::GenericTypeMismatch,
             format!("`{program}` body must contain only one value type"),
             span.clone(),
         )
@@ -1219,18 +1217,18 @@ fn lookup_value(
     }
     match globals.get(name) {
         Some(LocalSlot::Value(variable)) => Ok(*variable),
-        Some(LocalSlot::Parameter) => Err(Diagnostic::new(
-            "E_PARAMETER_NOT_VALUE",
+        Some(LocalSlot::Parameter) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ParameterNotValue,
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        None if scalar_scopes.resolve(scope, name).is_some() => Err(Diagnostic::new(
-            "E_SCALAR_NOT_VALUE",
+        None if scalar_scopes.resolve(scope, name).is_some() => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ScalarNotValue,
             format!("scalar alias `${name}` is not a graph value"),
             span.clone(),
         )),
-        None => Err(Diagnostic::new(
-            "E_MISSING_REFERENCE",
+        None => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::MissingReference,
             format!("reference `${name}` does not name an input, body alias, or output binding"),
             span.clone(),
         )),
@@ -1244,13 +1242,13 @@ fn value_slot(
 ) -> Result<TypeVarId> {
     match slots.get(name) {
         Some(LocalSlot::Value(variable)) => Ok(*variable),
-        Some(LocalSlot::Parameter) => Err(Diagnostic::new(
-            "E_PARAMETER_NOT_VALUE",
+        Some(LocalSlot::Parameter) => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::ParameterNotValue,
             format!("parameter `${name}` is not a graph value"),
             span.clone(),
         )),
-        None => Err(Diagnostic::new(
-            "E_MISSING_REFERENCE",
+        None => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::MissingReference,
             format!("reference `${name}` does not name an input, body alias, or output binding"),
             span.clone(),
         )),
@@ -1278,8 +1276,8 @@ fn constrain(
 }
 
 fn type_mismatch(span: &SourceSpan) -> Diagnostic {
-    Diagnostic::new(
-        "E_GENERIC_TYPE_MISMATCH",
+    Diagnostic::builtin(
+        BuiltinDiagnostic::GenericTypeMismatch,
         "generic inputs and outputs must resolve to one value type",
         span.clone(),
     )

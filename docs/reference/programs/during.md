@@ -75,7 +75,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_BODY_OUTPUT_COUNT`
+- [`E_BODY_OUTPUT_COUNT`](../diagnostics/types-and-stack.md#e_body_output_count) — Wrong body output count
 
 ## Related reference
 

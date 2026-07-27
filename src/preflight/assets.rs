@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::compiler::CompiledProgram;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceFile, SourceSpan};
@@ -23,8 +23,8 @@ pub(super) fn prepare_output_path(
     render_policy: RenderPolicy,
 ) -> Result<PathBuf> {
     let output = compiled.output().ok_or_else(|| {
-        Diagnostic::new(
-            "E_MISSING_OUTPUT",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::MissingOutput,
             "`render` requires `config.output`",
             SourceSpan::source_start(compiled.entrypoint_source().clone()),
         )
@@ -33,9 +33,9 @@ pub(super) fn prepare_output_path(
     resolve_authored_path(&output.value, &output.span)
 }
 
-pub(super) fn validate_destination(path: &Path, role: &str, code: &'static str) -> Result<()> {
+pub(super) fn validate_destination(path: &Path, role: &str, code: BuiltinDiagnostic) -> Result<()> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::new(
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(Diagnostic::builtin(
             code,
             format!(
                 "{role} destination `{}` is a symlink; publication destinations must be regular files",
@@ -46,7 +46,7 @@ pub(super) fn validate_destination(path: &Path, role: &str, code: &'static str) 
         Ok(metadata) if metadata.is_file() => Ok(()),
         Ok(_) => Err(invalid_destination(path, role, code)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(Diagnostic::new(
+        Err(error) => Err(Diagnostic::builtin(
             code,
             format!(
                 "{role} destination `{}` cannot be inspected: {error}",
@@ -57,8 +57,8 @@ pub(super) fn validate_destination(path: &Path, role: &str, code: &'static str) 
     }
 }
 
-fn invalid_destination(path: &Path, role: &str, code: &'static str) -> Diagnostic {
-    Diagnostic::new(
+fn invalid_destination(path: &Path, role: &str, code: BuiltinDiagnostic) -> Diagnostic {
+    Diagnostic::builtin(
         code,
         format!(
             "{role} destination `{}` is not a regular file",
@@ -73,12 +73,12 @@ pub(super) fn reject_path_collision(
     left_role: &str,
     right: &Path,
     right_role: &str,
-    code: &'static str,
+    code: BuiltinDiagnostic,
 ) -> Result<()> {
     if canonical_path_identity(left)? != canonical_path_identity(right)? {
         return Ok(());
     }
-    Err(Diagnostic::new(
+    Err(Diagnostic::builtin(
         code,
         format!(
             "{left_role} path `{}` collides with {right_role} path `{}`",
@@ -111,14 +111,14 @@ pub(super) fn reject_asset_collisions(
                 "output",
                 executable.executable(),
                 "external executable",
-                "E_OUTPUT_COLLISION",
+                BuiltinDiagnostic::OutputCollision,
             )?;
             reject_path_collision(
                 manifest,
                 "manifest",
                 executable.executable(),
                 "external executable",
-                "E_MANIFEST_COLLISION",
+                BuiltinDiagnostic::ManifestCollision,
             )?;
             for asset in arguments.iter().filter_map(|argument| match argument {
                 super::PreparedExternalArgument::File(asset) => Some(asset),
@@ -129,14 +129,14 @@ pub(super) fn reject_asset_collisions(
                     "output",
                     asset.source_path(),
                     "external file argument",
-                    "E_OUTPUT_COLLISION",
+                    BuiltinDiagnostic::OutputCollision,
                 )?;
                 reject_path_collision(
                     manifest,
                     "manifest",
                     asset.source_path(),
                     "external file argument",
-                    "E_MANIFEST_COLLISION",
+                    BuiltinDiagnostic::ManifestCollision,
                 )?;
             }
             for asset in parameters.values().filter_map(|value| match value {
@@ -149,14 +149,14 @@ pub(super) fn reject_asset_collisions(
                     "output",
                     asset.source_path(),
                     "external file parameter",
-                    "E_OUTPUT_COLLISION",
+                    BuiltinDiagnostic::OutputCollision,
                 )?;
                 reject_path_collision(
                     manifest,
                     "manifest",
                     asset.source_path(),
                     "external file parameter",
-                    "E_MANIFEST_COLLISION",
+                    BuiltinDiagnostic::ManifestCollision,
                 )?;
             }
         }
@@ -180,14 +180,14 @@ pub(super) fn reject_asset_collisions(
             "output",
             asset.source_path(),
             role,
-            "E_OUTPUT_COLLISION",
+            BuiltinDiagnostic::OutputCollision,
         )?;
         reject_path_collision(
             manifest,
             "manifest",
             asset.source_path(),
             role,
-            "E_MANIFEST_COLLISION",
+            BuiltinDiagnostic::ManifestCollision,
         )?;
     }
     Ok(())
@@ -199,8 +199,8 @@ fn canonical_path_identity(path: &Path) -> Result<PathBuf> {
     } else {
         std::env::current_dir()
             .map_err(|error| {
-                Diagnostic::new(
-                    "E_PATH_RESOLUTION",
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::PathResolution,
                     format!("could not resolve `{}`: {error}", path.display()),
                     SourceSpan::file_start(path),
                 )
@@ -218,8 +218,8 @@ fn canonical_path_identity(path: &Path) -> Result<PathBuf> {
         existing = existing.parent().unwrap_or(existing);
     }
     let mut identity = fs::canonicalize(existing).map_err(|error| {
-        Diagnostic::new(
-            "E_PATH_RESOLUTION",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::PathResolution,
             format!(
                 "could not canonicalize path identity for `{}`: {error}",
                 path.display()
@@ -257,7 +257,12 @@ pub(super) fn prepare_image_asset(
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<PreparedAsset> {
-    let asset = prepare_file_asset(authored, origin, "image", "E_MISSING_IMAGE_FILE")?;
+    let asset = prepare_file_asset(
+        authored,
+        origin,
+        "image",
+        BuiltinDiagnostic::MissingImageFile,
+    )?;
     verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
     Ok(asset)
 }
@@ -269,7 +274,12 @@ pub(super) fn prepare_video_asset(
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<(PreparedAsset, FrameCount, bool)> {
-    let asset = prepare_file_asset(authored, origin, "video", "E_MISSING_VIDEO_FILE")?;
+    let asset = prepare_file_asset(
+        authored,
+        origin,
+        "video",
+        BuiltinDiagnostic::MissingVideoFile,
+    )?;
     let (frames, has_audio) =
         verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
     Ok((asset, frames, has_audio))
@@ -282,7 +292,12 @@ pub(super) fn prepare_audio_asset(
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
 ) -> Result<(PreparedAsset, AudioDomain)> {
-    let asset = prepare_file_asset(authored, origin, "audio", "E_MISSING_AUDIO_FILE")?;
+    let asset = prepare_file_asset(
+        authored,
+        origin,
+        "audio",
+        BuiltinDiagnostic::MissingAudioFile,
+    )?;
     let domain = verify_audio_decodable(asset.source_path(), audio, &origin.span, ffmpeg, ffprobe)?;
     Ok((asset, domain))
 }
@@ -291,11 +306,11 @@ fn prepare_file_asset(
     authored: &Path,
     origin: &SourceOrigin,
     role: &str,
-    missing_code: &'static str,
+    missing_code: BuiltinDiagnostic,
 ) -> Result<PreparedAsset> {
     let source_path = resolve_authored_path(authored, &origin.span)?;
     let metadata = fs::metadata(&source_path).map_err(|error| {
-        Diagnostic::new(
+        Diagnostic::builtin(
             missing_code,
             format!(
                 "{role} file `{}` is not accessible: {error}",
@@ -305,7 +320,7 @@ fn prepare_file_asset(
         )
     })?;
     if !metadata.is_file() {
-        return Err(Diagnostic::new(
+        return Err(Diagnostic::builtin(
             missing_code,
             format!("{role} path `{}` is not a file", source_path.display()),
             origin.span.clone(),
@@ -324,7 +339,7 @@ pub(super) fn prepare_external_file_asset(
         authored,
         &SourceOrigin::new("external file parameter", span.clone()),
         "external parameter",
-        "E_MISSING_EXTERNAL_FILE",
+        BuiltinDiagnostic::MissingExternalFile,
     )
 }
 
@@ -333,8 +348,8 @@ pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) ->
     if actual == asset.content_hash() {
         Ok(())
     } else {
-        Err(Diagnostic::new(
-            "E_ASSET_CHANGED",
+        Err(Diagnostic::builtin(
+            BuiltinDiagnostic::AssetChanged,
             format!(
                 "asset `{}` changed after preflight",
                 asset.source_path().display()
@@ -346,8 +361,8 @@ pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) ->
 
 fn hash_file(path: &Path, span: &SourceSpan) -> Result<String> {
     let file = fs::File::open(path).map_err(|error| {
-        Diagnostic::new(
-            "E_INPUT_HASH",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InputHash,
             format!("could not read asset `{}`: {error}", path.display()),
             span.clone(),
         )
@@ -357,8 +372,8 @@ fn hash_file(path: &Path, span: &SourceSpan) -> Result<String> {
     let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let read = reader.read(&mut buffer).map_err(|error| {
-            Diagnostic::new(
-                "E_INPUT_HASH",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InputHash,
                 format!("could not hash asset `{}`: {error}", path.display()),
                 span.clone(),
             )
@@ -376,8 +391,8 @@ pub(super) fn resolve_authored_path(value: &Path, span: &SourceSpan) -> Result<P
         return Ok(value.to_path_buf());
     }
     let base = span.source().base_directory().ok_or_else(|| {
-        Diagnostic::new(
-            "E_RELATIVE_PATH_WITHOUT_BASE",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::RelativePathWithoutBase,
             format!(
                 "relative authored path `{}` has no source directory",
                 value.display()
@@ -390,8 +405,8 @@ pub(super) fn resolve_authored_path(value: &Path, span: &SourceSpan) -> Result<P
 
 pub(super) fn entrypoint_directory(source: &SourceFile) -> Result<&Path> {
     source.base_directory().ok_or_else(|| {
-        Diagnostic::new(
-            "E_SOURCE_WITHOUT_BASE",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::SourceWithoutBase,
             "rendering requires the entrypoint source to have a base directory",
             SourceSpan::source_start(source.clone()),
         )

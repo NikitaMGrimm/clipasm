@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{FrameCount, NodeId, TimelineRate, ValueRef};
 use crate::semantic::CompiledNode;
 use crate::source::SourceSpan;
@@ -54,8 +54,8 @@ pub(super) fn crossfade(
         TimelineRate::new(*lowerer.compiled.video(), *lowerer.compiled.audio())
             .samples_between_frames(overlap_start, before_frames.0, &node.origin().span)?;
     if overlap_samples > i64::MAX as u64 {
-        return Err(Diagnostic::new(
-            "E_CROSSFADE_AUDIO_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::CrossfadeAudioDuration,
             format!(
                 "crossfade overlap requires {overlap_samples} audio samples, but FFmpeg supports at most {}",
                 i64::MAX
@@ -84,16 +84,16 @@ fn validate_crossfade_frames(
     span: &SourceSpan,
 ) -> Result<()> {
     if frames.0 == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_CROSSFADE_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidCrossfadeDuration,
             "`crossfade.duration` must cover at least one project frame",
             span.clone(),
         ));
     }
     for (name, available) in [("before", before), ("after", after)] {
         if frames > available {
-            return Err(Diagnostic::new(
-                "E_INVALID_CROSSFADE_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidCrossfadeDuration,
                 format!(
                     "`crossfade.duration` covers {} frames, but `{name}` contains only {} frames",
                     frames.0, available.0
@@ -111,8 +111,8 @@ fn validate_flash_cut_frames(
     span: &SourceSpan,
 ) -> Result<()> {
     if frames > after {
-        return Err(Diagnostic::new(
-            "E_INVALID_FLASH_CUT_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidFlashCutDuration,
             format!(
                 "`flash_cut.duration` covers {} frames, but `after` contains only {} frames",
                 frames.0, after.0

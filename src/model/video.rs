@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::FrameCount;
 use crate::source::SourceSpan;
 
@@ -53,8 +53,8 @@ impl FrameRate {
             (parse_component(text, span)?, 1)
         };
         Self::new(numerator, denominator).ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_VIDEO_SPEC",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidVideoSpec,
                 "frame rate must be greater than zero",
                 span.clone(),
             )
@@ -73,8 +73,8 @@ const fn gcd(mut left: u32, mut right: u32) -> u32 {
 
 fn parse_component(text: &str, span: &SourceSpan) -> Result<u32> {
     text.parse::<u32>().map_err(|_| {
-        Diagnostic::new(
-            "E_INVALID_VIDEO_SPEC",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidVideoSpec,
             format!("`{text}` is not a valid frame-rate component"),
             span.clone(),
         )

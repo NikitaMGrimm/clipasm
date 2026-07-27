@@ -62,7 +62,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- `E_INVALID_REPEAT_COUNT`
+- [`E_INVALID_REPEAT_COUNT`](../diagnostics/compilation-and-timelines.md#e_invalid_repeat_count) — Invalid repeat count
 
 ## Related reference
 

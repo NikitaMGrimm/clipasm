@@ -49,6 +49,20 @@
   - [`join`](reference/programs/join.md)
   - [`during`](reference/programs/during.md)
 <!-- END GENERATED PROGRAM REFERENCE NAVIGATION -->
+<!-- BEGIN GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->
+- [Diagnostic index](reference/diagnostics/index.md)
+  - [Command line and project creation](reference/diagnostics/command-line-and-projects.md)
+  - [Parsing and source structure](reference/diagnostics/parsing-and-source.md)
+  - [Imports and declarations](reference/diagnostics/imports-and-declarations.md)
+  - [Arguments, types, and stack binding](reference/diagnostics/types-and-stack.md)
+  - [Compilation and timeline evaluation](reference/diagnostics/compilation-and-timelines.md)
+  - [Preflight and media](reference/diagnostics/preflight-and-media.md)
+  - [External programs](reference/diagnostics/external-programs.md)
+  - [Rendering and publication](reference/diagnostics/rendering-and-publication.md)
+  - [Cache and filesystem](reference/diagnostics/cache-and-filesystem.md)
+  - [Browser runtime](reference/diagnostics/browser.md)
+  - [Internal contract failures](reference/diagnostics/internal.md)
+<!-- END GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->
 - [Command-line reference](reference/cli.md)
 - [Formal grammar](language-grammar.md)
 - [Runnable examples](examples.md)

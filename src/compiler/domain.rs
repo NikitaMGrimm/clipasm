@@ -1,5 +1,5 @@
 use crate::compiler::evaluate::Evaluation;
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{FrameCount, NativeRange, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::SemanticNodeKind;
 
@@ -150,8 +150,8 @@ fn validate_range(
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if range.end() > input.0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_TIME_RANGE",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
             format!(
                 "frame range {}..{} is outside the base Video domain of {} frames",
                 range.start(),
@@ -170,8 +170,8 @@ fn validate_flash_cut_frames(
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if frames > after {
-        return Err(Diagnostic::new(
-            "E_INVALID_FLASH_CUT_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidFlashCutDuration,
             format!(
                 "`flash_cut.duration` covers {} frames, but `after` contains only {} frames",
                 frames.0, after.0
@@ -210,8 +210,8 @@ fn validate_crossfade_frames(
     span: &crate::source::SourceSpan,
 ) -> Result<()> {
     if frames.0 == 0 {
-        return Err(Diagnostic::new(
-            "E_INVALID_CROSSFADE_DURATION",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidCrossfadeDuration,
             "`crossfade.duration` must cover at least one project frame",
             span.clone(),
         ));
@@ -220,8 +220,8 @@ fn validate_crossfade_frames(
         if let Some(available) = available
             && frames > available
         {
-            return Err(Diagnostic::new(
-                "E_INVALID_CROSSFADE_DURATION",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidCrossfadeDuration,
                 format!(
                     "`crossfade.duration` covers {} frames, but `{name}` contains only {} frames",
                     frames.0, available.0

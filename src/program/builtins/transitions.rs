@@ -1,4 +1,4 @@
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{FrameCount, ValueType};
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
@@ -89,10 +89,10 @@ fn duration_frames(
         ),
     };
     if frames.0 == 0 {
-        return Err(Diagnostic::new(
+        return Err(Diagnostic::builtin(
             match call.program_name() {
-                "flash_cut" => "E_INVALID_FLASH_CUT_DURATION",
-                "crossfade" => "E_INVALID_CROSSFADE_DURATION",
+                "flash_cut" => BuiltinDiagnostic::InvalidFlashCutDuration,
+                "crossfade" => BuiltinDiagnostic::InvalidCrossfadeDuration,
                 _ => unreachable!("only transitions with duration use this helper"),
             },
             format!(

@@ -23,6 +23,12 @@ mdBook, and Node.js on `PATH`.
 5. Update the canonical documentation and affected examples in the same change.
 6. Review the final diff and run the complete repository check.
 
+When adding or changing a built-in diagnostic, update its typed catalog entry
+and production construction sites together, define its title, category, retry
+guidance, stability, and explanation, add focused coverage, and regenerate the
+diagnostic reference. See the [documentation maintenance guide](docs/development/documentation.md)
+for the required generator commands and compatibility review.
+
 Use Conventional Commits, for example `feat: add trim program`.
 
 ## Tests

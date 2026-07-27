@@ -4,6 +4,12 @@ Start with `validate`, then move to `inspect`, and render only when the source i
 structurally correct. This separates language and binding problems from media,
 tool, and execution problems.
 
+Every ordinary ClipAsm error includes a diagnostic code. Look up the code with
+`clipasm explain <CODE>` for a concise explanation, or use the searchable
+[diagnostic reference](../reference/diagnostics/index.md) for the complete
+catalog. This guide stays organized by symptom; the reference owns the full
+per-code advice and retry guidance.
+
 ## The source does not validate
 
 Run:
@@ -24,7 +30,10 @@ to hide it.
 
 Consult the [language reference](../reference/language/index.md) for exact
 syntax and the [stack-binding reference](../reference/language/stack-binding.md)
-for binding rules.
+for binding rules. The [parsing and source](../reference/diagnostics/parsing-and-source.md),
+[imports and declarations](../reference/diagnostics/imports-and-declarations.md),
+and [types and stack](../reference/diagnostics/types-and-stack.md) diagnostic
+pages group the corresponding failures.
 
 ## A root input or parameter is missing
 
@@ -69,6 +78,9 @@ Imported programs keep their own path base. Moving only the root source or
 running the command from another directory does not rebase paths authored in an
 imported source unit.
 
+See [preflight and media diagnostics](../reference/diagnostics/preflight-and-media.md)
+when the reported code concerns an unreadable or unsuitable asset.
+
 ## FFmpeg or FFprobe is unavailable
 
 `validate` and `inspect` do not require media tools. Rendering requires both
@@ -81,6 +93,9 @@ ffprobe -version
 
 If the commands are installed but ClipAsm cannot find them, run ClipAsm from an
 environment whose `PATH` includes the corresponding executables.
+
+See [preflight and media diagnostics](../reference/diagnostics/preflight-and-media.md)
+for tool discovery and capability failures.
 
 ## FFmpeg lacks a required capability
 
@@ -115,6 +130,9 @@ executable, or an incompatible filesystem object occupies either destination.
 Do not point output at a source asset. Publication writes both the MP4 and
 `<output>.manifest.json`.
 
+See [rendering and publication diagnostics](../reference/diagnostics/rendering-and-publication.md)
+for the reported destination or publication code.
+
 ## An external program fails or hangs
 
 External programs are trusted native code and are not sandboxed or given a
@@ -128,6 +146,8 @@ using the operating system's normal process controls.
 
 See [Review and run an external program](external-programs.md) and
 [External programs and the trust boundary](../concepts/external-programs-and-trust.md).
+The [external-program diagnostics](../reference/diagnostics/external-programs.md)
+page explains protocol and process failures.
 
 ## A cached artifact is not reused
 
@@ -139,6 +159,10 @@ A cache miss is not a correctness failure. ClipAsm renders the missing artifact
 and stores a verified replacement. Do not edit cache artifacts or sidecars by
 hand.
 
+For a cache lock or filesystem error, use the
+[cache and filesystem diagnostics](../reference/diagnostics/cache-and-filesystem.md)
+page to determine whether retrying is appropriate.
+
 ## Inspection output is surprising
 
 `inspect` prints compiled semantic JSON, not canonical source, a prepared plan,
@@ -148,6 +172,19 @@ internal serialization evolves.
 
 Use the [pipeline explanation](../concepts/pipeline.md) to distinguish compiled
 semantics from preflight and rendering.
+
+## An internal diagnostic is reported
+
+An [internal-contract diagnostic](../reference/diagnostics/internal.md) usually
+means user input exposed a ClipAsm defect rather than a source mistake. Preserve
+the diagnostic code, ClipAsm version, safe reproduction steps, and the original
+output. Do not delete caches or generated state unless that code's explanation
+specifically recommends it.
+
+Report a minimal reproduction through the repository's
+[issue tracker](https://github.com/NikitaMGrimm/clipasm/issues), but do not post
+private source, media, credentials, or sensitive paths. Use the private security
+reporting route below when the failure may have security impact.
 
 ## Reporting a possible security issue
 

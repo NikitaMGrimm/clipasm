@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, TimelineRate, ValueType};
 use crate::preflight::browser::BrowserPreparedPlan;
 use crate::preflight::{
@@ -41,8 +41,8 @@ const BROWSER_RUNTIME_POLICY: &str = "ffv1-flac-matroska-v1";
 pub fn render_json(plan: &BrowserPreparedPlan) -> Result<String> {
     let document = render_document(plan)?;
     serde_json::to_string(&document).map_err(|error| {
-        Diagnostic::new(
-            "E_BROWSER_RENDER_JSON",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::BrowserRenderJson,
             format!("could not serialize the browser render plan: {error}"),
             result_span(plan),
         )
@@ -152,8 +152,8 @@ fn final_contract(
     policy: RenderPolicy,
 ) -> Result<BrowserArtifactContract> {
     let domain = result.video_domain().ok_or_else(|| {
-        Diagnostic::new(
-            "E_INVALID_PLAN",
+        Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidPlan,
             "browser render result is not Video",
             result.origin().span.clone(),
         )
@@ -183,8 +183,8 @@ fn result_node(plan: &BrowserPreparedPlan) -> Result<&PreparedNode> {
     plan.nodes()
         .get(plan.result().get() as usize)
         .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INVALID_PLAN",
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 format!(
                     "browser render result {} is not available",
                     plan.result().get()
@@ -280,8 +280,8 @@ fn browser_mounts(nodes: &[PreparedNode]) -> Result<Vec<BrowserMount>> {
                 ..
             } => {
                 let path = asset.source_path().to_str().ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_BROWSER_ASSET_PATH",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::BrowserAssetPath,
                         "browser asset paths must be UTF-8",
                         node.origin().span.clone(),
                     )
@@ -326,8 +326,8 @@ fn browser_arguments(
             FfmpegArgument::Text(value) => arguments.push(value.clone()),
             FfmpegArgument::Asset(path) => {
                 let Some(path) = assets.get(path) else {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_PLAN",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidPlan,
                         format!(
                             "browser recipe references unavailable asset `{}`",
                             path.display()
@@ -339,8 +339,8 @@ fn browser_arguments(
             }
             FfmpegArgument::Artifact(id) => {
                 let Some(node) = nodes.get(id.get() as usize) else {
-                    return Err(Diagnostic::new(
-                        "E_INVALID_PLAN",
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidPlan,
                         format!("browser recipe references unavailable node {}", id.get()),
                         span.clone(),
                     ));
@@ -408,8 +408,8 @@ fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
     const MAX_NODES: usize = 512;
 
     if plan.nodes().len() > MAX_NODES {
-        return Err(Diagnostic::new(
-            "E_BROWSER_RENDER_LIMIT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::BrowserRenderLimit,
             format!(
                 "browser rendering supports at most {MAX_NODES} prepared operations; this graph has {}",
                 plan.nodes().len()
@@ -427,8 +427,8 @@ fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
                         * u128::from(domain.frames().0),
                 )
                 .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_BROWSER_RENDER_LIMIT",
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::BrowserRenderLimit,
                         "browser render work exceeds the supported size",
                         node.origin().span.clone(),
                     )
@@ -436,8 +436,8 @@ fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
         }
     }
     if pixel_frames > MAX_PIXEL_FRAMES {
-        return Err(Diagnostic::new(
-            "E_BROWSER_RENDER_LIMIT",
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::BrowserRenderLimit,
             format!(
                 "browser render work is {pixel_frames} pixel-frames, above the {MAX_PIXEL_FRAMES} pixel-frame limit"
             ),

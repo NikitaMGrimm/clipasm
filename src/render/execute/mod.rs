@@ -11,7 +11,7 @@ mod transitions;
 
 use std::path::{Path, PathBuf};
 
-use crate::diagnostic::{Diagnostic, Result};
+use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::preflight::{
     PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
@@ -39,8 +39,8 @@ impl<'a> Executor<'a> {
             domain, has_audio, ..
         } = result.media()
         else {
-            return Err(Diagnostic::new(
-                "E_INVALID_PLAN",
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
                 "prepared result is Audio, but rendering requires Video",
                 result.origin().span.clone(),
             ));
@@ -185,8 +185,8 @@ pub(crate) fn ffmpeg_recipe(
         PreparedNodeMedia::Video {
             kind: PreparedVideoKind::ExternalVideo { .. },
             ..
-        } => Err(Diagnostic::new(
-            "E_INVALID_PLAN",
+        } => Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidPlan,
             "external programs do not have an FFmpeg recipe",
             node.origin().span.clone(),
         )),
