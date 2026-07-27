@@ -49,4 +49,3 @@ The type shapes below are reference notation, not ClipAsm declaration syntax. Se
 | --- | --- | --- | --- |
 | [`join`](join.md) | Transform and concatenate two Video or Audio timelines in a body. | `(T, T) -> T` | generic; accepts a body |
 | [`during`](during.md) | Replace a selected timeline range with the result of a body. | `(T) -> T` | generic; accepts a body |
-

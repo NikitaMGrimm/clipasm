@@ -258,7 +258,10 @@ fn render_index(programs: &[BuiltinProgram]) -> String {
         "The type shapes below are reference notation, not ClipAsm declaration syntax. \
          See [statements and calls](../language/statements-and-calls.md) for authored syntax.\n\n",
     );
-    for category in BuiltinCategory::ALL {
+    for (index, category) in BuiltinCategory::ALL.into_iter().enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
         writeln!(output, "## {}\n", category.label()).expect("write String");
         output.push_str("| Program | Summary | Type shape | Properties |\n");
         output.push_str("| --- | --- | --- | --- |\n");
@@ -282,7 +285,6 @@ fn render_index(programs: &[BuiltinProgram]) -> String {
             )
             .expect("write String");
         }
-        output.push('\n');
     }
     output
 }
