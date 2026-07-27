@@ -8,8 +8,7 @@ use std::path::{Path, PathBuf};
 
 use clipasm::reference::{
     self, BodyInitialValueRole, BodyOutputs, BuiltinCategory, BuiltinProgram, Cardinality,
-    DiagnosticCategory, DiagnosticReference, DiagnosticStability, RelatedReference,
-    TimelineBehavior,
+    DiagnosticCategory, DiagnosticReference, RelatedReference, TimelineBehavior,
 };
 
 const GENERATED_MARKER: &str =
@@ -93,22 +92,8 @@ fn generate(root: &Path) -> Result<GeneratedReference> {
         }
     }
 
-    let mut diagnostic_pages = BTreeMap::new();
-    diagnostic_pages.insert("index.md".to_owned(), render_diagnostic_index(diagnostics));
-    for category in DiagnosticCategory::ALL {
-        let file_name = format!("{}.md", category_file_stem(category));
-        if diagnostic_pages
-            .insert(
-                file_name.clone(),
-                render_diagnostic_category(category, diagnostics),
-            )
-            .is_some()
-        {
-            return Err(format!(
-                "two diagnostic categories map to generated page `{file_name}`"
-            ));
-        }
-    }
+    let diagnostic_pages =
+        BTreeMap::from([("index.md".to_owned(), render_diagnostic_index(diagnostics))]);
 
     validate_generated_links(root, &program_pages, &diagnostic_pages)?;
     validate_documented_codes(root, diagnostics)?;
@@ -236,18 +221,9 @@ fn validate_diagnostic_catalog(root: &Path, diagnostics: &[DiagnosticReference])
     }
 
     let mut codes = BTreeSet::new();
-    let mut routes = BTreeSet::new();
     let mut anchors = BTreeSet::new();
     let mut categories = BTreeSet::new();
     let mut previous_code = None;
-    for category in DiagnosticCategory::ALL {
-        if !routes.insert(category.documentation_route()) {
-            return Err(format!(
-                "duplicate diagnostic category route `{}`",
-                category.documentation_route()
-            ));
-        }
-    }
     for diagnostic in diagnostics {
         let code = diagnostic.code();
         if previous_code.is_some_and(|previous| previous >= code) {
@@ -290,10 +266,7 @@ fn validate_diagnostic_catalog(root: &Path, diagnostics: &[DiagnosticReference])
             ));
         }
         let route = diagnostic.documentation_route();
-        let expected_route = format!(
-            "reference/diagnostics/{}.html#{anchor}",
-            diagnostic.category().route()
-        );
+        let expected_route = format!("reference/diagnostics/index.html#{anchor}");
         if route != expected_route {
             return Err(format!(
                 "diagnostic `{code}` has unexpected documentation route `{route}`"
@@ -327,10 +300,6 @@ fn valid_diagnostic_code(code: &str) -> bool {
 
 fn diagnostic_anchor(code: &str) -> String {
     code.to_ascii_lowercase()
-}
-
-fn category_file_stem(category: DiagnosticCategory) -> &'static str {
-    category.route()
 }
 
 fn validate_related_link(root: &Path, code: &str, related: RelatedReference) -> Result<()> {
@@ -411,23 +380,33 @@ fn validate_example(program: &BuiltinProgram) -> Result<()> {
 }
 
 fn example_source(program: &BuiltinProgram) -> String {
-    format!("clipasm 1\n\n{}\n", program.example().trim())
+    let project = if program.example_expectation().expected_frames().is_some() {
+        "config {\n    video {\n        fps = 30\n    }\n}\n\n"
+    } else {
+        ""
+    };
+    format!("clipasm 1\n\n{project}{}\n", program.example().trim())
 }
 
 fn render_index(programs: &[BuiltinProgram]) -> String {
     let mut output = generated_header(
-        "Built-in programs",
-        "These are ClipAsm's built-in programs. Imported project programs are not included.",
+        "Programs and composition",
+        "Use language composition forms to group work, and callable programs to create or transform Video and Audio values.",
     );
     output.push_str(
-        "The type shapes below are reference notation, not ClipAsm declaration syntax. \
-         See [statements and calls](../language/statements-and-calls.md) for authored syntax.\n\n",
+        "ClipAsm has three user-facing kinds of program-like building block:\n\n\
+         - [`clip { ... }`](../language/composition-forms.md#clip) builds one reusable Video or Audio value and removes its temporary stack occurrence.\n\
+         - [Stack blocks](../language/composition-forms.md#stack-blocks) group statements and may return one or several values.\n\
+         - Callable programs use normal call syntax. Built-ins are listed below; imported source programs use the same call model.\n\n\
+         `clip` and stack blocks are language forms, not registered callable programs, so `clipasm programs` lists only the built-ins below.\n\n\
+         The type shapes below are lookup notation, not ClipAsm declaration syntax. See [statements and calls](../language/statements-and-calls.md) for authored syntax.\n\n\
+         ## Callable built-ins\n\n",
     );
     for (index, category) in BuiltinCategory::ALL.into_iter().enumerate() {
         if index > 0 {
             output.push('\n');
         }
-        writeln!(output, "## {}\n", category.label()).expect("write String");
+        writeln!(output, "### {}\n", category.label()).expect("write String");
         output.push_str("| Program | Summary | Type shape | Properties |\n");
         output.push_str("| --- | --- | --- | --- |\n");
         for program in programs
@@ -616,7 +595,11 @@ fn render_program(program: &BuiltinProgram) -> String {
             .join(", ");
         write!(output, "`{outputs}`").expect("write String");
         if let Some(frames) = expectation.expected_frames() {
-            write!(output, " with exactly {frames} project frames").expect("write String");
+            write!(
+                output,
+                " with exactly {frames} project frames at the example's explicit `fps = 30`"
+            )
+            .expect("write String");
         } else if expectation.outputs() == [clipasm::model::ValueType::Video] {
             output.push_str(" with a source-dependent frame domain resolved during preflight");
         }
@@ -654,8 +637,7 @@ fn render_program(program: &BuiltinProgram) -> String {
                 reference::diagnostic(code).expect("validated built-in diagnostic reference");
             writeln!(
                 output,
-                "- [`{code}`](../diagnostics/{}.md#{}) — {}",
-                category_file_stem(diagnostic.category()),
+                "- [`{code}`](../diagnostics/index.md#{}) — {}",
                 diagnostic.documentation_anchor(),
                 diagnostic.title()
             )
@@ -677,136 +659,128 @@ fn render_program(program: &BuiltinProgram) -> String {
 
 fn render_diagnostic_index(diagnostics: &[DiagnosticReference]) -> String {
     let mut output = generated_header(
-        "Diagnostic index",
-        "Look up every diagnostic code emitted by ClipAsm.",
+        "Diagnostics",
+        "Find the meaning of an error code and the next action to take.",
     );
     output.push_str(
-        "A diagnostic begins with a stable code such as `E_UNKNOWN_PROGRAM`. Use the code to \
-         find durable guidance even when wording or source locations improve:\n\n\
+        "The fastest lookup is the installed CLI:\n\n\
          ```console,ignore\n\
          clipasm explain E_UNKNOWN_PROGRAM\n\
          ```\n\n\
-         Released built-in diagnostic codes are durable identifiers for one diagnostic class. \
-         Splitting, replacing, or retiring a released code requires an explicit compatibility \
-         note. Internal-contract codes have weaker compatibility guarantees and are identified \
-         on their category page. Codes created by embedding applications are outside this \
-         built-in catalog.\n\n\
-         Retry guidance distinguishes source or argument changes, environment repairs, external \
-         changes, potentially transient failures, and internal failures that should be reported. \
-         Retrying without the indicated change generally repeats the same failure.\n\n",
+         The command works without opening a project or inspecting media. Use the sections below when browsing the book.\n\n",
     );
-
-    for (index, category) in DiagnosticCategory::ALL.into_iter().enumerate() {
-        if index > 0 {
-            output.push('\n');
-        }
+    output.push_str("## Areas\n\n| Area | Codes | Use this section for |\n");
+    output.push_str("| --- | ---: | --- |\n");
+    for category in DiagnosticCategory::ALL {
+        let count = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.category() == category)
+            .count();
         writeln!(
             output,
-            "## [{}]({}.md)\n",
+            "| [{}](#{}) | {} | {} |",
             category.label(),
-            category_file_stem(category)
+            category.route(),
+            count,
+            diagnostic_category_summary(category),
         )
         .expect("write String");
-        output.push_str("| Code | Title | Retry guidance | Stability |\n");
-        output.push_str("| --- | --- | --- | --- |\n");
+    }
+    output.push_str(
+        "\nUse the exact code from the error. Wording and source notes may differ by ClipAsm version.\n\n",
+    );
+
+    for category in DiagnosticCategory::ALL {
+        writeln!(
+            output,
+            "<a id=\"{}\"></a>\n\n## {}\n",
+            category.route(),
+            category.label()
+        )
+        .expect("write String");
         for diagnostic in diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.category() == category)
         {
-            writeln!(
-                output,
-                "| [`{}`]({}.md#{}) | {} | {} | {} |",
-                diagnostic.code(),
-                category_file_stem(category),
-                diagnostic.documentation_anchor(),
-                markdown_cell(diagnostic.title()),
-                markdown_cell(diagnostic.retry_guidance().explanation()),
-                markdown_cell(diagnostic_stability(diagnostic.stability())),
-            )
-            .expect("write String");
+            render_diagnostic(&mut output, diagnostic);
         }
     }
+    let content_end = output.trim_end().len();
+    output.truncate(content_end);
+    output.push('\n');
     output
 }
 
-fn render_diagnostic_category(
-    category: DiagnosticCategory,
-    diagnostics: &[DiagnosticReference],
-) -> String {
-    let title = if category == DiagnosticCategory::InternalContractFailures {
-        category.label().to_owned()
-    } else {
-        format!("{} diagnostics", category.label())
-    };
-    let mut output = generated_header(
-        &title,
-        &format!(
-            "Reference for ClipAsm diagnostics in the {} category.",
-            category.label().to_ascii_lowercase()
-        ),
-    );
-    output.push_str(
-        "Use the code from the original diagnostic with `clipasm explain <CODE>` for the same \
-         reference in deterministic plain text.\n\n",
-    );
-    for diagnostic in diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.category() == category)
-    {
-        writeln!(
-            output,
-            "<a id=\"{}\"></a>\n\n## `{}` — {}\n",
-            diagnostic.documentation_anchor(),
-            diagnostic.code(),
-            diagnostic.title()
-        )
-        .expect("write String");
-        writeln!(output, "{}\n", diagnostic.summary()).expect("write String");
+fn render_diagnostic(output: &mut String, diagnostic: &DiagnosticReference) {
+    writeln!(
+        output,
+        "<a id=\"{}\"></a>\n\n### `{}` — {}\n",
+        diagnostic.documentation_anchor(),
+        diagnostic.code(),
+        diagnostic.title()
+    )
+    .expect("write String");
+    writeln!(output, "{}\n", diagnostic.summary()).expect("write String");
 
-        if !diagnostic.common_causes().is_empty() {
-            output.push_str("### Common causes\n\n");
-            for cause in diagnostic.common_causes() {
-                writeln!(output, "- {cause}").expect("write String");
-            }
-            output.push('\n');
-        }
-        if !diagnostic.recommended_actions().is_empty() {
-            output.push_str("### Try\n\n");
-            for action in diagnostic.recommended_actions() {
-                writeln!(output, "- {action}").expect("write String");
-            }
-            output.push('\n');
-        }
-
-        output.push_str("### Retry and stability\n\n");
-        writeln!(
-            output,
-            "**Retry:** {}\n",
-            diagnostic.retry_guidance().explanation()
-        )
-        .expect("write String");
-        writeln!(
-            output,
-            "**Stability:** {}\n",
-            diagnostic_stability(diagnostic.stability())
-        )
-        .expect("write String");
-
-        if !diagnostic.related_links().is_empty() {
-            output.push_str("### Related reference\n\n");
-            for related in diagnostic.related_links() {
-                writeln!(
-                    output,
-                    "- [{}]({})",
-                    related.label(),
-                    related_markdown_route(related.documentation_route())
-                )
-                .expect("write String");
-            }
-            output.push('\n');
-        }
+    output.push_str("#### Common causes\n\n");
+    for cause in diagnostic.common_causes() {
+        writeln!(output, "- {cause}").expect("write String");
     }
-    output
+    output.push_str("\n#### Try\n\n");
+    for action in diagnostic.recommended_actions() {
+        writeln!(output, "- {action}").expect("write String");
+    }
+    output.push_str("\n#### Retry\n\n");
+    writeln!(output, "{}\n", diagnostic.retry_guidance().explanation()).expect("write String");
+
+    if !diagnostic.related_links().is_empty() {
+        output.push_str("#### Related reference\n\n");
+        for related in diagnostic.related_links() {
+            writeln!(
+                output,
+                "- [{}]({})",
+                related.label(),
+                related_markdown_route(related.documentation_route())
+            )
+            .expect("write String");
+        }
+        output.push('\n');
+    }
+}
+
+fn diagnostic_category_summary(category: DiagnosticCategory) -> &'static str {
+    match category {
+        DiagnosticCategory::CommandLineAndProjects => {
+            "CLI arguments, initialization, and inspection output"
+        }
+        DiagnosticCategory::ParsingAndSource => {
+            "syntax, source layout, literals, and project configuration"
+        }
+        DiagnosticCategory::ImportsAndDeclarations => {
+            "imports, declarations, names, and external definitions"
+        }
+        DiagnosticCategory::TypesAndStack => "arguments, types, output bindings, and stack inputs",
+        DiagnosticCategory::CompilationAndTimelines => {
+            "timeline ranges, placement names, and compile-time evaluation"
+        }
+        DiagnosticCategory::PreflightAndMedia => {
+            "missing media, probing, decoding, and tool capabilities"
+        }
+        DiagnosticCategory::ExternalPrograms => {
+            "external executable discovery, protocol, and execution"
+        }
+        DiagnosticCategory::RenderingAndPublication => {
+            "rendering, outputs, manifests, and publication"
+        }
+        DiagnosticCategory::CacheAndFilesystem => {
+            "paths, hashing, cache state, and filesystem access"
+        }
+        DiagnosticCategory::BrowserRuntime => "browser assets, limits, and browser render plans",
+        DiagnosticCategory::InternalContractFailures => {
+            "likely ClipAsm defects that should be reported"
+        }
+        _ => "diagnostics in this area",
+    }
 }
 
 fn related_markdown_route(route: &str) -> String {
@@ -823,18 +797,6 @@ fn related_markdown_route(route: &str) -> String {
         write!(relative, "#{fragment}").expect("write String");
     }
     relative
-}
-
-fn diagnostic_stability(stability: DiagnosticStability) -> &'static str {
-    match stability {
-        DiagnosticStability::Durable => {
-            "Durable built-in code; wording and source locations may improve."
-        }
-        DiagnosticStability::Internal => {
-            "Internal-contract code; it may change when the internal contract changes."
-        }
-        _ => "Built-in diagnostic code governed by the diagnostic stability policy.",
-    }
 }
 
 fn generated_header(title: &str, summary: &str) -> String {
@@ -914,7 +876,8 @@ fn markdown_cell(value: &str) -> String {
 
 fn render_program_summary_block(programs: &[BuiltinProgram]) -> String {
     let mut output = format!("{PROGRAM_SUMMARY_START}\n");
-    output.push_str("- [Built-in programs](reference/programs/index.md)\n");
+    output.push_str("- [Programs and composition](reference/programs/index.md)\n");
+    output.push_str("  - [`clip` and stack blocks](reference/language/composition-forms.md)\n");
     for program in programs {
         writeln!(
             output,
@@ -928,19 +891,9 @@ fn render_program_summary_block(programs: &[BuiltinProgram]) -> String {
 }
 
 fn render_diagnostic_summary_block() -> String {
-    let mut output = format!("{DIAGNOSTIC_SUMMARY_START}\n");
-    output.push_str("- [Diagnostic index](reference/diagnostics/index.md)\n");
-    for category in DiagnosticCategory::ALL {
-        writeln!(
-            output,
-            "  - [{}](reference/diagnostics/{}.md)",
-            category.label(),
-            category_file_stem(category)
-        )
-        .expect("write String");
-    }
-    output.push_str(DIAGNOSTIC_SUMMARY_END);
-    output
+    format!(
+        "{DIAGNOSTIC_SUMMARY_START}\n- [Diagnostics](reference/diagnostics/index.md)\n{DIAGNOSTIC_SUMMARY_END}"
+    )
 }
 
 fn validate_generated_links(
@@ -969,6 +922,16 @@ fn validate_generated_links(
     }
     for (file_name, page) in diagnostic_pages {
         for (target, anchor) in markdown_targets(page) {
+            if target.is_empty() {
+                if let Some(anchor) = anchor
+                    && !page.contains(&format!("id=\"{anchor}\""))
+                {
+                    return Err(format!(
+                        "generated diagnostic page `{file_name}` links to missing local anchor `#{anchor}`"
+                    ));
+                }
+                continue;
+            }
             if target.starts_with("https://") {
                 continue;
             }
@@ -1201,7 +1164,6 @@ fn check_generated_tree(
     }
     Ok(())
 }
-
 #[expect(
     clippy::too_many_lines,
     reason = "the transaction keeps staging, installation, and rollback for both generated trees visible together"
@@ -1434,17 +1396,17 @@ mod tests {
         GeneratedReference {
             program_pages: BTreeMap::from([(
                 "index.md".to_owned(),
-                format!("{GENERATED_MARKER}\n\n# Built-in programs\n"),
+                format!("{GENERATED_MARKER}\n\n# Programs and composition\n"),
             )]),
             diagnostic_pages: BTreeMap::from([(
                 "index.md".to_owned(),
                 format!("{GENERATED_MARKER}\n\n# Diagnostic index\n"),
             )]),
             program_summary_block: format!(
-                "{PROGRAM_SUMMARY_START}\n- [Built-in programs](reference/programs/index.md)\n{PROGRAM_SUMMARY_END}"
+                "{PROGRAM_SUMMARY_START}\n- [Programs and composition](reference/programs/index.md)\n  - [`clip` and stack blocks](reference/language/composition-forms.md)\n{PROGRAM_SUMMARY_END}"
             ),
             diagnostic_summary_block: format!(
-                "{DIAGNOSTIC_SUMMARY_START}\n- [Diagnostic index](reference/diagnostics/index.md)\n{DIAGNOSTIC_SUMMARY_END}"
+                "{DIAGNOSTIC_SUMMARY_START}\n- [Diagnostics](reference/diagnostics/index.md)\n{DIAGNOSTIC_SUMMARY_END}"
             ),
         }
     }
@@ -1486,7 +1448,7 @@ mod tests {
         assert_eq!(
             fs::read_to_string(repository.path().join("docs/reference/programs/index.md"))
                 .expect("generated index"),
-            format!("{GENERATED_MARKER}\n\n# Built-in programs\n")
+            format!("{GENERATED_MARKER}\n\n# Programs and composition\n")
         );
         assert_eq!(
             fs::read_to_string(
@@ -1501,7 +1463,7 @@ mod tests {
             fs::read_to_string(repository.path().join("docs/SUMMARY.md"))
                 .expect("summary")
                 .contains(
-                    "- [Built-in programs](reference/programs/index.md)\n\
+                    "  - [`clip` and stack blocks](reference/language/composition-forms.md)\n\
                      <!-- END GENERATED PROGRAM REFERENCE NAVIGATION -->"
                 )
         );
@@ -1509,7 +1471,7 @@ mod tests {
             fs::read_to_string(repository.path().join("docs/SUMMARY.md"))
                 .expect("summary")
                 .contains(
-                    "- [Diagnostic index](reference/diagnostics/index.md)\n\
+                    "- [Diagnostics](reference/diagnostics/index.md)\n\
                      <!-- END GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->"
                 )
         );

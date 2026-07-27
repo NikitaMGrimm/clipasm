@@ -39,10 +39,16 @@ Creates a fresh timeline layout, or no layout when the program has no output.
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/title.png", 2s, contain)
 ```
 
-Expected validation result: `Video` with exactly 60 project frames.
+Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -59,8 +65,8 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_MISSING_IMAGE_DURATION`](../diagnostics/types-and-stack.md#e_missing_image_duration) — Missing image duration
-- [`E_INVALID_DURATION`](../diagnostics/parsing-and-source.md#e_invalid_duration) — Invalid duration
+- [`E_MISSING_IMAGE_DURATION`](../diagnostics/index.md#e_missing_image_duration) — Missing image duration
+- [`E_INVALID_DURATION`](../diagnostics/index.md#e_invalid_duration) — Invalid duration
 
 ## Related reference
 

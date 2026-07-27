@@ -35,7 +35,7 @@ pub enum DiagnosticCategory {
 }
 
 impl DiagnosticCategory {
-    /// Categories in stable documentation order.
+    /// Categories in documentation order.
     pub const ALL: [Self; 11] = [
         Self::CommandLineAndProjects,
         Self::ParsingAndSource,
@@ -68,7 +68,7 @@ impl DiagnosticCategory {
         }
     }
 
-    /// Return the stable generated-page filename stem.
+    /// Return the generated section identifier.
     #[must_use]
     pub const fn route(self) -> &'static str {
         match self {
@@ -86,22 +86,10 @@ impl DiagnosticCategory {
         }
     }
 
-    /// Return the generated-book route for this category.
+    /// Return the generated-book diagnostics route.
     #[must_use]
     pub const fn documentation_route(self) -> &'static str {
-        match self {
-            Self::CommandLineAndProjects => "reference/diagnostics/command-line-and-projects.html",
-            Self::ParsingAndSource => "reference/diagnostics/parsing-and-source.html",
-            Self::ImportsAndDeclarations => "reference/diagnostics/imports-and-declarations.html",
-            Self::TypesAndStack => "reference/diagnostics/types-and-stack.html",
-            Self::CompilationAndTimelines => "reference/diagnostics/compilation-and-timelines.html",
-            Self::PreflightAndMedia => "reference/diagnostics/preflight-and-media.html",
-            Self::ExternalPrograms => "reference/diagnostics/external-programs.html",
-            Self::RenderingAndPublication => "reference/diagnostics/rendering-and-publication.html",
-            Self::CacheAndFilesystem => "reference/diagnostics/cache-and-filesystem.html",
-            Self::BrowserRuntime => "reference/diagnostics/browser.html",
-            Self::InternalContractFailures => "reference/diagnostics/internal.html",
-        }
+        "reference/diagnostics/index.html"
     }
 
     const fn related_links(self) -> &'static [RelatedReference] {
@@ -267,16 +255,6 @@ impl RetryGuidance {
     }
 }
 
-/// Compatibility commitment for one built-in diagnostic code.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[non_exhaustive]
-pub enum DiagnosticStability {
-    /// A durable released identifier for one diagnostic class.
-    Durable,
-    /// A weaker identifier for an implementation invariant that may evolve.
-    Internal,
-}
-
 /// A related generated-book page that can help resolve a diagnostic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RelatedReference {
@@ -348,7 +326,6 @@ pub struct DiagnosticReference {
     specific_recommended_actions: Option<&'static [&'static str]>,
     related_links: &'static [RelatedReference],
     retry_guidance: RetryGuidance,
-    stability: DiagnosticStability,
 }
 
 impl DiagnosticReference {
@@ -358,7 +335,7 @@ impl DiagnosticReference {
         self.diagnostic
     }
 
-    /// Return the stable machine-readable code.
+    /// Return the machine-readable code.
     #[must_use]
     pub const fn code(self) -> &'static str {
         self.code
@@ -424,19 +401,13 @@ impl DiagnosticReference {
         self.retry_guidance
     }
 
-    /// Return this code's compatibility classification.
-    #[must_use]
-    pub const fn stability(self) -> DiagnosticStability {
-        self.stability
-    }
-
-    /// Return the generated-book category route.
+    /// Return the generated-book diagnostics route.
     #[must_use]
     pub const fn category_documentation_route(self) -> &'static str {
         self.category.documentation_route()
     }
 
-    /// Return the stable fragment identifier used for this code.
+    /// Return the fragment identifier used for this code.
     #[must_use]
     pub fn documentation_anchor(self) -> String {
         self.code.to_ascii_lowercase()
@@ -471,7 +442,6 @@ macro_rules! diagnostic_catalog {
                 title: $title:literal,
                 category: $category:ident,
                 retry: $retry:ident,
-                stability: $stability:ident,
                 summary: $summary:literal,
             };
         )+
@@ -487,7 +457,7 @@ macro_rules! diagnostic_catalog {
         }
 
         impl BuiltinDiagnostic {
-            /// Return the stable machine-readable code.
+            /// Return the machine-readable code.
             #[must_use]
             pub const fn code(self) -> &'static str {
                 match self {
@@ -524,7 +494,6 @@ macro_rules! diagnostic_catalog {
                     ),
                     related_links: DiagnosticCategory::$category.related_links(),
                     retry_guidance: RetryGuidance::$retry,
-                    stability: DiagnosticStability::$stability,
                 },
             )+
         ];
@@ -537,7 +506,6 @@ diagnostic_catalog! {
         title: "Ambiguous generic type",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "ClipAsm could not determine one concrete Video or Audio type for a generic program call.",
     };
     AmbiguousTimelinePlacement => {
@@ -545,7 +513,6 @@ diagnostic_catalog! {
         title: "Ambiguous timeline placement",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A timeline selector matched more than one authored placement where exactly one was required.",
     };
     ArtifactContract => {
@@ -553,7 +520,6 @@ diagnostic_catalog! {
         title: "Artifact contract failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A rendered artifact violated an invariant that ClipAsm should have established before publication.",
     };
     AssetChanged => {
@@ -561,7 +527,6 @@ diagnostic_catalog! {
         title: "Asset changed during preparation",
         category: PreflightAndMedia,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "An input asset changed while ClipAsm was inspecting or preparing it.",
     };
     AudioDurationOverflow => {
@@ -569,7 +534,6 @@ diagnostic_catalog! {
         title: "Audio duration overflow",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "An exact audio duration or sample calculation exceeded ClipAsm's supported range.",
     };
     BodyNestingDepth => {
@@ -577,7 +541,6 @@ diagnostic_catalog! {
         title: "Body nesting limit exceeded",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "Nested program bodies exceeded the parser's supported structural depth.",
     };
     BodyOutputCount => {
@@ -585,7 +548,6 @@ diagnostic_catalog! {
         title: "Wrong body output count",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A program body left a different number of stack values than its contract requires.",
     };
     BrowserAssetFacts => {
@@ -593,7 +555,6 @@ diagnostic_catalog! {
         title: "Invalid browser asset facts",
         category: BrowserRuntime,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "Browser-supplied media facts were missing, malformed, or inconsistent with the prepared asset.",
     };
     BrowserAssetHash => {
@@ -601,7 +562,6 @@ diagnostic_catalog! {
         title: "Browser asset hash mismatch",
         category: BrowserRuntime,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "A browser asset's content hash did not match the hash recorded during preparation.",
     };
     BrowserAssetPath => {
@@ -609,7 +569,6 @@ diagnostic_catalog! {
         title: "Invalid browser asset path",
         category: BrowserRuntime,
         retry: FixArguments,
-        stability: Durable,
         summary: "A browser asset path could not be normalized or matched to the prepared plan.",
     };
     BrowserAssetProbe => {
@@ -617,7 +576,6 @@ diagnostic_catalog! {
         title: "Missing browser probe data",
         category: BrowserRuntime,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "A browser video asset lacked the probe metadata required to prepare it.",
     };
     BrowserDuplicateAsset => {
@@ -625,7 +583,6 @@ diagnostic_catalog! {
         title: "Duplicate browser asset",
         category: BrowserRuntime,
         retry: FixArguments,
-        stability: Durable,
         summary: "The browser supplied more than one asset for the same normalized path.",
     };
     BrowserMissingAsset => {
@@ -633,7 +590,6 @@ diagnostic_catalog! {
         title: "Missing browser asset",
         category: BrowserRuntime,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "The browser did not supply an asset required by the compiled program.",
     };
     BrowserRenderJson => {
@@ -641,7 +597,6 @@ diagnostic_catalog! {
         title: "Invalid browser render plan JSON",
         category: BrowserRuntime,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "The browser render plan could not be serialized or decoded as the expected JSON format.",
     };
     BrowserRenderLimit => {
@@ -649,7 +604,6 @@ diagnostic_catalog! {
         title: "Browser render limit exceeded",
         category: BrowserRuntime,
         retry: FixSource,
-        stability: Durable,
         summary: "The prepared render exceeds a browser runtime work, size, or duration limit.",
     };
     BrowserRenderUnsupported => {
@@ -657,7 +611,6 @@ diagnostic_catalog! {
         title: "Unsupported browser render operation",
         category: BrowserRuntime,
         retry: RetryWillNotHelp,
-        stability: Durable,
         summary: "The browser renderer does not support an operation required by this prepared plan.",
     };
     CacheIo => {
@@ -665,7 +618,6 @@ diagnostic_catalog! {
         title: "Cache I/O failure",
         category: CacheAndFilesystem,
         retry: RetryMayHelp,
-        stability: Durable,
         summary: "ClipAsm could not read, write, create, or inspect a cache path.",
     };
     CacheLock => {
@@ -673,7 +625,6 @@ diagnostic_catalog! {
         title: "Cache lock unavailable",
         category: CacheAndFilesystem,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "ClipAsm could not acquire the filesystem lock protecting a cache entry.",
     };
     CompiledJson => {
@@ -681,7 +632,6 @@ diagnostic_catalog! {
         title: "Invalid compiled JSON",
         category: CompilationAndTimelines,
         retry: RetryWillNotHelp,
-        stability: Durable,
         summary: "Compiled-program JSON could not be serialized or decoded in the expected format.",
     };
     CrossfadeAudioDuration => {
@@ -689,7 +639,6 @@ diagnostic_catalog! {
         title: "Invalid crossfade audio duration",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "Crossfade audio inputs cannot provide the exact overlap duration required by the transition.",
     };
     DeclarationAfterStatement => {
@@ -697,7 +646,6 @@ diagnostic_catalog! {
         title: "Declaration after statement",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A declaration appears after executable statements, where the source grammar no longer permits it.",
     };
     DependencyCycle => {
@@ -705,7 +653,6 @@ diagnostic_catalog! {
         title: "Dependency cycle",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "Program or value dependencies form a cycle that cannot be evaluated in order.",
     };
     DivisionByZero => {
@@ -713,7 +660,6 @@ diagnostic_catalog! {
         title: "Division by zero",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A scalar expression attempted exact division by zero.",
     };
     DuplicateArgument => {
@@ -721,7 +667,6 @@ diagnostic_catalog! {
         title: "Duplicate argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A program call supplies the same named argument more than once.",
     };
     DuplicateConfig => {
@@ -729,7 +674,6 @@ diagnostic_catalog! {
         title: "Duplicate configuration block",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A source file declares more than one top-level configuration block.",
     };
     DuplicateDeclarationField => {
@@ -737,7 +681,6 @@ diagnostic_catalog! {
         title: "Duplicate declaration field",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "A declaration repeats a field that may be specified only once.",
     };
     DuplicateExternal => {
@@ -745,7 +688,6 @@ diagnostic_catalog! {
         title: "Duplicate external declaration",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "A source file declares the same external program name more than once.",
     };
     DuplicateName => {
@@ -753,7 +695,6 @@ diagnostic_catalog! {
         title: "Duplicate name",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "Two declarations introduce the same name in one namespace.",
     };
     DuplicateProgramImport => {
@@ -761,7 +702,6 @@ diagnostic_catalog! {
         title: "Duplicate program import",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "The same program is imported more than once into a declaration.",
     };
     EmptyConcat => {
@@ -769,7 +709,6 @@ diagnostic_catalog! {
         title: "Empty concat input",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "The concat built-in received no values even though at least one is required.",
     };
     EmptyJoin => {
@@ -777,7 +716,6 @@ diagnostic_catalog! {
         title: "Empty join result",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A graph join operation has no input values from which to produce an output.",
     };
     EntrypointOutputCount => {
@@ -785,7 +723,6 @@ diagnostic_catalog! {
         title: "Wrong entrypoint output count",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "The root program produced a different number of outputs than the entrypoint contract permits.",
     };
     ExpectedStatementEnd => {
@@ -793,7 +730,6 @@ diagnostic_catalog! {
         title: "Expected statement end",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The parser expected a newline or closing delimiter after a complete statement.",
     };
     ExpectedToken => {
@@ -801,7 +737,6 @@ diagnostic_catalog! {
         title: "Expected token",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The parser did not find the required token at the highlighted source location.",
     };
     ExportDimensions => {
@@ -809,7 +744,6 @@ diagnostic_catalog! {
         title: "Invalid export dimensions",
         category: RenderingAndPublication,
         retry: FixSource,
-        stability: Durable,
         summary: "A rendered Video export has dimensions that the selected output contract cannot accept.",
     };
     ExternalChanged => {
@@ -817,7 +751,6 @@ diagnostic_catalog! {
         title: "External program changed",
         category: ExternalPrograms,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "An external executable changed after ClipAsm recorded its prepared identity.",
     };
     ExternalExecutable => {
@@ -825,7 +758,6 @@ diagnostic_catalog! {
         title: "External executable unavailable",
         category: ExternalPrograms,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not resolve or inspect the configured external-program executable.",
     };
     ExternalExecution => {
@@ -833,7 +765,6 @@ diagnostic_catalog! {
         title: "External program execution failed",
         category: ExternalPrograms,
         retry: RetryMayHelp,
-        stability: Durable,
         summary: "An external program could not be started, completed unsuccessfully, or exceeded execution limits.",
     };
     ExternalProtocol => {
@@ -841,7 +772,6 @@ diagnostic_catalog! {
         title: "External program protocol failure",
         category: ExternalPrograms,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "An external program returned output that does not satisfy ClipAsm's protocol contract.",
     };
     ExternalWithBody => {
@@ -849,7 +779,6 @@ diagnostic_catalog! {
         title: "External program cannot have a body",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored external-program declaration uses a caller body, which external programs do not support.",
     };
     ExternalWithImports => {
@@ -857,7 +786,6 @@ diagnostic_catalog! {
         title: "External program cannot import programs",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored external-program declaration contains imports, which are not supported there.",
     };
     Ffmpeg => {
@@ -865,7 +793,6 @@ diagnostic_catalog! {
         title: "FFmpeg execution failed",
         category: RenderingAndPublication,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "FFmpeg failed while ClipAsm was rendering or encoding an artifact.",
     };
     FfmpegCapability => {
@@ -873,7 +800,6 @@ diagnostic_catalog! {
         title: "Required FFmpeg capability unavailable",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "The selected FFmpeg installation lacks a filter, codec, or feature required by the plan.",
     };
     Ffprobe => {
@@ -881,7 +807,6 @@ diagnostic_catalog! {
         title: "FFprobe inspection failed",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "FFprobe could not inspect an input or returned unusable media information.",
     };
     Fingerprint => {
@@ -889,7 +814,6 @@ diagnostic_catalog! {
         title: "Fingerprint construction failed",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "ClipAsm could not encode invariant-protected data for a deterministic identity fingerprint.",
     };
     FrameOverflow => {
@@ -897,7 +821,6 @@ diagnostic_catalog! {
         title: "Frame count overflow",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "An exact duration or timeline calculation exceeded the supported frame-count range.",
     };
     GenericTypeMismatch => {
@@ -905,7 +828,6 @@ diagnostic_catalog! {
         title: "Generic type mismatch",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "Arguments to one generic call resolve to different concrete Video and Audio types.",
     };
     GraphTooLarge => {
@@ -913,7 +835,6 @@ diagnostic_catalog! {
         title: "Graph size limit exceeded",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "Compilation produced more semantic operations than ClipAsm's supported graph limit.",
     };
     ImportedOutput => {
@@ -921,7 +842,6 @@ diagnostic_catalog! {
         title: "Imported source declares an output",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An imported source declares a root output even though only the entry source may publish one.",
     };
     ImportedProjectSettings => {
@@ -929,7 +849,6 @@ diagnostic_catalog! {
         title: "Imported project settings",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An imported source contains project-wide settings that are valid only in the entry source.",
     };
     ImportRequiresFile => {
@@ -937,7 +856,6 @@ diagnostic_catalog! {
         title: "Import requires a source file",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An import was requested from source text without a filesystem base for resolving its path.",
     };
     InitConflict => {
@@ -945,7 +863,6 @@ diagnostic_catalog! {
         title: "Project initialization conflict",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "Project initialization would overwrite or conflict with an existing path.",
     };
     InitIo => {
@@ -953,7 +870,6 @@ diagnostic_catalog! {
         title: "Project initialization I/O failure",
         category: CommandLineAndProjects,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not create, inspect, or write a file needed for project initialization.",
     };
     InitPath => {
@@ -961,7 +877,6 @@ diagnostic_catalog! {
         title: "Invalid initialization path",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "The requested project initialization target is not a valid safe destination.",
     };
     InputBodyOutputCount => {
@@ -969,7 +884,6 @@ diagnostic_catalog! {
         title: "Wrong input-body output count",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An input-transforming body produced a different number of values than its built-in requires.",
     };
     InputHash => {
@@ -977,7 +891,6 @@ diagnostic_catalog! {
         title: "Input hashing failed",
         category: CacheAndFilesystem,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "ClipAsm could not read and hash an input needed for deterministic identity.",
     };
     InspectionExists => {
@@ -985,7 +898,6 @@ diagnostic_catalog! {
         title: "Inspection destination exists",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "An inspection command would overwrite an existing destination without explicit permission.",
     };
     InspectionIo => {
@@ -993,7 +905,6 @@ diagnostic_catalog! {
         title: "Inspection output I/O failure",
         category: CommandLineAndProjects,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not create or write the requested inspection output.",
     };
     InternalBinding => {
@@ -1001,7 +912,6 @@ diagnostic_catalog! {
         title: "Internal binding failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A checked call reached evaluation with a stack binding state the checker should have prevented.",
     };
     InternalExternalProgram => {
@@ -1009,7 +919,6 @@ diagnostic_catalog! {
         title: "Internal external-program failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "An external-program definition reached a phase with inconsistent compiler-owned metadata.",
     };
     InternalProgramContract => {
@@ -1017,7 +926,6 @@ diagnostic_catalog! {
         title: "Internal program contract failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A built-in program implementation disagreed with its compiler-owned signature or body contract.",
     };
     InternalProgramLink => {
@@ -1025,7 +933,6 @@ diagnostic_catalog! {
         title: "Internal program link failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "The linker could not resolve a program reference that an earlier owning phase should have validated.",
     };
     InternalTypeResolution => {
@@ -1033,7 +940,6 @@ diagnostic_catalog! {
         title: "Internal type resolution failure",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A checked value reached evaluation without the concrete type guaranteed by type checking.",
     };
     InvalidAccessTarget => {
@@ -1041,7 +947,6 @@ diagnostic_catalog! {
         title: "Invalid stack-access target",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A stack-access modifier was applied to a construct that cannot accept it.",
     };
     InvalidArgumentType => {
@@ -1049,7 +954,6 @@ diagnostic_catalog! {
         title: "Invalid argument type",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call argument has a different scalar or graph value type than its parameter requires.",
     };
     InvalidArgumentValue => {
@@ -1057,7 +961,6 @@ diagnostic_catalog! {
         title: "Invalid argument value",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A typed call argument is outside the value domain accepted by its program.",
     };
     InvalidAudioSpec => {
@@ -1065,7 +968,6 @@ diagnostic_catalog! {
         title: "Invalid audio specification",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored Audio declaration contains an invalid rate, channel count, duration, or related fact.",
     };
     InvalidCliBinding => {
@@ -1073,7 +975,6 @@ diagnostic_catalog! {
         title: "Invalid command-line binding",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "A command-line root binding does not use the name or value shape required by the source.",
     };
     InvalidCrossfadeDuration => {
@@ -1081,7 +982,6 @@ diagnostic_catalog! {
         title: "Invalid crossfade duration",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "The requested crossfade duration is zero, negative, or longer than the available transition inputs.",
     };
     InvalidDuration => {
@@ -1089,7 +989,6 @@ diagnostic_catalog! {
         title: "Invalid duration",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A duration literal or computed duration is malformed, negative, or outside the supported range.",
     };
     InvalidEscape => {
@@ -1097,7 +996,6 @@ diagnostic_catalog! {
         title: "Invalid string escape",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A string literal contains an escape sequence that ClipAsm does not recognize.",
     };
     InvalidExternalProgram => {
@@ -1105,7 +1003,6 @@ diagnostic_catalog! {
         title: "Invalid external-program declaration",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored external-program declaration is incomplete or structurally inconsistent.",
     };
     InvalidFlashCutDuration => {
@@ -1113,7 +1010,6 @@ diagnostic_catalog! {
         title: "Invalid flash-cut duration",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "The requested flash-cut duration cannot fit the transition's exact timeline constraints.",
     };
     InvalidGraph => {
@@ -1121,7 +1017,6 @@ diagnostic_catalog! {
         title: "Invalid semantic graph",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A semantic graph violated an invariant that its builder should have enforced.",
     };
     InvalidManifestDestination => {
@@ -1129,7 +1024,6 @@ diagnostic_catalog! {
         title: "Invalid manifest destination",
         category: RenderingAndPublication,
         retry: FixArguments,
-        stability: Durable,
         summary: "The render-manifest path is unsafe, conflicts with output, or cannot be used as requested.",
     };
     InvalidNumber => {
@@ -1137,7 +1031,6 @@ diagnostic_catalog! {
         title: "Invalid number",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A numeric literal cannot be represented as ClipAsm's exact number type.",
     };
     InvalidOutputBinding => {
@@ -1145,7 +1038,6 @@ diagnostic_catalog! {
         title: "Invalid output binding",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An output binding has a name, position, or shape that does not match the called program.",
     };
     InvalidOutputDestination => {
@@ -1153,7 +1045,6 @@ diagnostic_catalog! {
         title: "Invalid output destination",
         category: RenderingAndPublication,
         retry: FixArguments,
-        stability: Durable,
         summary: "The requested render output path cannot safely receive the selected artifact.",
     };
     InvalidOutputExtension => {
@@ -1161,7 +1052,6 @@ diagnostic_catalog! {
         title: "Invalid output extension",
         category: RenderingAndPublication,
         retry: FixArguments,
-        stability: Durable,
         summary: "The output filename extension is missing or incompatible with the rendered media type.",
     };
     InvalidParameterDefault => {
@@ -1169,7 +1059,6 @@ diagnostic_catalog! {
         title: "Invalid parameter default",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored program parameter default is not a constant value of its declared scalar type.",
     };
     InvalidPlan => {
@@ -1177,7 +1066,6 @@ diagnostic_catalog! {
         title: "Invalid prepared plan",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A prepared render plan violated an invariant that preflight should have established.",
     };
     InvalidProgramDefinition => {
@@ -1185,7 +1073,6 @@ diagnostic_catalog! {
         title: "Invalid program definition",
         category: InternalContractFailures,
         retry: ReportBug,
-        stability: Internal,
         summary: "A registered program definition is internally inconsistent or cannot satisfy registry invariants.",
     };
     InvalidRepeatCount => {
@@ -1193,7 +1080,6 @@ diagnostic_catalog! {
         title: "Invalid repeat count",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A repeat count is not a positive supported integer.",
     };
     InvalidScalarOperation => {
@@ -1201,7 +1087,6 @@ diagnostic_catalog! {
         title: "Invalid scalar operation",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A scalar operator was applied to values for which that operation is not defined.",
     };
     InvalidStackAccess => {
@@ -1209,7 +1094,6 @@ diagnostic_catalog! {
         title: "Invalid stack access",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call requests stack visibility that its syntax or program contract does not permit.",
     };
     InvalidStatement => {
@@ -1217,7 +1101,6 @@ diagnostic_catalog! {
         title: "Invalid statement",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A parsed expression or declaration appears where the language requires an executable statement.",
     };
     InvalidTimelineSelector => {
@@ -1225,7 +1108,6 @@ diagnostic_catalog! {
         title: "Invalid timeline selector",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A timeline selector is malformed or cannot be applied to the selected value.",
     };
     InvalidTimeRange => {
@@ -1233,7 +1115,6 @@ diagnostic_catalog! {
         title: "Invalid time range",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A time range is reversed, empty where prohibited, or outside the supported exact domain.",
     };
     InvalidToken => {
@@ -1241,7 +1122,6 @@ diagnostic_catalog! {
         title: "Invalid token",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The lexer encountered a character sequence that cannot begin a ClipAsm token.",
     };
     InvalidTypeArgument => {
@@ -1249,7 +1129,6 @@ diagnostic_catalog! {
         title: "Invalid type argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An explicit type argument is not one of the types accepted by the generic program.",
     };
     InvalidVersion => {
@@ -1257,7 +1136,6 @@ diagnostic_catalog! {
         title: "Invalid language version",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source version declaration is malformed or does not contain a valid version number.",
     };
     InvalidVideoSpec => {
@@ -1265,7 +1143,6 @@ diagnostic_catalog! {
         title: "Invalid video specification",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored Video declaration contains invalid dimensions, frame rate, duration, or related facts.",
     };
     InvalidZoomAmount => {
@@ -1273,7 +1150,6 @@ diagnostic_catalog! {
         title: "Invalid zoom amount",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A zoom amount is outside the positive range supported by the zoom effect.",
     };
     Manifest => {
@@ -1281,7 +1157,6 @@ diagnostic_catalog! {
         title: "Render manifest failure",
         category: RenderingAndPublication,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not construct, serialize, or validate the render manifest.",
     };
     ManifestCollision => {
@@ -1289,7 +1164,6 @@ diagnostic_catalog! {
         title: "Manifest path collision",
         category: RenderingAndPublication,
         retry: FixArguments,
-        stability: Durable,
         summary: "Two publication products resolve to the same manifest or artifact destination.",
     };
     MissingArgument => {
@@ -1297,7 +1171,6 @@ diagnostic_catalog! {
         title: "Missing argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A program call omits a required named or positional argument.",
     };
     MissingAudioFile => {
@@ -1305,7 +1178,6 @@ diagnostic_catalog! {
         title: "Missing audio file",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "An Audio source references a file that preflight cannot find or access.",
     };
     MissingExternalField => {
@@ -1313,7 +1185,6 @@ diagnostic_catalog! {
         title: "Missing external-program field",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An external-program declaration omits a field required to define its executable contract.",
     };
     MissingExternalFile => {
@@ -1321,7 +1192,6 @@ diagnostic_catalog! {
         title: "Missing external-program file",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An external-program declaration does not specify the source or executable file it requires.",
     };
     MissingImageDuration => {
@@ -1329,7 +1199,6 @@ diagnostic_catalog! {
         title: "Missing image duration",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An image call needs an explicit duration because no enclosing timeline context can supply one.",
     };
     MissingImageFile => {
@@ -1337,7 +1206,6 @@ diagnostic_catalog! {
         title: "Missing image file",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "An image source references a file that preflight cannot find or access.",
     };
     MissingImportAlias => {
@@ -1345,7 +1213,6 @@ diagnostic_catalog! {
         title: "Missing import alias",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An import form that requires a local alias does not provide one.",
     };
     MissingKeywordValues => {
@@ -1353,7 +1220,6 @@ diagnostic_catalog! {
         title: "Missing keyword choices",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored Keyword parameter declaration does not list any allowed values.",
     };
     MissingOutput => {
@@ -1361,7 +1227,6 @@ diagnostic_catalog! {
         title: "Missing output declaration",
         category: RenderingAndPublication,
         retry: FixSource,
-        stability: Durable,
         summary: "The entry source does not identify the value or path that should be published.",
     };
     MissingReference => {
@@ -1369,7 +1234,6 @@ diagnostic_catalog! {
         title: "Missing named reference",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A timeline expression refers to a named output or placement that does not exist.",
     };
     MissingRequiredInput => {
@@ -1377,7 +1241,6 @@ diagnostic_catalog! {
         title: "Missing required stack input",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "The current stack does not contain a value required to bind a program input.",
     };
     MissingVersion => {
@@ -1385,7 +1248,6 @@ diagnostic_catalog! {
         title: "Missing language version",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A ClipAsm source file does not begin with the required language version declaration.",
     };
     MissingVideoFile => {
@@ -1393,7 +1255,6 @@ diagnostic_catalog! {
         title: "Missing video file",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "A Video source references a file that preflight cannot find or access.",
     };
     MixedGraphArgumentStyles => {
@@ -1401,7 +1262,6 @@ diagnostic_catalog! {
         title: "Mixed graph argument styles",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "One call mixes explicit graph-valued arguments with implicit stack binding.",
     };
     NumberTooLarge => {
@@ -1409,7 +1269,6 @@ diagnostic_catalog! {
         title: "Number is too large",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A numeric value exceeds the exact integer range supported by the operation that consumes it.",
     };
     OutputBindingCount => {
@@ -1417,7 +1276,6 @@ diagnostic_catalog! {
         title: "Wrong output binding count",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call declares a different number of output bindings than the program returns.",
     };
     OutputCollision => {
@@ -1425,7 +1283,6 @@ diagnostic_catalog! {
         title: "Output destination collision",
         category: RenderingAndPublication,
         retry: FixArguments,
-        stability: Durable,
         summary: "More than one rendered product resolves to the same output destination.",
     };
     OutputIo => {
@@ -1433,7 +1290,6 @@ diagnostic_catalog! {
         title: "Output I/O failure",
         category: RenderingAndPublication,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not create, write, move, or inspect a render output path.",
     };
     ParameterNotValue => {
@@ -1441,7 +1297,6 @@ diagnostic_catalog! {
         title: "Parameter is not a value",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A scalar parameter name is used where the language requires a graph or concrete runtime value.",
     };
     PathResolution => {
@@ -1449,7 +1304,6 @@ diagnostic_catalog! {
         title: "Path resolution failed",
         category: CacheAndFilesystem,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "A source-relative or destination path could not be normalized or resolved safely.",
     };
     PositionalAfterNamed => {
@@ -1457,7 +1311,6 @@ diagnostic_catalog! {
         title: "Positional argument after named argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call supplies a positional argument after named arguments have begun.",
     };
     PreparedJson => {
@@ -1465,7 +1318,6 @@ diagnostic_catalog! {
         title: "Invalid prepared JSON",
         category: PreflightAndMedia,
         retry: RetryWillNotHelp,
-        stability: Durable,
         summary: "A prepared render plan could not be serialized or decoded as the expected JSON format.",
     };
     ProgramImportCollision => {
@@ -1473,7 +1325,6 @@ diagnostic_catalog! {
         title: "Program import collision",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An imported program name collides with another imported or locally declared name.",
     };
     ProgramImportCycle => {
@@ -1481,7 +1332,6 @@ diagnostic_catalog! {
         title: "Program import cycle",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "Authored program declarations import one another in a cycle.",
     };
     ProgramImportDepth => {
@@ -1489,7 +1339,6 @@ diagnostic_catalog! {
         title: "Program import depth exceeded",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "Nested authored program imports exceed ClipAsm's supported linking depth.",
     };
     ProgramOutputCount => {
@@ -1497,7 +1346,6 @@ diagnostic_catalog! {
         title: "Wrong program output count",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored program body produces a different number of outputs than its declaration promises.",
     };
     ProgramOutputType => {
@@ -1505,7 +1353,6 @@ diagnostic_catalog! {
         title: "Wrong program output type",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored program body produces an output whose type differs from its declaration.",
     };
     Publication => {
@@ -1513,7 +1360,6 @@ diagnostic_catalog! {
         title: "Publication failed",
         category: RenderingAndPublication,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not atomically publish a staged artifact to its requested destination.",
     };
     PublicationLock => {
@@ -1521,7 +1367,6 @@ diagnostic_catalog! {
         title: "Publication lock unavailable",
         category: RenderingAndPublication,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "ClipAsm could not acquire the filesystem lock protecting an output publication.",
     };
     RelativePathWithoutBase => {
@@ -1529,7 +1374,6 @@ diagnostic_catalog! {
         title: "Relative path has no base",
         category: CacheAndFilesystem,
         retry: FixArguments,
-        stability: Durable,
         summary: "A relative path was supplied through an API that has no source file or base directory.",
     };
     RenderAudioTimeline => {
@@ -1537,7 +1381,6 @@ diagnostic_catalog! {
         title: "Invalid audio render timeline",
         category: RenderingAndPublication,
         retry: FixSource,
-        stability: Durable,
         summary: "An Audio render timeline cannot be represented by the exact sample ranges required for execution.",
     };
     ScalarNotValue => {
@@ -1545,7 +1388,6 @@ diagnostic_catalog! {
         title: "Scalar is not a graph value",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A scalar expression is used where a Video or Audio graph value is required.",
     };
     SourceContract => {
@@ -1553,7 +1395,6 @@ diagnostic_catalog! {
         title: "Source contract failure",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "A probed media source does not satisfy the stream, duration, or decodability contract required by its ClipAsm source kind.",
     };
     SourceDecodability => {
@@ -1561,7 +1402,6 @@ diagnostic_catalog! {
         title: "Source is not decodable",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "Media probing succeeded partially, but the selected source stream cannot be decoded as required.",
     };
     SourceExtension => {
@@ -1569,7 +1409,6 @@ diagnostic_catalog! {
         title: "Invalid source extension",
         category: ParsingAndSource,
         retry: FixArguments,
-        stability: Durable,
         summary: "A source path does not use the file extension required for a ClipAsm source.",
     };
     SourceIo => {
@@ -1577,7 +1416,6 @@ diagnostic_catalog! {
         title: "Source I/O failure",
         category: CacheAndFilesystem,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "ClipAsm could not read, canonicalize, or inspect a source file.",
     };
     SourceWithoutBase => {
@@ -1585,7 +1423,6 @@ diagnostic_catalog! {
         title: "Source has no filesystem base",
         category: ImportsAndDeclarations,
         retry: FixArguments,
-        stability: Durable,
         summary: "In-memory source attempted an operation that requires a source-file directory.",
     };
     StackUnderflow => {
@@ -1593,7 +1430,6 @@ diagnostic_catalog! {
         title: "Stack underflow",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A statement or call needs more stack values than are currently available.",
     };
     SyntaxNestingDepth => {
@@ -1601,7 +1437,6 @@ diagnostic_catalog! {
         title: "Syntax nesting limit exceeded",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "Nested expressions or delimiters exceed the parser's supported syntax depth.",
     };
     TimelinePlacementConflict => {
@@ -1609,7 +1444,6 @@ diagnostic_catalog! {
         title: "Timeline placement conflict",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "Two authored placements assign incompatible ranges to the same output timeline.",
     };
     TimelineRootMismatch => {
@@ -1617,7 +1451,6 @@ diagnostic_catalog! {
         title: "Timeline root mismatch",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "Values combined by one timeline operation do not share the required timeline root.",
     };
     TimeNotFrameAligned => {
@@ -1625,7 +1458,6 @@ diagnostic_catalog! {
         title: "Time is not frame-aligned",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "An exact Video time does not fall on a frame boundary for the active frame rate.",
     };
     TimeNotSampleAligned => {
@@ -1633,7 +1465,6 @@ diagnostic_catalog! {
         title: "Time is not sample-aligned",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "An exact Audio time does not fall on a sample boundary for the active sample rate.",
     };
     ToolChanged => {
@@ -1641,7 +1472,6 @@ diagnostic_catalog! {
         title: "Media tool changed",
         category: PreflightAndMedia,
         retry: RetryAfterExternalChange,
-        stability: Durable,
         summary: "FFmpeg or FFprobe changed after ClipAsm recorded the tool identity used for preparation.",
     };
     ToolOutputLimit => {
@@ -1649,7 +1479,6 @@ diagnostic_catalog! {
         title: "Media tool output limit exceeded",
         category: PreflightAndMedia,
         retry: FixEnvironment,
-        stability: Durable,
         summary: "FFmpeg, FFprobe, or an external tool produced more output than ClipAsm safely accepts.",
     };
     TooManyPositionalArguments => {
@@ -1657,7 +1486,6 @@ diagnostic_catalog! {
         title: "Too many positional arguments",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A program call supplies more positional arguments than its signature has slots.",
     };
     TypeInferenceDependency => {
@@ -1665,7 +1493,6 @@ diagnostic_catalog! {
         title: "Type inference dependency failure",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "Generic type inference depends on another unresolved value or stack selection and needs explicit Video or Audio context.",
     };
     TypeMismatch => {
@@ -1673,7 +1500,6 @@ diagnostic_catalog! {
         title: "Value type mismatch",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A Video, Audio, or scalar value is used where a different concrete type is required.",
     };
     UnexpectedProgramBody => {
@@ -1681,23 +1507,20 @@ diagnostic_catalog! {
         title: "Unexpected program body",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call supplies a body to a program whose contract rejects caller-provided bodies.",
     };
     UnexpectedSugarArgument => {
         code: "E_UNEXPECTED_SUGAR_ARGUMENT",
-        title: "Unexpected clip-sugar argument",
+        title: "Unexpected clip argument",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
-        summary: "A clip-sugar form contains an argument that is not supported by its lowered program call.",
+        summary: "A `clip` form contains an argument, but `clip` accepts only a body and an optional type argument.",
     };
     UnexpectedTypeArgument => {
         code: "E_UNEXPECTED_TYPE_ARGUMENT",
         title: "Unexpected type argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A call supplies an explicit type argument to a program that is not generic.",
     };
     UnknownAudioField => {
@@ -1705,7 +1528,6 @@ diagnostic_catalog! {
         title: "Unknown audio field",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An Audio declaration contains a field name that ClipAsm does not recognize.",
     };
     UnknownBuiltinProgram => {
@@ -1713,7 +1535,6 @@ diagnostic_catalog! {
         title: "Unknown built-in program",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "A built-in program lookup requested a name that is not registered with ClipAsm.",
     };
     UnknownConfigField => {
@@ -1721,7 +1542,6 @@ diagnostic_catalog! {
         title: "Unknown configuration field",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A configuration block contains a field name that this ClipAsm version does not recognize.",
     };
     UnknownDiagnosticCode => {
@@ -1729,7 +1549,6 @@ diagnostic_catalog! {
         title: "Unknown diagnostic code",
         category: CommandLineAndProjects,
         retry: FixArguments,
-        stability: Durable,
         summary: "The explain command received a code that is not in ClipAsm's built-in diagnostic catalog.",
     };
     UnknownExternalField => {
@@ -1737,7 +1556,6 @@ diagnostic_catalog! {
         title: "Unknown external-program field",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "An external-program declaration contains a field name that ClipAsm does not recognize.",
     };
     UnknownParameterType => {
@@ -1745,7 +1563,6 @@ diagnostic_catalog! {
         title: "Unknown parameter type",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored program parameter declaration names a scalar type the language does not recognize.",
     };
     UnknownProgram => {
@@ -1753,7 +1570,6 @@ diagnostic_catalog! {
         title: "Unknown program",
         category: ImportsAndDeclarations,
         retry: FixSource,
-        stability: Durable,
         summary: "ClipAsm could not resolve a called name as a built-in, imported, or locally declared program.",
     };
     UnknownProgramArgument => {
@@ -1761,7 +1577,6 @@ diagnostic_catalog! {
         title: "Unknown program argument",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A program call uses an argument name that is not present in the program's signature.",
     };
     UnknownTimelinePlacement => {
@@ -1769,7 +1584,6 @@ diagnostic_catalog! {
         title: "Unknown timeline placement",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "A timeline selector does not match any authored placement in the selected value.",
     };
     UnknownValueType => {
@@ -1777,7 +1591,6 @@ diagnostic_catalog! {
         title: "Unknown value type",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "An authored input or output declaration names a graph value type other than Video or Audio.",
     };
     UnknownVideoField => {
@@ -1785,7 +1598,6 @@ diagnostic_catalog! {
         title: "Unknown video field",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "A Video declaration contains a field name that ClipAsm does not recognize.",
     };
     UnresolvedLocalType => {
@@ -1793,7 +1605,6 @@ diagnostic_catalog! {
         title: "Unresolved local type",
         category: TypesAndStack,
         retry: FixSource,
-        stability: Durable,
         summary: "A local output or reference has insufficient context for ClipAsm to infer its concrete type.",
     };
     UnresolvedTimeline => {
@@ -1801,7 +1612,6 @@ diagnostic_catalog! {
         title: "Unresolved timeline",
         category: CompilationAndTimelines,
         retry: FixSource,
-        stability: Durable,
         summary: "Compilation could not derive the exact timeline layout required by a later operation.",
     };
     UnsupportedVersion => {
@@ -1809,7 +1619,6 @@ diagnostic_catalog! {
         title: "Unsupported language version",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source requests a ClipAsm language version this binary does not support.",
     };
     UnterminatedBlock => {
@@ -1817,7 +1626,6 @@ diagnostic_catalog! {
         title: "Unterminated block",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source ended before a program, stack, or clip body received its closing delimiter.",
     };
     UnterminatedConfig => {
@@ -1825,7 +1633,6 @@ diagnostic_catalog! {
         title: "Unterminated configuration block",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source ended before the configuration block received its closing delimiter.",
     };
     UnterminatedExternal => {
@@ -1833,7 +1640,6 @@ diagnostic_catalog! {
         title: "Unterminated external declaration",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source ended before an external-program declaration received its closing delimiter.",
     };
     UnterminatedString => {
@@ -1841,7 +1647,6 @@ diagnostic_catalog! {
         title: "Unterminated string",
         category: ParsingAndSource,
         retry: FixSource,
-        stability: Durable,
         summary: "The source ended before a string literal received its closing quote.",
     };
 }
@@ -2027,7 +1832,7 @@ const fn specific_recommended_actions(
     }
 }
 
-/// Return every catalog reference in stable code order.
+/// Return every catalog reference in code order.
 pub(crate) const fn references() -> &'static [DiagnosticReference] {
     REFERENCES
 }
@@ -2044,10 +1849,7 @@ pub(crate) fn reference(code: &str) -> Option<&'static DiagnosticReference> {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{
-        BuiltinDiagnostic, DiagnosticCategory, DiagnosticStability, REFERENCES, RetryGuidance,
-        reference,
-    };
+    use super::{BuiltinDiagnostic, DiagnosticCategory, REFERENCES, RetryGuidance, reference};
 
     #[test]
     fn catalog_is_complete_unique_valid_and_ordered() {
@@ -2117,10 +1919,9 @@ mod tests {
     }
 
     #[test]
-    fn internal_diagnostics_are_weaker_and_reportable() {
+    fn internal_diagnostics_are_reportable() {
         for diagnostic in REFERENCES {
             if diagnostic.category == DiagnosticCategory::InternalContractFailures {
-                assert_eq!(diagnostic.stability, DiagnosticStability::Internal);
                 assert_eq!(diagnostic.retry_guidance, RetryGuidance::ReportBug);
             }
         }

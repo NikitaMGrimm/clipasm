@@ -20,7 +20,7 @@ Use `clipasm validate main.clipasm` when you want a faster source-only check
 without opening media or invoking FFmpeg.
 
 The starter is a starting point, not a managed template. The
-[CLI reference](reference/cli.md#init) defines its compatibility and lifecycle.
+[CLI reference](reference/cli.md#init) defines its contents and lifecycle.
 The repository programs below are development examples; they may differ from
 the starter shipped by an installed binary.
 

@@ -17,9 +17,6 @@ Prepared primitive plan + one result
   -> browser worker/VFS adapter -> preview and downloadable MP4
 ```
 
-The reasons behind the load-bearing boundaries are recorded in the
-[architecture decision records](adr/index.md).
-
 ## Language and canonical source
 
 `source` owns the lowered authored model: linked source packages, source units,
@@ -304,7 +301,7 @@ supported operation. Operation-specific work may live in family modules, but a
 native operation is not a dynamically registered cross-phase plugin. Branching
 on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
-implementations. See [ADR 0015](adr/0015-keep-native-operations-phase-owned.md).
+implementations.
 
 Native file declarations are language syntax, not registered invocations. The
 evaluator treats the executable body uniformly without granting any registered
@@ -412,9 +409,7 @@ black adaptation, and repeat rendering all use this policy. Adjacent segments
 therefore telescope to the exact combined sample count, so arbitrary source
 segmentation cannot accumulate audio drift. Crossfade uses the same mapper for
 its shortened prefix, overlap, and suffix, including phase-adjusting the latter
-input to global output boundaries. See
-[ADR 0014](adr/0014-map-frame-and-sample-boundaries.md) and
-[ADR 0016](adr/0016-overlap-audiovisual-transitions-exactly.md).
+input to global output boundaries.
 
 ## Rendering
 
@@ -478,7 +473,7 @@ deletes artifacts after their last use, and returns a verified MP4. Runtime and
 work limits are browser policy rather than semantic Video limits. The pinned
 single-threaded FFmpeg WebAssembly runtime loads only when rendering starts;
 cancellation terminates the worker. Browser rendering has no persistent cache.
-See [ADR 0017](adr/0017-run-ffmpeg-recipes-through-host-adapters.md).
+
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

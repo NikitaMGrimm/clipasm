@@ -41,8 +41,9 @@ fn safe_display_text(value: &str) -> String {
 fn list() -> String {
     let programs = clipasm::reference::builtin_programs();
     let mut output = String::from(
-        "Built-in programs\n\
-         These are built into ClipAsm; project and imported programs are not inspected.\n",
+        "Callable built-in programs\n\
+         These are registered calls built into ClipAsm; project and imported programs are not inspected.\n\
+         Language forms such as `clip` and stack blocks are documented in the book, not listed here.\n",
     );
     for category in BuiltinCategory::ALL {
         writeln!(output, "\n{}", category.label()).expect("writing to a String cannot fail");

@@ -26,7 +26,7 @@ browser before installing anything.
 not require a repository checkout. The [examples catalog](examples.md) is for
 development examples in a source checkout; those examples may differ from the
 starter bundled with an installed CLI. The [command-line reference](reference/cli.md)
-defines the starter lifecycle and compatibility contract.
+defines the starter contents and lifecycle.
 
 ## Find what you need
 
@@ -39,8 +39,8 @@ To accomplish a specific task:
 - [Diagnose common failures](guides/troubleshooting.md).
 
 To look up exact behavior, use the [command-line reference](reference/cli.md),
-[built-in program reference](reference/programs/index.md),
-[diagnostic reference](reference/diagnostics/index.md),
+[programs and composition reference](reference/programs/index.md),
+[diagnostics reference](reference/diagnostics/index.md),
 [machine-readable contracts](reference/machine-contracts.md), and normative
 [language reference](reference/language/index.md). Run `clipasm explain <CODE>`
 after an error for an installed-binary lookup. To build a mental model
@@ -51,25 +51,18 @@ first, read about:
 - [source programs and imports](concepts/source-programs-and-imports.md);
 - [pure compilation and external-program trust](concepts/external-programs-and-trust.md).
 
-## Public language and maintainer internals
+## Public language and contributor internals
 
 The language reference specifies public `.clipasm` syntax and behavior.
-Tutorials, task guides, and concept pages teach or summarize that behavior and
-link back to the reference instead of redefining it.
-
-The [architecture](architecture.md) describes internal phase responsibilities.
-The [architecture decision index](adr/index.md) records durable design choices,
-and the [change guide](development/change-guide.md) routes implementation work
-to its canonical owners. These pages are primarily for contributors,
-maintainers, and coding agents rather than prerequisites for using the
-language.
+Tutorials, task guides, and concept pages teach that behavior without exposing
+implementation history. Contributor architecture and maintenance documents
+remain in the repository but are intentionally outside the user guide.
 
 ## Contributing
 
 Start with the repository's
 [contribution workflow](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
-Documentation contributors should also read the
-[documentation maintenance guide](development/documentation.md). The
+The
 [AI contribution policy](https://github.com/NikitaMGrimm/clipasm/blob/main/AI_POLICY.md)
 allows assisted work while keeping a human accountable for every submitted
 change. Report possible vulnerabilities through the repository's

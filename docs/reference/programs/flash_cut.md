@@ -40,12 +40,18 @@ Places `before` and `after` sequentially and exposes corresponding transition re
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/before.png", 2s)
 image("assets/after.png", 2s)
 flash_cut
 ```
 
-Expected validation result: `Video` with exactly 120 project frames.
+Expected validation result: `Video` with exactly 120 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -62,7 +68,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_INVALID_FLASH_CUT_DURATION`](../diagnostics/compilation-and-timelines.md#e_invalid_flash_cut_duration) — Invalid flash-cut duration
+- [`E_INVALID_FLASH_CUT_DURATION`](../diagnostics/index.md#e_invalid_flash_cut_duration) — Invalid flash-cut duration
 
 ## Related reference
 

@@ -49,6 +49,12 @@ Initializes the body from `before` and `after` and concatenates the homogeneous 
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/before.png", 1s)
 image("assets/after.png", 1s)
 join {
@@ -56,7 +62,7 @@ join {
 }
 ```
 
-Expected validation result: `Video` with exactly 60 project frames.
+Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -74,7 +80,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_EMPTY_JOIN`](../diagnostics/compilation-and-timelines.md#e_empty_join) — Empty join result
+- [`E_EMPTY_JOIN`](../diagnostics/index.md#e_empty_join) — Empty join result
 
 ## Related reference
 

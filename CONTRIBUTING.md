@@ -2,9 +2,8 @@
 
 Use the [language reference](docs/reference/language/index.md) for public syntax
 and behavior, [architecture](docs/architecture.md) for phase responsibilities,
-and [ADRs](docs/adr/index.md) before revisiting a durable decision. Use the
-[change guide](docs/development/change-guide.md) to find affected code, tests,
-documentation, and identity versions.
+and the [change guide](docs/development/change-guide.md) to find affected code,
+tests, documentation, and identity versions.
 
 AI-assisted contributions are welcome under [AI_POLICY.md](AI_POLICY.md). The
 human contributor remains accountable for the submitted work.
@@ -25,9 +24,9 @@ mdBook, and Node.js on `PATH`.
 
 When adding or changing a built-in diagnostic, update its typed catalog entry
 and production construction sites together, define its title, category, retry
-guidance, stability, and explanation, add focused coverage, and regenerate the
+guidance and explanation, add focused coverage, and regenerate the
 diagnostic reference. See the [documentation maintenance guide](docs/development/documentation.md)
-for the required generator commands and compatibility review.
+for the required generator commands and consistency review.
 
 Use Conventional Commits, for example `feat: add trim program`.
 

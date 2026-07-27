@@ -41,11 +41,17 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/card.png", 1s)
 repeat(3)
 ```
 
-Expected validation result: `Video` with exactly 90 project frames.
+Expected validation result: `Video` with exactly 90 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -62,7 +68,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_INVALID_REPEAT_COUNT`](../diagnostics/compilation-and-timelines.md#e_invalid_repeat_count) — Invalid repeat count
+- [`E_INVALID_REPEAT_COUNT`](../diagnostics/index.md#e_invalid_repeat_count) — Invalid repeat count
 
 ## Related reference
 

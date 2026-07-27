@@ -45,7 +45,7 @@ enum Command {
     /// List built-in programs or show one built-in program reference.
     #[command(
         about = "List built-in programs or show one built-in program reference",
-        long_about = "List ClipAsm's built-in programs or show the reference for one built-in program.\n\n\
+        long_about = "List ClipAsm's callable built-in programs or show the reference for one built-in program.\n\n\
             This command never inspects a project, source file, media asset, FFmpeg, or FFprobe."
     )]
     Programs {

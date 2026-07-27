@@ -1,10 +1,10 @@
 //! Sanitized public access to the built-in diagnostic catalog.
 
 pub use crate::diagnostic::catalog::{
-    DiagnosticCategory, DiagnosticReference, DiagnosticStability, RelatedReference, RetryGuidance,
+    DiagnosticCategory, DiagnosticReference, RelatedReference, RetryGuidance,
 };
 
-/// Return every built-in diagnostic reference in stable code order.
+/// Return every built-in diagnostic reference in code order.
 #[must_use]
 pub fn diagnostics() -> &'static [DiagnosticReference] {
     crate::diagnostic::catalog::references()

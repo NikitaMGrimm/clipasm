@@ -4,10 +4,7 @@ ClipAsm separates understanding a program from inspecting its media and from
 executing it. That separation lets the language and compiler answer structural
 questions even when media files or rendering tools are unavailable.
 
-This page is a mental model. The
-[architecture](../architecture.md) owns exact phase responsibilities, and
-[ADR 0001](../adr/0001-keep-compilation-pure.md) records why compilation stays
-media-pure.
+This page is a user-facing mental model of the phases and their boundaries.
 
 ## The pipeline at a glance
 
@@ -98,14 +95,6 @@ its sibling manifest.
 
 ## Where to find exact rules
 
-- The [architecture](../architecture.md) defines phase terminology and
-  specifies the front end, compiler,
-  preflight, renderer, cache, and publication responsibilities.
-- [ADR 0001](../adr/0001-keep-compilation-pure.md) explains the pure compilation
-  boundary.
-- [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md)
-  explains why meaning, prepared content, and execution compatibility have
-  separate identities.
 - The [language reference](../reference/language/index.md) owns current authored
   syntax. The [command-line reference](../reference/cli.md#root-bindings) owns
   CLI binding forms.

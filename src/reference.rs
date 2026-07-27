@@ -24,8 +24,8 @@ pub use contracts::{
 };
 
 pub use diagnostics::{
-    DiagnosticCategory, DiagnosticReference, DiagnosticStability, RelatedReference, RetryGuidance,
-    diagnostic, diagnostics,
+    DiagnosticCategory, DiagnosticReference, RelatedReference, RetryGuidance, diagnostic,
+    diagnostics,
 };
 
 /// Return a deterministic snapshot of every built-in program reference.

@@ -6,7 +6,7 @@ validation command for later edits. You do not need Git or a repository
 checkout.
 
 ClipAsm is pre-release software. Its language and CLI may change without
-compatibility guarantees.
+stability guarantees.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ clipasm init hello-video
 images, a project README, and `.gitignore`. It does not invoke Git, render,
 inspect media, or contact the network. The result is an ordinary project you
 control; see the [CLI reference](../reference/cli.md#init) for the starter's
-compatibility and lifecycle. Its success message gives the next commands;
+contents and lifecycle. Its success message gives the next commands;
 enter the new project:
 
 ```console,ignore

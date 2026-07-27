@@ -6,9 +6,7 @@ their stacks and names.
 
 This page explains the relationship between files, packages, and calls.
 [Imports and external programs](../reference/language/imports-and-external-programs.md#imports)
-owns current syntax and behavior, while
-[ADR 0009](../adr/0009-call-authored-source-programs.md) records the import and
-invocation design.
+defines current syntax and behavior.
 
 ## Units form one linked package
 
@@ -93,9 +91,3 @@ tools reachable from the Video being prepared. See
 - [Files and configuration](../reference/language/files-and-configuration.md#configuration-and-declarations)
   specifies declarations, source programs, root-only configuration, imports,
   inputs, parameters, namespaces, and path behavior.
-- [ADR 0005](../adr/0005-treat-source-files-as-programs.md) separates source
-  program outputs from entrypoint publication.
-- [ADR 0009](../adr/0009-call-authored-source-programs.md) records linked
-  packages, aliases, callable authored programs, and isolated invocations.
-- The [architecture](../architecture.md#language-and-canonical-source) describes
-  package loading and canonical source ownership.

@@ -39,11 +39,17 @@ Preserves the timeline layout of `video`.
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/card.png", 2s)
 zoom_in(12%)
 ```
 
-Expected validation result: `Video` with exactly 60 project frames.
+Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -60,7 +66,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_INVALID_ZOOM_AMOUNT`](../diagnostics/compilation-and-timelines.md#e_invalid_zoom_amount) — Invalid zoom amount
+- [`E_INVALID_ZOOM_AMOUNT`](../diagnostics/index.md#e_invalid_zoom_amount) — Invalid zoom amount
 
 ## Related reference
 

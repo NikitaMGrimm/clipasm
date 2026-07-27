@@ -4,8 +4,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use clipasm::reference::{
-    BuiltinCategory, DiagnosticCategory, DiagnosticStability, RetryGuidance, builtin_programs,
-    diagnostic, diagnostics,
+    BuiltinCategory, DiagnosticCategory, RetryGuidance, builtin_programs, diagnostic, diagnostics,
 };
 
 #[test]
@@ -108,16 +107,9 @@ fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
             "{code}"
         );
         assert!(
-            matches!(
-                reference.stability(),
-                DiagnosticStability::Durable | DiagnosticStability::Internal
-            ),
-            "{code}"
-        );
-        assert!(
             reference
                 .documentation_route()
-                .starts_with("reference/diagnostics/"),
+                .starts_with("reference/diagnostics/index.html#"),
             "{code}"
         );
         assert_eq!(reference.documentation_anchor(), code.to_ascii_lowercase());

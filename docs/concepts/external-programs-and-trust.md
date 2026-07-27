@@ -8,10 +8,7 @@ renders the semantic graph.
 External programs are an explicit trust boundary. Read this page before
 rendering a project that imports one.
 [Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
-owns
-the current declaration syntax, and
-[ADR 0012](../adr/0012-run-external-programs.md) records the complete execution
-and cache contract.
+defines the current declaration syntax.
 
 ## Compilation records meaning without execution
 
@@ -108,10 +105,3 @@ author's contract.
 
 - [Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
   owns the declaration form, supported interface, and path behavior.
-- [ADR 0012](../adr/0012-run-external-programs.md) records execution,
-  verification, cache identity, protocol limits, and the trust boundary.
-- The architecture's
-  [external-program](../architecture.md#external-programs),
-  [preflight](../architecture.md#preflight), and
-  [rendering](../architecture.md#rendering) sections own phase
-  responsibilities.

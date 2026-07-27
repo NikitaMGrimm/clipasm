@@ -5,10 +5,8 @@ concise, while types, per-occurrence ownership, and explicit visibility
 boundaries keep nested bodies predictable.
 
 This page explains the model. The
-[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding) owns
-the authored behavior, and
-[ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) records the
-current typed ownership design.
+[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
+defines the authored behavior.
 
 ## Values and occurrences are different
 
@@ -109,12 +107,5 @@ only the program's ordered outputs return to its caller.
 - The
   [stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
   owns binding, visibility, adaptation, and call syntax.
-- [Names, blocks, and
-  `clip`](../reference/language/names-blocks-and-clip.md) owns structural blocks,
-  references, and output bindings.
-- [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) replaces the
-  earlier contiguous stack-access model with typed per-occurrence ownership.
-- [ADR 0011](../adr/0011-add-type-preserving-timeline-programs.md) explains
-  checked Video-or-Audio type inference.
-- The [architecture](../architecture.md#compilation) describes how checked stack
-  plans are evaluated.
+- [Composition forms](../reference/language/composition-forms.md) defines
+  structural blocks, `clip`, references, and output bindings.

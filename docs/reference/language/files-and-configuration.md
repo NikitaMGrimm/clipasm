@@ -70,4 +70,10 @@ Parameters without defaults are required when another program or the CLI calls
 the source program.
 
 Only the root file may set project media configuration or an output path.
-Current limits: project audio is stereo, and publication is MP4 only.
+Omitted fields use `width = 1280`, `height = 720`, `fps = 30`, and
+`sample_rate = 48000`. Project audio is stereo, and publication is MP4 only.
+
+Frame rate is an exact positive rational. `fps = 30` means exactly 30 frames per
+second. `fps = 30000/1001` is approximately 29.97 frames per second and produces
+different frame counts for many durations; it is an example of an explicit
+non-integer rate, not the default.

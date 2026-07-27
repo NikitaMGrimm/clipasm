@@ -233,11 +233,8 @@ Try:
 Retry:
   Retry after correcting the source.
 
-Stability:
-  This released built-in code is a durable identifier; wording and source locations may improve.
-
 Reference:
-  https://nikitamgrimm.github.io/clipasm/reference/diagnostics/imports-and-declarations.html#e_unknown_program
+  https://nikitamgrimm.github.io/clipasm/reference/diagnostics/index.html#e_unknown_program
 "
     );
     assert!(output.stderr.is_empty());
@@ -255,7 +252,7 @@ fn programs_help_is_exact() {
     assert_eq!(
         String::from_utf8(output.stdout).expect("UTF-8 help"),
         "\
-List ClipAsm's built-in programs or show the reference for one built-in program.
+List ClipAsm's callable built-in programs or show the reference for one built-in program.
 
 This command never inspects a project, source file, media asset, FFmpeg, or FFprobe.
 
@@ -286,8 +283,9 @@ fn programs_list_is_exact_and_covers_the_catalog() {
     assert_eq!(
         stdout,
         "\
-Built-in programs
-These are built into ClipAsm; project and imported programs are not inspected.
+Callable built-in programs
+These are registered calls built into ClipAsm; project and imported programs are not inspected.
+Language forms such as `clip` and stack blocks are documented in the book, not listed here.
 
 Sources
   image — Create a Video from an image file.

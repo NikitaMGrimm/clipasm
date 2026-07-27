@@ -49,13 +49,19 @@ Replaces the selected range in `timeline`, shifts later placements, and exposes 
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/card.png", 3s)
 during(1s..2s) {
     zoom_in(4%)
 }
 ```
 
-Expected validation result: `Video` with exactly 90 project frames.
+Expected validation result: `Video` with exactly 90 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
@@ -75,7 +81,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are selected actionable diagnostics, not every error a call can produce.
 
-- [`E_BODY_OUTPUT_COUNT`](../diagnostics/types-and-stack.md#e_body_output_count) — Wrong body output count
+- [`E_BODY_OUTPUT_COUNT`](../diagnostics/index.md#e_body_output_count) — Wrong body output count
 
 ## Related reference
 

@@ -61,8 +61,8 @@ assets/
   evening.png
 ```
 
-The installed binary ships this starter tree and it is compatible with the
-binary that creates it. The starter program validates to 108 frames and
+The installed binary ships this starter tree. The starter program validates to
+108 frames and
 publishes `generated/scenic-sequence.mp4`. Initialization does not invoke Git,
 render, or media tools, and it does not contact the network.
 
@@ -125,8 +125,8 @@ FFmpeg, FFprobe, or external programs, and it does not require a repository
 checkout. Unknown codes fail with a dedicated diagnostic and direct readers to
 the [diagnostic index](diagnostics/index.md).
 
-For a complete, searchable list of built-in diagnostics and their stability
-policy, see the [diagnostic reference](diagnostics/index.md).
+For a complete, searchable list of built-in diagnostics, see the
+[diagnostics reference](diagnostics/index.md).
 
 ## Common source argument
 

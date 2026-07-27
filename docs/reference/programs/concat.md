@@ -39,12 +39,18 @@ Concatenates the ordered timeline layouts bound to `values`.
 ```clipasm
 clipasm 1
 
+config {
+    video {
+        fps = 30
+    }
+}
+
 image("assets/one.png", 1s)
 image("assets/two.png", 1s)
 concat
 ```
 
-Expected validation result: `Video` with exactly 60 project frames.
+Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 

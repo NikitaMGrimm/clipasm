@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use clipasm::reference::{DiagnosticReference, DiagnosticStability};
+use clipasm::reference::DiagnosticReference;
 use clipasm::source::SourceSpan;
 
 const DIAGNOSTIC_INDEX_URL: &str = "https://nikitamgrimm.github.io/clipasm/reference/diagnostics/";
@@ -30,16 +30,6 @@ fn detail(reference: DiagnosticReference) -> String {
         reference.retry_guidance().explanation()
     )
     .expect("writing to a String cannot fail");
-    output.push_str("\nStability:\n  ");
-    match reference.stability() {
-        DiagnosticStability::Durable => output.push_str(
-            "This released built-in code is a durable identifier; wording and source locations may improve.\n",
-        ),
-        DiagnosticStability::Internal => output.push_str(
-            "This internal-contract code has a weaker compatibility guarantee. Preserve a non-sensitive reproduction and report the likely ClipAsm defect.\n",
-        ),
-        _ => output.push_str("See the diagnostic reference for this code's stability policy.\n"),
-    }
     writeln!(output, "\nReference:\n  {}", reference.documentation_url())
         .expect("writing to a String cannot fail");
     output

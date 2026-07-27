@@ -33,7 +33,7 @@ clipasm inspect main.clipasm
 
 Inspection prints a versioned downstream serialization of compiled semantics as
 JSON. It is not canonical source or an authoring format. Check `format_version`
-before using it in tooling; the compatibility rules are in
+before using it in tooling; the version-handling rules are in
 [Machine-readable contracts](../reference/machine-contracts.md#compiled-inspection-json).
 The useful categories are:
 

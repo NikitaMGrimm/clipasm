@@ -14,7 +14,7 @@ cd scenic-video
 Open `main.clipasm` in an editor. It is your ordinary project file, not a
 managed template; ClipAsm will not rewrite it after initialization. The
 [CLI reference](../reference/cli.md#init) defines the bundled starter's
-compatibility and lifecycle.
+contents and lifecycle.
 
 ## 1. Predict the project timeline
 
