@@ -7,7 +7,7 @@ tool, and execution problems.
 Every ordinary ClipAsm error includes a diagnostic code. Look up the code with
 `clipasm explain <CODE>` for a concise explanation, or use the searchable
 [diagnostic reference](../reference/diagnostics/index.md) for the complete
-catalog. This guide stays organized by symptom; the reference owns the full
+catalog. This guide is organized by symptom. The diagnostic reference contains the full
 per-code advice and retry guidance.
 
 ## The source does not validate
@@ -33,7 +33,7 @@ syntax and the [stack-binding reference](../reference/language/stack-binding.md)
 for binding rules. The [parsing and source](../reference/diagnostics/index.md#parsing-and-source),
 [imports and declarations](../reference/diagnostics/index.md#imports-and-declarations),
 and [types and stack](../reference/diagnostics/index.md#types-and-stack) diagnostic
-pages group the corresponding failures.
+sections group the corresponding failures.
 
 ## A root input or parameter is missing
 
@@ -70,13 +70,13 @@ clipasm render path/to/program.clipasm
 Check which component authored the path:
 
 - paths written in a `.clipasm` file resolve from that source file's directory;
-- import paths resolve from the importing source unit;
+- import paths resolve from the importing source file;
 - CLI media and `File` bindings resolve from the working directory;
 - an output override resolves from the working directory.
 
 Imported programs keep their own path base. Moving only the root source or
 running the command from another directory does not rebase paths authored in an
-imported source unit.
+imported source file.
 
 See [preflight and media diagnostics](../reference/diagnostics/index.md#preflight-and-media)
 when the reported code concerns an unreadable or unsuitable asset.
@@ -100,7 +100,7 @@ for tool discovery and capability failures.
 ## FFmpeg lacks a required capability
 
 ClipAsm checks the encoders, muxers, and filters required by the reachable
-prepared graph. Install a build of FFmpeg that provides the named capability,
+work needed for the output. Install a build of FFmpeg that provides the named capability,
 or change the reachable program so it does not require that operation.
 
 Capabilities needed only by unreachable operations do not reject the render.
@@ -147,7 +147,7 @@ using the operating system's normal process controls.
 See [Review and run an external program](external-programs.md) and
 [External programs and the trust boundary](../concepts/external-programs-and-trust.md).
 The [external-program diagnostics](../reference/diagnostics/index.md#external-programs)
-page explains protocol and process failures.
+section explains protocol and process failures.
 
 ## A cached artifact is not reused
 
@@ -161,12 +161,11 @@ hand.
 
 For a cache lock or filesystem error, use the
 [cache and filesystem diagnostics](../reference/diagnostics/index.md#cache-and-filesystem)
-page to determine whether retrying is appropriate.
+section to determine whether retrying is appropriate.
 
 ## Inspection output is surprising
 
-`inspect` prints compiled semantic JSON, not canonical source, a prepared plan,
-or a rendered preview. Focus on graph relationships such as `nodes`, `outputs`,
+`inspect` prints compiled JSON, not source code, a render plan, or a rendered preview. Focus on graph relationships such as `nodes`, `outputs`,
 and `named_values`; source metadata, hashes, and format details may change as the
 internal serialization evolves.
 

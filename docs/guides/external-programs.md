@@ -1,75 +1,58 @@
 # Review and run an external program
 
-An external program keeps an ordinary ClipAsm interface while delegating its
-implementation to a script or executable. This guide uses the committed
-`examples/external-brighten.clipasm` wrapper.
+An external program exposes an ordinary typed ClipAsm interface but performs its
+work in another executable. Treat it like any other native program you are
+asked to run.
 
-> **External programs are trusted native code.** Rendering can execute them
-> with the current user's access to the filesystem, network, processes, and
-> other machine resources. ClipAsm does not sandbox them, impose an execution
-> timeout, or prove that they terminate or behave deterministically. Do not
-> render an unfamiliar project until you have reviewed and trust every external
-> declaration, executable, script, and declared file argument.
+> **Warning:** rendering a reachable external program executes it with your user
+> permissions. ClipAsm does not sandbox it, impose a timeout, or prevent file,
+> network, or process access.
 
-Run all commands from the repository root.
+This guide uses `examples/external-brighten.clipasm`. Run commands from the
+repository root.
 
-## Review the external implementation
+## Review everything that can execute
 
-Before running the example, open and inspect both:
+Open these files before rendering:
 
+- `examples/external-brighten.clipasm`, the wrapper;
 - `examples/programs/brighten/program.clipasm`, the external declaration;
-- `examples/programs/brighten/brighten.py`, the Python program it executes.
+- `examples/programs/brighten/brighten.py`, the executed script.
 
-The declaration names `python3` as its executable, passes `brighten.py` as a
-content-hashed file argument, declares its semantic version, and states that
-the output preserves the `video` input's domain. The Python program reads the
-versioned request from standard input and invokes the FFmpeg path supplied by
-ClipAsm.
-
-Also inspect the wrapper, `examples/external-brighten.clipasm`. It imports the
-external source program under the local alias `brighten`, creates a Video, and
-calls `brighten(amount=15)`.
+The declaration chooses `python3`, passes the script as a declared file
+argument, and promises that the output keeps the input Video's exact duration
+and audio state. The script receives a versioned JSON request on standard input
+and uses the FFmpeg path provided by ClipAsm.
 
 This example requires Python 3, FFmpeg, and FFprobe on `PATH`.
 
-## Perform the pure checks
+## Check the ClipAsm source without executing it
 
-Validation and inspection compile the declaration into a pure semantic node.
-They do not resolve or execute `python3` or `brighten.py`:
-
-```console
+```console,ignore
 clipasm validate examples/external-brighten.clipasm
 clipasm inspect examples/external-brighten.clipasm
 ```
 
-These checks confirm the ClipAsm package and its typed call. They cannot confirm
-that the executable is available, that its undeclared environment is
-reproducible, or that running it is safe.
+These commands check the package and typed call. They do not locate or execute
+Python, the script, or FFmpeg, and they cannot tell you whether the code is safe.
 
 ## Render only after review
 
-> Run the following command only after you trust the declaration and Python
-> program described above.
-
-```console
+```console,ignore
 clipasm render examples/external-brighten.clipasm
 ```
 
-During preflight, ClipAsm resolves and hashes the executable and declared file
-argument and prepares its input dependencies. During rendering, it rehashes
-those files when the external node is reached, executes the program with a
-versioned JSON request, and verifies the artifact before accepting it. Files are
-not snapshotted, and a concurrent change after the final hash can still affect
-the process. The example publishes `examples/external-brighten.mp4`.
+Before execution, ClipAsm resolves and hashes the executable and declared file
+arguments. It hashes them again when the external operation is reached, sends
+the request, and verifies the produced media before accepting it. The example
+writes `examples/external-brighten.mp4`.
 
-Cache identity cannot discover undeclared inputs such as environment variables,
-clock or random state, network responses, imported modules, or arbitrary files.
-The external-program author remains responsible for declaring file dependencies
-and updating the semantic version when output meaning changes.
+A program can still depend on undeclared state such as environment variables,
+network responses, imported modules, random values, clocks, or other files.
+Those dependencies are invisible to the cache. External-program authors must
+declare supported file dependencies and change `semantic_version` whenever
+other output-affecting behavior changes.
 
-See
-[External implementations](../reference/language/imports-and-external-programs.md#external-implementations)
-for the normative declaration and protocol constraints,
-[Pure compilation and external-program trust](../concepts/external-programs-and-trust.md)
-for the trust model, and the [examples catalog](../examples.md#external-program)
-for the canonical command listing.
+See [External implementations](../reference/language/imports-and-external-programs.md#external-implementations)
+for the declaration and [External programs and the trust boundary](../concepts/external-programs-and-trust.md)
+for the security and reproducibility model.

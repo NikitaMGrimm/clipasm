@@ -12,27 +12,27 @@ zoom_in(video: Video, by?: Number) -> Video
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `video` | `Video` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `by` | `Number` | optional | 8% |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Video`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Preserves the timeline layout of `video`.
+Keeps the duration and addressable markers from `video`.
 
 ## Example
 
@@ -53,22 +53,22 @@ Expected validation result: `Video` with exactly 60 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - For a multi-frame Video, scale increases linearly from 100% on the first frame to exactly 100% + by on the last frame.
 - The Video timeline and attached meaningful-Audio state are preserved.
 
-## Constraints
+## Requirements
 
 - by must be positive.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_INVALID_ZOOM_AMOUNT`](../diagnostics/index.md#e_invalid_zoom_amount) — Invalid zoom amount
 
-## Related reference
+## See also
 
 - [Statements and calls](../language/statements-and-calls.md)
 - [Stack binding](../language/stack-binding.md)

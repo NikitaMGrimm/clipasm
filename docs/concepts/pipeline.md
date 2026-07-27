@@ -1,100 +1,56 @@
 # From source to published video
 
-ClipAsm separates understanding a program from inspecting its media and from
-executing it. That separation lets the language and compiler answer structural
-questions even when media files or rendering tools are unavailable.
+Three commands expose the main stages of ClipAsm:
 
-This page is a user-facing mental model of the phases and their boundaries.
+| Command | Opens media? | Runs tools or external programs? | Main result |
+| --- | --- | --- | --- |
+| `validate` | No | No | source and type check |
+| `inspect` | No | No | compiled JSON |
+| `render` | Yes, when reachable | Yes, when required | MP4 and manifest |
 
-## The pipeline at a glance
+This separation lets you catch source problems quickly and lets unused media
+stay unopened.
 
-```text
-native .clipasm source
-  -> language front end
-canonical source package
-  -> compilation
-semantic graph + ordered source-program outputs
-  -> preflight of the publishable Video's reachable graph
-prepared plan
-  -> rendering, verification, and publication
-MP4 + manifest
-```
+## 1. Read and check the source
 
-People often use *compilation* for the whole path from authored source to
-compiled semantics. Internally, the architecture draws a finer boundary: the
-native-language front end lexes and parses source, loads its package, and lowers
-surface sugar before the compiler receives canonical source. This keeps grammar
-and sugar out of semantic evaluation without making the front end media-aware.
+ClipAsm parses the root `.clipasm` file and its imports, then checks every linked
+source program. It resolves calls, arguments, types, stack inputs, names, and
+ordered outputs.
 
-## The language front end builds a package
+This stage does not open authored media. Durations written directly in source
+can already be exact; durations that depend on a video or audio file remain
+unknown until rendering.
 
-One root source unit and its imports form a source package. The front end
-resolves that authored structure and lowers it to the internal canonical source
-model. Canonical source preserves source locations and path bases, but it is not
-a public builder API or another authoring format.
+An unused imported program must still be valid source because the complete
+linked package is checked.
 
-At this point, ClipAsm has interpreted language structure, not media content.
-See [Source programs and imports](source-programs-and-imports.md) for how source
-units become callable programs.
+## 2. Prepare reachable media and tools
 
-## Compilation determines meaning
+During `render`, preflight starts from the one Video selected for publication
+and follows only the work needed to produce it. It resolves paths, hashes source
+assets, probes media, checks required FFmpeg capabilities, and locates reachable
+external executables.
 
-Compilation checks the complete linked package, including imported source units
-that the root never calls. It resolves program calls, references, types, stack
-bindings, body contracts, named outputs, and the ordered outputs of each source
-program. Checked source is then evaluated into a semantic graph.
+This means an unused import can contain an unused missing media file without
+blocking rendering, as long as the imported source itself is valid.
 
-The result describes what the program means without opening authored media or
-running FFmpeg, FFprobe, or an external program. Facts derivable from authored
-data can already be exact. Media-derived facts can remain deferred; for
-example, a video-file source may not have an exact project-frame count yet.
+## 3. Execute, verify, and publish
 
-Pure validation and compilation allow a source program to return zero, one, or
-multiple ordered values. That is a compilation property, not a promise that
-every such result can be published.
+ClipAsm reuses verified cached artifacts when possible and executes the missing
+operations in dependency order. External programs reached here run as trusted
+native code.
 
-## Preflight prepares reachable work
+Produced media is checked before it enters the cache or replaces the published
+output. A successful render writes the MP4 and a sibling manifest.
 
-Preflight is the first phase allowed to inspect assets and tools. For the graph
-reachable from the Video selected for publication, it resolves authored paths,
-hashes source assets, probes media, derives exact domains, checks the required
-FFmpeg capabilities, resolves external executables, and lowers semantic nodes
-to renderer primitives.
+Rendering requires exactly one Video output. Additional Audio outputs may exist,
+but they are not published separately.
 
-This gives two deliberately different scopes:
+## Terms used in reference pages
 
-- compilation checks every linked source unit, even if it is never called
-- preflight inspects only assets, operations, and capabilities reachable from
-  the result being prepared
+- **compiled program**: the checked media-independent result used by `inspect`;
+- **preflight**: media and tool resolution performed by `render`;
+- **prepared plan**: the exact reachable work after preflight;
+- **publication**: verification and final replacement of the MP4 and manifest.
 
-An unused imported program must therefore be valid source, but its unused media
-does not make preflight reject an otherwise reachable plan.
-
-The output of preflight is the prepared plan: resolved assets and tools,
-exact media domains, and the primitives the renderer can execute.
-
-## Rendering executes and publishes
-
-Rendering verifies the prepared tool identities, then plans backward from the
-result. A verified cache artifact satisfies that node and prunes its upstream
-subtree; a miss makes the node's inputs part of the execution frontier. Source
-files and external executables are rehashed when their node is reached, and
-missing renderer primitives are executed in topological order. Reached
-[external programs](external-programs-and-trust.md) are trusted native code.
-Produced artifacts are checked before they enter the cache or publication
-transaction.
-
-Publication chooses exactly one Video output by type. A source program may also
-return Audio values, but those are auxiliary and are not published. A program
-with no Video or more than one Video can still be valid for pure compilation
-while being invalid as a render entrypoint.
-
-The optional output path belongs to entrypoint publication, not to the semantic
-graph or its identity. Rendering publishes the verified Video as MP4 and writes
-its sibling manifest.
-
-## Where to find exact rules
-
-- The [language reference](../reference/language/index.md) owns current authored
-  syntax. The [command-line reference](../reference/cli.md#root-bindings) owns
-  CLI binding forms.
+See the [command-line reference](../reference/cli.md) for exact command behavior.

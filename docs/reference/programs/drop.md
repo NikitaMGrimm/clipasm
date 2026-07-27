@@ -12,17 +12,17 @@ drop<T: Video | Audio>(value: T) -> none
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `value` | `T` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 This program has no scalar parameters.
 
-## Outputs and binding
+## Result and stack behavior
 
 This program produces no values.
 
@@ -30,9 +30,9 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Creates a fresh timeline layout, or no layout when the program has no output.
+Creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -47,11 +47,11 @@ Expected validation result: no output values.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The bound value is consumed from the stack and the call produces no output value.
 
-## Related reference
+## See also
 
 - [Statements and calls](../language/statements-and-calls.md)
 - [Stack binding](../language/stack-binding.md)

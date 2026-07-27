@@ -1,63 +1,66 @@
 # Validate and inspect a program
 
-Use validation while editing a source package, then inspect its compiled JSON
-document when you need to understand what compilation produced. Neither command
-opens media files, probes media, invokes FFmpeg or FFprobe, or executes an
-external program.
+Use `validate` for a fast source check while editing. Use `inspect` only when
+you need the compiled JSON structure for debugging or tooling. Neither command
+opens media, runs FFmpeg or FFprobe, or executes an external program.
 
-This guide uses the starter scenic sequence. Run the commands from an
-initialized project directory, such as the one created in the
-[first-render guide](../getting-started/first-render.md). In a repository
-checkout, replace `main.clipasm` with `examples/scenic-sequence.clipasm`.
+The examples below use `main.clipasm` in an initialized project. In a repository
+checkout, use `examples/scenic-sequence.clipasm` instead.
 
-## Validate the source package
+## Validate first
 
 ```console,ignore
 clipasm validate main.clipasm
 ```
 
-Validation parses and checks the complete source package, evaluates its stack
-programs, and infers every domain available from authored data. A successful
-result confirms that the source is well formed and type-correct. It does not
-confirm that authored media paths exist or that the tools needed for rendering
-are available.
+A successful validation confirms that ClipAsm can parse the complete source
+package, resolve imports and program calls, bind stack inputs, check types, and
+calculate every duration available from authored data.
 
-If validation fails, start with the reported source location and construct.
-Fix that error before inspecting or rendering the program.
+It does **not** confirm that media files exist or that rendering tools are
+installed. A video-file source may therefore validate with a message that its
+duration will resolve later during rendering.
 
-## Inspect the compiled JSON document
+When validation fails, fix the first reported source location before moving on.
+Use `clipasm explain <CODE>` when the diagnostic needs more context.
+
+## Inspect compiled JSON
 
 ```console,ignore
 clipasm inspect main.clipasm
 ```
 
-Inspection prints a versioned downstream serialization of compiled semantics as
-JSON. It is not canonical source or an authoring format. Check `format_version`
-before using it in tooling; the version-handling rules are in
-[Machine-readable contracts](../reference/machine-contracts.md#compiled-inspection-json).
-The useful categories are:
+The command writes JSON to standard output. To create a new file instead:
+
+```console,ignore
+mkdir -p local
+clipasm inspect main.clipasm --output local/compiled.json
+```
+
+The destination must not already exist.
+
+The document is useful for checking:
 
 - project Video and Audio settings;
-- semantic graph nodes, their operations, and value types;
-- source-independent Video frame or Audio sample domains;
-- ordered source-program outputs and named values;
-- source origins and the authored operations represented by the graph;
-- the configured publication output, when one is declared.
+- compiled operations and their inputs;
+- known frame or sample counts;
+- ordered outputs and named values;
+- authored source origins;
+- the configured publication path.
 
-Use this structure to confirm, for example, that three authored images feed one
-concatenation and that the resulting Video is the source program's output.
-Inspection is a view of compilation, not a prepared plan or a preview of
-rendered media.
+Inspection JSON is a compiled view, not `.clipasm` source, a render plan, or a
+preview. Read `format_version` before consuming it in software; see
+[Compiled inspection JSON](../reference/machine-contracts.md#compiled-inspection-json).
 
-## Continue to rendering
-
-Run `render` only when you are ready for preflight to resolve assets and tools:
+## Render when source is ready
 
 ```console,ignore
 clipasm render main.clipasm
 ```
 
-For the phase boundaries, read
-[Compilation, preflight, and rendering](../concepts/pipeline.md). See the
-[language reference](../reference/language/index.md) for exact language behavior and
-the [examples catalog](../examples.md) for more programs to validate.
+Rendering repeats the source checks, then opens reachable media, checks the
+required tools, and creates the output. You do not need to run `validate` or
+`inspect` first.
+
+See [From source to published video](../concepts/pipeline.md) for the phase
+model and [Troubleshooting](troubleshooting.md) for common failures.

@@ -12,19 +12,19 @@ trim<T: Video | Audio>(value: T, range: TimeRange) -> T
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `value` | `T` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `range` | `TimeRange` | required | — |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `T`.
 
@@ -32,9 +32,9 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Crops `value` to the selected range and retains only placements proven to lie completely inside it.
+Keeps the selected range from `value` and preserves only markers fully inside it.
 
 ## Example
 
@@ -55,23 +55,23 @@ Expected validation result: `Video` with exactly 60 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - Absolute ranges and rooted timeline-marker ranges are accepted for both Video and Audio.
 - Complete child placements inside the selected range are preserved and rebased; partial or uncertain placements are omitted.
 - Media-dependent marker boundaries remain deferred until preflight resolves the source domain.
 
-## Constraints
+## Requirements
 
 - The range must be nonempty, native-grid aligned, within the bound timeline, and owned by that timeline.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_INVALID_TIME_RANGE`](../diagnostics/index.md#e_invalid_time_range) — Invalid time range
 
-## Related reference
+## See also
 
 - [`during`](during.md)
 - [Statements and calls](../language/statements-and-calls.md)

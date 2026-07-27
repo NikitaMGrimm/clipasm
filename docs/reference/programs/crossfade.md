@@ -12,26 +12,26 @@ crossfade(before: Video, after: Video, duration?: Duration) -> Video
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `before` | `Video` | exactly one |
 | `after` | `Video` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `duration` | `Duration` | optional | 500ms |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Video`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
 Overlaps the end of `before` with the start of `after` and exposes `before`, `overlap`, and `after` regions.
 
@@ -55,22 +55,22 @@ Expected validation result: `Video` with exactly 105 project frames at the examp
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - duration becomes the smallest whole project-frame count that covers the authored duration.
 - The output exposes before, overlap, and after timeline regions.
 
-## Constraints
+## Requirements
 
 - duration must cover at least one project frame and cannot exceed either input Video.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_INVALID_CROSSFADE_DURATION`](../diagnostics/index.md#e_invalid_crossfade_duration) — Invalid crossfade duration
 
-## Related reference
+## See also
 
 - [`flash_cut`](flash_cut.md)
 - [Statements and calls](../language/statements-and-calls.md)

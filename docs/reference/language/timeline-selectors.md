@@ -16,6 +16,8 @@ during($edit::credits) {
 }
 ```
 
+## Selector paths
+
 Selector paths may be nested, such as
 `$edit::chapter::interview::start`. A placement selector without a final
 boundary denotes its complete closed-open range. Terminal `::start`,
@@ -32,6 +34,8 @@ addressable descendant. For example, `$interview::start` or
 Multiple matches are ambiguous and require more leading names or the owning
 timeline. Lookup is performed over the shared view DAG without expanding every
 reused occurrence. Explicitly rooted selectors remain exact paths.
+
+## Names define the path
 
 Selector structure follows names rather than operation history. Anonymous
 composition layers are transparent, so these forms expose the same direct
@@ -73,6 +77,8 @@ occurrence has that spelling. Explicit `as` labels, inferred bare-reference
 labels, and operation-created labels do not shadow one another. Any duplicate
 spelling is ambiguous and needs a distinct explicit name.
 
+## Trimming and replacing ranges
+
 Marker ranges must be used with the timeline that owns their root. `join`
 preserves the exact views of untouched inputs and exposes named values created
 by its body as placements in the joined result. `trim` and `during` accept rooted
@@ -104,6 +110,8 @@ reserved by the `during` result contract: if a base placement named
 `E_TIMELINE_PLACEMENT_CONFLICT` instead of shadowing either occurrence. A base
 placement with that name is permitted when the selected range removes it.
 
+## Transition regions
+
 Transitions expose operation-owned regions. `flash_cut` provides sequential
 `::before` and `::after` regions. `crossfade` provides `::before`, `::after`,
 and the shared `::overlap` region:
@@ -120,6 +128,8 @@ The `before` and `after` regions retain their nested placement layouts, so a
 path such as `$transition::before::title` remains addressable. Their ranges
 overlap in a crossfade and remain sequential in a flash cut. All normal
 boundaries, including `::middle`, apply to these regions.
+
+## Coordinate arithmetic
 
 Timeline coordinates use exact rational arithmetic. Coordinates with the same
 root may be added or subtracted, Number may scale them, and Duration may offset
@@ -149,6 +159,8 @@ media-dependent extent and is resolved to a concrete frame count during
 preflight. Audio `during` does not reinterpret a sample extent as a Video frame
 request.
 
+## Reusing selectors with aliases
+
 Aliases make long marker expressions reusable:
 
 ```clipasm
@@ -164,6 +176,8 @@ Timeline selectors inside aliases require their explicit root. Contextual
 suffix lookup such as `$interview::start` or `$chapter::interview::start` is
 available directly in a timeline-anchored call, but an alias should use the
 complete rooted path so its meaning is independent of later uses.
+
+## Diagnostic layout
 
 Timeline selector diagnostics print the compiler's actual rooted occurrence
 layout. Each child includes its root-relative closed-open range. The tree is the

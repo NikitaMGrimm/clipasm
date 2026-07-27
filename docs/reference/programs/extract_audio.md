@@ -12,25 +12,25 @@ extract_audio(video: Video) -> Audio
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `video` | `Video` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 This program has no scalar parameters.
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Audio`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Creates a fresh timeline layout, or no layout when the program has no output.
+Creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -45,15 +45,15 @@ Expected validation result: `Audio`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The standalone Audio output covers the complete Video duration on the project sample grid.
 
-## Constraints
+## Requirements
 
 - The Video must carry meaningful attached Audio; extracting from a silent Video cannot create Audio content.
 
-## Related reference
+## See also
 
 - [`video`](video.md)
 - [`set_audio`](set_audio.md)

@@ -444,9 +444,9 @@ fn render_program(program: &BuiltinProgram) -> String {
     writeln!(output, "```text\n{}\n```\n", program.call_shape()).expect("write String");
     output.push_str("This is call-shape notation for lookup, not ClipAsm declaration syntax.\n\n");
 
-    output.push_str("## Inputs\n\n");
+    output.push_str("## Graph inputs\n\n");
     if program.inputs().is_empty() {
-        output.push_str("This program has no graph-valued inputs.\n\n");
+        output.push_str("This program does not take a Video or Audio input from the stack.\n\n");
     } else {
         output.push_str("| Name | Type | Cardinality |\n| --- | --- | --- |\n");
         for input in program.inputs() {
@@ -467,7 +467,7 @@ fn render_program(program: &BuiltinProgram) -> String {
         output.push('\n');
     }
 
-    output.push_str("## Parameters\n\n");
+    output.push_str("## Parameters and defaults\n\n");
     if program.parameters().is_empty() {
         output.push_str("This program has no scalar parameters.\n\n");
     } else {
@@ -505,7 +505,7 @@ fn render_program(program: &BuiltinProgram) -> String {
         output.push('\n');
     }
 
-    output.push_str("## Outputs and binding\n\n");
+    output.push_str("## Result and stack behavior\n\n");
     if program.outputs().is_empty() {
         output.push_str("This program produces no values.\n\n");
     } else {
@@ -533,7 +533,7 @@ fn render_program(program: &BuiltinProgram) -> String {
     .expect("write String");
 
     if let Some(body) = program.body() {
-        output.push_str("## Body contract\n\n");
+        output.push_str("## Body\n\n");
         output.push_str("The body begins with:\n\n");
         for initial in body.initial_values() {
             let role = match initial.role() {
@@ -572,7 +572,7 @@ fn render_program(program: &BuiltinProgram) -> String {
         output.push_str(".\n\n");
     }
 
-    output.push_str("## Timeline behavior\n\n");
+    output.push_str("## Timeline and markers\n\n");
     writeln!(
         output,
         "{}\n",
@@ -610,7 +610,7 @@ fn render_program(program: &BuiltinProgram) -> String {
          does not inspect the named media files.\n\n",
     );
 
-    output.push_str("## Important behavior\n\n");
+    output.push_str("## Behavior\n\n");
     for paragraph in program.behavior_notes() {
         writeln!(output, "- {paragraph}").expect("write String");
     }
@@ -620,7 +620,7 @@ fn render_program(program: &BuiltinProgram) -> String {
     output.push('\n');
 
     if !program.constraints().is_empty() {
-        output.push_str("## Constraints\n\n");
+        output.push_str("## Requirements\n\n");
         for constraint in program.constraints() {
             writeln!(output, "- {constraint}").expect("write String");
         }
@@ -628,10 +628,8 @@ fn render_program(program: &BuiltinProgram) -> String {
     }
 
     if !program.diagnostics().is_empty() {
-        output.push_str("## Selected diagnostics\n\n");
-        output.push_str(
-            "These are selected actionable diagnostics, not every error a call can produce.\n\n",
-        );
+        output.push_str("## Common diagnostics\n\n");
+        output.push_str("These are the diagnostics most specific to this program.\n\n");
         for code in program.diagnostics() {
             let diagnostic =
                 reference::diagnostic(code).expect("validated built-in diagnostic reference");
@@ -646,7 +644,7 @@ fn render_program(program: &BuiltinProgram) -> String {
         output.push('\n');
     }
 
-    output.push_str("## Related reference\n\n");
+    output.push_str("## See also\n\n");
     for related in program.related_programs() {
         writeln!(output, "- [`{related}`]({related}.md)").expect("write String");
     }
@@ -698,11 +696,21 @@ fn render_diagnostic_index(diagnostics: &[DiagnosticReference]) -> String {
             category.label()
         )
         .expect("write String");
+        writeln!(output, "{}\n", diagnostic_category_summary(category)).expect("write String");
+        output.push_str("### Common causes in this area\n\n");
+        for cause in category.common_causes() {
+            writeln!(output, "- {cause}").expect("write String");
+        }
+        output.push_str("\n### First things to try\n\n");
+        for action in category.recommended_actions() {
+            writeln!(output, "- {action}").expect("write String");
+        }
+        output.push('\n');
         for diagnostic in diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.category() == category)
         {
-            render_diagnostic(&mut output, diagnostic);
+            render_diagnostic(&mut output, diagnostic, category);
         }
     }
     let content_end = output.trim_end().len();
@@ -711,7 +719,11 @@ fn render_diagnostic_index(diagnostics: &[DiagnosticReference]) -> String {
     output
 }
 
-fn render_diagnostic(output: &mut String, diagnostic: &DiagnosticReference) {
+fn render_diagnostic(
+    output: &mut String,
+    diagnostic: &DiagnosticReference,
+    category: DiagnosticCategory,
+) {
     writeln!(
         output,
         "<a id=\"{}\"></a>\n\n### `{}` — {}\n",
@@ -722,19 +734,25 @@ fn render_diagnostic(output: &mut String, diagnostic: &DiagnosticReference) {
     .expect("write String");
     writeln!(output, "{}\n", diagnostic.summary()).expect("write String");
 
-    output.push_str("#### Common causes\n\n");
-    for cause in diagnostic.common_causes() {
-        writeln!(output, "- {cause}").expect("write String");
+    if diagnostic.common_causes() != category.common_causes() {
+        output.push_str("#### Common causes\n\n");
+        for cause in diagnostic.common_causes() {
+            writeln!(output, "- {cause}").expect("write String");
+        }
+        output.push('\n');
     }
-    output.push_str("\n#### Try\n\n");
-    for action in diagnostic.recommended_actions() {
-        writeln!(output, "- {action}").expect("write String");
+    if diagnostic.recommended_actions() != category.recommended_actions() {
+        output.push_str("#### Try\n\n");
+        for action in diagnostic.recommended_actions() {
+            writeln!(output, "- {action}").expect("write String");
+        }
+        output.push('\n');
     }
-    output.push_str("\n#### Retry\n\n");
+    output.push_str("#### Retry\n\n");
     writeln!(output, "{}\n", diagnostic.retry_guidance().explanation()).expect("write String");
 
     if !diagnostic.related_links().is_empty() {
-        output.push_str("#### Related reference\n\n");
+        output.push_str("#### See also\n\n");
         for related in diagnostic.related_links() {
             writeln!(
                 output,
@@ -829,21 +847,22 @@ fn type_shape(program: &BuiltinProgram) -> String {
 fn timeline_description(behavior: &TimelineBehavior) -> String {
     match behavior {
         TimelineBehavior::Fresh => {
-            "Creates a fresh timeline layout, or no layout when the program has no output."
-                .to_owned()
+            "Creates a new timeline when it returns Video or Audio.".to_owned()
         }
         TimelineBehavior::Identity { input } => {
-            format!("Preserves the timeline layout of `{input}`.")
+            format!("Keeps the duration and addressable markers from `{input}`.")
         }
         TimelineBehavior::Repeat { input } => format!(
-            "`repeat(1)` preserves `{input}` as an identity. Larger counts create a fresh, \
-             unindexed repeated timeline."
+            "`repeat(1)` keeps `{input}` unchanged. Larger counts repeat its media, but the \
+             individual repeated occurrences are not addressable by marker."
         ),
         TimelineBehavior::Concat { input } => {
-            format!("Concatenates the ordered timeline layouts bound to `{input}`.")
+            format!(
+                "Places the values bound to `{input}` one after another in their existing order."
+            )
         }
         TimelineBehavior::BodyConcat { inputs } => format!(
-            "Initializes the body from {} and concatenates the homogeneous values it leaves.",
+            "Starts the body with {} and joins the matching values left by the body.",
             inputs
                 .iter()
                 .map(|input| format!("`{input}`"))
@@ -851,12 +870,10 @@ fn timeline_description(behavior: &TimelineBehavior) -> String {
                 .join(" and ")
         ),
         TimelineBehavior::Crop { input } => format!(
-            "Crops `{input}` to the selected range and retains only placements proven to lie \
-             completely inside it."
+            "Keeps the selected range from `{input}` and preserves only markers fully inside it."
         ),
         TimelineBehavior::Replace { base } => format!(
-            "Replaces the selected range in `{base}`, shifts later placements, and exposes the \
-             inserted layout as `replacement`."
+            "Replaces the selected range in `{base}`, shifts later markers, and names the inserted result `replacement`."
         ),
         TimelineBehavior::FlashCut { before, after } => format!(
             "Places `{before}` and `{after}` sequentially and exposes corresponding transition \

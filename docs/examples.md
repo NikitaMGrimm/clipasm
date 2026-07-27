@@ -1,99 +1,38 @@
-# Examples
+# Runnable examples
 
-The committed `.clipasm` programs under `examples/` are small executable
-language demonstrations. Run their commands from the repository root.
-Validation is pure; rendering additionally requires FFmpeg and FFprobe.
-Follow the links below for the exact
-[built-in program contracts](reference/programs/index.md) used by each example.
+The repository's `examples/` directory contains small programs for development
+and experimentation. Run the commands below from the repository root.
+`validate` checks source only; `render` also requires FFmpeg and FFprobe.
 
-## Starter project
+For a standalone project without a repository checkout, use `clipasm init` and
+follow [Install and render ClipAsm](getting-started/first-render.md).
 
-`clipasm init [PATH]` creates a standalone project without a repository
-checkout. Its bundled starter includes `main.clipasm` and three images in
-`assets/`. In an initialized project, render directly:
+## Example catalog
 
-```console,ignore
-clipasm render main.clipasm
-```
+| Example | Demonstrates | Guide |
+| --- | --- | --- |
+| `examples/scenic-sequence.clipasm` | image sources and `concat` | [Scenic sequence tutorial](tutorials/scenic-sequence.md) |
+| `examples/crossfade.clipasm` | exact crossfade overlap | [`crossfade` reference](reference/programs/crossfade.md) |
+| `examples/gentle-motion-edit.clipasm` | `during` and `zoom_in` | [`during` reference](reference/programs/during.md) |
+| `examples/reusable-composition.clipasm` | `clip`, names, references, and explicit inputs | [Reusable composition tutorial](tutorials/reusable-composition.md) |
+| `examples/imported-program.clipasm` | importing a ClipAsm source program | [Import guide](guides/import-a-program.md) |
+| `examples/external-brighten.clipasm` | trusted external implementation | [External-program guide](guides/external-programs.md) |
+| `examples/root-bindings.clipasm` | root Video input and required parameters | [Root-bindings guide](guides/root-inputs-and-parameters.md) |
 
-Use `clipasm validate main.clipasm` when you want a faster source-only check
-without opening media or invoking FFmpeg.
+## Validate or render an example
 
-The starter is a starting point, not a managed template. The
-[CLI reference](reference/cli.md#init) defines its contents and lifecycle.
-The repository programs below are development examples; they may differ from
-the starter shipped by an installed binary.
-
-## Scenic sequence
-
-`examples/scenic-sequence.clipasm` combines three still images with `concat`
-inside a stack block.
+Most examples use the same two-command pattern:
 
 ```console,ignore
 clipasm validate examples/scenic-sequence.clipasm
 clipasm render examples/scenic-sequence.clipasm
 ```
 
-## Exact crossfade
-
-`examples/crossfade.clipasm` overlaps two still images for 500 milliseconds
-with [`crossfade`](reference/programs/crossfade.md). The Video and attached
-Audio timelines use the same exact frame boundaries.
-
-```console,ignore
-clipasm validate examples/crossfade.clipasm
-clipasm render examples/crossfade.clipasm
-```
-
-## Gentle motion edit
-
-`examples/gentle-motion-edit.clipasm` applies
-[`zoom_in`](reference/programs/zoom_in.md) only to a selected range through
-[`during`](reference/programs/during.md).
-
-```console,ignore
-clipasm validate examples/gentle-motion-edit.clipasm
-clipasm render examples/gentle-motion-edit.clipasm
-```
-
-## Reusable composition
-
-`examples/reusable-composition.clipasm` demonstrates `clip`, immutable
-references, named graph inputs, and final concatenation.
-
-```console,ignore
-clipasm validate examples/reusable-composition.clipasm
-clipasm render examples/reusable-composition.clipasm
-```
-
-## Imported program
-
-`examples/imported-program.clipasm` imports
-`examples/programs/polish.clipasm` as an ordinary typed program.
-
-```console,ignore
-clipasm validate examples/imported-program.clipasm
-clipasm render examples/imported-program.clipasm
-```
-
-## External program
-
-`examples/external-brighten.clipasm` imports a native `.clipasm` program whose
-implementation runs a small Python/FFmpeg script through an explicit interpreter
-and content-hashed file argument. It uses the ordinary typed binder and a native
-parameter default. External programs are trusted code and execute during
-rendering; this example requires `python3` on `PATH`.
-
-```console,ignore
-clipasm validate examples/external-brighten.clipasm
-clipasm inspect examples/external-brighten.clipasm
-clipasm render examples/external-brighten.clipasm
-```
+Generated outputs, manifests, and caches are ignored by Git.
 
 ## Root bindings
 
-`examples/root-bindings.clipasm` declares one Video input and two required
-scalar parameters.
+This example requires one Video input and two scalar parameters:
 
 ```console,ignore
 clipasm validate examples/root-bindings.clipasm \
@@ -108,5 +47,16 @@ clipasm render examples/root-bindings.clipasm \
   --output root-bindings.mp4
 ```
 
-Generated outputs, manifests, and caches are ignored by Git in the repository
-and by the starter project's `.gitignore`.
+## External program
+
+`examples/external-brighten.clipasm` may execute Python and FFmpeg during
+rendering. Review the declaration and script before running it:
+
+```console,ignore
+clipasm validate examples/external-brighten.clipasm
+clipasm inspect examples/external-brighten.clipasm
+clipasm render examples/external-brighten.clipasm
+```
+
+External programs are trusted native code. Read
+[Review and run an external program](guides/external-programs.md) first.

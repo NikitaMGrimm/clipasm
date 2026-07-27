@@ -1,20 +1,21 @@
 # Stack binding
 
-`@owned` and `@visible` control stack access. Direct programs default to owned
-access. `join` and `during` default to visible access. An enclosing owned
-boundary cannot be pierced by an inner visible invocation.
+A call can receive Video or Audio values explicitly through arguments or
+implicitly from the accessible stack.
 
-## Arguments and stack binding
+## Scalar arguments
 
-Scalar positional arguments bind scalar parameters in declaration order.
-Named scalar arguments use `=`:
+Positional scalar values bind parameters in declaration order. Named scalar
+arguments use `=`:
 
 ```clipasm
 image("title.png", duration=2s, fit=contain)
 ```
 
-Graph-valued positional expressions are evaluated as preceding statements in
-the current stack frame, preserving source order:
+## Positional graph expressions
+
+A graph-producing positional expression behaves like a preceding statement in
+the current stack frame:
 
 ```clipasm
 flash_cut(
@@ -24,7 +25,7 @@ flash_cut(
 )
 ```
 
-behaves like:
+is equivalent to:
 
 ```clipasm
 image("before.png", 2s)
@@ -32,12 +33,23 @@ image("after.png", 2s)
 flash_cut(160ms)
 ```
 
-Omitted graph inputs bind from the accessible stack by type. Fixed inputs bind
-from the nearest compatible values, working from the last port to the first.
-Variadic programs such as `concat` consume all accessible values of the chosen
-type.
+The expressions are evaluated in source order.
 
-Named graph inputs are isolated explicit input bodies:
+## Implicit stack inputs
+
+When graph inputs are omitted, ClipAsm selects accessible values by exact type.
+For fixed inputs, it works from the program's last input to its first and takes
+the nearest matching occurrence for each.
+
+A variadic program such as `concat` consumes every accessible value of the
+selected Video or Audio type in physical stack order. Values of another type
+stay where they are.
+
+Use `<Video>` or `<Audio>` when both generic choices are possible.
+
+## Named graph inputs
+
+A named graph input is evaluated in an isolated input body:
 
 ```clipasm
 set_audio(
@@ -46,6 +58,31 @@ set_audio(
 )
 ```
 
-A positional graph expression and a named graph input cannot be mixed in the
-same call. Named scalar arguments may still accompany positional graph
-expressions.
+It supplies that input directly and does not consume a value from the caller's
+stack. A named graph input must produce exactly one value of the required type.
+
+Do not mix positional graph expressions and named graph inputs in one call.
+Named scalar arguments may still accompany positional graph expressions.
+
+## Ownership and visibility
+
+`@owned` allows a call to consume only occurrences created by the current body.
+`@visible` may also reach occurrences created by enclosing bodies, stopping at
+the nearest owned boundary.
+
+Most direct built-ins and imported programs default to owned access. `join` and
+`during` default to visible access. The setting applies to one invocation and
+does not automatically propagate into its body.
+
+```clipasm
+@owned {
+    image("inside.png", 1s)
+    @visible concat
+}
+```
+
+The owned block prevents the inner visible call from reaching values outside the
+block.
+
+See [Stack values, ownership, and visibility](../../concepts/stack-values.md) for
+an example-led explanation.

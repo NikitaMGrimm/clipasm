@@ -12,19 +12,19 @@ during<T: Video | Audio>(timeline: T, range: TimeRange) { ... } -> T
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `timeline` | `T` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `range` | `TimeRange` | required | — |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `T`.
 
@@ -32,7 +32,7 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **visible**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Body contract
+## Body
 
 The body begins with:
 
@@ -40,9 +40,9 @@ The body begins with:
 
 The body must leave exactly `T`.
 
-## Timeline behavior
+## Timeline and markers
 
-Replaces the selected range in `timeline`, shifts later placements, and exposes the inserted layout as `replacement`.
+Replaces the selected range in `timeline`, shifts later markers, and names the inserted result `replacement`.
 
 ## Example
 
@@ -65,25 +65,25 @@ Expected validation result: `Video` with exactly 90 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The body starts with the selected range and exposes the complete bound input as lexical $timeline.
 - The body must return exactly one matching value, which is spliced into the original timeline.
 - Placements before and after the range are preserved or shifted; intersecting or uncertain placements are omitted, and the inserted body is available as replacement.
 - A Video selection supplies its requested extent to an image call whose duration is omitted.
 
-## Constraints
+## Requirements
 
 - The range must be native-grid aligned, within the bound timeline, and owned by that timeline.
 - Use `during<Video>` or `during<Audio>` when a mixed stack makes the generic type ambiguous.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_BODY_OUTPUT_COUNT`](../diagnostics/index.md#e_body_output_count) — Wrong body output count
 
-## Related reference
+## See also
 
 - [`trim`](trim.md)
 - [`join`](join.md)

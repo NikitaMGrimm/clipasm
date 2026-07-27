@@ -1,8 +1,12 @@
 # Scalar values and expressions
 
-Number values are exact reduced rationals. Integer literals, decimal literals,
-percentages, arithmetic, and scalar parameter references never pass through
-binary floating point:
+ClipAsm evaluates numbers and durations exactly rather than with binary
+floating point.
+
+## Numbers and integers
+
+Number values are reduced rational values. Integer literals, decimals,
+percentages, arithmetic, and scalar references remain exact:
 
 ```clipasm
 param by: Number = 8%
@@ -34,6 +38,8 @@ repeat(6 / 2) # valid: evaluates to Integer 3
 repeat(5 / 2) # error: evaluates to 2.5, exactly 5/2
 ```
 
+## Durations
+
 `ms` and `s` require an Integer result and construct Duration. They bind to the
 immediately preceding expression:
 
@@ -56,6 +62,8 @@ on ClipAsm's nanosecond authoring grid. See the
 [normative grammar](../../language-grammar.md#scalar-expressions) for the
 complete syntax.
 
+## Scalar aliases
+
 Immutable scalar aliases name inferred scalar expressions without adding a
 value to the media stack:
 
@@ -72,6 +80,8 @@ one another, and aliases from enclosing bodies remain visible. A nested alias
 does not escape its body; sibling bodies may reuse the same name. Declaring an
 alias that shadows a visible alias, or collides with a program input, parameter,
 or named graph value, is an error.
+
+### When aliases are checked
 
 Every alias is structurally checked when its body is compiled: references must
 resolve, operators must type-check, and dependency cycles are rejected even when

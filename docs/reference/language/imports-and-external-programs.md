@@ -1,5 +1,8 @@
 # Imports and external programs
 
+Imports make another `.clipasm` file callable under a local name. The imported
+file may be implemented in ClipAsm or may declare a trusted external executable.
+
 ## Imports
 
 ```clipasm
@@ -7,15 +10,23 @@ import "programs/polish.clipasm" as polish
 import "programs/brighten.clipasm" as brighten
 ```
 
-Aliases are required. Paths resolve relative to the declaring source file.
-Imported source files are ordinary callable programs with isolated local stacks
-and names. Import cycles are errors. Callers use the same import syntax whether
-the imported program is implemented in ClipAsm or by an external executable.
+An alias is required. The path resolves from the file containing the import.
+Aliases are local, are not re-exported, and cannot shadow built-in programs.
+Import cycles are errors.
+
+Each imported source file defines one callable program with its own local stack,
+inputs, parameters, and names. Callers use the same syntax regardless of its
+implementation:
+
+```clipasm
+video("assets/scene.mp4")
+polish(8%)
+```
 
 ## External implementations
 
-A source file may replace its executable ClipAsm body with one external
-implementation:
+A source file may declare an external implementation instead of an executable
+ClipAsm body:
 
 ```clipasm
 clipasm 1
@@ -31,22 +42,29 @@ external {
 }
 ```
 
-`executable` resolves relative to this source file when it contains a path, or
-through the platform command lookup for a bare name. `arguments` is an ordered
-list of literal strings and `file("...")` values. File arguments resolve from
-this source file and are hashed during preflight. External protocol version 1
-passes their resolved paths. Rendering rehashes declared files when the
-external node is reached, but does not snapshot them or prevent a concurrent
-change after that check. ClipAsm passes the executable and arguments separately
-rather than constructing a shell command string; normal platform process
-semantics still apply. `semantic_version` must be positive and is part of
-semantic identity. `preserve` names the declared Video input whose exact
-timeline domain and meaningful-audio state the single Video output preserves.
+### Fields
 
-External programs currently accept fixed Video or Audio inputs and Integer,
-File, or Keyword parameters. File values resolve from the source that supplied
-them and are hashed during preflight. Native defaults are applied before
-execution. An external program cannot also contain executable statements or
-imports; use a separate ClipAsm wrapper program for composition. Compilation
-remains pure. Preflight resolves and hashes the executable, and rendering sends
-a versioned JSON request over standard input.
+- `executable` is either a source-relative path or a bare name found through the
+  platform command lookup.
+- `arguments` is an ordered list of literal strings and `file("...")` values.
+- `semantic_version` is a positive author-controlled version for output meaning.
+- `preserve` names the Video input whose exact duration and meaningful-audio
+  state the single Video output must retain.
+
+A `file("...")` argument resolves from the external source file. ClipAsm hashes
+declared executable and File bytes during preflight and checks them again before
+execution. It passes the executable and argument vector separately rather than
+constructing a shell command.
+
+External programs currently support fixed Video or Audio inputs; Integer, File,
+or Keyword parameters; and exactly one Video output. Defaults are applied before
+execution.
+
+An external implementation file cannot also contain executable statements or
+imports. Put composition in a separate wrapper file and import the external
+program there.
+
+Validation remains media- and process-free. Rendering sends a versioned JSON
+request over standard input and verifies the produced media afterward. External
+programs are not sandboxed; read [External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
+before running one.

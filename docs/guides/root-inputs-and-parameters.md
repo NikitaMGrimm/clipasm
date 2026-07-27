@@ -1,15 +1,12 @@
 # Supply root inputs and parameters
 
-A root source program can declare graph inputs and scalar parameters for the
-caller to provide. This guide validates and renders the committed
-`examples/root-bindings.clipasm` program with one Video input, one `TimeRange`,
-and one `Integer`.
+A root source program can ask its caller for Video or Audio inputs and scalar
+parameters. This guide uses `examples/root-bindings.clipasm`, which declares one
+Video, one time range, and one repeat count.
 
-Run all commands from the repository root.
+Run the commands from the repository root.
 
-## Identify the required bindings
-
-The example declares:
+## Read the declarations
 
 ```clipasm
 input video: Video
@@ -20,13 +17,10 @@ trim($video, $range)
 repeat($count)
 ```
 
-None of these declarations has a default, so the CLI caller must bind all three.
-The body trims the supplied Video to the requested range and repeats the result.
+Because none of the declarations has a default, every compiling command must
+supply all three values.
 
-## Validate with the bindings
-
-Use `--video-input` for the graph input and one `--arg` for each scalar
-parameter:
+## Bind them on the command line
 
 ```console
 $ clipasm validate examples/root-bindings.clipasm
@@ -37,13 +31,18 @@ valid: 4 semantic value(s), 48 frame(s)
 
 ```
 
-Binding names must match their declarations. The input value must have the
-declared graph type, and each scalar value must parse as its declared parameter
-type.
+Use:
 
-## Render and choose the output
+- `--video-input NAME=PATH` for a declared Video;
+- `--audio-input NAME=PATH` for a declared Audio;
+- `--arg NAME=VALUE` for a scalar parameter.
 
-The example does not declare an output path, so provide one to `render`:
+Names are case-sensitive and must match the source declarations. Repeat an
+option when a program declares several values of that kind.
+
+## Render to an explicit output
+
+The example has no configured output, so provide one:
 
 ```console,ignore
 clipasm render examples/root-bindings.clipasm \
@@ -53,18 +52,10 @@ clipasm render examples/root-bindings.clipasm \
   --output root-bindings.mp4
 ```
 
-Because the command runs from the repository root, both the CLI-supplied media
-path and `root-bindings.mp4` resolve from that directory. Paths authored inside
-a `.clipasm` source unit instead resolve from the directory containing that
-source unit. The published Video is two seconds long: the selected one-second
-range repeated twice.
+The selected one-second range is repeated twice, producing a two-second Video.
+CLI-supplied paths resolve from the current working directory. Paths written in
+a `.clipasm` file resolve from the directory containing that file.
 
-Use `--audio-input name=path` for a declared root Audio input. Repeat
-`--video-input`, `--audio-input`, or `--arg` when a source program declares more
-than one corresponding binding.
-
-The [root-bindings reference](../reference/cli.md#root-bindings) defines the
-accepted flags and path bases. See the [examples catalog](../examples.md#root-bindings)
-for the canonical command listing and
-[Source programs and imports](../concepts/source-programs-and-imports.md) for
-the source-program mental model.
+See [Root bindings](../reference/cli.md#root-bindings) for all accepted options
+and [Source programs and imports](../concepts/source-programs-and-imports.md) for
+the broader program model.

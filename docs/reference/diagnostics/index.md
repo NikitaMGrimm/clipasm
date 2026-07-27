@@ -34,27 +34,29 @@ Use the exact code from the error. Wording and source notes may differ by ClipAs
 
 ## Command line and project creation
 
+CLI arguments, initialization, and inspection output
+
+### Common causes in this area
+
+- A command argument, destination, or project path is invalid.
+- An existing file conflicts with the requested operation.
+
+### First things to try
+
+- Check the command help, supplied path, and destination.
+- Use the original diagnostic location and notes to correct the conflicting input.
+
 <a id="e_init_conflict"></a>
 
 ### `E_INIT_CONFLICT` — Project initialization conflict
 
 Project initialization would overwrite or conflict with an existing path.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -64,21 +66,11 @@ Retry after correcting the command or call arguments.
 
 ClipAsm could not create, inspect, or write a file needed for project initialization.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -88,21 +80,11 @@ Retry after repairing the environment or media inputs.
 
 The requested project initialization target is not a valid safe destination.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -112,21 +94,11 @@ Retry after correcting the command or call arguments.
 
 An inspection command would overwrite an existing destination without explicit permission.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -136,21 +108,11 @@ Retry after correcting the command or call arguments.
 
 ClipAsm could not create or write the requested inspection output.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -160,21 +122,11 @@ Retry after repairing the environment or media inputs.
 
 A command-line root binding does not use the name or value shape required by the source.
 
-#### Common causes
-
-- A command argument, destination, or project path is invalid.
-- An existing file conflicts with the requested operation.
-
-#### Try
-
-- Check the command help, supplied path, and destination.
-- Use the original diagnostic location and notes to correct the conflicting input.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -198,7 +150,7 @@ A built-in program lookup requested a name that is not registered with ClipAsm.
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -222,7 +174,7 @@ The explain command received a code that is not in ClipAsm's built-in diagnostic
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 
@@ -230,27 +182,29 @@ Retry after correcting the command or call arguments.
 
 ## Parsing and source structure
 
+syntax, source layout, literals, and project configuration
+
+### Common causes in this area
+
+- The source does not follow the ClipAsm grammar or file structure.
+- A literal, configuration value, or version declaration is malformed.
+
+### First things to try
+
+- Inspect the highlighted source and the surrounding delimiters or declarations.
+- Compare the construct with the language reference, then parse again.
+
 <a id="e_body_nesting_depth"></a>
 
 ### `E_BODY_NESTING_DEPTH` — Body nesting limit exceeded
 
 Nested program bodies exceeded the parser's supported structural depth.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -260,21 +214,11 @@ Retry after correcting the source.
 
 A declaration appears after executable statements, where the source grammar no longer permits it.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -284,21 +228,11 @@ Retry after correcting the source.
 
 A source file declares more than one top-level configuration block.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -308,21 +242,11 @@ Retry after correcting the source.
 
 The parser expected a newline or closing delimiter after a complete statement.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -346,7 +270,7 @@ The parser did not find the required token at the highlighted source location.
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -356,21 +280,11 @@ Retry after correcting the source.
 
 An authored Audio declaration contains an invalid rate, channel count, duration, or related fact.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -380,21 +294,11 @@ Retry after correcting the source.
 
 A duration literal or computed duration is malformed, negative, or outside the supported range.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -404,21 +308,11 @@ Retry after correcting the source.
 
 A string literal contains an escape sequence that ClipAsm does not recognize.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -428,21 +322,11 @@ Retry after correcting the source.
 
 A numeric literal cannot be represented as ClipAsm's exact number type.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -452,21 +336,11 @@ Retry after correcting the source.
 
 A parsed expression or declaration appears where the language requires an executable statement.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -476,21 +350,11 @@ Retry after correcting the source.
 
 The lexer encountered a character sequence that cannot begin a ClipAsm token.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -500,21 +364,11 @@ Retry after correcting the source.
 
 The source version declaration is malformed or does not contain a valid version number.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -524,21 +378,11 @@ Retry after correcting the source.
 
 An authored Video declaration contains invalid dimensions, frame rate, duration, or related facts.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -548,21 +392,11 @@ Retry after correcting the source.
 
 An authored Keyword parameter declaration does not list any allowed values.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -572,21 +406,11 @@ Retry after correcting the source.
 
 A ClipAsm source file does not begin with the required language version declaration.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -596,21 +420,11 @@ Retry after correcting the source.
 
 A numeric value exceeds the exact integer range supported by the operation that consumes it.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -620,21 +434,11 @@ Retry after correcting the source.
 
 A source path does not use the file extension required for a ClipAsm source.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -644,21 +448,11 @@ Retry after correcting the command or call arguments.
 
 Nested expressions or delimiters exceed the parser's supported syntax depth.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -668,21 +462,11 @@ Retry after correcting the source.
 
 A `clip` form contains an argument, but `clip` accepts only a body and an optional type argument.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -692,21 +476,11 @@ Retry after correcting the source.
 
 An Audio declaration contains a field name that ClipAsm does not recognize.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -716,21 +490,11 @@ Retry after correcting the source.
 
 A configuration block contains a field name that this ClipAsm version does not recognize.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -740,21 +504,11 @@ Retry after correcting the source.
 
 An authored program parameter declaration names a scalar type the language does not recognize.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -764,21 +518,11 @@ Retry after correcting the source.
 
 An authored input or output declaration names a graph value type other than Video or Audio.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -788,21 +532,11 @@ Retry after correcting the source.
 
 A Video declaration contains a field name that ClipAsm does not recognize.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -812,21 +546,11 @@ Retry after correcting the source.
 
 The source requests a ClipAsm language version this binary does not support.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -836,21 +560,11 @@ Retry after correcting the source.
 
 The source ended before a program, stack, or clip body received its closing delimiter.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -860,21 +574,11 @@ Retry after correcting the source.
 
 The source ended before the configuration block received its closing delimiter.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -884,21 +588,11 @@ Retry after correcting the source.
 
 The source ended before an external-program declaration received its closing delimiter.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -908,21 +602,11 @@ Retry after correcting the source.
 
 The source ended before a string literal received its closing quote.
 
-#### Common causes
-
-- The source does not follow the ClipAsm grammar or file structure.
-- A literal, configuration value, or version declaration is malformed.
-
-#### Try
-
-- Inspect the highlighted source and the surrounding delimiters or declarations.
-- Compare the construct with the language reference, then parse again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Language reference](../language/index.md)
 
@@ -930,27 +614,29 @@ Retry after correcting the source.
 
 ## Imports and declarations
 
+imports, declarations, names, and external definitions
+
+### Common causes in this area
+
+- An import, declaration, alias, or name is missing or conflicts with another.
+- A referenced source file does not provide the expected declaration.
+
+### First things to try
+
+- Check import paths, aliases, declaration names, and exported outputs.
+- Resolve duplicate or cyclic declarations before compiling again.
+
 <a id="e_dependency_cycle"></a>
 
 ### `E_DEPENDENCY_CYCLE` — Dependency cycle
 
 Program or value dependencies form a cycle that cannot be evaluated in order.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -960,21 +646,11 @@ Retry after correcting the source.
 
 A declaration repeats a field that may be specified only once.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -984,21 +660,11 @@ Retry after correcting the source.
 
 A source file declares the same external program name more than once.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1008,21 +674,11 @@ Retry after correcting the source.
 
 Two declarations introduce the same name in one namespace.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1032,21 +688,11 @@ Retry after correcting the source.
 
 The same program is imported more than once into a declaration.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1056,21 +702,11 @@ Retry after correcting the source.
 
 An authored external-program declaration uses a caller body, which external programs do not support.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1080,21 +716,11 @@ Retry after correcting the source.
 
 An authored external-program declaration contains imports, which are not supported there.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1104,21 +730,11 @@ Retry after correcting the source.
 
 An imported source declares a root output even though only the entry source may publish one.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1128,21 +744,11 @@ Retry after correcting the source.
 
 An imported source contains project-wide settings that are valid only in the entry source.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1152,21 +758,11 @@ Retry after correcting the source.
 
 An import was requested from source text without a filesystem base for resolving its path.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1176,21 +772,11 @@ Retry after correcting the source.
 
 An authored external-program declaration is incomplete or structurally inconsistent.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1200,21 +786,11 @@ Retry after correcting the source.
 
 An external-program declaration omits a field required to define its executable contract.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1224,21 +800,11 @@ Retry after correcting the source.
 
 An external-program declaration does not specify the source or executable file it requires.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1248,21 +814,11 @@ Retry after correcting the source.
 
 An import form that requires a local alias does not provide one.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1272,21 +828,11 @@ Retry after correcting the source.
 
 An imported program name collides with another imported or locally declared name.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1296,21 +842,11 @@ Retry after correcting the source.
 
 Authored program declarations import one another in a cycle.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1320,21 +856,11 @@ Retry after correcting the source.
 
 Nested authored program imports exceed ClipAsm's supported linking depth.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1344,21 +870,11 @@ Retry after correcting the source.
 
 In-memory source attempted an operation that requires a source-file directory.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1368,21 +884,11 @@ Retry after correcting the command or call arguments.
 
 An external-program declaration contains a field name that ClipAsm does not recognize.
 
-#### Common causes
-
-- An import, declaration, alias, or name is missing or conflicts with another.
-- A referenced source file does not provide the expected declaration.
-
-#### Try
-
-- Check import paths, aliases, declaration names, and exported outputs.
-- Resolve duplicate or cyclic declarations before compiling again.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
@@ -1408,13 +914,25 @@ ClipAsm could not resolve a called name as a built-in, imported, or locally decl
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Imports and external programs](../language/imports-and-external-programs.md)
 
 <a id="types-and-stack"></a>
 
 ## Arguments, types, and stack binding
+
+arguments, types, output bindings, and stack inputs
+
+### Common causes in this area
+
+- A call supplies the wrong arguments, types, or stack values.
+- ClipAsm cannot infer one unambiguous value type from the available context.
+
+### First things to try
+
+- Compare the call with its program signature and inspect the current stack.
+- Correct argument names, counts, types, or explicit type information.
 
 <a id="e_ambiguous_generic_type"></a>
 
@@ -1436,7 +954,7 @@ ClipAsm could not determine one concrete Video or Audio type for a generic progr
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1446,21 +964,11 @@ Retry after correcting the source.
 
 A program body left a different number of stack values than its contract requires.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1470,21 +978,11 @@ Retry after correcting the source.
 
 A program call supplies the same named argument more than once.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1494,21 +992,11 @@ Retry after correcting the source.
 
 The concat built-in received no values even though at least one is required.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1518,21 +1006,11 @@ Retry after correcting the source.
 
 Arguments to one generic call resolve to different concrete Video and Audio types.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1542,21 +1020,11 @@ Retry after correcting the source.
 
 An input-transforming body produced a different number of values than its built-in requires.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1566,21 +1034,11 @@ Retry after correcting the source.
 
 A stack-access modifier was applied to a construct that cannot accept it.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1604,7 +1062,7 @@ A call argument has a different scalar or graph value type than its parameter re
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1614,21 +1072,11 @@ Retry after correcting the source.
 
 A typed call argument is outside the value domain accepted by its program.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1638,21 +1086,11 @@ Retry after correcting the source.
 
 An output binding has a name, position, or shape that does not match the called program.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1662,21 +1100,11 @@ Retry after correcting the source.
 
 An authored program parameter default is not a constant value of its declared scalar type.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1686,21 +1114,11 @@ Retry after correcting the source.
 
 A call requests stack visibility that its syntax or program contract does not permit.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1710,21 +1128,11 @@ Retry after correcting the source.
 
 An explicit type argument is not one of the types accepted by the generic program.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1748,7 +1156,7 @@ A program call omits a required named or positional argument.
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1758,21 +1166,11 @@ Retry after correcting the source.
 
 An image call needs an explicit duration because no enclosing timeline context can supply one.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1782,21 +1180,11 @@ Retry after correcting the source.
 
 The current stack does not contain a value required to bind a program input.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1806,21 +1194,11 @@ Retry after correcting the source.
 
 One call mixes explicit graph-valued arguments with implicit stack binding.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1830,21 +1208,11 @@ Retry after correcting the source.
 
 A call declares a different number of output bindings than the program returns.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1854,21 +1222,11 @@ Retry after correcting the source.
 
 A scalar parameter name is used where the language requires a graph or concrete runtime value.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1878,21 +1236,11 @@ Retry after correcting the source.
 
 A call supplies a positional argument after named arguments have begun.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1902,21 +1250,11 @@ Retry after correcting the source.
 
 An authored program body produces a different number of outputs than its declaration promises.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1926,21 +1264,11 @@ Retry after correcting the source.
 
 An authored program body produces an output whose type differs from its declaration.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1950,21 +1278,11 @@ Retry after correcting the source.
 
 A scalar expression is used where a Video or Audio graph value is required.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1974,21 +1292,11 @@ Retry after correcting the source.
 
 A statement or call needs more stack values than are currently available.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -1998,21 +1306,11 @@ Retry after correcting the source.
 
 A program call supplies more positional arguments than its signature has slots.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2022,21 +1320,11 @@ Retry after correcting the source.
 
 Generic type inference depends on another unresolved value or stack selection and needs explicit Video or Audio context.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2046,21 +1334,11 @@ Retry after correcting the source.
 
 A Video, Audio, or scalar value is used where a different concrete type is required.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2070,21 +1348,11 @@ Retry after correcting the source.
 
 A call supplies a body to a program whose contract rejects caller-provided bodies.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2094,21 +1362,11 @@ Retry after correcting the source.
 
 A call supplies an explicit type argument to a program that is not generic.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2118,21 +1376,11 @@ Retry after correcting the source.
 
 A program call uses an argument name that is not present in the program's signature.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2142,21 +1390,11 @@ Retry after correcting the source.
 
 A local output or reference has insufficient context for ClipAsm to infer its concrete type.
 
-#### Common causes
-
-- A call supplies the wrong arguments, types, or stack values.
-- ClipAsm cannot infer one unambiguous value type from the available context.
-
-#### Try
-
-- Compare the call with its program signature and inspect the current stack.
-- Correct argument names, counts, types, or explicit type information.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Stack binding](../language/stack-binding.md)
 
@@ -2164,27 +1402,29 @@ Retry after correcting the source.
 
 ## Compilation and timeline evaluation
 
+timeline ranges, placement names, and compile-time evaluation
+
+### Common causes in this area
+
+- Authored operations produce an invalid graph, range, or timeline placement.
+- Exact frame, sample, duration, or output constraints cannot be satisfied.
+
+### First things to try
+
+- Inspect the ranges, placements, and values named by the original diagnostic.
+- Change the source so graph and exact timeline constraints are satisfiable.
+
 <a id="e_ambiguous_timeline_placement"></a>
 
 ### `E_AMBIGUOUS_TIMELINE_PLACEMENT` — Ambiguous timeline placement
 
 A timeline selector matched more than one authored placement where exactly one was required.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2194,21 +1434,11 @@ Retry after correcting the source.
 
 An exact audio duration or sample calculation exceeded ClipAsm's supported range.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2218,21 +1448,11 @@ Retry after correcting the source.
 
 Compiled-program JSON could not be serialized or decoded in the expected format.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retrying without a relevant change will not help.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2242,21 +1462,11 @@ Retrying without a relevant change will not help.
 
 Crossfade audio inputs cannot provide the exact overlap duration required by the transition.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2266,21 +1476,11 @@ Retry after correcting the source.
 
 A scalar expression attempted exact division by zero.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2290,21 +1490,11 @@ Retry after correcting the source.
 
 A graph join operation has no input values from which to produce an output.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2314,21 +1504,11 @@ Retry after correcting the source.
 
 The root program produced a different number of outputs than the entrypoint contract permits.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2338,21 +1518,11 @@ Retry after correcting the source.
 
 An exact duration or timeline calculation exceeded the supported frame-count range.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2362,21 +1532,11 @@ Retry after correcting the source.
 
 Compilation produced more semantic operations than ClipAsm's supported graph limit.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2386,21 +1546,11 @@ Retry after correcting the source.
 
 The requested crossfade duration is zero, negative, or longer than the available transition inputs.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2410,21 +1560,11 @@ Retry after correcting the source.
 
 The requested flash-cut duration cannot fit the transition's exact timeline constraints.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2434,21 +1574,11 @@ Retry after correcting the source.
 
 A repeat count is not a positive supported integer.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2458,21 +1588,11 @@ Retry after correcting the source.
 
 A scalar operator was applied to values for which that operation is not defined.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2482,21 +1602,11 @@ Retry after correcting the source.
 
 A timeline selector is malformed or cannot be applied to the selected value.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2506,21 +1616,11 @@ Retry after correcting the source.
 
 A time range is reversed, empty where prohibited, or outside the supported exact domain.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2530,21 +1630,11 @@ Retry after correcting the source.
 
 A zoom amount is outside the positive range supported by the zoom effect.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2554,21 +1644,11 @@ Retry after correcting the source.
 
 A timeline expression refers to a named output or placement that does not exist.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2592,7 +1672,7 @@ Two authored placements assign incompatible ranges to the same output timeline.
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2602,21 +1682,11 @@ Retry after correcting the source.
 
 Values combined by one timeline operation do not share the required timeline root.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2626,21 +1696,11 @@ Retry after correcting the source.
 
 An exact Video time does not fall on a frame boundary for the active frame rate.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2650,21 +1710,11 @@ Retry after correcting the source.
 
 An exact Audio time does not fall on a sample boundary for the active sample rate.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2674,21 +1724,11 @@ Retry after correcting the source.
 
 A timeline selector does not match any authored placement in the selected value.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2698,21 +1738,11 @@ Retry after correcting the source.
 
 Compilation could not derive the exact timeline layout required by a later operation.
 
-#### Common causes
-
-- Authored operations produce an invalid graph, range, or timeline placement.
-- Exact frame, sample, duration, or output constraints cannot be satisfied.
-
-#### Try
-
-- Inspect the ranges, placements, and values named by the original diagnostic.
-- Change the source so graph and exact timeline constraints are satisfiable.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Timeline selectors](../language/timeline-selectors.md)
 
@@ -2720,27 +1750,29 @@ Retry after correcting the source.
 
 ## Preflight and media
 
+missing media, probing, decoding, and tool capabilities
+
+### Common causes in this area
+
+- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
+- A required media tool is unavailable or cannot inspect the input.
+
+### First things to try
+
+- Verify asset paths and declared media facts.
+- Install or repair the named tool, or stabilize the asset, before retrying.
+
 <a id="e_asset_changed"></a>
 
 ### `E_ASSET_CHANGED` — Asset changed during preparation
 
 An input asset changed while ClipAsm was inspecting or preparing it.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2764,7 +1796,7 @@ The selected FFmpeg installation lacks a filter, codec, or feature required by t
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2774,21 +1806,11 @@ Retry after repairing the environment or media inputs.
 
 FFprobe could not inspect an input or returned unusable media information.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2812,7 +1834,7 @@ An Audio source references a file that preflight cannot find or access.
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2836,7 +1858,7 @@ An image source references a file that preflight cannot find or access.
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2860,7 +1882,7 @@ A Video source references a file that preflight cannot find or access.
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2870,21 +1892,11 @@ Retry after repairing the environment or media inputs.
 
 A prepared render plan could not be serialized or decoded as the expected JSON format.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retrying without a relevant change will not help.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2894,21 +1906,11 @@ Retrying without a relevant change will not help.
 
 A probed media source does not satisfy the stream, duration, or decodability contract required by its ClipAsm source kind.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2918,21 +1920,11 @@ Retry after repairing the environment or media inputs.
 
 Media probing succeeded partially, but the selected source stream cannot be decoded as required.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2942,21 +1934,11 @@ Retry after repairing the environment or media inputs.
 
 FFmpeg or FFprobe changed after ClipAsm recorded the tool identity used for preparation.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2966,21 +1948,11 @@ Retry after the external file, tool, process, or lock state changes.
 
 FFmpeg, FFprobe, or an external tool produced more output than ClipAsm safely accepts.
 
-#### Common causes
-
-- An asset is missing, unsupported, unstable, or inconsistent with its declaration.
-- A required media tool is unavailable or cannot inspect the input.
-
-#### Try
-
-- Verify asset paths and declared media facts.
-- Install or repair the named tool, or stabilize the asset, before retrying.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -2988,27 +1960,29 @@ Retry after repairing the environment or media inputs.
 
 ## External programs
 
+external executable discovery, protocol, and execution
+
+### Common causes in this area
+
+- An external executable is missing, changed, or failed.
+- The external program did not follow ClipAsm's request and response protocol.
+
+### First things to try
+
+- Run the external executable independently and verify its configured path.
+- Check its ClipAsm protocol output without publishing private inputs.
+
 <a id="e_external_changed"></a>
 
 ### `E_EXTERNAL_CHANGED` — External program changed
 
 An external executable changed after ClipAsm recorded its prepared identity.
 
-#### Common causes
-
-- An external executable is missing, changed, or failed.
-- The external program did not follow ClipAsm's request and response protocol.
-
-#### Try
-
-- Run the external executable independently and verify its configured path.
-- Check its ClipAsm protocol output without publishing private inputs.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3018,21 +1992,11 @@ Retry after the external file, tool, process, or lock state changes.
 
 ClipAsm could not resolve or inspect the configured external-program executable.
 
-#### Common causes
-
-- An external executable is missing, changed, or failed.
-- The external program did not follow ClipAsm's request and response protocol.
-
-#### Try
-
-- Run the external executable independently and verify its configured path.
-- Check its ClipAsm protocol output without publishing private inputs.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3042,21 +2006,11 @@ Retry after repairing the environment or media inputs.
 
 An external program could not be started, completed unsuccessfully, or exceeded execution limits.
 
-#### Common causes
-
-- An external executable is missing, changed, or failed.
-- The external program did not follow ClipAsm's request and response protocol.
-
-#### Try
-
-- Run the external executable independently and verify its configured path.
-- Check its ClipAsm protocol output without publishing private inputs.
-
 #### Retry
 
 Retrying may help if the failure was transient.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3080,7 +2034,7 @@ An external program returned output that does not satisfy ClipAsm's protocol con
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3088,27 +2042,29 @@ Retry after repairing the environment or media inputs.
 
 ## Rendering and publication
 
+rendering, outputs, manifests, and publication
+
+### Common causes in this area
+
+- Rendering failed or produced an artifact that violates the output contract.
+- The destination cannot safely accept the staged artifact or manifest.
+
+### First things to try
+
+- Preserve the original diagnostic and inspect the staged output or destination.
+- Correct the render environment or destination before retrying publication.
+
 <a id="e_export_dimensions"></a>
 
 ### `E_EXPORT_DIMENSIONS` — Invalid export dimensions
 
 A rendered Video export has dimensions that the selected output contract cannot accept.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3119,21 +2075,11 @@ Retry after correcting the source.
 
 FFmpeg failed while ClipAsm was rendering or encoding an artifact.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3144,21 +2090,11 @@ Retry after repairing the environment or media inputs.
 
 The render-manifest path is unsafe, conflicts with output, or cannot be used as requested.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3169,21 +2105,11 @@ Retry after correcting the command or call arguments.
 
 The requested render output path cannot safely receive the selected artifact.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3194,21 +2120,11 @@ Retry after correcting the command or call arguments.
 
 The output filename extension is missing or incompatible with the rendered media type.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3219,21 +2135,11 @@ Retry after correcting the command or call arguments.
 
 ClipAsm could not construct, serialize, or validate the render manifest.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3244,21 +2150,11 @@ Retry after repairing the environment or media inputs.
 
 Two publication products resolve to the same manifest or artifact destination.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3269,21 +2165,11 @@ Retry after correcting the command or call arguments.
 
 The entry source does not identify the value or path that should be published.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3294,21 +2180,11 @@ Retry after correcting the source.
 
 More than one rendered product resolves to the same output destination.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3319,21 +2195,11 @@ Retry after correcting the command or call arguments.
 
 ClipAsm could not create, write, move, or inspect a render output path.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3358,7 +2224,7 @@ ClipAsm could not atomically publish a staged artifact to its requested destinat
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3369,21 +2235,11 @@ Retry after repairing the environment or media inputs.
 
 ClipAsm could not acquire the filesystem lock protecting an output publication.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3394,21 +2250,11 @@ Retry after the external file, tool, process, or lock state changes.
 
 An Audio render timeline cannot be represented by the exact sample ranges required for execution.
 
-#### Common causes
-
-- Rendering failed or produced an artifact that violates the output contract.
-- The destination cannot safely accept the staged artifact or manifest.
-
-#### Try
-
-- Preserve the original diagnostic and inspect the staged output or destination.
-- Correct the render environment or destination before retrying publication.
-
 #### Retry
 
 Retry after correcting the source.
 
-#### Related reference
+#### See also
 
 - [Command-line reference](../cli.md)
 - [Troubleshooting](../../guides/troubleshooting.md)
@@ -3417,27 +2263,29 @@ Retry after correcting the source.
 
 ## Cache and filesystem
 
+paths, hashing, cache state, and filesystem access
+
+### Common causes in this area
+
+- A required path cannot be resolved, read, written, hashed, or locked.
+- Another process or a filesystem policy is temporarily blocking access.
+
+### First things to try
+
+- Check permissions, free space, path validity, and competing ClipAsm processes.
+- Retry only after the filesystem or lock condition has changed.
+
 <a id="e_cache_io"></a>
 
 ### `E_CACHE_IO` — Cache I/O failure
 
 ClipAsm could not read, write, create, or inspect a cache path.
 
-#### Common causes
-
-- A required path cannot be resolved, read, written, hashed, or locked.
-- Another process or a filesystem policy is temporarily blocking access.
-
-#### Try
-
-- Check permissions, free space, path validity, and competing ClipAsm processes.
-- Retry only after the filesystem or lock condition has changed.
-
 #### Retry
 
 Retrying may help if the failure was transient.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3461,7 +2309,7 @@ ClipAsm could not acquire the filesystem lock protecting a cache entry.
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3471,21 +2319,11 @@ Retry after the external file, tool, process, or lock state changes.
 
 ClipAsm could not read and hash an input needed for deterministic identity.
 
-#### Common causes
-
-- A required path cannot be resolved, read, written, hashed, or locked.
-- Another process or a filesystem policy is temporarily blocking access.
-
-#### Try
-
-- Check permissions, free space, path validity, and competing ClipAsm processes.
-- Retry only after the filesystem or lock condition has changed.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3495,21 +2333,11 @@ Retry after the external file, tool, process, or lock state changes.
 
 A source-relative or destination path could not be normalized or resolved safely.
 
-#### Common causes
-
-- A required path cannot be resolved, read, written, hashed, or locked.
-- Another process or a filesystem policy is temporarily blocking access.
-
-#### Try
-
-- Check permissions, free space, path validity, and competing ClipAsm processes.
-- Retry only after the filesystem or lock condition has changed.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3519,21 +2347,11 @@ Retry after repairing the environment or media inputs.
 
 A relative path was supplied through an API that has no source file or base directory.
 
-#### Common causes
-
-- A required path cannot be resolved, read, written, hashed, or locked.
-- Another process or a filesystem policy is temporarily blocking access.
-
-#### Try
-
-- Check permissions, free space, path validity, and competing ClipAsm processes.
-- Retry only after the filesystem or lock condition has changed.
-
 #### Retry
 
 Retry after correcting the command or call arguments.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3543,21 +2361,11 @@ Retry after correcting the command or call arguments.
 
 ClipAsm could not read, canonicalize, or inspect a source file.
 
-#### Common causes
-
-- A required path cannot be resolved, read, written, hashed, or locked.
-- Another process or a filesystem policy is temporarily blocking access.
-
-#### Try
-
-- Check permissions, free space, path validity, and competing ClipAsm processes.
-- Retry only after the filesystem or lock condition has changed.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3565,21 +2373,23 @@ Retry after repairing the environment or media inputs.
 
 ## Browser runtime
 
+browser assets, limits, and browser render plans
+
+### Common causes in this area
+
+- Browser asset facts do not match the prepared plan.
+- The browser runtime cannot decode, represent, or render the requested operation.
+
+### First things to try
+
+- Rebuild the prepared browser inputs and verify supplied asset facts.
+- Check browser support and preserve the failing plan details for diagnosis.
+
 <a id="e_browser_asset_facts"></a>
 
 ### `E_BROWSER_ASSET_FACTS` — Invalid browser asset facts
 
 Browser-supplied media facts were missing, malformed, or inconsistent with the prepared asset.
-
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
 
 #### Retry
 
@@ -3591,16 +2401,6 @@ Retry after repairing the environment or media inputs.
 
 A browser asset's content hash did not match the hash recorded during preparation.
 
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
-
 #### Retry
 
 Retry after the external file, tool, process, or lock state changes.
@@ -3610,16 +2410,6 @@ Retry after the external file, tool, process, or lock state changes.
 ### `E_BROWSER_ASSET_PATH` — Invalid browser asset path
 
 A browser asset path could not be normalized or matched to the prepared plan.
-
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
 
 #### Retry
 
@@ -3631,16 +2421,6 @@ Retry after correcting the command or call arguments.
 
 A browser video asset lacked the probe metadata required to prepare it.
 
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
@@ -3650,16 +2430,6 @@ Retry after repairing the environment or media inputs.
 ### `E_BROWSER_DUPLICATE_ASSET` — Duplicate browser asset
 
 The browser supplied more than one asset for the same normalized path.
-
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
 
 #### Retry
 
@@ -3691,16 +2461,6 @@ Retry after repairing the environment or media inputs.
 
 The browser render plan could not be serialized or decoded as the expected JSON format.
 
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
-
 #### Retry
 
 Retry after repairing the environment or media inputs.
@@ -3710,16 +2470,6 @@ Retry after repairing the environment or media inputs.
 ### `E_BROWSER_RENDER_LIMIT` — Browser render limit exceeded
 
 The prepared render exceeds a browser runtime work, size, or duration limit.
-
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
 
 #### Retry
 
@@ -3731,16 +2481,6 @@ Retry after correcting the source.
 
 The browser renderer does not support an operation required by this prepared plan.
 
-#### Common causes
-
-- Browser asset facts do not match the prepared plan.
-- The browser runtime cannot decode, represent, or render the requested operation.
-
-#### Try
-
-- Rebuild the prepared browser inputs and verify supplied asset facts.
-- Check browser support and preserve the failing plan details for diagnosis.
-
 #### Retry
 
 Retrying without a relevant change will not help.
@@ -3748,6 +2488,18 @@ Retrying without a relevant change will not help.
 <a id="internal"></a>
 
 ## Internal contract failures
+
+likely ClipAsm defects that should be reported
+
+### Common causes in this area
+
+- ClipAsm reached a state that its owning phase should have prevented.
+- User input may have exposed a ClipAsm implementation defect.
+
+### First things to try
+
+- Preserve the diagnostic, ClipAsm version, reproduction steps, and non-sensitive inputs.
+- Report the defect; do not delete caches or generated state unless its explanation says to.
 
 <a id="e_artifact_contract"></a>
 
@@ -3769,7 +2521,7 @@ A rendered artifact violated an invariant that ClipAsm should have established b
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3779,21 +2531,11 @@ Preserve a safe reproduction and report a likely ClipAsm defect.
 
 ClipAsm could not encode invariant-protected data for a deterministic identity fingerprint.
 
-#### Common causes
-
-- ClipAsm reached a state that its owning phase should have prevented.
-- User input may have exposed a ClipAsm implementation defect.
-
-#### Try
-
-- Preserve the diagnostic, ClipAsm version, reproduction steps, and non-sensitive inputs.
-- Report the defect; do not delete caches or generated state unless its explanation says to.
-
 #### Retry
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3817,7 +2559,7 @@ A checked call reached evaluation with a stack binding state the checker should 
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3841,7 +2583,7 @@ An external-program definition reached a phase with inconsistent compiler-owned 
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3865,7 +2607,7 @@ A built-in program implementation disagreed with its compiler-owned signature or
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3889,7 +2631,7 @@ The linker could not resolve a program reference that an earlier owning phase sh
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3913,7 +2655,7 @@ A checked value reached evaluation without the concrete type guaranteed by type 
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3923,21 +2665,11 @@ Preserve a safe reproduction and report a likely ClipAsm defect.
 
 A semantic graph violated an invariant that its builder should have enforced.
 
-#### Common causes
-
-- ClipAsm reached a state that its owning phase should have prevented.
-- User input may have exposed a ClipAsm implementation defect.
-
-#### Try
-
-- Preserve the diagnostic, ClipAsm version, reproduction steps, and non-sensitive inputs.
-- Report the defect; do not delete caches or generated state unless its explanation says to.
-
 #### Retry
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3947,21 +2679,11 @@ Preserve a safe reproduction and report a likely ClipAsm defect.
 
 A prepared render plan violated an invariant that preflight should have established.
 
-#### Common causes
-
-- ClipAsm reached a state that its owning phase should have prevented.
-- User input may have exposed a ClipAsm implementation defect.
-
-#### Try
-
-- Preserve the diagnostic, ClipAsm version, reproduction steps, and non-sensitive inputs.
-- Report the defect; do not delete caches or generated state unless its explanation says to.
-
 #### Retry
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)
 
@@ -3971,20 +2693,10 @@ Preserve a safe reproduction and report a likely ClipAsm defect.
 
 A registered program definition is internally inconsistent or cannot satisfy registry invariants.
 
-#### Common causes
-
-- ClipAsm reached a state that its owning phase should have prevented.
-- User input may have exposed a ClipAsm implementation defect.
-
-#### Try
-
-- Preserve the diagnostic, ClipAsm version, reproduction steps, and non-sensitive inputs.
-- Report the defect; do not delete caches or generated state unless its explanation says to.
-
 #### Retry
 
 Preserve a safe reproduction and report a likely ClipAsm defect.
 
-#### Related reference
+#### See also
 
 - [Troubleshooting](../../guides/troubleshooting.md)

@@ -12,18 +12,18 @@ join<T: Video | Audio>(before: T, after: T) { ... } -> T
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `before` | `T` | exactly one |
 | `after` | `T` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 This program has no scalar parameters.
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `T`.
 
@@ -31,7 +31,7 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **visible**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Body contract
+## Body
 
 The body begins with:
 
@@ -40,9 +40,9 @@ The body begins with:
 
 The body must leave at least 1 homogeneous `T` value(s).
 
-## Timeline behavior
+## Timeline and markers
 
-Initializes the body from `before` and `after` and concatenates the homogeneous values it leaves.
+Starts the body with `before` and `after` and joins the matching values left by the body.
 
 ## Example
 
@@ -66,23 +66,23 @@ Expected validation result: `Video` with exactly 60 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The body starts with before followed by after and exposes them as lexical $before and $after references.
 - Every homogeneous value left by the body is concatenated in stack order into one output timeline.
 - Named values created by the body remain addressable as placements in the result.
 
-## Constraints
+## Requirements
 
 - The body must leave at least one value of the selected homogeneous Video or Audio type.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_EMPTY_JOIN`](../diagnostics/index.md#e_empty_join) — Empty join result
 
-## Related reference
+## See also
 
 - [`concat`](concat.md)
 - [`during`](during.md)

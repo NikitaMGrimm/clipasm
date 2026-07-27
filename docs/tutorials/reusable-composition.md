@@ -1,22 +1,19 @@
 # Build a reusable composition
 
-This tutorial adds named values, references, and an inline input body to a
-safe project you control. Start in the initialized project from the
-[scenic-sequence tutorial](scenic-sequence.md), or create a new one now:
+This tutorial names a composed clip, reuses it, and supplies an inline Video to
+a transition. Start from the scenic tutorial project, or create a fresh one:
 
 ```console,ignore
 clipasm init reusable-video
 cd reusable-video
 ```
 
-There is no repository checkout or directory copying in this workflow. The
-starter supplies the three image assets used below. Create a new file named
-`composition.clipasm` in your editor, so your existing `main.clipasm` remains
-available for comparison.
+Create `composition.clipasm`. The starter's three images will remain available
+under `assets/`.
 
-## Start with the project and two named clips
+## 1. Configure a separate output
 
-Set these project properties, using a separate output:
+Begin with:
 
 ```clipasm
 clipasm 1
@@ -31,7 +28,9 @@ config {
 }
 ```
 
-Then add two `clip` blocks:
+## 2. Build and name two clips
+
+Append:
 
 ```clipasm
 clip {
@@ -44,14 +43,13 @@ clip {
 } as closing
 ```
 
-Each block produces one Video and gives it an immutable name without leaving an
-occurrence on the outer stack. `opening` is zoomed; `closing` is unchanged.
-The exact lowering rules are in
-[`clip`](../reference/language/composition-forms.md#clip).
+Each `clip` body becomes one Video. `as opening` and `as closing` give those
+Videos immutable names. A `clip` does not leave its temporary result on the
+outer stack, so it is safe to reference later exactly where it is needed.
 
-## Reuse a named value and build an inline input
+## 3. Reuse a name and provide an inline input
 
-Append the composition:
+Append:
 
 ```clipasm
 $opening
@@ -67,51 +65,43 @@ $closing
 concat
 ```
 
-The standalone `$opening` starts the output sequence. The `before=$opening`
-argument reads the same immutable named value again; it does not consume the
-standalone occurrence. The `after` body starts with an empty stack, produces one
-meadow Video, and supplies that Video to `flash_cut`. Finally, `$closing` and
-`concat` make one ordered result.
+The first `$opening` places the named Video on the output sequence. The
+`before=$opening` argument reads the same immutable value again without
+consuming the first occurrence.
 
-The snippets above make the complete file, so no repository checkout is
-needed. The
-[names and references](../reference/language/composition-forms.md#names-and-references)
-and
-[arguments and stack binding](../reference/language/stack-binding.md#arguments-and-stack-binding)
-sections own the exact rules.
+The `after={ ... }` block builds one isolated Video for the transition. Finally,
+`$closing` adds the last scene and `concat` combines the three outer values.
 
-## Validate and render your composition
+## 4. Validate and render
 
 ```console,ignore
 clipasm validate composition.clipasm
 clipasm render composition.clipasm
 ```
 
-Validation reports 96 frames. Rendering writes
-`generated/reusable-composition.mp4`, a four-second Video at 24 fps. The middle
-transition overlaps its inputs; the composition still has the authored
-four-second result.
+Validation reports 96 frames. The result is four seconds at 24 fps: one second
+for the standalone opening, two seconds for the flash-cut result, and one second
+for the closing.
 
-## Experiment safely
+## 5. Change the transition
 
-Change only `duration=200ms` to `duration=320ms`, save, then validate and
-render again:
+Change `duration=200ms` to `duration=320ms`, then validate and render again:
 
 ```console,ignore
 clipasm validate composition.clipasm
 clipasm render composition.clipasm
 ```
 
-The program remains 96 frames because the transition changes the overlap within
-the same composition. Compare the rendered transition, then keep or revert the
-edit in your own file.
+The total remains 96 frames because `flash_cut` changes the visual transition
+inside a two-second joined result; it does not shorten the two inputs.
 
 ## What you learned
 
-You prepared named values with `clip`, read an immutable value more than once,
-provided an isolated inline input body, and assembled an ordered Video with
-`flash_cut` and `concat`. Choose another committed program in the
-[examples catalog](../examples.md), or use the
-[programs and composition reference](../reference/programs/index.md) for exact call
-shapes and the [stack-binding reference](../reference/language/stack-binding.md)
-for stack semantics.
+You used `clip` to create reusable named Videos, referenced one value more than
+once, supplied a graph input with an inline block, and assembled the final
+sequence with `concat`.
+
+See [Composition forms](../reference/language/composition-forms.md) for `clip`,
+blocks, and names; [Stack binding](../reference/language/stack-binding.md) for
+argument behavior; and [`flash_cut`](../reference/programs/flash_cut.md) for the
+transition contract.

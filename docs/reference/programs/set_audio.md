@@ -12,26 +12,26 @@ set_audio(video: Video, audio: Audio) -> Video
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `video` | `Video` | exactly one |
 | `audio` | `Audio` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 This program has no scalar parameters.
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Video`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Preserves the timeline layout of `video`.
+Keeps the duration and addressable markers from `video`.
 
 ## Example
 
@@ -48,12 +48,12 @@ Expected validation result: `Video` with a source-dependent frame domain resolve
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The output preserves the Video timeline and is marked as carrying meaningful Audio.
 - The supplied standalone Audio replaces any Audio already attached to the Video.
 
-## Related reference
+## See also
 
 - [`audio`](audio.md)
 - [`extract_audio`](extract_audio.md)

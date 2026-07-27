@@ -1,91 +1,79 @@
 # Machine-readable contracts
 
-ClipAsm has several JSON boundaries, but they serve different audiences. Check
-the document's own version field before consuming it; a higher version means the
-shape or interpretation changed.
+ClipAsm emits several JSON documents, but only three are intended for external
+consumers. Always read the version field before decoding a document.
 
-| Boundary | Current version | Support level | Intended consumer |
+## Supported integrations
+
+| Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
-| Compiled inspection JSON | `format_version: 20` | Versioned inspection contract | `clipasm inspect` users and diagnostic tooling |
-| Render manifest | `format_version: 1` | Versioned published contract | Render automation and provenance tooling |
-| External-program request | `protocol_version: 1` | Versioned integration protocol | Trusted external program implementations |
-| Prepared inspection JSON | `format_version: 11` | Host-internal inspection format | Rust hosts debugging a prepared plan |
-| Browser render plan | `version: 1`, `recipe_contract: 1` | Bundled-host contract | ClipAsm's browser worker and matching runtime |
-| Cache entry metadata | private version | Private implementation detail | ClipAsm only |
+| Compiled inspection JSON | `format_version: 20` | `clipasm inspect` | source-analysis and diagnostic tooling |
+| Render manifest | `format_version: 1` | successful native render | automation and render provenance |
+| External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
 
-A version number does not make a document an authoring format. Do not edit one
-of these documents and feed it back into the compiler.
+A versioned JSON document is not an authoring format. ClipAsm does not accept
+these documents as source input.
 
 ## Compiled inspection JSON
 
-`clipasm inspect SOURCE` and [`CompiledProgram::compiled_json`](https://docs.rs/clipasm/latest/clipasm/compiler/struct.CompiledProgram.html#method.compiled_json)
-produce the same pure, media-independent document. It includes project media
-settings, semantic nodes, ordered outputs, names, source origins, and the
-compiled structure hash.
+`clipasm inspect SOURCE` and the Rust `CompiledProgram::compiled_json` method
+produce the same media-independent document. It includes project settings,
+compiled operations, known domains, ordered outputs, names, source origins, and
+the compiled structure hash.
 
-Consumers may rely on the shape only when `format_version` is exactly the
-version they support. A format-version change may add, remove, rename, or
-reinterpret fields. The document is not canonical source and is not accepted as
-compiler input.
+A consumer must support the exact `format_version`. A new version may add,
+remove, rename, or reinterpret fields.
 
 ## Render manifest
 
-A successful native render publishes `<output>.manifest.json` beside the MP4.
-The manifest is deliberately smaller than a prepared plan. It records:
+A successful native render writes `<output>.manifest.json` beside the MP4. It
+records:
 
-- the manifest and engine versions;
+- manifest and engine versions;
 - the compiled semantic hash;
 - project Video and Audio settings;
-- the result fingerprint, exact Video domain, and meaningful-audio flag;
+- the result fingerprint and exact Video domain;
+- whether the Video carries meaningful Audio;
 - FFmpeg and FFprobe version summaries;
 - cache hit and miss counts.
 
-It excludes local source paths, executable recipes, and cache locations. Tools
-may archive and compare manifests after checking `format_version`.
+It deliberately excludes local source paths, executable recipes, and cache
+locations.
 
 ## External-program request
 
-A reachable trusted external implementation receives one JSON object on
-standard input. Protocol version 1 contains:
+A reachable external implementation receives one JSON object on standard input.
+Protocol version 1 contains:
 
-- `protocol_version`;
-- named prepared inputs with artifact path, value type, exact domain, and audio
+- named prepared inputs with artifact paths, types, exact domains, and audio
   state;
 - resolved Integer, Keyword, and File parameters;
 - the output path the process must create;
 - project Video and Audio settings;
 - resolved FFmpeg and FFprobe executable paths.
 
-The process writes no response document. Success means exiting with status zero
-after creating the requested output; ClipAsm then probes and verifies that
-artifact. An implementation must reject unsupported protocol versions rather
-than guessing.
+The process does not return JSON. It creates the requested file and exits with
+status zero; ClipAsm then probes and verifies the artifact. An implementation
+must reject protocol versions it does not support.
 
-Paths are native host paths and the process runs with the user's permissions.
-This protocol is not a sandbox.
+Paths are native host paths, and the executable runs with the user's
+permissions. This protocol is not a sandbox.
 
-## Host-internal formats
+## Internal formats
 
-Prepared inspection JSON exposes resolved paths, tool identities, renderer
-primitives, fingerprints, and cache metadata. It is useful for debugging a Rust
-host, but it is not a persistence or interchange promise.
+**Prepared inspection JSON** (`format_version: 11`) and the **Browser render plan**
+(`version: 1`, `recipe_contract: 1`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
+persistence or interchange contracts.
 
-The browser render plan and its recipe contract are supported only between the
-matching ClipAsm browser adapter, bundled worker, and declared runtime versions.
-They may evolve with that host without becoming a general external API.
+**Cache entry metadata** is a **Private implementation detail**. Do not read,
+edit, copy, or construct cache sidecars as an integration mechanism.
 
-Cache entry metadata is private. Do not read, edit, copy, or construct cache
-sidecars as an integration mechanism.
+## Consumer rules
 
-## Compatibility rule
-
-For the three supported contracts—compiled inspection JSON, render manifests,
-and external-program requests—consumers must:
+For supported documents:
 
 1. Read the version field first.
-2. Accept only explicitly supported versions.
-3. Ignore unknown fields when that is safe for their decoder.
-4. Treat a version change as requiring review and tests.
-
-ClipAsm may improve whitespace, field ordering, and human-readable text without
-changing semantic meaning. JSON object ordering must not be used as identity.
+2. Accept only versions your software explicitly supports.
+3. Ignore unknown fields only when doing so is safe for that decoder.
+4. Review and test every version change.
+5. Never use JSON object ordering as identity.

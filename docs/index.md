@@ -1,69 +1,69 @@
 # The ClipAsm guide
 
-ClipAsm is a typed, stack-based language for assembling Video and Audio graphs.
-Compilation creates a pure semantic graph without opening media files;
-preflight resolves reachable media and tools; rendering uses FFmpeg to produce
-the configured MP4 and FFprobe to verify it.
+ClipAsm turns a small text program into a video. You describe media sources and
+operations, ClipAsm checks the program before opening media, and `render`
+produces an MP4 with FFmpeg.
 
-ClipAsm is pre-release software, so its language, Rust API, and CLI may change.
-Supported machine-readable contracts carry explicit version fields; consumers
-must reject versions they do not support.
+Try the [browser playground](try-clipasm.md) to edit and render the included
+scenic sequence without installing anything. To work locally, follow
+[Install and render ClipAsm](getting-started/first-render.md).
 
-You can [edit, validate, inspect, and render a video](try-clipasm.md) in the
-browser before installing anything.
+> ClipAsm is pre-release software. The language and command line may change as
+> the project is simplified.
 
-## Recommended learning path
+## Choose a path
 
-1. [Try ClipAsm in the browser](try-clipasm.md), or install the CLI.
-2. [Initialize a project and make your first render](getting-started/first-render.md).
-3. [Build the scenic sequence](tutorials/scenic-sequence.md) by predicting and
-   checking one source concept at a time.
-4. [Build a reusable composition](tutorials/reusable-composition.md) to work
-   with names, references, and composition.
-5. Choose a task guide or concept below as your next project requires it.
+| Goal | Start here |
+| --- | --- |
+| Try ClipAsm in the browser | [Try ClipAsm](try-clipasm.md) |
+| Install the CLI and render a project | [Install and render ClipAsm](getting-started/first-render.md) |
+| Learn the language one idea at a time | [Build the scenic sequence](tutorials/scenic-sequence.md) |
+| Name and reuse a composition | [Build a reusable composition](tutorials/reusable-composition.md) |
+| Solve a specific problem | [How-to guides](#how-to-guides) |
+| Look up exact syntax or behavior | [Reference](#reference) |
 
-`clipasm init` creates a standalone project, so the getting-started path does
-not require a repository checkout. The [examples catalog](examples.md) is for
-development examples in a source checkout; those examples may differ from the
-starter bundled with an installed CLI. The [command-line reference](reference/cli.md)
-defines the starter contents and lifecycle.
+`clipasm init` creates a normal standalone project. You do not need a Git
+checkout, and ClipAsm does not continue managing the files after creating them.
 
-## Find what you need
+## How-to guides
 
-To accomplish a specific task:
+- [Validate a program and inspect its compiled JSON](guides/validate-and-inspect.md)
+- [Supply root inputs and parameters](guides/root-inputs-and-parameters.md)
+- [Import and call a source program](guides/import-a-program.md)
+- [Review and run an external program](guides/external-programs.md)
+- [Troubleshoot validation, media, tools, rendering, and cache problems](guides/troubleshooting.md)
 
-- [Validate and inspect a source file](guides/validate-and-inspect.md).
-- [Supply root inputs and parameters](guides/root-inputs-and-parameters.md).
-- [Import and call a source program](guides/import-a-program.md).
-- [Review and run an external program](guides/external-programs.md).
-- [Diagnose common failures](guides/troubleshooting.md).
+## Reference
 
-To look up exact behavior, use the [command-line reference](reference/cli.md),
-[programs and composition reference](reference/programs/index.md),
-[diagnostics reference](reference/diagnostics/index.md),
-[machine-readable contracts](reference/machine-contracts.md), and normative
-[language reference](reference/language/index.md). Run `clipasm explain <CODE>`
-after an error for an installed-binary lookup. To build a mental model
-first, read about:
+Use reference pages when you already know what you need to look up:
 
-- [compilation, preflight, and rendering](concepts/pipeline.md);
-- [stack values, ownership, and visibility](concepts/stack-values.md);
-- [source programs and imports](concepts/source-programs-and-imports.md);
-- [pure compilation and external-program trust](concepts/external-programs-and-trust.md).
+- [Language reference](reference/language/index.md) for `.clipasm` syntax and behavior
+- [Programs and composition](reference/programs/index.md) for `clip`, stack blocks, and built-in calls
+- [Command-line reference](reference/cli.md) for every CLI command and option
+- [Diagnostics](reference/diagnostics/index.md) for error-code guidance
+- [Machine-readable contracts](reference/machine-contracts.md) for supported JSON integrations
+- [Runnable examples](examples.md) for programs in a source checkout
 
-## Public language and contributor internals
+After an error, the quickest lookup is usually:
 
-The language reference specifies public `.clipasm` syntax and behavior.
-Tutorials, task guides, and concept pages teach that behavior without exposing
-implementation history. Contributor architecture and maintenance documents
-remain in the repository but are intentionally outside the user guide.
+```console,ignore
+clipasm explain E_UNKNOWN_PROGRAM
+```
+
+## Understand the model
+
+These pages explain why the language behaves as it does without requiring
+compiler internals:
+
+- [From source to published video](concepts/pipeline.md)
+- [Stack values, ownership, and visibility](concepts/stack-values.md)
+- [Source programs and imports](concepts/source-programs-and-imports.md)
+- [External programs and the trust boundary](concepts/external-programs-and-trust.md)
 
 ## Contributing
 
-Start with the repository's
+Contributor architecture and maintenance documents live in the repository but
+are intentionally outside this user guide. Start with the repository's
 [contribution workflow](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
-The
-[AI contribution policy](https://github.com/NikitaMGrimm/clipasm/blob/main/AI_POLICY.md)
-allows assisted work while keeping a human accountable for every submitted
-change. Report possible vulnerabilities through the repository's
+Report possible vulnerabilities through the
 [security policy](https://github.com/NikitaMGrimm/clipasm/blob/main/SECURITY.md).

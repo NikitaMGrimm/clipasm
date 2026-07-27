@@ -1,14 +1,17 @@
 # Statements and calls
 
-## Statements
+A statement calls a program, reads a named value, creates a scalar alias, or
+runs a structural block. This page covers program-call syntax.
 
-The general statement shape is:
+## Call shape
+
+The complete statement form is:
 
 ```text
 @access name<Type>(arguments) { body } as output
 ```
 
-Each part is optional when the target permits it. Examples:
+Each part is optional only when the target allows it:
 
 ```clipasm
 image("title.png", 2s, contain)
@@ -21,13 +24,31 @@ operation as result
 operation as (first, second)
 ```
 
-At statement position, a zero-argument call may omit `()`, as in `concat` or
-`operation as result`. Inside an argument expression, write `producer()`;
-an unparenthesized identifier there is a scalar atom, not a program call.
+- `@owned` or `@visible` chooses stack access.
+- `<Video>` or `<Audio>` selects a generic type.
+- `(arguments)` supplies graph or scalar inputs.
+- `{ body }` supplies a body to a body program or language form.
+- `as output` names one or several outputs.
 
-For a construct that accepts a body, omitting braces means an empty body.
-Empty call parentheses and empty bodies may be omitted independently, so these
-are equivalent:
+## Omitting empty syntax
+
+At statement position, a zero-argument call may omit `()`:
+
+```clipasm
+concat
+repeat(2)
+```
+
+Inside an argument expression, a program call must keep its parentheses:
+
+```clipasm
+set_audio(video=video("picture.mp4"), audio=audio("sound.wav"))
+```
+
+An unparenthesized identifier inside an argument is a scalar atom, not a call.
+
+For a construct that accepts a body, omitted braces mean an empty body. These
+forms are equivalent:
 
 ```clipasm
 join
@@ -36,16 +57,21 @@ join {}
 join() {}
 ```
 
-Normal input binding and body-output contracts still apply. For example, bare
-`join` still requires two accessible matching timelines. `clip`, `clip()`,
-`clip {}`, and `clip() {}` likewise share one empty expansion, whose generated
-`concat` reports the ordinary missing-input error. Programs that do not accept
-a caller-supplied body still reject braces.
+Normal input and body-output requirements still apply. Bare `join` still needs
+two matching timelines. A direct program that does not accept a body rejects
+braces.
 
-`<Video>` or `<Audio>` constrains a generic invocation. Usually the compiler
-infers the type; an explicit argument is useful for ambiguity or deliberate
-selection.
+## Generic type selection
 
-See [Stack binding](stack-binding.md) for access modifiers and argument binding,
-and the [built-in program reference](../programs/index.md) for exact call shapes
-and body contracts.
+The compiler usually infers whether a generic call uses Video or Audio. Write an
+explicit type when both are accessible or when deliberate selection improves
+clarity:
+
+```clipasm
+concat<Video>
+drop<Audio>
+```
+
+See [Stack binding](stack-binding.md) for arguments and access modifiers,
+[Composition forms](composition-forms.md) for `clip`, blocks, and names, and
+[Programs and composition](../programs/index.md) for exact built-in call shapes.

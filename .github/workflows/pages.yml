@@ -17,8 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
           toolchain: 1.95.0
@@ -37,11 +35,6 @@ jobs:
         run: mdbook build
       - name: Build browser playground
         run: ./scripts/build_playground.sh
-      - name: Generate history chart
-        run: >-
-          python3 scripts/loc_history.py
-          --ref main
-          --output target/book/loc-history.svg
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:
           path: target/book

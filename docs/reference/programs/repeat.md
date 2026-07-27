@@ -12,19 +12,19 @@ repeat<T: Video | Audio>(value: T, count: Integer) -> T
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `value` | `T` | exactly one |
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `count` | `Integer` | required | — |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `T`.
 
@@ -32,9 +32,9 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-`repeat(1)` preserves `value` as an identity. Larger counts create a fresh, unindexed repeated timeline.
+`repeat(1)` keeps `value` unchanged. Larger counts repeat its media, but the individual repeated occurrences are not addressable by marker.
 
 ## Example
 
@@ -55,22 +55,22 @@ Expected validation result: `Video` with exactly 90 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - repeat(1) is a true identity and preserves nested timeline placements.
 - Larger counts create a fresh repeated timeline; child placements are unavailable until occurrence indexing exists.
 
-## Constraints
+## Requirements
 
 - count must be an Integer greater than or equal to one.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_INVALID_REPEAT_COUNT`](../diagnostics/index.md#e_invalid_repeat_count) — Invalid repeat count
 
-## Related reference
+## See also
 
 - [`concat`](concat.md)
 - [Statements and calls](../language/statements-and-calls.md)

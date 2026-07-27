@@ -1,111 +1,74 @@
 # Stack values, ownership, and visibility
 
-A ClipAsm source program is a typed stack program. The stack makes composition
-concise, while types, per-occurrence ownership, and explicit visibility
-boundaries keep nested bodies predictable.
+Most ClipAsm calls can take their Video or Audio inputs from values produced by
+preceding statements. This is the stack model.
 
-This page explains the model. The
-[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
-defines the authored behavior.
+## Values stay immutable
 
-## Values and occurrences are different
-
-A **value** is an immutable typed result in the semantic graph. A **value
-occurrence** is one place where that value participates in the evaluation
-stack. The stack is one physical ordered sequence containing Video and Audio
-occurrences.
-
-This distinction matters because stack operations act on occurrences, while
-references identify graph values. Naming a result does not move it, change its
-type, or alter its stack effect.
-
-## Implicit inputs bind by exact type
-
-When an invocation omits graph inputs, ClipAsm binds them from the accessible
-stack. Fixed ports are considered from last to first. Each port takes the
-nearest accessible occurrence of its exact declared type. Occurrences of other
-types stay in place and retain their order.
-
-This excerpt from
-[`examples/crossfade.clipasm`](https://github.com/NikitaMGrimm/clipasm/blob/main/examples/crossfade.clipasm)
-leaves two Videos for `crossfade`:
+A Video or Audio value is an immutable result. Placing the same named value on
+the stack more than once creates several usable occurrences; it does not copy or
+change the underlying result.
 
 ```clipasm
-image("assets/morning.png", 2s)
-image("assets/evening.png", 2s)
+image("title.png", 1s) as title
+$title
+$title
+concat
+```
+
+The two references can both be consumed by `concat`.
+
+## Omitted inputs come from the stack
+
+```clipasm
+image("before.png", 2s)
+image("after.png", 2s)
 crossfade(500ms)
 ```
 
-The program's last port, `after`, binds first to the nearest Video: the evening
-image. Its `before` port then binds to the morning image. On a heterogeneous
-stack, Audio occurrences would be skipped without moving while these Video
-ports bind.
+`crossfade` needs `before` and `after`. It binds the nearest matching Video to
+its last input first, so the second image becomes `after` and the first becomes
+`before`.
 
-A missing variadic input consumes every accessible occurrence of its selected
-type in physical order. Generic operations such as `concat` still require one
-homogeneous Video or Audio view; the
-[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
-defines the exact authored forms and ambiguity rules.
+Values of another type remain in place. A generic variadic program such as
+`concat` consumes all accessible values of the selected type in their physical
+order.
 
-Explicit graph inputs behave differently. A named reference or an isolated
-inline input body supplies the port directly and consumes nothing from the
-caller's stack. Contextual Video/Audio adaptation is possible only at an
-explicit fixed-input boundary; implicit binding always requires an exact type.
+Explicit arguments do not consume occurrences from the caller's stack:
 
-## Ownership follows each occurrence
+```clipasm
+set_audio(
+    video=video("picture.mp4"),
+    audio=audio("sound.wav"),
+)
+```
 
-Every stack occurrence records which active body owns it. A body's **owned
-values** are occurrences produced for that body. Its **visible values** are the
-occurrences it may reach within the nearest visibility boundary.
+## Bodies own the values they create
 
-Stack access is invocation metadata:
+`@owned` restricts a call to values created by the current body. `@visible`
+allows it to also reach values from enclosing bodies until an owned boundary is
+encountered.
 
-- `owned` binding can consume only occurrences owned by the current body
-- `visible` binding may also reach occurrences owned by enclosing bodies, up to
-  the nearest visibility boundary
+Most direct programs and imported programs default to owned access. `join` and
+`during` default to visible access because their bodies commonly work with the
+inputs those programs provide.
 
-The setting applies to one invocation and does not propagate to its children.
-Direct built-ins and source programs default to `owned`; `join` and `during`
-default to `visible`.
+A plain `{ ... }` stack block can expose enclosing values to explicitly visible
+calls inside it. `@owned { ... }` creates a boundary.
 
-A plain stack block opens a visible child frame and returns every remaining
-occurrence owned by that frame in order. An `@owned { ... }` block establishes
-a visibility boundary. The block is structural: it is not a registered program
-or a lexical name scope.
+## Names read values; they do not consume them
 
-## References do not consume stack occurrences
+`as name` attaches an immutable name to an output. `$name` places a readable
+occurrence of that value where the reference appears. Naming and referencing do
+not remove another stack occurrence.
 
-An output binding attaches a local name to a value that an item already
-produced. A reference expression such as `$picture` reads that named value and
-creates a semantic graph dependency without consuming, moving, or removing a
-stack occurrence.
+Graph names are unique within one source-program invocation. Names created in a
+nested body remain available in that invocation. Body-input names such as
+`$before`, `$after`, and `$timeline` are temporary exceptions scoped to the
+active body.
 
-Output names are immutable and unique throughout one source-program invocation.
-A name introduced inside a nested body or stack block remains available in the
-containing source program; ordinary braces do not create a lexical name scope.
-Forward references affect dependency resolution, not statement execution
-order, and dependency cycles are errors.
+Scalar aliases are separate from graph names and do not affect the media stack.
 
-Scalar aliases use a separate rule. Every body is one scalar scope: enclosing
-aliases are visible inside descendants, aliases declared in a nested body do not
-escape, and sibling bodies may reuse a scalar name. A scalar alias cannot shadow
-a visible scalar alias or collide with an input, parameter, or output name.
-Aliases have no stack effect.
-
-Body programs add one narrow exception. Their fixed graph inputs appear inside
-the body as local aliases such as `$before`, `$after`, or `$timeline`. Those aliases
-temporarily shadow an outer name while the body is active. Arguments are
-evaluated before the aliases are introduced, so an argument cannot accidentally
-self-reference the port it is defining.
-
-Each invocation of an imported source program has its own isolated local
-namespace. Inputs, parameters, body aliases, and output bindings do not escape;
-only the program's ordered outputs return to its caller.
-
-## Where to find exact rules
-
-- The
-  [stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
-  owns binding, visibility, adaptation, and call syntax.
-- [Composition forms](../reference/language/composition-forms.md) defines
-  structural blocks, `clip`, references, and output bindings.
+See [Stack binding](../reference/language/stack-binding.md) for exact input and
+visibility rules and [Composition forms](../reference/language/composition-forms.md)
+for blocks, `clip`, names, and references.

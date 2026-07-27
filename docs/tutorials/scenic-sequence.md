@@ -1,24 +1,22 @@
 # Build the scenic sequence
 
-In this tutorial, you will use an initialized project to understand one idea at
-a time: project settings, image values, ordered stack statements, and `concat`.
-You will predict an outcome, validate it, make one safe deliberate error, and
-repair it. Create a fresh lesson project from the directory where you keep your
-projects, then enter it:
+This tutorial explains the starter one idea at a time: project settings, image
+values, statement order, and `concat`. You will predict each result, validate
+it, deliberately create one harmless error, and repair it.
+
+Create a fresh project and enter it:
 
 ```console,ignore
 clipasm init scenic-video
 cd scenic-video
 ```
 
-Open `main.clipasm` in an editor. It is your ordinary project file, not a
-managed template; ClipAsm will not rewrite it after initialization. The
-[CLI reference](../reference/cli.md#init) defines the bundled starter's
-contents and lifecycle.
+Open `main.clipasm`. ClipAsm created the file, but it will not manage or rewrite
+it after initialization.
 
-## 1. Predict the project timeline
+## 1. Read the project settings
 
-Read the configuration:
+The configuration begins with:
 
 ```clipasm
 config {
@@ -31,23 +29,21 @@ config {
 }
 ```
 
-**Predict:** this selects a 320x180 project at 24 frames per second and tells
-rendering where to publish the MP4. It does not load an image.
+**Predict:** the output will be 320x180 at exactly 24 frames per second, and
+`render` will publish it to `generated/scenic-sequence.mp4`.
 
-Validate without changing the file:
+Now validate:
 
 ```console,ignore
 clipasm validate main.clipasm
 ```
 
-**Observe:** validation succeeds with 108 frames. That confirms the complete
-program has an authored duration; it has still not checked whether the image
-files can be opened. The exact declaration rules are in
-[configuration and declarations](../reference/language/files-and-configuration.md#configuration-and-declarations).
+**Observe:** validation succeeds with 108 frames. It can calculate that duration
+from the source without opening an image.
 
-## 2. Predict the values on the stack
+## 2. Follow the values
 
-Now read the first three statements in the executable block:
+The next three statements are:
 
 ```clipasm
 image("assets/morning.png", 1500ms, contain)
@@ -55,15 +51,15 @@ image("assets/meadow.png", 1500ms, contain)
 image("assets/evening.png", 1500ms, contain)
 ```
 
-**Predict:** each `image` statement produces one 1.5-second Video. The paths
-are relative to `main.clipasm`, and `contain` states how each image fits the
-project frame. Three such scenes at 24 fps should account for 108 frames.
+Each call creates one 1.5-second Video. `contain` fits the complete image inside
+the 320x180 frame, adding empty space when the aspect ratios differ.
 
-**Observe:** the previous validation result is that prediction: `3 × 1.5 × 24`
-is 108. The [`image` reference](../reference/programs/image.md) owns its exact
-call shape and behavior.
+**Predict:** three scenes × 1.5 seconds × 24 fps = 108 frames.
 
-## 3. Join those values
+The validation result confirms that calculation. The files themselves are not
+opened until rendering.
+
+## 3. Join the scenes
 
 The final statement is:
 
@@ -71,49 +67,41 @@ The final statement is:
 concat
 ```
 
-**Predict:** `concat` consumes the accessible Video values in their statement
-order and returns one combined Video. Rendering should show morning, meadow,
-then evening.
+`concat` takes the accessible Video values in their existing order and returns
+one combined Video. The rendered order is therefore morning, meadow, evening.
 
-Test a harmless diagnostic before rendering. Change only `concat` to
-`concatt`, save, and validate:
+Create a safe error by changing `concat` to `concatt`, then validate:
 
 ```console,ignore
 clipasm validate main.clipasm
 ```
 
-**Observe:** validation fails at `concatt` because it is not a known program.
-No media is opened and no output is written. Restore the spelling to `concat`,
-save, and validate again:
+The command reports an unknown program at `concatt`. Restore the spelling and
+validate once more. No media was opened and no output was written while testing
+this error.
 
-```console,ignore
-clipasm validate main.clipasm
-```
+## 4. Change the timeline
 
-**Observe:** it is valid again with 108 frames. This is a safe way to use a
-source-location diagnostic while learning: repair the source before rendering.
+Change only the meadow duration from `1500ms` to `1s`.
 
-## 4. Change one duration and render
-
-Change the meadow duration, and nothing else, from `1500ms` to `1s`.
-
-**Predict:** the sequence becomes four seconds, so validation should report 96
-frames at 24 fps. Check it, then render:
+**Predict:** the complete sequence becomes four seconds, so validation should
+report 96 frames at 24 fps.
 
 ```console,ignore
 clipasm validate main.clipasm
 clipasm render main.clipasm
 ```
 
-**Observe:** validation reports 96 frames, and
-`generated/scenic-sequence.mp4` has a shorter middle scene. You may restore
-`1500ms` whenever you want the original 4.5-second sequence again.
+**Observe:** validation reports 96 frames, and the rendered MP4 has a shorter
+middle scene.
 
 ## What you learned
 
-You used project configuration, created Video values with `image`, relied on
-statement order, and used `concat` to produce one output. You also used pure
-validation to diagnose and repair a source error before rendering. Next, [build
-a reusable composition](reusable-composition.md), or consult the
-[language reference](../reference/language/index.md) for exact syntax and
-[stack binding](../reference/language/stack-binding.md) behavior.
+You configured a project, created three Video values, relied on statement order,
+and reduced them to one output with `concat`. You also used `validate` to repair
+a source error before rendering.
+
+Next, [Build a reusable composition](reusable-composition.md). For exact lookup,
+see [`image`](../reference/programs/image.md),
+[`concat`](../reference/programs/concat.md), and
+[Files and configuration](../reference/language/files-and-configuration.md).

@@ -1,93 +1,58 @@
 # Source programs and imports
 
-Each authored ClipAsm input defines one callable source program. Imports connect
-those programs through typed interfaces rather than copying text or merging
-their stacks and names.
+Every `.clipasm` file defines one callable source program. Importing a file makes
+that program available under a local alias; it does not paste the file's text
+into the caller.
 
-This page explains the relationship between files, packages, and calls.
-[Imports and external programs](../reference/language/imports-and-external-programs.md#imports)
-defines current syntax and behavior.
+## One file, one interface
 
-## Units form one linked package
+A source program may declare Video or Audio inputs and scalar parameters, then
+return the values left by its body. The root file may additionally configure the
+project and publication output.
 
-A **source unit** identifies one authored input, its diagnostic name, and an
-optional filesystem base for relative paths. A **source package** is one linked
-collection of source units with one root unit. Each unit contributes one
-callable **source program**.
+Imported files cannot set root project or output configuration.
 
-The root source unit is special only where a project needs one owner. It may
-declare project media configuration and publication settings. Imported units
-may declare their callable inputs and parameters, but they may not declare
-root-only project or output settings.
-
-Declarations precede executable items. A source program's executable body
-starts with an empty local stack and returns every final value occurrence owned
-by that body, in order. Zero, one, or multiple outputs are valid for pure
-compilation; publication separately requires exactly one Video.
-
-## Imports bind local aliases
-
-An import gives another unit's source program an explicit local alias:
+## Imports create local aliases
 
 ```clipasm
 import "programs/polish.clipasm" as polish
 ```
 
-Calling `polish` then uses the same typed input, parameter, stack-binding, and
-ordered-output model as a built-in call. Whether the imported program has a
-ClipAsm body or an external implementation does not change the caller's import
-syntax.
+The path is relative to the file containing the import. The alias is required,
+local to that file, and cannot replace a built-in name. Import cycles and
+recursive source-program calls are rejected.
 
-Aliases are local to the importing unit. They are not re-exported and may not
-shadow built-ins. Import cycles, including self-imports, are rejected, so
-recursive source-program calls are not supported.
+The imported program is called like a built-in:
 
-An import is therefore not a textual include. The imported program keeps its
-own body, interface, path base, and local namespace.
+```clipasm
+video("assets/scene.mp4")
+polish(10%)
+```
 
-## Every call is isolated
+## Calls are isolated
 
-Invoking a source program opens an empty local stack and an isolated namespace.
-Bound Video or Audio inputs become local graph values. Scalar parameters become
-local scalar values rather than stack entries. Output bindings and body-input
-aliases also stay local to that invocation.
+Each call gets its own local stack, inputs, parameters, and names. Those names do
+not leak back to the caller. Only the program's final ordered values return.
+Calling the same imported program twice therefore creates two independent
+invocations.
 
-Only the source program's ordered outputs return to the caller. Local names do
-not leak, and calling the same imported definition more than once does not merge
-the calls' stacks or names.
+## Paths keep their source
 
-This isolation also explains why a source program defaults to `owned` stack
-access. Missing inputs bind from the caller according to the ordinary call
-interface, then evaluation proceeds within the program's own local stack.
+A relative path stays attached to where it was authored:
 
-## Paths keep their author
+- an import path resolves from the importing file;
+- a media or default File path resolves from the file containing it;
+- a value supplied by a caller keeps the caller's path base;
+- a CLI-supplied path resolves from the current working directory.
 
-Relative authored paths resolve from the source unit containing the authored
-value. This remains true across calls:
+This allows a reusable imported program to keep assets beside its own source.
 
-- a literal default in an imported program keeps the imported unit's path base
-- a value supplied by the caller keeps the caller's path base
-- an import path resolves relative to the unit declaring the import
-- entrypoint publication and cache placement use the entrypoint source unit
-- paths supplied through the CLI resolve from the caller's working directory
+## The complete package is checked
 
-The path base follows the authored value rather than whichever source program
-happens to consume it. This makes reusable programs independent of the root
-project's directory layout.
+Validation checks every linked imported source program, even when the root does
+not call it. Rendering later opens only media and tools reachable from the Video
+being published.
 
-## Linking checks more than execution reaches
-
-Before evaluation, compilation validates the complete linked source-unit graph,
-rejects cycles, and checks every linked source program, even when the root never
-calls it. An unused import therefore cannot hide invalid source.
-
-That rule is intentionally broader than preflight. Compilation checks the whole
-package without opening media; preflight later inspects only the assets and
-tools reachable from the Video being prepared. See
-[From source to published video](pipeline.md) for the phase distinction.
-
-## Where to find exact rules
-
-- [Files and configuration](../reference/language/files-and-configuration.md#configuration-and-declarations)
-  specifies declarations, source programs, root-only configuration, imports,
-  inputs, parameters, namespaces, and path behavior.
+See [Imports](../reference/language/imports-and-external-programs.md#imports) for
+exact syntax and [Import and call a source program](../guides/import-a-program.md)
+for a complete example.

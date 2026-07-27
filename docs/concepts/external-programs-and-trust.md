@@ -1,107 +1,51 @@
 # External programs and the trust boundary
 
-An external program gives a typed ClipAsm source program an implementation in a
-separate executable. Callers still use an ordinary import and the ordinary
-program interface; the difference appears only when ClipAsm prepares and
-renders the semantic graph.
+An external program looks like an ordinary typed ClipAsm program to its caller,
+but rendering delegates one operation to another executable.
 
-External programs are an explicit trust boundary. Read this page before
-rendering a project that imports one.
-[Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
-defines the current declaration syntax.
+> **Warning:** a reachable external program runs with your user permissions.
+> Importing or validating it does not execute it; rendering does.
 
-## Compilation records meaning without execution
+## What validation checks
 
-An external implementation file declares typed inputs and parameters, an
-executable with ordered arguments, a positive semantic version, and the Video
-input whose domain its output preserves. It is imported through the same local
-alias mechanism as a ClipAsm-bodied source program.
+Validation checks the declaration, inputs, parameters, defaults, and ordinary
+call behavior. It records the external operation without locating or executing
+the executable.
 
-During compilation, the external call becomes a pure semantic graph node.
-Validation and compilation do not resolve or execute its program. The call
-still participates in ordinary type checking, defaults, stack binding, and
-semantic identity.
+The current interface supports fixed Video or Audio inputs, Integer, File, or
+Keyword parameters, and exactly one Video output. The declaration identifies the
+input whose duration and audio state the output preserves.
 
-The initial external protocol is deliberately narrow:
+## What rendering checks
 
-- fixed Video or Audio inputs
-- Integer, File, or Keyword parameters
-- exactly one Video output
-- an output with the exact domain and meaningful-audio state of one declared
-  Video input
+Before execution, ClipAsm locates and hashes the executable and declared File
+arguments. It sends a versioned JSON request over standard input and passes the
+executable and arguments separately rather than building a shell command.
 
-An external implementation file cannot also contain executable statements or
-imports. Put composition in a separate ClipAsm wrapper program.
+A zero exit status is not enough: ClipAsm probes the produced artifact and
+checks it against the declared Video result before accepting it.
 
-## Preflight resolves and hashes dependencies
+## What ClipAsm cannot make safe
 
-Preflight is the first phase that resolves an external executable. A path is
-resolved relative to the external source unit; a bare executable name uses the
-platform command lookup. Preflight requires a regular file and hashes its
-bytes.
+ClipAsm does not sandbox the process, limit its runtime, or prevent access to the
+filesystem, network, environment, or other processes. It cannot discover hidden
+inputs such as:
 
-It also resolves and hashes explicit `file(...)` arguments and bound File
-parameters, prepares upstream graph inputs, and copies the exact prepared domain
-from the declared preserved Video input. These bytes and resolved dependencies
-participate in prepared identity. Preflight does not run the external program.
+- environment variables;
+- clocks or random state;
+- network responses;
+- imported modules;
+- undeclared files.
 
-## Rendering re-verifies, executes, and checks
+A hidden dependency can also make cached output stale. Authors must declare File
+dependencies where supported and update `semantic_version` whenever other
+output-affecting behavior changes.
 
-Before using a cache entry or starting the process, rendering re-hashes the
-executable and declared files. It passes the executable and its argument vector
-separately rather than constructing a shell command string, and sends a
-versioned JSON request over standard input.
+Hashing reduces accidental drift but does not create an immutable snapshot. A
+file can still change between the final hash and the external process reading
+it.
 
-A successful exit only means the process claims to have written its result.
-ClipAsm still verifies the produced artifact against the prepared media
-contract before committing it to the cache.
-
-The exact request fields and version-handling rule are summarized in
-[Machine-readable contracts](../reference/machine-contracts.md#external-program-request).
-
-Separating the executable from its arguments avoids treating authored text as
-shell source. It does not make the executable safe or isolated.
-
-## Treat external code as native code
-
-> **Warning:** An external program is trusted native code. Importing or
-> validating it does not execute it, but rendering a reachable call runs the
-> executable with the user's permissions. Render only projects and external
-> programs you trust.
-
-ClipAsm does not sandbox an external process, impose an execution timeout, prove
-that it terminates, or require deterministic behavior. The process may hang,
-crash, consume arbitrary machine resources, access the filesystem or network,
-or produce different output for identical requests. Normal platform process
-semantics still apply even though ClipAsm does not construct a shell command.
-
-## Cache identity cannot discover hidden inputs
-
-Cache identity covers the declared semantic version, executable and
-`file(...)` bytes, File parameters, bound scalar parameters, upstream artifacts,
-project settings, and the provided FFmpeg and FFprobe identities.
-
-External protocol version 1 receives the resolved paths of declared File
-values. Preflight hashes those files, and rendering re-hashes them when the
-external node is reached. This detects ordinary changes between preparation and
-execution without treating the filesystem as an immutable store.
-The final hash and the process opening a file are separate operations, so a
-concurrent mutation can still change the bytes observed by the process.
-
-It cannot automatically discover:
-
-- imported modules or undeclared files opened by the executable
-- environment variables
-- clocks, random input, or other process state
-- filesystem or network responses not declared through the interface
-
-An environmentally dependent or nondeterministic program may therefore reuse a
-cached prior result. Authors must declare file dependencies where the protocol
-allows it and increment `semantic_version` whenever an undeclared dependency
-changes output semantics. Reproducibility remains the external program
-author's contract.
-
-## Where to find exact rules
-
-- [Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
-  owns the declaration form, supported interface, and path behavior.
+Review and trust every declaration, executable, script, and file argument before
+rendering. See [Review and run an external program](../guides/external-programs.md)
+for a safe workflow and [External implementations](../reference/language/imports-and-external-programs.md#external-implementations)
+for exact declaration rules.

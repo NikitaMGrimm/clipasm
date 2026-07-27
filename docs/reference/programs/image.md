@@ -12,11 +12,11 @@ image(path: File, duration?: Duration, fit?: Keyword(cover | contain | stretch))
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
-This program has no graph-valued inputs.
+This program does not take a Video or Audio input from the stack.
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
@@ -24,15 +24,15 @@ This program has no graph-valued inputs.
 | `duration` | `Duration` | optional | uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required |
 | `fit` | `Keyword(cover \| contain \| stretch)` | optional | cover |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Video`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Creates a fresh timeline layout, or no layout when the program has no output.
+Creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -52,23 +52,23 @@ Expected validation result: `Video` with exactly 60 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - The image is fitted to the project Video dimensions; cover fills the frame and crops overflow, contain pads, and stretch may distort.
 - A surrounding Video body may supply the requested duration when duration is omitted.
 
-## Constraints
+## Requirements
 
 - The resolved duration must contain at least one project frame.
 
-## Selected diagnostics
+## Common diagnostics
 
-These are selected actionable diagnostics, not every error a call can produce.
+These are the diagnostics most specific to this program.
 
 - [`E_MISSING_IMAGE_DURATION`](../diagnostics/index.md#e_missing_image_duration) — Missing image duration
 - [`E_INVALID_DURATION`](../diagnostics/index.md#e_invalid_duration) — Invalid duration
 
-## Related reference
+## See also
 
 - [`video`](video.md)
 - [`during`](during.md)

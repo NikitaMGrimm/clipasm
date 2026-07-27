@@ -12,17 +12,17 @@ concat<T: Video | Audio>(values: T...) -> T
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
 | `values` | `T` | one or more (minimum 1) |
 
-## Parameters
+## Parameters and defaults
 
 This program has no scalar parameters.
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `T`.
 
@@ -30,9 +30,9 @@ All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an expl
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Concatenates the ordered timeline layouts bound to `values`.
+Places the values bound to `values` one after another in their existing order.
 
 ## Example
 
@@ -54,12 +54,12 @@ Expected validation result: `Video` with exactly 60 project frames at the exampl
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - Every bound value must use the same inferred Video or Audio type and is concatenated in stack order.
 - Use `concat<Video>` or `concat<Audio>` when both homogeneous bindings are possible.
 
-## Related reference
+## See also
 
 - [`join`](join.md)
 - [Statements and calls](../language/statements-and-calls.md)

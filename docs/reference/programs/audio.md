@@ -12,25 +12,25 @@ audio(path: File) -> Audio
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
-## Inputs
+## Graph inputs
 
-This program has no graph-valued inputs.
+This program does not take a Video or Audio input from the stack.
 
-## Parameters
+## Parameters and defaults
 
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `path` | `File` | required | — |
 
-## Outputs and binding
+## Result and stack behavior
 
 Outputs: `Audio`.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
-## Timeline behavior
+## Timeline and markers
 
-Creates a fresh timeline layout, or no layout when the program has no output.
+Creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -44,11 +44,11 @@ Expected validation result: `Audio`.
 
 This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
 
-## Important behavior
+## Behavior
 
 - Compilation remains media-pure; preflight probes and normalizes the source to the project Audio domain.
 
-## Related reference
+## See also
 
 - [`set_audio`](set_audio.md)
 - [Statements and calls](../language/statements-and-calls.md)

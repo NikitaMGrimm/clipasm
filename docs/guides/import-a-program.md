@@ -1,15 +1,13 @@
 # Import and call a source program
 
-Use an import when a reusable operation belongs in its own `.clipasm` source
-unit. This guide runs the committed wrapper
-`examples/imported-program.clipasm`, which calls
+Move a reusable operation into its own `.clipasm` file when it has a useful
+callable interface. This guide uses the committed wrapper
+`examples/imported-program.clipasm` and program
 `examples/programs/polish.clipasm`.
 
-Run all commands from the repository root.
+Run the commands from the repository root.
 
 ## Define the reusable program
-
-The imported program declares its callable interface and body:
 
 ```clipasm
 clipasm 1
@@ -20,41 +18,28 @@ param by: Number = 6%
 zoom_in($video, $by)
 ```
 
-The `video` input and `by` parameter are local to each invocation.
-The source program returns its ordered final owned values to its caller.
+This program accepts one Video and an optional zoom amount. Its final values are
+returned to the caller in order.
 
-## Import it under a local alias
+## Import it under a local name
 
-The wrapper imports the file and calls the alias like an ordinary program:
+The wrapper contains:
 
 ```clipasm
-clipasm 1
-
-config {
-    video {
-        width = 320
-        height = 180
-        fps = 24
-    }
-    output = "generated/imported-program.mp4"
-}
-
 import "programs/polish.clipasm" as polish
 
 video("assets/gentle-motion.mkv", contain)
 polish(10%)
 ```
 
-Import paths resolve relative to the source unit containing the declaration, so
-the wrapper finds `programs/polish.clipasm` below the same `examples/`
-directory that contains the wrapper. The required alias is local to the wrapper
-and is not re-exported. The imported invocation also has its own local stack and
-namespace; local inputs, parameters, and output names do not escape it.
+The import path is relative to the wrapper file. `polish` is a local alias; it
+is not re-exported to another source file. The call takes the Video already on
+the stack and overrides the default `by` parameter with `10%`.
 
-Here `video(...)` produces the Video that binds to `polish`'s declared input,
-and `10%` overrides the `by` default.
+Each invocation has its own local stack and names. Values leave the imported
+program only through its ordered outputs.
 
-## Validate and render the wrapper
+## Validate and render
 
 ```console
 $ clipasm validate examples/imported-program.clipasm
@@ -62,19 +47,16 @@ valid: 3 semantic value(s), duration resolves during preflight
 
 ```
 
-Validation links and checks the source package without rendering. Then render
-it:
+The deferred duration is expected because validation does not open the video
+file. Render when ready:
 
 ```console,ignore
 clipasm render examples/imported-program.clipasm
 ```
 
-The render command publishes the two-second source as
-`examples/generated/imported-program.mp4` because the authored output path
-resolves from the wrapper source unit.
+The configured output is written to
+`examples/generated/imported-program.mp4`, relative to the wrapper file.
 
-For exact import, namespace, and path rules, see
-[Imports](../reference/language/imports-and-external-programs.md#imports). Read
-[Source programs and imports](../concepts/source-programs-and-imports.md) for
-the broader model and the [examples catalog](../examples.md#imported-program)
-for the canonical command listing.
+See [Imports](../reference/language/imports-and-external-programs.md#imports) for
+exact rules and [Source programs and imports](../concepts/source-programs-and-imports.md)
+for the mental model.
