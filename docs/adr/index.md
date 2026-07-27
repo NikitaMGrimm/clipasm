@@ -6,7 +6,7 @@ identity, program model, authoring contract, or media-timing rule.
 
 ADRs explain constraints and trade-offs; they are not the normative language
 reference or an implementation history. Git retains superseded decisions. Use
-the [language reference](../language-reference.md) for current public syntax and
+the [language reference](../reference/language/index.md) for current public syntax and
 behavior, and the [architecture](../architecture.md) for current phase
 responsibilities and internal terminology.
 
@@ -45,8 +45,9 @@ responsibility map.
 | [0011](0011-add-type-preserving-timeline-programs.md) | `accepted` | Resolve type-preserving Video or Audio timeline programs during checking. |
 
 For current behavior, see the language reference sections on
-[arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
-and [references and output names](../language-reference.md#references-and-output-names).
+[arguments and stack binding](../reference/language/stack-binding.md#arguments-and-stack-binding)
+and
+[references and output names](../reference/language/names-blocks-and-clip.md#references-and-output-names).
 
 ## Media domains, execution, and rendering
 

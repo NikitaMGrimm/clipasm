@@ -56,5 +56,5 @@ clipasm render main.clipasm
 
 For the phase boundaries, read
 [Compilation, preflight, and rendering](../concepts/pipeline.md). See the
-[language reference](../language-reference.md) for exact language behavior and
+[language reference](../reference/language/index.md) for exact language behavior and
 the [examples catalog](../examples.md) for more programs to validate.

@@ -106,5 +106,6 @@ its sibling manifest.
 - [ADR 0003](../adr/0003-separate-semantic-and-execution-identities.md)
   explains why meaning, prepared content, and execution compatibility have
   separate identities.
-- The [language reference](../language-reference.md) owns current authored
-  syntax and CLI binding forms.
+- The [language reference](../reference/language/index.md) owns current authored
+  syntax. The [command-line reference](../reference/cli.md#root-bindings) owns
+  CLI binding forms.

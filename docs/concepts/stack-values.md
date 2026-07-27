@@ -5,7 +5,7 @@ concise, while types, per-occurrence ownership, and explicit visibility
 boundaries keep nested bodies predictable.
 
 This page explains the model. The
-[language reference](../language-reference.md#arguments-and-stack-binding) owns
+[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding) owns
 the authored behavior, and
 [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) records the
 current typed ownership design.
@@ -46,7 +46,7 @@ ports bind.
 A missing variadic input consumes every accessible occurrence of its selected
 type in physical order. Generic operations such as `concat` still require one
 homogeneous Video or Audio view; the
-[language reference](../language-reference.md#arguments-and-stack-binding)
+[stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
 defines the exact authored forms and ambiguity rules.
 
 Explicit graph inputs behave differently. A named reference or an isolated
@@ -106,9 +106,12 @@ only the program's ordered outputs return to its caller.
 
 ## Where to find exact rules
 
-- The [language reference](../language-reference.md#arguments-and-stack-binding)
-  owns binding, visibility, adaptation, blocks, references, output bindings,
-  and call syntax.
+- The
+  [stack-binding reference](../reference/language/stack-binding.md#arguments-and-stack-binding)
+  owns binding, visibility, adaptation, and call syntax.
+- [Names, blocks, and
+  `clip`](../reference/language/names-blocks-and-clip.md) owns structural blocks,
+  references, and output bindings.
 - [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) replaces the
   earlier contiguous stack-access model with typed per-occurrence ownership.
 - [ADR 0011](../adr/0011-add-type-preserving-timeline-programs.md) explains

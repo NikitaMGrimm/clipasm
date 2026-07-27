@@ -32,8 +32,8 @@ decisions. Run `./scripts/check.sh` before handoff.
 | Change package loading | `src/language/loader.rs`, `src/source` | path bases, deduplication, cycles, aliases, external implementations, imported-program tests |
 | Change canonical source | `src/source`, compiler | draft/checked IR, every traversal, semantic identity |
 | Change checked-source construction | `src/compiler/draft.rs`, `typecheck.rs`, `check.rs`, `checked.rs` | dependencies, signatures, stack plans, evaluator interface |
-| Add or change a direct program | matching `src/program/builtins` module | descriptor order, semantic version, domains, prepared lowering, rendering, identities, language reference |
-| Add or change a body program | `src/program/builtins/body.rs` | body contract, access default, finalizer, lexical aliases, tests, language reference |
+| Add or change a direct program | matching `src/program/builtins` module | catalog reference facts, descriptor order, semantic version, domains, prepared lowering, rendering, identities, generated program reference |
+| Add or change a body program | `src/program/builtins/body.rs` | catalog reference facts, body contract, access default, finalizer, lexical aliases, tests, generated program reference |
 | Change call or stack binding | `src/program/call.rs`, compiler stack/typecheck/evaluate | descriptor slots, cardinality, root and authored calls, diagnostics |
 | Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, FFmpeg capability requirements, serialized formats, identities |
 | Change semantic identity | affected program or operation | semantic version, compiled/prepared/cache versions, ADR 0003 |
@@ -42,7 +42,7 @@ decisions. Run `./scripts/check.sh` before handoff.
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
-| Change public terminology | `docs/language-reference.md` | concepts, diagnostics, examples |
+| Change public terminology | `docs/reference/language/` or the built-in catalog | generated program reference, concepts, diagnostics, examples |
 | Change internal terminology | `docs/architecture.md` | code names, ADRs, development docs |
 | Add a dependency | `Cargo.toml`, CI | requirements and execution identity where relevant |
 

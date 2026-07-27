@@ -5,8 +5,8 @@ those programs through typed interfaces rather than copying text or merging
 their stacks and names.
 
 This page explains the relationship between files, packages, and calls.
-The [language reference](../language-reference.md#imports) owns current syntax
-and behavior, while
+[Imports and external programs](../reference/language/imports-and-external-programs.md#imports)
+owns current syntax and behavior, while
 [ADR 0009](../adr/0009-call-authored-source-programs.md) records the import and
 invocation design.
 
@@ -90,7 +90,7 @@ tools reachable from the Video being prepared. See
 
 ## Where to find exact rules
 
-- The [language reference](../language-reference.md#configuration-and-declarations)
+- [Files and configuration](../reference/language/files-and-configuration.md#configuration-and-declarations)
   specifies declarations, source programs, root-only configuration, imports,
   inputs, parameters, namespaces, and path behavior.
 - [ADR 0005](../adr/0005-treat-source-files-as-programs.md) separates source

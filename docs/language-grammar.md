@@ -1,9 +1,10 @@
 # ClipAsm language grammar
 
 This page is the normative EBNF grammar for ClipAsm language version 1. The
-[language reference](language-reference.md) defines semantic constraints that
-cannot be expressed by context-free grammar, including declaration uniqueness,
-program signatures, scalar types, stack behavior, and required arguments.
+[language reference](reference/language/index.md) defines semantic constraints
+that cannot be expressed by context-free grammar, including declaration
+uniqueness, program signatures, scalar types, stack behavior, and required
+arguments.
 
 The notation uses `[...]` for an optional form, `{...}` for zero or more
 repetitions, and `|` for alternatives. Literal source characters appear in

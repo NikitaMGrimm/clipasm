@@ -67,7 +67,8 @@ clock or random state, network responses, imported modules, or arbitrary files.
 The external-program author remains responsible for declaring file dependencies
 and updating the semantic version when output meaning changes.
 
-See [External implementations](../language-reference.md#external-implementations)
+See
+[External implementations](../reference/language/imports-and-external-programs.md#external-implementations)
 for the normative declaration and protocol constraints,
 [Pure compilation and external-program trust](../concepts/external-programs-and-trust.md)
 for the trust model, and the [examples catalog](../examples.md#external-program)

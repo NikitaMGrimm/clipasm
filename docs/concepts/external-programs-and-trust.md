@@ -6,8 +6,9 @@ program interface; the difference appears only when ClipAsm prepares and
 renders the semantic graph.
 
 External programs are an explicit trust boundary. Read this page before
-rendering a project that imports one. The
-[language reference](../language-reference.md#external-implementations) owns
+rendering a project that imports one.
+[Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
+owns
 the current declaration syntax, and
 [ADR 0012](../adr/0012-run-external-programs.md) records the complete execution
 and cache contract.
@@ -102,7 +103,7 @@ author's contract.
 
 ## Where to find exact rules
 
-- The [language reference](../language-reference.md#external-implementations)
+- [Imports and external programs](../reference/language/imports-and-external-programs.md#external-implementations)
   owns the declaration form, supported interface, and path behavior.
 - [ADR 0012](../adr/0012-run-external-programs.md) records execution,
   verification, cache identity, protocol limits, and the trust boundary.

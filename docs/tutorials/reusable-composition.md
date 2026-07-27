@@ -46,7 +46,8 @@ clip {
 
 Each block produces one Video and gives it an immutable name without leaving an
 occurrence on the outer stack. `opening` is zoomed; `closing` is unchanged.
-The exact lowering rules are in [`clip` sugar](../language-reference.md#clip-sugar).
+The exact lowering rules are in
+[`clip` sugar](../reference/language/names-blocks-and-clip.md#clip-sugar).
 
 ## Reuse a named value and build an inline input
 
@@ -73,8 +74,10 @@ meadow Video, and supplies that Video to `flash_cut`. Finally, `$closing` and
 `concat` make one ordered result.
 
 The snippets above make the complete file, so no repository checkout is
-needed. The [references and output names](../language-reference.md#references-and-output-names)
-and [arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
+needed. The
+[references and output names](../reference/language/names-blocks-and-clip.md#references-and-output-names)
+and
+[arguments and stack binding](../reference/language/stack-binding.md#arguments-and-stack-binding)
 sections own the exact rules.
 
 ## Validate and render your composition
@@ -109,5 +112,6 @@ You prepared named values with `clip`, read an immutable value more than once,
 provided an isolated inline input body, and assembled an ordered Video with
 `flash_cut` and `concat`. Choose another committed program in the
 [examples catalog](../examples.md), or use the
-[language reference](../language-reference.md) for exact signatures and stack
-semantics.
+[built-in program reference](../reference/programs/index.md) for exact call
+shapes and the [stack-binding reference](../reference/language/stack-binding.md)
+for stack semantics.

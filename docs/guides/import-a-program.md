@@ -74,7 +74,7 @@ The render command publishes the two-second source as
 resolves from the wrapper source unit.
 
 For exact import, namespace, and path rules, see
-[Imports](../language-reference.md#imports). Read
+[Imports](../reference/language/imports-and-external-programs.md#imports). Read
 [Source programs and imports](../concepts/source-programs-and-imports.md) for
 the broader model and the [examples catalog](../examples.md#imported-program)
 for the canonical command listing.

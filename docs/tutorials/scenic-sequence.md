@@ -43,7 +43,7 @@ clipasm validate main.clipasm
 **Observe:** validation succeeds with 108 frames. That confirms the complete
 program has an authored duration; it has still not checked whether the image
 files can be opened. The exact declaration rules are in
-[configuration and declarations](../language-reference.md#configuration-and-declarations).
+[configuration and declarations](../reference/language/files-and-configuration.md#configuration-and-declarations).
 
 ## 2. Predict the values on the stack
 
@@ -60,8 +60,8 @@ are relative to `main.clipasm`, and `contain` states how each image fits the
 project frame. Three such scenes at 24 fps should account for 108 frames.
 
 **Observe:** the previous validation result is that prediction: `3 × 1.5 × 24`
-is 108. The [built-in program table](../language-reference.md#built-in-programs)
-owns the exact `image` signature.
+is 108. The [`image` reference](../reference/programs/image.md) owns its exact
+call shape and behavior.
 
 ## 3. Join those values
 
@@ -115,5 +115,5 @@ You used project configuration, created Video values with `image`, relied on
 statement order, and used `concat` to produce one output. You also used pure
 validation to diagnose and repair a source error before rendering. Next, [build
 a reusable composition](reusable-composition.md), or consult the
-[language reference](../language-reference.md) for exact syntax and stack
-behavior.
+[language reference](../reference/language/index.md) for exact syntax and
+[stack binding](../reference/language/stack-binding.md) behavior.

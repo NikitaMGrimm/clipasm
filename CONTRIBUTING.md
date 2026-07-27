@@ -1,8 +1,8 @@
 # Contributing
 
-Use the [language reference](docs/language-reference.md) for public syntax and
-behavior, [architecture](docs/architecture.md) for phase responsibilities, and
-[ADRs](docs/adr/index.md) before revisiting a durable decision. Use the
+Use the [language reference](docs/reference/language/index.md) for public syntax
+and behavior, [architecture](docs/architecture.md) for phase responsibilities,
+and [ADRs](docs/adr/index.md) before revisiting a durable decision. Use the
 [change guide](docs/development/change-guide.md) to find affected code, tests,
 documentation, and identity versions.
 

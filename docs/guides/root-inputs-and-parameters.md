@@ -63,7 +63,7 @@ Use `--audio-input name=path` for a declared root Audio input. Repeat
 `--video-input`, `--audio-input`, or `--arg` when a source program declares more
 than one corresponding binding.
 
-The [CLI bindings reference](../language-reference.md#cli-bindings) defines the
+The [root-bindings reference](../reference/cli.md#root-bindings) defines the
 accepted flags and path bases. See the [examples catalog](../examples.md#root-bindings)
 for the canonical command listing and
 [Source programs and imports](../concepts/source-programs-and-imports.md) for

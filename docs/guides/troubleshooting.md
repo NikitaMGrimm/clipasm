@@ -22,8 +22,9 @@ the root does not call. An unused import can therefore make validation fail.
 Correct or remove the invalid imported source rather than expecting reachability
 to hide it.
 
-Consult the [language reference](../language-reference.md) for exact syntax and
-binding rules.
+Consult the [language reference](../reference/language/index.md) for exact
+syntax and the [stack-binding reference](../reference/language/stack-binding.md)
+for binding rules.
 
 ## A root input or parameter is missing
 
