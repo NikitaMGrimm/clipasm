@@ -468,7 +468,6 @@ impl ProgramRegistry {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
     let mut programs = BTreeSet::new();
     for definition in definitions {

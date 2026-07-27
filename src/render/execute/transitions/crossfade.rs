@@ -1,7 +1,8 @@
 use std::fmt::Write as _;
 
-use crate::diagnostic::Result;
-use crate::model::{FrameCount, NodeId, VideoDomain};
+use crate::diagnostic::{Diagnostic, Result};
+use crate::model::{FrameCount, NodeId, TimelineRate, VideoDomain};
+use crate::preflight::PreparedNode;
 
 use super::super::filters::normalize_audio;
 use super::super::recipe::{FfmpegRecipe, RecipeContext};
@@ -94,7 +95,7 @@ fn append_crossfade_video_filter(filter: &mut String, layout: &CrossfadeLayout) 
 fn append_crossfade_audio_filter(
     filter: &mut String,
     layout: &CrossfadeLayout,
-    audio: &crate::model::AudioSpec,
+    audio: crate::model::AudioSpec,
     channel_layout: &str,
 ) {
     let sources = crossfade_audio_sources(filter, layout);
@@ -176,7 +177,7 @@ fn crossfade_audio_sources(filter: &mut String, layout: &CrossfadeLayout) -> Cro
 fn append_prefix_audio_track(
     filter: &mut String,
     layout: &CrossfadeLayout,
-    audio: &crate::model::AudioSpec,
+    audio: crate::model::AudioSpec,
     channel_layout: &str,
     source: &str,
 ) {
@@ -193,7 +194,7 @@ fn append_prefix_audio_track(
 fn append_overlap_audio_tracks(
     filter: &mut String,
     layout: &CrossfadeLayout,
-    audio: &crate::model::AudioSpec,
+    audio: crate::model::AudioSpec,
     channel_layout: &str,
     sources: &CrossfadeAudioSources,
 ) {
@@ -229,7 +230,7 @@ fn append_overlap_audio_tracks(
 fn append_suffix_audio_track(
     filter: &mut String,
     layout: &CrossfadeLayout,
-    audio: &crate::model::AudioSpec,
+    audio: crate::model::AudioSpec,
     channel_layout: &str,
     source: &str,
 ) {
@@ -269,13 +270,10 @@ impl CrossfadeLayout {
         frames: FrameCount,
         domain: &VideoDomain,
     ) -> Result<Self> {
-        use crate::diagnostic::Diagnostic;
-        use crate::model::TimelineRate;
-
         let before_frames = context
             .nodes()
             .get(before.get() as usize)
-            .and_then(crate::preflight::PreparedNode::video_domain)
+            .and_then(PreparedNode::video_domain)
             .ok_or_else(|| {
                 Diagnostic::new(
                     "E_INVALID_PLAN",
@@ -288,7 +286,7 @@ impl CrossfadeLayout {
         let after_frames = context
             .nodes()
             .get(after.get() as usize)
-            .and_then(crate::preflight::PreparedNode::video_domain)
+            .and_then(PreparedNode::video_domain)
             .ok_or_else(|| {
                 Diagnostic::new(
                     "E_INVALID_PLAN",
@@ -327,7 +325,7 @@ impl CrossfadeLayout {
         }
         let prefix_frames = before_frames - frames.0;
         let suffix_frames = after_frames - frames.0;
-        let timeline = TimelineRate::new(*context.video(), *context.audio());
+        let timeline = TimelineRate::new(*context.video(), context.audio());
         let prefix_samples =
             timeline.samples_for_frames(FrameCount(prefix_frames), context.span())?;
         let overlap_samples =

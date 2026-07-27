@@ -102,7 +102,10 @@ fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pro
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "all direct program lowerers share the fallible DirectProgramFn signature"
+)]
 fn lower_drop(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     Ok(Vec::new())
 }

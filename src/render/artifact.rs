@@ -1,5 +1,3 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-
 use std::path::Path;
 use std::process::Command;
 
@@ -35,7 +33,7 @@ pub(super) fn verify_prepared_artifact(
     ffprobe: &Path,
     path: &Path,
     node: &PreparedNode,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     pixel_format: &str,
 ) -> Result<()> {
     match node.media() {
@@ -73,12 +71,11 @@ fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
     })
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn verify_video_artifact(
     ffprobe: &Path,
     path: &Path,
     domain: &VideoDomain,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     expect_audio: bool,
     exact_audio_samples: bool,
     pixel_format: &str,
@@ -165,7 +162,7 @@ pub(super) fn verify_video_artifact(
     if let Some(audio_stream) = audios.first() {
         verify_audio_stream(path, audio_stream, audio)?;
         if exact_audio_samples {
-            let expected_samples = TimelineRate::new(domain.video_spec(), *audio)
+            let expected_samples = TimelineRate::new(domain.video_spec(), audio)
                 .samples_for_frames(domain.frames(), &SourceSpan::file_start(path))?;
             verify_audio_samples(ffprobe, path, expected_samples)?;
         }
@@ -177,7 +174,7 @@ fn verify_audio_artifact(
     ffprobe: &Path,
     path: &Path,
     domain: &AudioDomain,
-    audio: &AudioSpec,
+    audio: AudioSpec,
 ) -> Result<()> {
     let document = probe_artifact(ffprobe, path)?;
     let videos = document
@@ -219,7 +216,7 @@ fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()
     Ok(())
 }
 
-fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: &AudioSpec) -> Result<()> {
+fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: AudioSpec) -> Result<()> {
     let expected_sample_rate = audio.sample_rate().to_string();
     if stream.sample_rate.as_deref() != Some(expected_sample_rate.as_str()) {
         return Err(contract_error(

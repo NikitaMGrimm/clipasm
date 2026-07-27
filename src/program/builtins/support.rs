@@ -45,7 +45,6 @@ pub(super) fn exact_descriptor(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn generic_descriptor(
     name: &str,
     semantic_version: u32,

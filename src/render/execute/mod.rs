@@ -1,5 +1,3 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-
 mod audio;
 mod context;
 mod effects;
@@ -52,7 +50,7 @@ impl<'a> Executor<'a> {
             artifact,
             staged,
             self.plan.video(),
-            self.plan.audio(),
+            *self.plan.audio(),
             domain,
             has_audio,
             self.plan.render_policy(),
@@ -97,7 +95,6 @@ impl<'a> Executor<'a> {
     }
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn ffmpeg_recipe(
     node: &PreparedNode,
     context: &RecipeContext<'_>,

@@ -60,7 +60,10 @@ pub struct PreparedPlan {
 }
 
 impl PreparedPlan {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the sole plan constructor makes every identity-bearing and publication field explicit without a duplicate builder"
+    )]
     pub(super) fn new(
         format_version: u32,
         engine_version: String,

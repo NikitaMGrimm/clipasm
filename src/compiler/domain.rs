@@ -10,7 +10,10 @@ enum DomainKnowledge {
     Known(VideoDomain),
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "domain inference is one exhaustive semantic-node transfer function with shared memoized knowledge"
+)]
 pub(super) fn infer_domains(
     evaluation: &Evaluation,
     video: &VideoSpec,

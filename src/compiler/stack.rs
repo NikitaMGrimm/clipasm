@@ -142,10 +142,6 @@ impl StackValue for ValueType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StackCompatibility {
     Incompatible,
-    #[allow(
-        dead_code,
-        reason = "unresolved type domains use this outcome during checked-source inference"
-    )]
     Possible,
     Definite,
 }
@@ -351,7 +347,10 @@ impl<T: Copy> EvaluationStack<T> {
 
 #[cfg(test)]
 impl<T: Copy + StackValue> EvaluationStack<T> {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the test adapter mirrors the complete production underflow diagnostic contract"
+    )]
     pub(super) fn underflow(
         &self,
         frame: &StackFrame,
@@ -378,7 +377,10 @@ impl<T: Copy + StackValue> EvaluationStack<T> {
 }
 
 impl<T: Copy> EvaluationStack<T> {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "underflow diagnostics need the selected indices, availability, access boundary, and value-type projection"
+    )]
     pub(super) fn underflow_with(
         &self,
         frame: &StackFrame,
@@ -469,7 +471,10 @@ mod tests {
             span: &SourceSpan,
         ) -> Result<ValueRef, Diagnostic>;
 
-        #[allow(clippy::too_many_arguments)]
+        #[expect(
+            clippy::too_many_arguments,
+            reason = "the test helper mirrors variadic binding inputs so tests stay at the public stack-planning boundary"
+        )]
         fn take_all_matching(
             &mut self,
             frame: &StackFrame,

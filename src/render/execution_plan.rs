@@ -105,7 +105,7 @@ impl ExecutionPlan {
                             plan.ffprobe().executable(),
                             staged.path(),
                             node,
-                            plan.audio(),
+                            *plan.audio(),
                             plan.render_policy().working_pixel_format(),
                         )?;
                         staged.commit(node.fingerprint())?;
@@ -224,7 +224,7 @@ fn cache_is_valid(plan: &PreparedPlan, node: &PreparedNode, artifact: &Path) -> 
             plan.ffprobe().executable(),
             artifact,
             node,
-            plan.audio(),
+            *plan.audio(),
             plan.render_policy().working_pixel_format(),
         )
         .is_ok()

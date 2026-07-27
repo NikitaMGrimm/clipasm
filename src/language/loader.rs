@@ -48,7 +48,10 @@ struct Loader {
 }
 
 impl Loader {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one recursive load transaction owns path validation, deduplication, and cycle diagnostics"
+    )]
     fn load(
         &mut self,
         path: &Path,

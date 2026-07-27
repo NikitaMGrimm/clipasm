@@ -127,7 +127,7 @@ fn browser_export(
     let recipe = export_recipe(
         plan.result(),
         plan.video(),
-        plan.audio(),
+        *plan.audio(),
         result.has_audio(),
         policy,
     );

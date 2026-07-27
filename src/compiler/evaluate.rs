@@ -169,7 +169,6 @@ struct TimelineSelectorContext<'a> {
 }
 
 impl Evaluator {
-    #[allow(clippy::too_many_lines)]
     fn evaluate_program(
         &mut self,
         context: &EvaluationContext<'_>,
@@ -502,7 +501,10 @@ impl Evaluator {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "invocation evaluation preserves the ordered input, body, timeline, output, and contract lifecycle in one place"
+    )]
     fn evaluate_invocation(
         &mut self,
         context: &EvaluationContext<'_>,
@@ -992,7 +994,10 @@ mod tests {
         ProgramRegistry, ResolvedCall, StackAccess,
     };
 
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "test body preparers must match the fallible BodyPrepareFn signature"
+    )]
     fn prepare_root(call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<BodyPlan> {
         Ok(BodyPlan {
             initial_values: Vec::new(),
@@ -1063,12 +1068,18 @@ mod tests {
         Ok(vec![value, value])
     }
 
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "test direct lowerers must match the fallible DirectProgramFn signature"
+    )]
     fn lower_zero(_call: &ResolvedCall, _builder: &mut GraphBuilder<'_>) -> Result<Vec<ValueRef>> {
         Ok(Vec::new())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "test body preparers must match the fallible BodyPrepareFn signature"
+    )]
     fn prepare_wrong_body(
         call: &ResolvedCall,
         _builder: &mut GraphBuilder<'_>,

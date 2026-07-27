@@ -5,17 +5,17 @@ use crate::source::SourceSpan;
 pub(super) fn samples_for_video(
     frames: FrameCount,
     spec: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     span: &SourceSpan,
 ) -> Result<u64> {
-    TimelineRate::new(*spec, *audio).samples_for_frames(frames, span)
+    TimelineRate::new(*spec, audio).samples_for_frames(frames, span)
 }
 
-pub(super) fn silence_source(audio: &AudioSpec, channel_layout: &str) -> String {
+pub(super) fn silence_source(audio: AudioSpec, channel_layout: &str) -> String {
     format!("anullsrc=r={}:cl={channel_layout}", audio.sample_rate())
 }
 
-pub(super) fn normalize_audio(samples: u64, audio: &AudioSpec, channel_layout: &str) -> String {
+pub(super) fn normalize_audio(samples: u64, audio: AudioSpec, channel_layout: &str) -> String {
     format!(
         "aresample={},aformat=sample_rates={}:channel_layouts={channel_layout},atrim=end_sample={samples},apad=whole_len={samples},asetpts=PTS-STARTPTS",
         audio.sample_rate(),

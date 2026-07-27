@@ -316,7 +316,6 @@ fn parameter_descriptors(program: &SourceProgram) -> Result<Vec<ParameterDescrip
         .collect()
 }
 
-#[allow(clippy::too_many_lines)]
 fn check_program(
     program: &SourceProgram,
     body: &ProgramBody,
@@ -876,7 +875,10 @@ struct MaterializedArguments {
 }
 
 impl CheckedMaterializer<'_> {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one body materialization pass owns lexical bindings, checked arguments, and ordered output construction"
+    )]
     fn body(
         &mut self,
         body: DraftBody,

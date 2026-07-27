@@ -523,7 +523,10 @@ fn resolve_final_program(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the phase entry keeps the draft, scope, solver, and pass state explicit for retryable inference"
+)]
 fn infer_program_body(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
@@ -579,7 +582,10 @@ fn inference_dependency(span: &SourceSpan) -> Diagnostic {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "recursive body inference must share lexical bindings, solver state, stack state, and pass state"
+)]
 fn infer_body(
     body: &DraftBody,
     globals: &BTreeMap<String, LocalSlot>,
@@ -654,7 +660,11 @@ fn infer_body(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "invocation inference orchestrates one ordered solver transaction; a context object would hide mutable retry state"
+)]
 fn infer_invocation(
     origin: &crate::source::ItemOrigin,
     invocation: &DraftInvocation,
@@ -810,7 +820,10 @@ fn invocation_outputs(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "explicit input inference recurses with the same lexical and solver state as its owning invocation"
+)]
 fn explicit_values(
     argument: &DraftInput,
     program: &str,
@@ -863,7 +876,10 @@ fn explicit_values(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "generic stack selection needs the descriptor, stack frame, solver, slots, and deferred-pass state together"
+)]
 fn infer_generic_from_stack(
     definition: &ProgramDefinition,
     origin: &crate::source::ItemOrigin,
@@ -960,7 +976,10 @@ fn infer_generic_from_stack(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "stack binding keeps all diagnostic and solver inputs explicit rather than introducing a second binder context"
+)]
 fn bind_missing(
     definition: &ProgramDefinition,
     origin: &crate::source::ItemOrigin,
@@ -1052,7 +1071,10 @@ fn bind_missing(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "body-output validation reports one complete contract using explicit solver and diagnostic inputs"
+)]
 fn constrain_body_outputs(
     program: &str,
     values: &[TypeVarId],

@@ -47,8 +47,8 @@ impl<'a> RecipeContext<'a> {
         self.video
     }
 
-    pub(super) const fn audio(&self) -> &AudioSpec {
-        self.audio
+    pub(super) const fn audio(&self) -> AudioSpec {
+        *self.audio
     }
 
     pub(super) const fn nodes(&self) -> &[PreparedNode] {

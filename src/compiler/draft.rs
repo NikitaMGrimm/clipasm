@@ -315,7 +315,10 @@ impl DraftBody {
 }
 
 impl DraftInvocation {
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one invocation draft pass validates descriptor shape and preserves every authored argument and body role"
+    )]
     fn build(
         source: &crate::source::Invocation,
         definitions: &[ProgramDefinition],

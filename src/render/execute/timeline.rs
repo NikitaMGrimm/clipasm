@@ -132,10 +132,10 @@ pub(super) fn video_segment_sample_counts(
     inputs: &[NodeId],
     nodes: &[PreparedNode],
     video: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     span: &SourceSpan,
 ) -> Result<Vec<u64>> {
-    let timeline = TimelineRate::new(*video, *audio);
+    let timeline = TimelineRate::new(*video, audio);
     let mut frame_boundary = 0_u64;
     inputs
         .iter()
@@ -173,11 +173,11 @@ fn repeat_audio_filter(
     input_frames: FrameCount,
     output_frames: FrameCount,
     video: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     channel_layout: &str,
     span: &SourceSpan,
 ) -> Result<String> {
-    let timeline = TimelineRate::new(*video, *audio);
+    let timeline = TimelineRate::new(*video, audio);
     let output_samples = timeline.samples_for_frames(output_frames, span)?;
     let step = timeline.frame_sample_step(input_frames, span)?;
     if step.is_integral() {
@@ -239,15 +239,9 @@ mod tests {
             VideoSpec::new(64, 64, FrameRate::new(25, 4).expect("frame rate")).expect("video spec");
         let audio = AudioSpec::new(10, 2).expect("audio spec");
         let span = SourceSpan::file_start("repeat-test");
-        let filter = repeat_audio_filter(
-            FrameCount(1),
-            FrameCount(5),
-            &video,
-            &audio,
-            "stereo",
-            &span,
-        )
-        .expect("repeat filter");
+        let filter =
+            repeat_audio_filter(FrameCount(1), FrameCount(5), &video, audio, "stereo", &span)
+                .expect("repeat filter");
         assert!(filter.contains("asetnsamples=n=2:p=0"));
         assert!(filter.contains("((N/2)*1+ceil((N/2)*3/5))/(SR*TB)"));
 

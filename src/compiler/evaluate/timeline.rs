@@ -473,7 +473,10 @@ impl Evaluator {
         lines.join("\n")
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the recursive formatter keeps traversal limits and output state explicit instead of allocating a context object"
+    )]
     fn push_timeline_children(
         &self,
         view: TimelineViewId,

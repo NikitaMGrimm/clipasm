@@ -10,13 +10,16 @@ use super::super::artifact::verify_video_artifact;
 use super::context::run_command;
 use super::recipe::FfmpegRecipe;
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the export transaction keeps its artifact contract, policy, and tool identities explicit at one call site"
+)]
 pub(super) fn stage_export(
     result: NodeId,
     artifact: &Path,
     staged: &Path,
     spec: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     domain: &VideoDomain,
     has_audio: bool,
     render_policy: RenderPolicy,
@@ -45,19 +48,28 @@ pub(super) fn stage_export(
         )
     });
     if let Err(error) = result {
-        let _ = fs::remove_file(staged);
-        return Err(error);
+        return Err(match fs::remove_file(staged) {
+            Ok(()) => error,
+            Err(cleanup_error) if cleanup_error.kind() == std::io::ErrorKind::NotFound => error,
+            Err(cleanup_error) => error.note(format!(
+                "could not remove failed staged export `{}`: {cleanup_error}",
+                staged.display()
+            )),
+        });
     }
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the private export step mirrors the complete recipe inputs without introducing a duplicate request type"
+)]
 fn export_video(
     result: NodeId,
     artifact: &Path,
     output: &Path,
     spec: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     has_audio: bool,
     render_policy: RenderPolicy,
     ffmpeg: &Path,
@@ -72,7 +84,7 @@ fn export_video(
 pub(crate) fn export_recipe(
     result: NodeId,
     spec: &VideoSpec,
-    audio: &AudioSpec,
+    audio: AudioSpec,
     has_audio: bool,
     render_policy: RenderPolicy,
 ) -> FfmpegRecipe {
@@ -133,7 +145,7 @@ mod tests {
         let recipe = export_recipe(
             NodeId::new(4),
             &spec,
-            &audio,
+            audio,
             has_audio,
             RenderPolicy::CURRENT,
         );
@@ -239,7 +251,7 @@ mod tests {
             &invalid_artifact,
             publication.staged_output(),
             &spec,
-            &AudioSpec::default(),
+            AudioSpec::default(),
             &domain,
             false,
             RenderPolicy::CURRENT,
@@ -255,5 +267,35 @@ mod tests {
             fs::read(&manifest).expect("preserved manifest"),
             b"existing manifest"
         );
+    }
+
+    #[test]
+    fn failed_export_reports_staging_cleanup_failure() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let staged = directory.path().join("staged.mp4");
+        fs::create_dir(&staged).expect("staged directory");
+        let spec =
+            VideoSpec::new(64, 64, FrameRate::new(10, 1).expect("frame rate")).expect("video spec");
+        let domain = VideoDomain::new(FrameCount(10), spec);
+
+        let error = stage_export(
+            NodeId::new(0),
+            Path::new("missing-artifact.mkv"),
+            &staged,
+            &spec,
+            AudioSpec::default(),
+            &domain,
+            false,
+            RenderPolicy::CURRENT,
+            &directory.path().join("missing-ffmpeg"),
+            &directory.path().join("missing-ffprobe"),
+        )
+        .expect_err("export failure");
+
+        assert!(error.notes.iter().any(|note| {
+            note.contains("could not remove failed staged export")
+                && note.contains(&staged.display().to_string())
+        }));
+        assert!(staged.is_dir());
     }
 }
