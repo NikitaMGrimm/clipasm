@@ -29,6 +29,7 @@
 //! reference.
 
 pub mod compiler;
+pub(crate) mod contracts;
 pub mod diagnostic;
 pub(crate) mod external;
 pub(crate) mod format;

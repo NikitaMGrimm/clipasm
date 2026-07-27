@@ -5,8 +5,6 @@ use crate::model::{AudioSpec, VideoDomain, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan};
 use crate::source::SourceSpan;
 
-const MANIFEST_FORMAT_VERSION: u32 = 1;
-
 #[derive(Serialize)]
 struct ManifestDocument<'a> {
     format_version: u32,
@@ -60,7 +58,7 @@ pub(super) fn serialize(
         ));
     };
     let document = ManifestDocument {
-        format_version: MANIFEST_FORMAT_VERSION,
+        format_version: crate::contracts::RENDER_MANIFEST_FORMAT_VERSION,
         engine_version: env!("CARGO_PKG_VERSION"),
         semantic_hash: plan.semantic_hash(),
         project: ProjectDocument {

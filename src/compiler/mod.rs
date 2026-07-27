@@ -34,8 +34,6 @@ use crate::source::{SourcePackage, SourceUnit};
 pub use crate::semantic::SourceOrigin;
 pub use entrypoint::EntrypointBindings;
 
-const COMPILED_FORMAT_VERSION: u32 = 20;
-
 #[derive(Clone, Debug)]
 /// A pure compiled program whose media-dependent facts may remain deferred.
 ///
@@ -301,7 +299,7 @@ fn compile_checked(
         video,
         audio,
         evaluation,
-        COMPILED_FORMAT_VERSION,
+        crate::contracts::COMPILED_INSPECTION_FORMAT_VERSION,
     )
 }
 

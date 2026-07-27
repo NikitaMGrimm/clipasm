@@ -49,7 +49,6 @@ pub(crate) use policy::RenderPolicy;
 pub use tools::ExternalToolIdentity;
 use tools::{inspect_ffmpeg, inspect_ffprobe, validate_ffmpeg_capabilities};
 
-const PREPARED_FORMAT_VERSION: u32 = 11;
 /// Resolve and verify assets/tools, lower result-reachable primitives, and build
 /// an invariant-protected renderer plan.
 ///
@@ -136,7 +135,7 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         prepared_semantic_hash(&video, audio, result, &named_values, &lowerer.nodes)?;
 
     Ok(PreparedPlan::new(
-        PREPARED_FORMAT_VERSION,
+        crate::contracts::PREPARED_INSPECTION_FORMAT_VERSION,
         env!("CARGO_PKG_VERSION").to_owned(),
         semantic_hash,
         render_policy,

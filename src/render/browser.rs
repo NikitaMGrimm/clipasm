@@ -19,8 +19,6 @@ use crate::source::SourceSpan;
 
 use super::execute::{FfmpegArgument, FfmpegRecipe, RecipeContext, export_recipe, ffmpeg_recipe};
 
-const BROWSER_PLAN_VERSION: u32 = 1;
-const RECIPE_CONTRACT_VERSION: u32 = 1;
 const FFMPEG_WRAPPER_VERSION: &str = "0.12.15";
 const FFMPEG_CORE_VERSION: &str = "0.12.10";
 const BROWSER_RUNTIME_POLICY: &str = "ffv1-flac-matroska-v1";
@@ -59,8 +57,8 @@ fn render_document(plan: &BrowserPreparedPlan) -> Result<BrowserRenderDocument<'
         .collect::<BTreeMap<_, _>>();
 
     Ok(BrowserRenderDocument {
-        version: BROWSER_PLAN_VERSION,
-        recipe_contract: RECIPE_CONTRACT_VERSION,
+        version: crate::contracts::BROWSER_RENDER_PLAN_VERSION,
+        recipe_contract: crate::contracts::BROWSER_RECIPE_CONTRACT_VERSION,
         runtime: BrowserRuntime {
             wrapper: FFMPEG_WRAPPER_VERSION,
             core: FFMPEG_CORE_VERSION,
@@ -473,8 +471,14 @@ mod tests {
         let document: serde_json::Value =
             serde_json::from_str(&render_json(&plan).expect("render JSON")).expect("valid JSON");
 
-        assert_eq!(document["version"], BROWSER_PLAN_VERSION);
-        assert_eq!(document["recipe_contract"], RECIPE_CONTRACT_VERSION);
+        assert_eq!(
+            document["version"],
+            crate::contracts::BROWSER_RENDER_PLAN_VERSION
+        );
+        assert_eq!(
+            document["recipe_contract"],
+            crate::contracts::BROWSER_RECIPE_CONTRACT_VERSION
+        );
         assert_eq!(
             document["runtime"],
             serde_json::json!({

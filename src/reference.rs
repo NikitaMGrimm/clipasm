@@ -15,7 +15,13 @@ use crate::program::{
     TimelineBehavior as ProgramTimelineBehavior, ValueTypeSpec,
 };
 
+mod contracts;
 mod diagnostics;
+
+pub use contracts::{
+    MachineContract, MachineContractAudience, MachineContractReference, MachineContractStability,
+    MachineContractVersion, machine_contract, machine_contracts,
+};
 
 pub use diagnostics::{
     DiagnosticCategory, DiagnosticReference, DiagnosticStability, RelatedReference, RetryGuidance,
