@@ -1,0 +1,3 @@
+examples/starter/.gitignore text eol=lf
+examples/starter/README.md text eol=lf
+examples/scenic-sequence.clipasm text eol=lf

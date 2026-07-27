@@ -18,6 +18,7 @@ mod programs;
 #[derive(Debug, Parser)]
 #[command(
     name = "clipasm",
+    bin_name = "clipasm",
     version,
     about = "Compile and render typed Video and Audio graphs."
 )]
