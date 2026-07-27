@@ -10,12 +10,14 @@ Follow the links below for the exact
 
 `clipasm init [PATH]` creates a standalone project without a repository
 checkout. Its bundled starter includes `main.clipasm` and three images in
-`assets/`. In an initialized project, run:
+`assets/`. In an initialized project, render directly:
 
 ```console,ignore
-clipasm validate main.clipasm
 clipasm render main.clipasm
 ```
+
+Use `clipasm validate main.clipasm` when you want a faster source-only check
+without opening media or invoking FFmpeg.
 
 The starter is a starting point, not a managed template. The
 [CLI reference](reference/cli.md#init) defines its compatibility and lifecycle.

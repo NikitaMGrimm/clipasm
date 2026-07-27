@@ -21,12 +21,13 @@ on `PATH`.
 cargo install clipasm --locked
 clipasm init hello-video
 cd hello-video
-clipasm validate main.clipasm
 clipasm render main.clipasm
 ```
 
 `init` creates a self-contained project with the scenic sequence and its three
-images. Open `generated/scenic-sequence.mp4` after rendering. Continue with the
+images. `render` performs the required source checks; use `clipasm validate
+main.clipasm` when you want a faster check without opening media. Open
+`generated/scenic-sequence.mp4` after rendering. Continue with the
 [first-render guide](https://nikitamgrimm.github.io/clipasm/getting-started/first-render.html)
 to edit it, or browse the [full guide](https://nikitamgrimm.github.io/clipasm/)
 for tutorials, task guides, the language reference, and CLI reference. Use

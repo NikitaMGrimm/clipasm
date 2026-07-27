@@ -645,8 +645,10 @@ Created ClipAsm project at `projects/hello-video`.
 
 Next:
   cd \"projects/hello-video\"
-  clipasm validate main.clipasm
   clipasm render main.clipasm
+
+Optional source check:
+  clipasm validate main.clipasm
 "
     );
     assert!(output.stderr.is_empty());
@@ -740,8 +742,10 @@ fn init_uses_the_current_directory_and_preserves_unrelated_content() {
 Created ClipAsm project at `.`.
 
 Next:
-  clipasm validate main.clipasm
   clipasm render main.clipasm
+
+Optional source check:
+  clipasm validate main.clipasm
 "
     );
     assert_eq!(

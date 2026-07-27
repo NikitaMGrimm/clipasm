@@ -1,8 +1,9 @@
 # Install and render ClipAsm
 
-This guide installs ClipAsm, creates a project, validates its starter program,
-and renders a 4.5-second, 320x180 video from three included images. You do not
-need Git or a repository checkout.
+This guide installs ClipAsm, creates a project, and renders a 4.5-second,
+320x180 video from three included images. It also shows the optional faster
+validation command for later edits. You do not need Git or a repository
+checkout.
 
 ClipAsm is pre-release software. Its language and CLI may change without
 compatibility guarantees.
@@ -41,9 +42,21 @@ enter the new project:
 cd hello-video
 ```
 
-## Validate the starter program
+## Render and open the video
 
-Validate the generated `main.clipasm` before rendering:
+```console,ignore
+clipasm render main.clipasm
+```
+
+Rendering performs the required parsing, checking, compilation, and preflight,
+resolves the three images and media tools, then writes
+`generated/scenic-sequence.mp4` and its sibling manifest. Open that MP4 with
+your usual file manager or media player. The scenes appear in order: morning,
+meadow, and evening.
+
+## Check source without rendering
+
+For a faster check after an edit, run:
 
 ```console,ignore
 clipasm validate main.clipasm
@@ -51,19 +64,8 @@ clipasm validate main.clipasm
 
 It reports 108 frames: three 1.5-second scenes at 24 frames per second.
 Validation parses and checks the source and infers source-independent domains.
-It does not open the PNG files or run FFmpeg, so use it as the normal first
-check after an edit.
-
-## Render and open the video
-
-```console,ignore
-clipasm render main.clipasm
-```
-
-Rendering performs preflight, resolves the three images and media tools, then
-writes `generated/scenic-sequence.mp4` and its sibling manifest. Open that MP4
-with your usual file manager or media player. The scenes appear in order:
-morning, meadow, and evening.
+It does not open the PNG files or run FFmpeg, and it creates no state required
+by a later render.
 
 ## Make one small edit
 
@@ -82,8 +84,8 @@ are ordinary generated project files and are ignored by the starter's
 
 ## What you learned
 
-You have installed ClipAsm, initialized an unmanaged project, validated a
-program without opening media, rendered it, and made a source change. Continue
+You have installed ClipAsm, initialized an unmanaged project, rendered it,
+used optional source-only validation, and made a source change. Continue
 with [build the scenic sequence](../tutorials/scenic-sequence.md) for a guided
 explanation of the starter. The [CLI reference](../reference/cli.md) defines
 `init`, validation, inspection, and rendering exactly.

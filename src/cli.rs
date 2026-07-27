@@ -214,8 +214,9 @@ fn print_init_success(target: &Path, initializes_current_directory: bool) {
             println!("  In the created project directory, run:");
         }
     }
-    println!("  clipasm validate main.clipasm");
     println!("  clipasm render main.clipasm");
+    println!("\nOptional source check:");
+    println!("  clipasm validate main.clipasm");
 }
 
 fn safe_display_path(path: &Path) -> String {

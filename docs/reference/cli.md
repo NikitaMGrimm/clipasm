@@ -74,14 +74,17 @@ Created ClipAsm project at `hello-video`.
 
 Next:
   cd "hello-video"
-  clipasm validate main.clipasm
   clipasm render main.clipasm
+
+Optional source check:
+  clipasm validate main.clipasm
 ```
 
 When the target is the current directory, the `cd` line is omitted. For a path
 that cannot be represented as a portable shell command, the output instead
-tells you to enter the created directory before running the two exact ClipAsm
-commands. The generated files are ordinary, unmanaged project files: ClipAsm
+tells you to enter the created directory before running the render command. The
+source-only validation command remains optional. The generated files are
+ordinary, unmanaged project files: ClipAsm
 does not update, rewrite, or take ownership of them later. Future releases may
 ship different starter files, but they do not alter existing projects. The
 development examples in a source checkout are not the installed binary's
