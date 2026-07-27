@@ -18,6 +18,29 @@ fn write_image(directory: &Path, name: &str, color: &str) {
         .expect("write image fixture");
 }
 
+fn write_pcm_wav(directory: &Path, name: &str, sample_rate: u32, samples: u32) {
+    let channels = 2_u16;
+    let bits_per_sample = 16_u16;
+    let block_align = channels * (bits_per_sample / 8);
+    let byte_rate = sample_rate * u32::from(block_align);
+    let data_size = samples * u32::from(block_align);
+    let mut bytes = Vec::with_capacity(44 + data_size as usize);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_size).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&channels.to_le_bytes());
+    bytes.extend_from_slice(&sample_rate.to_le_bytes());
+    bytes.extend_from_slice(&byte_rate.to_le_bytes());
+    bytes.extend_from_slice(&block_align.to_le_bytes());
+    bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data_size.to_le_bytes());
+    bytes.resize(44 + data_size as usize, 0);
+    fs::write(directory.join(name), bytes).expect("write PCM WAV fixture");
+}
+
 #[test]
 fn prepared_json_serializes_one_distinguished_result() {
     let directory = tempfile::tempdir().expect("temporary directory");
@@ -192,6 +215,117 @@ fn audio_preflight_maps_source_timelines_to_project_samples() {
         );
         clipasm::render::render(&plan).expect("render normalized audio");
     }
+}
+
+#[test]
+fn preflight_resolves_audio_markers_to_exact_project_sample_ranges() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio marker test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_pcm_wav(directory.path(), "first.wav", 48_000, 480);
+    write_pcm_wav(directory.path(), "second.wav", 48_000, 960);
+    let workflow = directory.path().join("program.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s) as picture\ndrop<Video>\naudio(\"first.wav\") as first\naudio(\"second.wav\") as second\njoin as mix\ntrim(value=$mix, range=$mix::second) as selected\nset_audio(video=$picture, audio=$selected)\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight Audio marker");
+    let range = plan
+        .nodes()
+        .iter()
+        .find_map(|node| match node.audio_kind() {
+            Some(PreparedAudioKind::AudioSlice { range, .. }) => Some(*range),
+            _ => None,
+        })
+        .expect("resolved Audio marker slice");
+    assert_eq!(range.start(), 480);
+    assert_eq!(range.end(), 1_440);
+    assert_eq!(range.samples(), 960);
+}
+
+#[test]
+fn preflight_resolves_audio_during_and_shifted_placements_to_exact_samples() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio during test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_pcm_wav(directory.path(), "first.wav", 48_000, 480);
+    write_pcm_wav(directory.path(), "second.wav", 48_000, 960);
+    write_pcm_wav(directory.path(), "third.wav", 48_000, 480);
+    let workflow = directory.path().join("program.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s) as picture\ndrop<Video>\naudio(\"first.wav\") as intro\naudio(\"second.wav\") as section\naudio(\"third.wav\") as outro\nconcat as song\nduring(timeline=$song, range=$song::section) { repeat(2) } as revised\ntrim(value=$revised, range=$revised::outro) as selected\nset_audio(video=$picture, audio=$selected)\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_file(&workflow).expect("compile deferred Audio during");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight Audio during");
+    let shifted = plan
+        .nodes()
+        .iter()
+        .find_map(|node| match node.audio_kind() {
+            Some(PreparedAudioKind::AudioSlice { range, .. })
+                if range.start() == 2_400 && range.end() == 2_880 =>
+            {
+                Some(*range)
+            }
+            _ => None,
+        })
+        .expect("shifted outro slice");
+    assert_eq!(shifted.samples(), 480);
+}
+
+#[test]
+fn preflight_rejects_audio_during_outside_the_base_domain() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio during bounds test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_pcm_wav(directory.path(), "short.wav", 48_000, 480);
+    let workflow = directory.path().join("program.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s) as picture\ndrop<Video>\naudio(\"short.wav\")\nduring(0ms..20ms) { repeat(1) } as revised\nset_audio(video=$picture, audio=$revised)\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_file(&workflow).expect("compile Audio during bounds");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("Audio range must fit base");
+    assert_eq!(error.code, "E_INVALID_TIME_RANGE");
+    assert!(error.message.contains("960"));
+    assert!(error.message.contains("480"));
+}
+
+#[test]
+fn preflight_rejects_an_audio_marker_between_sample_boundaries() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio marker alignment test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_pcm_wav(directory.path(), "odd.wav", 48_000, 1);
+    let workflow = directory.path().join("program.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { output = \"final.mp4\" }\nimage(\"card.ppm\", 1s) as picture\ndrop<Video>\naudio(\"odd.wav\") as odd\ntrim(value=$odd, range=$odd::start..$odd::middle) as half\nset_audio(video=$picture, audio=$half)\n",
+    )
+    .expect("source program");
+
+    let compiled = compile_file(&workflow).expect("compile deferred midpoint");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("half sample must fail");
+    assert_eq!(error.code, "E_TIME_NOT_SAMPLE_ALIGNED");
 }
 
 #[test]

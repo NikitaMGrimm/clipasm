@@ -523,7 +523,7 @@ fn evaluate(
                 ParameterValue::TimeRange(TimeRangeValue::Absolute(value)) => {
                     ScalarValue::TimeRange(*value)
                 }
-                ParameterValue::TimeRange(TimeRangeValue::VideoMarker { owner, range }) => {
+                ParameterValue::TimeRange(TimeRangeValue::Marker { owner, range }) => {
                     ScalarValue::TimelineRange {
                         owner: *owner,
                         start: range.start.clone(),
@@ -951,7 +951,7 @@ fn coerce(
             Ok(ParameterValue::TimeRange(TimeRangeValue::Absolute(value)))
         }
         (ParameterType::TimeRange, ScalarValue::TimelineRange { owner, start, end }) => {
-            Ok(ParameterValue::TimeRange(TimeRangeValue::VideoMarker {
+            Ok(ParameterValue::TimeRange(TimeRangeValue::Marker {
                 owner,
                 range: crate::model::TimelineRangeExpression { start, end },
             }))

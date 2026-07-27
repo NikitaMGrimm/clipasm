@@ -190,15 +190,12 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
             }
             SemanticNodeKind::Reference { .. }
             | SemanticNodeKind::Repeat { .. }
-            | SemanticNodeKind::AudioRepeat { .. }
             | SemanticNodeKind::ZoomIn { .. }
             | SemanticNodeKind::FlashCut { .. }
             | SemanticNodeKind::Crossfade { .. }
             | SemanticNodeKind::Concat { .. }
-            | SemanticNodeKind::AudioConcat { .. }
             | SemanticNodeKind::Slice { .. }
             | SemanticNodeKind::DeferredSlice { .. }
-            | SemanticNodeKind::AudioSlice { .. }
             | SemanticNodeKind::ReplaceRange { .. }
             | SemanticNodeKind::DeferredReplaceRange { .. }
             | SemanticNodeKind::ExtractAudio { .. }

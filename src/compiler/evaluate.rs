@@ -1,16 +1,15 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRate, TimelineExpression, TimelineViewId, ValueRef,
-    ValueType, VideoSpec,
-};
+use crate::model::{AudioSpec, TimelineViewId, ValueRef, ValueType, VideoSpec};
 use crate::program::{
     Cardinality, InputPort, ParameterSlot, ProgramDefinition, ProgramImplementation,
     RequestedVideoExtent, ResolvedCall, ResolvedInput, ValueTypeSpec,
 };
 use crate::semantic::{DraftNode, GraphBuilder, SourceOrigin, SymbolId};
 use crate::source::{SourceSpan, SourceUnitId, Spanned, SurfaceVisibility};
+
+mod timeline;
 
 use super::EntrypointBindings;
 use super::checked::{
@@ -41,27 +40,6 @@ impl EvaluatedValue {
     fn value_type(self) -> ValueType {
         self.value.value_type()
     }
-}
-
-#[derive(Clone, Debug)]
-struct TimelinePlacement {
-    view: TimelineViewId,
-    start: TimelineExpression,
-}
-
-#[derive(Clone, Debug)]
-struct TimelineChild {
-    label: Option<String>,
-    view: TimelineViewId,
-    start: TimelineExpression,
-}
-
-#[derive(Clone, Debug)]
-struct TimelineView {
-    value_type: ValueType,
-    extent: TimelineExpression,
-    placements: BTreeMap<String, Vec<TimelinePlacement>>,
-    children: Vec<TimelineChild>,
 }
 
 #[derive(Clone, Debug)]
@@ -104,8 +82,7 @@ pub(super) fn evaluate(
         symbols: Vec::new(),
         public_symbols: BTreeMap::new(),
         surface: Vec::new(),
-        timeline_views: Vec::new(),
-        fps: video.fps(),
+        timeline: timeline::TimelineState::new(video.fps(), audio.sample_rate()),
     };
     let root_program = context.programs[context.root.index()].definition();
     let root_definition = context.registry.definition(root_program);
@@ -165,8 +142,7 @@ struct Evaluator {
     symbols: Vec<Symbol>,
     public_symbols: BTreeMap<String, SymbolId>,
     surface: Vec<SurfaceRecord>,
-    timeline_views: Vec<TimelineView>,
-    fps: FrameRate,
+    timeline: timeline::TimelineState,
 }
 
 struct EvalScope {
@@ -192,847 +168,7 @@ struct TimelineSelectorContext<'a> {
     slots: &'a [Option<Vec<EvaluatedValue>>],
 }
 
-fn frame_seconds(frame: u64, fps: FrameRate) -> ExactNumber {
-    ExactNumber::from_unsigned_integer(frame)
-        .multiply(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.denominator(),
-        )))
-        .divide(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.numerator(),
-        )))
-        .expect("frame-rate numerator is nonzero")
-}
-
 impl Evaluator {
-    fn add_timeline_view(
-        &mut self,
-        value_type: ValueType,
-        extent: TimelineExpression,
-        children: Vec<TimelineChild>,
-    ) -> TimelineViewId {
-        let mut placements = BTreeMap::<String, Vec<TimelinePlacement>>::new();
-        for child in &children {
-            let Some(label) = &child.label else {
-                continue;
-            };
-            placements
-                .entry(label.clone())
-                .or_default()
-                .push(TimelinePlacement {
-                    view: child.view,
-                    start: child.start.clone(),
-                });
-        }
-        let id = TimelineViewId::new(
-            u32::try_from(self.timeline_views.len()).expect("timeline view count fits in u32"),
-        );
-        self.timeline_views.push(TimelineView {
-            value_type,
-            extent,
-            placements,
-            children,
-        });
-        id
-    }
-
-    fn fresh_evaluated(&mut self, value: ValueRef) -> EvaluatedValue {
-        let extent = match self.nodes[value.id().get() as usize].kind() {
-            crate::semantic::SemanticNodeKind::ImageVideo { frames, .. } => {
-                TimelineExpression::constant(frame_seconds(frames.0, self.fps))
-            }
-            crate::semantic::SemanticNodeKind::DeferredImageVideo { extent, .. } => extent.clone(),
-            crate::semantic::SemanticNodeKind::Slice { range, .. } => {
-                TimelineExpression::constant(frame_seconds(range.frames().0, self.fps))
-            }
-            crate::semantic::SemanticNodeKind::DeferredSlice { range, .. } => {
-                range.end.subtract(&range.start)
-            }
-            crate::semantic::SemanticNodeKind::DeferredReplaceRange {
-                base,
-                replacement,
-                range,
-            } => TimelineExpression::extent(*base, frame_seconds(1, self.fps))
-                .subtract(&range.end.subtract(&range.start))
-                .add(&TimelineExpression::extent(
-                    *replacement,
-                    frame_seconds(1, self.fps),
-                )),
-            _ => TimelineExpression::extent(value, frame_seconds(1, self.fps)),
-        };
-        let timeline_view = self.add_timeline_view(value.value_type(), extent, Vec::new());
-        EvaluatedValue {
-            value,
-            timeline_view,
-            placement_symbol: None,
-        }
-    }
-
-    fn resolve_timeline_selector(
-        &self,
-        target: ReferenceTarget,
-        context: &TimelineSelectorContext<'_>,
-    ) -> Result<super::parameter::TimelineSelectorValue> {
-        let target_view = self.selector_target_view(target, context)?;
-        let Some(last) = context.path.last() else {
-            return Err(Diagnostic::new(
-                "E_INVALID_TIMELINE_SELECTOR",
-                "a timeline selector requires a placement or boundary",
-                context.span.clone(),
-            ));
-        };
-        let boundary = matches!(last.as_str(), "start" | "middle" | "end").then_some(last.as_str());
-        let placement_path = if boundary.is_some() {
-            &context.path[..context.path.len() - 1]
-        } else {
-            context.path
-        };
-        let (root, current, offset, path_consumed) =
-            self.selector_root(target_view, placement_path, context)?;
-        let remaining_path = if path_consumed {
-            &[][..]
-        } else {
-            placement_path
-        };
-        let (current, offset) =
-            self.walk_selector_path(root, current, offset, remaining_path, context)?;
-        let view = &self.timeline_views[current.index()];
-        let layout = self.timeline_layout_note(context.root_name, root);
-        if view.value_type != ValueType::Video {
-            return Err(Diagnostic::new(
-                "E_UNSUPPORTED_TIMELINE_SELECTOR",
-                "frame marker selectors currently require a Video timeline",
-                context.span.clone(),
-            ));
-        }
-        let end = Self::selector_end(view, &offset);
-        Ok(match boundary {
-            Some("start") => super::parameter::TimelineSelectorValue::Coordinate {
-                owner: root,
-                expression: offset,
-                layout: layout.clone(),
-            },
-            Some("middle") => super::parameter::TimelineSelectorValue::Coordinate {
-                owner: root,
-                expression: offset
-                    .add(&end)
-                    .divide(&ExactNumber::from_integer(2))
-                    .expect("two is nonzero"),
-                layout: layout.clone(),
-            },
-            Some("end") => super::parameter::TimelineSelectorValue::Coordinate {
-                owner: root,
-                expression: end,
-                layout,
-            },
-            Some(_) => unreachable!("known timeline boundary"),
-            None => super::parameter::TimelineSelectorValue::Range {
-                owner: root,
-                start: offset,
-                end,
-            },
-        })
-    }
-
-    fn selector_target_view(
-        &self,
-        target: ReferenceTarget,
-        context: &TimelineSelectorContext<'_>,
-    ) -> Result<TimelineViewId> {
-        match target {
-            ReferenceTarget::Local(local) => {
-                let symbol = context.scope.local_symbols[local.index()];
-                self.symbols[symbol.index()].timeline_view.ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_UNRESOLVED_TIMELINE",
-                        format!(
-                            "timeline `${}` is not resolved at this use",
-                            context.root_name
-                        ),
-                        context.span.clone(),
-                    )
-                })
-            }
-            ReferenceTarget::BodyInput(input) => context.scope.body_inputs[input.index()]
-                .map(|value| value.timeline_view)
-                .ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_UNRESOLVED_TIMELINE",
-                        format!("timeline `${}` is not bound at this use", context.root_name),
-                        context.span.clone(),
-                    )
-                }),
-        }
-    }
-
-    fn selector_root(
-        &self,
-        target_view: TimelineViewId,
-        placement_path: &[String],
-        context: &TimelineSelectorContext<'_>,
-    ) -> Result<(TimelineViewId, TimelineViewId, TimelineExpression, bool)> {
-        if !context.contextual {
-            return Ok((
-                target_view,
-                target_view,
-                TimelineExpression::constant(ExactNumber::from_integer(0)),
-                false,
-            ));
-        }
-        let mut bound_views = context
-            .slots
-            .iter()
-            .flatten()
-            .flatten()
-            .map(|value| value.timeline_view)
-            .collect::<Vec<_>>();
-        bound_views.sort_unstable();
-        bound_views.dedup();
-        if bound_views.contains(&target_view) {
-            return Ok((
-                target_view,
-                target_view,
-                TimelineExpression::constant(ExactNumber::from_integer(0)),
-                false,
-            ));
-        }
-        let mut selector_path = Vec::with_capacity(placement_path.len() + 1);
-        selector_path.push(context.root_name);
-        selector_path.extend(placement_path.iter().map(String::as_str));
-        let mut candidates = Vec::new();
-        for bound in &bound_views {
-            self.collect_contextual_selector_candidates(*bound, &selector_path, &mut candidates);
-        }
-        match candidates.as_slice() {
-            [(owner, view, start)] => Ok((*owner, *view, start.clone(), true)),
-            [] => Ok((
-                target_view,
-                target_view,
-                TimelineExpression::constant(ExactNumber::from_integer(0)),
-                false,
-            )),
-            _ => {
-                let mut diagnostic = Diagnostic::new(
-                    "E_AMBIGUOUS_TIMELINE_PLACEMENT",
-                    format!(
-                        "selector `${}` matches {} placements in the bound timeline context",
-                        selector_path.join("::"),
-                        candidates.len()
-                    ),
-                    context.span.clone(),
-                )
-                .note(
-                    "qualify the selector with more leading placement names or its owning timeline",
-                );
-                for (index, bound) in bound_views.into_iter().enumerate() {
-                    diagnostic =
-                        diagnostic.note(self.timeline_layout_note_for(
-                            &format!("bound timeline {}", index + 1),
-                            bound,
-                        ));
-                }
-                Err(diagnostic)
-            }
-        }
-    }
-
-    fn collect_contextual_selector_candidates(
-        &self,
-        owner: TimelineViewId,
-        selector_path: &[&str],
-        candidates: &mut Vec<(TimelineViewId, TimelineViewId, TimelineExpression)>,
-    ) {
-        let zero = TimelineExpression::constant(ExactNumber::from_integer(0));
-        let mut pending = vec![(owner, zero)];
-        while let Some((current, base)) = pending.pop() {
-            let view = &self.timeline_views[current.index()];
-            if let Some(first) = selector_path.first()
-                && let Some(placements) = view.placements.get(*first)
-            {
-                let mut matches = placements
-                    .iter()
-                    .map(|placement| (placement.view, base.add(&placement.start)))
-                    .collect::<Vec<_>>();
-                for name in &selector_path[1..] {
-                    let mut next = Vec::new();
-                    for (matched_view, matched_start) in matches {
-                        if let Some(placements) = self.timeline_views[matched_view.index()]
-                            .placements
-                            .get(*name)
-                        {
-                            next.extend(placements.iter().map(|placement| {
-                                (placement.view, matched_start.add(&placement.start))
-                            }));
-                        }
-                    }
-                    matches = next;
-                    if matches.is_empty() {
-                        break;
-                    }
-                }
-                candidates.extend(
-                    matches
-                        .into_iter()
-                        .map(|(view, start)| (owner, view, start)),
-                );
-            }
-            for child in &view.children {
-                let start = base.add(&child.start);
-                pending.push((child.view, start));
-            }
-        }
-    }
-
-    fn walk_selector_path(
-        &self,
-        root: TimelineViewId,
-        mut current: TimelineViewId,
-        mut offset: TimelineExpression,
-        path: &[String],
-        context: &TimelineSelectorContext<'_>,
-    ) -> Result<(TimelineViewId, TimelineExpression)> {
-        for name in path {
-            let placement = match self.timeline_views[current.index()]
-                .placements
-                .get(name)
-                .map(Vec::as_slice)
-            {
-                Some([placement]) => placement,
-                Some(placements) => {
-                    return Err(Diagnostic::new(
-                        "E_AMBIGUOUS_TIMELINE_PLACEMENT",
-                        format!(
-                            "timeline `${}` has {} placements named `{name}` at this selector level",
-                            context.root_name,
-                            placements.len()
-                        ),
-                        context.span.clone(),
-                    )
-                    .note("qualify the selector with a distinct placement name")
-                    .note(self.timeline_layout_note(context.root_name, root)));
-                }
-                None => {
-                    return Err(Diagnostic::new(
-                        "E_UNKNOWN_TIMELINE_PLACEMENT",
-                        format!(
-                            "timeline `${}` has no placement named `{name}`",
-                            context.root_name
-                        ),
-                        context.span.clone(),
-                    )
-                    .note(self.timeline_layout_note(context.root_name, root)));
-                }
-            };
-            offset = offset.add(&placement.start);
-            current = placement.view;
-        }
-        Ok((current, offset))
-    }
-
-    fn selector_end(view: &TimelineView, offset: &TimelineExpression) -> TimelineExpression {
-        offset.add(&view.extent)
-    }
-
-    fn timeline_layout_note(&self, root_name: &str, root: TimelineViewId) -> String {
-        self.timeline_layout_note_for(&format!("`${root_name}`"), root)
-    }
-
-    fn timeline_layout_note_for(&self, label: &str, root: TimelineViewId) -> String {
-        const MAX_DEPTH: usize = 12;
-        const MAX_NODES: usize = 64;
-
-        let zero = TimelineExpression::constant(ExactNumber::from_integer(0));
-        let root_view = &self.timeline_views[root.index()];
-        let mut lines = vec![
-            format!("timeline layout for {label}:"),
-            format!(
-                "{label} {}",
-                Self::timeline_range_text(&zero, &root_view.extent)
-            ),
-        ];
-        let mut remaining = MAX_NODES;
-        self.push_timeline_children(root, &zero, "", &mut lines, &mut remaining, 0, MAX_DEPTH);
-        if remaining == 0 {
-            lines.push("… timeline layout truncated".to_owned());
-        }
-        lines.join("\n")
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn push_timeline_children(
-        &self,
-        view: TimelineViewId,
-        base: &TimelineExpression,
-        prefix: &str,
-        lines: &mut Vec<String>,
-        remaining: &mut usize,
-        depth: usize,
-        max_depth: usize,
-    ) {
-        let view = &self.timeline_views[view.index()];
-        let children = &view.children;
-        for (index, child) in children.iter().enumerate() {
-            if *remaining == 0 {
-                return;
-            }
-            *remaining -= 1;
-            let last = index + 1 == children.len();
-            let branch = if last { "└── " } else { "├── " };
-            let start = base.add(&child.start);
-            let child_view = &self.timeline_views[child.view.index()];
-            let end = start.add(&child_view.extent);
-            let label = match &child.label {
-                Some(label)
-                    if view
-                        .placements
-                        .get(label)
-                        .is_some_and(|placements| placements.len() == 1) =>
-                {
-                    label.clone()
-                }
-                Some(label) => format!("{label} (not directly addressable)"),
-                None => "<unnamed> (not directly addressable)".to_owned(),
-            };
-            lines.push(format!(
-                "{prefix}{branch}{label} {}",
-                Self::timeline_range_text(&start, &end)
-            ));
-            if child_view.children.is_empty() {
-                continue;
-            }
-            let child_prefix = format!("{prefix}{}", if last { "    " } else { "│   " });
-            if depth + 1 >= max_depth {
-                lines.push(format!("{child_prefix}└── … nested layout omitted"));
-                continue;
-            }
-            self.push_timeline_children(
-                child.view,
-                &start,
-                &child_prefix,
-                lines,
-                remaining,
-                depth + 1,
-                max_depth,
-            );
-        }
-    }
-
-    fn timeline_range_text(start: &TimelineExpression, end: &TimelineExpression) -> String {
-        format!(
-            "[{}..{})",
-            Self::timeline_expression_text(start),
-            Self::timeline_expression_text(end)
-        )
-    }
-
-    fn timeline_expression_text(expression: &TimelineExpression) -> String {
-        if let Some(value) = expression.constant_value() {
-            return format!("{}s", value.authored_display());
-        }
-        let mut parts = Vec::new();
-        if !expression.constant_part().is_zero() {
-            parts.push(format!(
-                "{}s",
-                expression.constant_part().authored_display()
-            ));
-        }
-        parts.extend(expression.terms().iter().map(|term| {
-            format!(
-                "{}s×frames(v{})",
-                term.coefficient.authored_display(),
-                term.value.id().get()
-            )
-        }));
-        if parts.is_empty() {
-            "0s".to_owned()
-        } else {
-            parts.join(" + ")
-        }
-    }
-
-    fn timeline_input(
-        slots: &[Option<Vec<EvaluatedValue>>],
-        input: crate::program::InputSlot,
-        behavior: &str,
-        span: &SourceSpan,
-    ) -> Result<EvaluatedValue> {
-        slots
-            .get(input.index())
-            .and_then(Option::as_ref)
-            .and_then(|values| values.first())
-            .copied()
-            .ok_or_else(|| {
-                Diagnostic::new(
-                    "E_INTERNAL_BINDING",
-                    format!("{behavior} timeline behavior requires one input"),
-                    span.clone(),
-                )
-            })
-    }
-
-    fn reject_reserved_timeline_label_collision(
-        &self,
-        children: &[TimelineChild],
-        label: &str,
-        operation: &str,
-        root: TimelineViewId,
-        span: &SourceSpan,
-    ) -> Result<()> {
-        if !children
-            .iter()
-            .any(|child| child.label.as_deref() == Some(label))
-        {
-            return Ok(());
-        }
-        Err(Diagnostic::new(
-            "E_TIMELINE_PLACEMENT_CONFLICT",
-            format!(
-                "`{operation}` cannot expose reserved placement `{label}` because the resulting timeline already contains that name"
-            ),
-            span.clone(),
-        )
-        .note(format!(
-            "rename the surviving `{label}` placement before applying `{operation}`"
-        ))
-        .note(self.timeline_layout_note_for("base timeline", root)))
-    }
-
-    fn transition_outputs(
-        &mut self,
-        outputs: Vec<ValueRef>,
-        before: EvaluatedValue,
-        after: EvaluatedValue,
-        overlap: Option<FrameCount>,
-    ) -> Vec<EvaluatedValue> {
-        let zero = TimelineExpression::constant(ExactNumber::from_integer(0));
-        let before_view = self.timeline_views[before.timeline_view.index()].clone();
-        let after_view = self.timeline_views[after.timeline_view.index()].clone();
-        let overlap_extent =
-            overlap.map(|frames| TimelineExpression::constant(frame_seconds(frames.0, self.fps)));
-        let after_start = overlap_extent.as_ref().map_or_else(
-            || before_view.extent.clone(),
-            |overlap| before_view.extent.subtract(overlap),
-        );
-        let extent = after_start.add(&after_view.extent);
-        let mut children = vec![
-            TimelineChild {
-                label: Some("before".to_owned()),
-                view: before.timeline_view,
-                start: zero,
-            },
-            TimelineChild {
-                label: Some("after".to_owned()),
-                view: after.timeline_view,
-                start: after_start.clone(),
-            },
-        ];
-        if let Some(overlap_extent) = overlap_extent {
-            let overlap_view = self.add_timeline_view(ValueType::Video, overlap_extent, Vec::new());
-            children.push(TimelineChild {
-                label: Some("overlap".to_owned()),
-                view: overlap_view,
-                start: after_start,
-            });
-        }
-        outputs
-            .into_iter()
-            .map(|value| EvaluatedValue {
-                value,
-                timeline_view: self.add_timeline_view(
-                    ValueType::Video,
-                    extent.clone(),
-                    children.clone(),
-                ),
-                placement_symbol: None,
-            })
-            .collect()
-    }
-
-    fn concat_outputs(
-        &mut self,
-        outputs: Vec<ValueRef>,
-        values: &[EvaluatedValue],
-    ) -> Vec<EvaluatedValue> {
-        let mut offset = TimelineExpression::constant(ExactNumber::from_integer(0));
-        let mut children = Vec::with_capacity(values.len());
-        for value in values {
-            let child_view = &self.timeline_views[value.timeline_view.index()];
-            if let Some(symbol) = value.placement_symbol {
-                children.push(TimelineChild {
-                    label: Some(self.symbols[symbol.index()].name.clone()),
-                    view: value.timeline_view,
-                    start: offset.clone(),
-                });
-            } else if child_view.children.is_empty() {
-                children.push(TimelineChild {
-                    label: None,
-                    view: value.timeline_view,
-                    start: offset.clone(),
-                });
-            } else {
-                children.extend(child_view.children.iter().cloned().map(|mut child| {
-                    child.start = offset.add(&child.start);
-                    child
-                }));
-            }
-            offset = offset.add(&child_view.extent);
-        }
-        outputs
-            .into_iter()
-            .map(|value| EvaluatedValue {
-                value,
-                timeline_view: self.add_timeline_view(
-                    value.value_type(),
-                    offset.clone(),
-                    children.clone(),
-                ),
-                placement_symbol: None,
-            })
-            .collect()
-    }
-
-    fn crop_outputs(
-        &mut self,
-        outputs: Vec<ValueRef>,
-        source: EvaluatedValue,
-        span: &SourceSpan,
-    ) -> Result<Vec<EvaluatedValue>> {
-        let Some(output) = outputs.first().copied() else {
-            return Ok(Vec::new());
-        };
-        if output.value_type() != ValueType::Video {
-            return Ok(outputs
-                .into_iter()
-                .map(|value| self.fresh_evaluated(value))
-                .collect());
-        }
-        let range = match self.nodes[output.id().get() as usize].kind() {
-            crate::semantic::SemanticNodeKind::Slice { range, .. } => {
-                crate::model::TimelineRangeExpression {
-                    start: TimelineExpression::constant(frame_seconds(range.start(), self.fps)),
-                    end: TimelineExpression::constant(frame_seconds(range.end(), self.fps)),
-                }
-            }
-            crate::semantic::SemanticNodeKind::DeferredSlice { range, .. } => range.clone(),
-            _ => {
-                return Err(Diagnostic::new(
-                    "E_INTERNAL_BINDING",
-                    "crop timeline behavior requires a slice output",
-                    span.clone(),
-                ));
-            }
-        };
-        let source_view = self.timeline_views[source.timeline_view.index()].clone();
-        let mut children = Vec::new();
-        for child in source_view.children {
-            let child_view = &self.timeline_views[child.view.index()];
-            let child_end = child.start.add(&child_view.extent);
-            if child.start.subtract(&range.start).is_nonnegative_constant()
-                && range.end.subtract(&child_end).is_nonnegative_constant()
-            {
-                let start = child.start.subtract(&range.start);
-                children.push(TimelineChild { start, ..child });
-            }
-        }
-        let extent = range.end.subtract(&range.start);
-        Ok(outputs
-            .into_iter()
-            .map(|value| EvaluatedValue {
-                value,
-                timeline_view: self.add_timeline_view(
-                    ValueType::Video,
-                    extent.clone(),
-                    children.clone(),
-                ),
-                placement_symbol: source.placement_symbol,
-            })
-            .collect())
-    }
-
-    fn replace_outputs(
-        &mut self,
-        outputs: Vec<ValueRef>,
-        base: EvaluatedValue,
-        replacement: EvaluatedValue,
-        operation: &str,
-        span: &SourceSpan,
-    ) -> Result<Vec<EvaluatedValue>> {
-        let Some(output) = outputs.first().copied() else {
-            return Ok(Vec::new());
-        };
-        let range = match self.nodes[output.id().get() as usize].kind() {
-            crate::semantic::SemanticNodeKind::ReplaceRange { range, .. } => {
-                crate::model::TimelineRangeExpression {
-                    start: TimelineExpression::constant(frame_seconds(range.start(), self.fps)),
-                    end: TimelineExpression::constant(frame_seconds(range.end(), self.fps)),
-                }
-            }
-            crate::semantic::SemanticNodeKind::DeferredReplaceRange { range, .. } => range.clone(),
-            _ => {
-                return Err(Diagnostic::new(
-                    "E_INTERNAL_BINDING",
-                    "replace timeline behavior requires a replacement output",
-                    span.clone(),
-                ));
-            }
-        };
-        let base_view = self.timeline_views[base.timeline_view.index()].clone();
-        let replacement_view = self.timeline_views[replacement.timeline_view.index()].clone();
-        let selected_extent = range.end.subtract(&range.start);
-        let shift = replacement_view.extent.subtract(&selected_extent);
-        let mut children = Vec::new();
-        for mut child in base_view.children {
-            let child_view = &self.timeline_views[child.view.index()];
-            let child_end = child.start.add(&child_view.extent);
-            let survives = if range.start.subtract(&child_end).is_nonnegative_constant() {
-                true
-            } else if child.start.subtract(&range.end).is_nonnegative_constant() {
-                child.start = child.start.add(&shift);
-                true
-            } else {
-                false
-            };
-            if !survives {
-                continue;
-            }
-            children.push(child);
-        }
-        self.reject_reserved_timeline_label_collision(
-            &children,
-            "replacement",
-            operation,
-            base.timeline_view,
-            span,
-        )?;
-        children.push(TimelineChild {
-            label: Some("replacement".to_owned()),
-            view: replacement.timeline_view,
-            start: range.start.clone(),
-        });
-        let extent = base_view.extent.add(&shift);
-        Ok(outputs
-            .into_iter()
-            .map(|value| EvaluatedValue {
-                value,
-                timeline_view: self.add_timeline_view(
-                    ValueType::Video,
-                    extent.clone(),
-                    children.clone(),
-                ),
-                placement_symbol: base.placement_symbol,
-            })
-            .collect())
-    }
-
-    fn apply_timeline_behavior(
-        &mut self,
-        behavior: crate::program::TimelineBehavior,
-        outputs: Vec<ValueRef>,
-        slots: &[Option<Vec<EvaluatedValue>>],
-        body_outputs: Option<&[EvaluatedValue]>,
-        operation: &str,
-        span: &SourceSpan,
-    ) -> Result<Vec<EvaluatedValue>> {
-        match behavior {
-            crate::program::TimelineBehavior::Fresh => Ok(outputs
-                .into_iter()
-                .map(|value| self.fresh_evaluated(value))
-                .collect()),
-            crate::program::TimelineBehavior::Identity { input } => {
-                let source = slots
-                    .get(input.index())
-                    .and_then(Option::as_ref)
-                    .and_then(|values| values.first())
-                    .copied()
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
-                            "identity timeline behavior requires one input",
-                            span.clone(),
-                        )
-                    })?;
-                outputs
-                    .into_iter()
-                    .map(|value| {
-                        let source_view = self.timeline_views[source.timeline_view.index()].clone();
-                        let timeline_view = self.add_timeline_view(
-                            source_view.value_type,
-                            source_view.extent,
-                            source_view.children,
-                        );
-                        Ok(EvaluatedValue {
-                            value,
-                            timeline_view,
-                            placement_symbol: source.placement_symbol,
-                        })
-                    })
-                    .collect()
-            }
-            crate::program::TimelineBehavior::Concat { input } => {
-                let values = slots
-                    .get(input.index())
-                    .and_then(Option::as_ref)
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
-                            "concat timeline behavior requires its input sequence",
-                            span.clone(),
-                        )
-                    })?;
-                Ok(self.concat_outputs(outputs, values))
-            }
-            crate::program::TimelineBehavior::BodyConcat { .. } => {
-                let values = body_outputs.ok_or_else(|| {
-                    Diagnostic::new(
-                        "E_INTERNAL_BINDING",
-                        "body-concat timeline behavior requires body outputs",
-                        span.clone(),
-                    )
-                })?;
-                Ok(self.concat_outputs(outputs, values))
-            }
-            crate::program::TimelineBehavior::Crop { input } => {
-                let source = Self::timeline_input(slots, input, "crop", span)?;
-                self.crop_outputs(outputs, source, span)
-            }
-            crate::program::TimelineBehavior::Replace { base } => {
-                let base = Self::timeline_input(slots, base, "replace", span)?;
-                let [replacement] = body_outputs.unwrap_or_default() else {
-                    return Err(Diagnostic::new(
-                        "E_INTERNAL_BINDING",
-                        "replace timeline behavior requires one body output",
-                        span.clone(),
-                    ));
-                };
-                self.replace_outputs(outputs, base, *replacement, operation, span)
-            }
-            crate::program::TimelineBehavior::FlashCut { before, after } => {
-                let before = Self::timeline_input(slots, before, "flash-cut", span)?;
-                let after = Self::timeline_input(slots, after, "flash-cut", span)?;
-                Ok(self.transition_outputs(outputs, before, after, None))
-            }
-            crate::program::TimelineBehavior::Crossfade { before, after } => {
-                let before = Self::timeline_input(slots, before, "crossfade", span)?;
-                let after = Self::timeline_input(slots, after, "crossfade", span)?;
-                let overlap = outputs
-                    .first()
-                    .and_then(|value| match self.nodes[value.id().get() as usize].kind() {
-                        crate::semantic::SemanticNodeKind::Crossfade { frames, .. } => {
-                            Some(*frames)
-                        }
-                        _ => None,
-                    })
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INTERNAL_BINDING",
-                            "crossfade timeline behavior requires a crossfade output",
-                            span.clone(),
-                        )
-                    })?;
-                Ok(self.transition_outputs(outputs, before, after, Some(overlap)))
-            }
-        }
-    }
-
     #[allow(clippy::too_many_lines)]
     fn evaluate_program(
         &mut self,
@@ -1292,6 +428,80 @@ impl Evaluator {
         }
     }
 
+    fn resolved_generic_type(
+        definition: &crate::program::ProgramDefinition,
+        signature: &crate::program::ResolvedSignature,
+    ) -> Option<ValueType> {
+        definition
+            .descriptor
+            .inputs
+            .iter()
+            .zip(&signature.inputs)
+            .find_map(|(port, value_type)| {
+                matches!(port.value_type, crate::program::ValueTypeSpec::Generic)
+                    .then_some(*value_type)
+            })
+            .or_else(|| {
+                definition
+                    .descriptor
+                    .outputs
+                    .iter()
+                    .zip(&signature.outputs)
+                    .find_map(|(spec, value_type)| {
+                        matches!(spec, crate::program::ValueTypeSpec::Generic)
+                            .then_some(*value_type)
+                    })
+            })
+    }
+
+    fn validate_body_initial_values(
+        definition: &crate::program::ProgramDefinition,
+        signature: &crate::program::ResolvedSignature,
+        contract: &crate::program::BodyContract,
+        values: &[ValueRef],
+        span: &SourceSpan,
+    ) -> Result<()> {
+        if values.len() != contract.initial_values.len() {
+            return Err(Diagnostic::new(
+                "E_INTERNAL_PROGRAM_CONTRACT",
+                format!(
+                    "body program `{}` prepared {} initial value(s), but its contract declares {}",
+                    definition.descriptor.name,
+                    values.len(),
+                    contract.initial_values.len()
+                ),
+                span.clone(),
+            ));
+        }
+        let generic = Self::resolved_generic_type(definition, signature);
+        for (index, (value, expected)) in values.iter().zip(&contract.initial_values).enumerate() {
+            let expected = expected.exact().or(generic).ok_or_else(|| {
+                Diagnostic::new(
+                    "E_INTERNAL_PROGRAM_CONTRACT",
+                    format!(
+                        "body program `{}` has an unresolved generic initial value",
+                        definition.descriptor.name
+                    ),
+                    span.clone(),
+                )
+            })?;
+            if value.value_type() != expected {
+                return Err(Diagnostic::new(
+                    "E_INTERNAL_PROGRAM_CONTRACT",
+                    format!(
+                        "body program `{}` prepared initial value {} as {}, but its contract requires {}",
+                        definition.descriptor.name,
+                        index + 1,
+                        value.value_type(),
+                        expected
+                    ),
+                    span.clone(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_lines)]
     fn evaluate_invocation(
         &mut self,
@@ -1475,7 +685,7 @@ impl Evaluator {
                     span,
                 )?
             }
-            ProgramImplementation::Body { prepare, .. } => {
+            ProgramImplementation::Body { prepare, contract } => {
                 let checked_body = invocation
                     .body
                     .as_deref()
@@ -1490,34 +700,25 @@ impl Evaluator {
                     );
                     prepare(&call, &mut builder)?
                 };
+                Self::validate_body_initial_values(
+                    definition,
+                    signature,
+                    contract,
+                    &plan.initial_values,
+                    span,
+                )?;
                 let mut child = EvaluationStack::<EvaluatedValue>::enter_body(
                     frame,
                     invocation.access,
                     definition.descriptor.name.clone(),
                     span.clone(),
                 );
-                let initial_values = match definition.timeline_behavior {
-                    crate::program::TimelineBehavior::BodyConcat { inputs } => inputs
-                        .iter()
-                        .zip(plan.initial_values.iter().copied())
-                        .map(|(input, value)| {
-                            let evaluated = Self::timeline_input(
-                                &slots,
-                                *input,
-                                "body-concat initial value",
-                                span,
-                            )?;
-                            debug_assert_eq!(evaluated.value, value);
-                            Ok(evaluated)
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                    _ => plan
-                        .initial_values
-                        .iter()
-                        .copied()
-                        .map(|value| self.fresh_evaluated(value))
-                        .collect::<Vec<_>>(),
-                };
+                let initial_values = self.evaluate_body_initial_values(
+                    definition.timeline_behavior,
+                    &plan.initial_values,
+                    &slots,
+                    span,
+                )?;
                 stack.extend(&child, initial_values);
                 debug_assert_eq!(
                     invocation.body_input_ids.len(),
@@ -1785,7 +986,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
-    use crate::model::{FrameCount, ImageFit};
+    use crate::model::{FrameCount, ImageFit, NativeRange};
     use crate::program::{
         BodyFinalizer, BodyPlan, Cardinality, InputPort, ProgramDefinition, ProgramDescriptor,
         ProgramRegistry, ResolvedCall, StackAccess,
@@ -1796,6 +997,21 @@ mod tests {
         Ok(BodyPlan {
             initial_values: Vec::new(),
             requested_extent: call.requested_extent().cloned(),
+            finalizer: Box::new(RootFinalizer),
+        })
+    }
+
+    fn prepare_unexpected_initial_value(
+        _call: &ResolvedCall,
+        builder: &mut GraphBuilder<'_>,
+    ) -> Result<BodyPlan> {
+        Ok(BodyPlan {
+            initial_values: vec![builder.image_video(
+                PathBuf::from("unexpected.png"),
+                FrameCount(1),
+                ImageFit::Cover,
+            )?],
+            requested_extent: None,
             finalizer: Box::new(RootFinalizer),
         })
     }
@@ -2140,7 +1356,10 @@ mod tests {
             .nodes()
             .iter()
             .find_map(|node| match node.kind() {
-                crate::semantic::SemanticNodeKind::Slice { range, .. } => Some(*range),
+                crate::semantic::SemanticNodeKind::Slice {
+                    range: NativeRange::Frames(range),
+                    ..
+                } => Some(*range),
                 _ => None,
             })
             .expect("slice created from the right tuple output");
@@ -2272,5 +1491,44 @@ mod tests {
             .expect_err("owned override blocks capture");
         assert_eq!(error.code, "E_STACK_UNDERFLOW");
         assert!(error.message.contains("only 0 owned"));
+    }
+    #[test]
+    fn body_prepare_values_must_match_the_declared_contract() {
+        let mut programs = vec![
+            definition(
+                "source",
+                1,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Direct(lower_source),
+            ),
+            definition(
+                "bad_body_plan",
+                1,
+                StackAccess::Owned,
+                vec![],
+                vec![ValueType::Video],
+                ProgramImplementation::Body {
+                    prepare: prepare_unexpected_initial_value,
+                    contract: crate::program::BodyContract {
+                        initial_values: vec![],
+                        outputs: crate::program::BodyOutputConstraint::Exactly(vec![
+                            ValueType::Video.into(),
+                        ]),
+                        count_error_code: "E_BODY_OUTPUT_COUNT",
+                    },
+                },
+            ),
+        ];
+        let (workflow, registry) = parse_with_registry(
+            "clipasm 1\nbad_body_plan { source }\n",
+            std::mem::take(&mut programs),
+        );
+
+        let error = crate::compiler::compile_with_registry(&workflow, &registry)
+            .expect_err("prepare function must obey the body contract");
+        assert_eq!(error.code, "E_INTERNAL_PROGRAM_CONTRACT");
+        assert!(error.message.contains("prepared 1 initial value"));
     }
 }

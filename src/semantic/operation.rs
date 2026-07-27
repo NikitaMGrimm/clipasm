@@ -5,8 +5,7 @@ use serde::Serialize;
 
 use crate::external::ExternalInvocation;
 use crate::model::{
-    ExactNumber, FrameCount, FrameRange, ImageFit, SampleRange, TimelineRangeExpression, ValueRef,
-    ValueType,
+    ExactNumber, FrameCount, ImageFit, NativeRange, TimelineRangeExpression, ValueRef, ValueType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -25,8 +24,7 @@ impl SymbolId {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
+#[derive(Clone, Debug)]
 pub(crate) enum SemanticNodeKind {
     ImageVideo {
         path: PathBuf,
@@ -53,10 +51,6 @@ pub(crate) enum SemanticNodeKind {
         input: ValueRef,
         count: NonZeroU64,
     },
-    AudioRepeat {
-        input: ValueRef,
-        count: NonZeroU64,
-    },
     ZoomIn {
         input: ValueRef,
         by: ExactNumber,
@@ -74,25 +68,18 @@ pub(crate) enum SemanticNodeKind {
     Concat {
         inputs: Vec<ValueRef>,
     },
-    AudioConcat {
-        inputs: Vec<ValueRef>,
-    },
     Slice {
         input: ValueRef,
-        range: FrameRange,
+        range: NativeRange,
     },
     DeferredSlice {
         input: ValueRef,
         range: TimelineRangeExpression,
     },
-    AudioSlice {
-        input: ValueRef,
-        range: SampleRange,
-    },
     ReplaceRange {
         base: ValueRef,
         replacement: ValueRef,
-        range: FrameRange,
+        range: NativeRange,
     },
     DeferredReplaceRange {
         base: ValueRef,
@@ -122,26 +109,26 @@ pub(crate) enum SemanticDependency {
 
 impl SemanticNodeKind {
     #[must_use]
-    pub(crate) const fn value_type(&self) -> ValueType {
+    pub(crate) fn value_type(&self) -> ValueType {
         match self {
-            Self::AudioSource { .. }
-            | Self::AudioRepeat { .. }
-            | Self::AudioConcat { .. }
-            | Self::AudioSlice { .. }
-            | Self::ExtractAudio { .. } => ValueType::Audio,
+            Self::AudioSource { .. } | Self::ExtractAudio { .. } => ValueType::Audio,
             Self::Reference { value_type, .. } => *value_type,
+            Self::Repeat { input, .. }
+            | Self::Slice { input, .. }
+            | Self::DeferredSlice { input, .. } => input.value_type(),
+            Self::Concat { inputs } => inputs
+                .first()
+                .expect("semantic concat inputs are nonempty")
+                .value_type(),
+            Self::ReplaceRange { base, .. } | Self::DeferredReplaceRange { base, .. } => {
+                base.value_type()
+            }
             Self::ImageVideo { .. }
             | Self::DeferredImageVideo { .. }
             | Self::VideoSource { .. }
-            | Self::Repeat { .. }
             | Self::ZoomIn { .. }
             | Self::FlashCut { .. }
             | Self::Crossfade { .. }
-            | Self::Concat { .. }
-            | Self::Slice { .. }
-            | Self::DeferredSlice { .. }
-            | Self::ReplaceRange { .. }
-            | Self::DeferredReplaceRange { .. }
             | Self::SetAudio { .. }
             | Self::AudioOnBlack { .. }
             | Self::ExternalVideo { .. } => ValueType::Video,
@@ -156,8 +143,6 @@ impl SemanticNodeKind {
                 Some(SemanticDependency::Symbol(*symbol))
             }
             Self::Repeat { input, .. }
-            | Self::AudioRepeat { input, .. }
-            | Self::AudioSlice { input, .. }
             | Self::ZoomIn { input, .. }
             | Self::Slice { input, .. }
             | Self::ExtractAudio { video: input }
@@ -182,9 +167,7 @@ impl SemanticNodeKind {
                 .terms()
                 .get(index)
                 .map(|term| SemanticDependency::Value(term.value)),
-            Self::Concat { inputs } | Self::AudioConcat { inputs } => {
-                inputs.get(index).copied().map(SemanticDependency::Value)
-            }
+            Self::Concat { inputs } => inputs.get(index).copied().map(SemanticDependency::Value),
             Self::FlashCut { before, after, .. } | Self::Crossfade { before, after, .. } => {
                 [*before, *after]
                     .get(index)
@@ -228,8 +211,6 @@ impl SemanticNodeKind {
             | Self::AudioSource { .. }
             | Self::Reference { .. }
             | Self::Repeat { .. }
-            | Self::AudioRepeat { .. }
-            | Self::AudioSlice { .. }
             | Self::ZoomIn { .. }
             | Self::Slice { .. }
             | Self::ExtractAudio { .. }
@@ -249,7 +230,7 @@ impl SemanticNodeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::ValueId;
+    use crate::model::{FrameRange, ValueId};
 
     fn value(id: u32, value_type: ValueType) -> ValueRef {
         ValueRef::new(ValueId::new(id), value_type)
@@ -263,11 +244,17 @@ mod tests {
         };
         assert_eq!(reference.value_type(), ValueType::Audio);
 
-        let zoom_in = SemanticNodeKind::ZoomIn {
-            input: value(0, ValueType::Video),
-            by: ExactNumber::from_ratio(2, 25),
+        let repeat = SemanticNodeKind::Repeat {
+            input: value(0, ValueType::Audio),
+            count: NonZeroU64::new(2).expect("nonzero"),
         };
-        assert_eq!(zoom_in.value_type(), ValueType::Video);
+        assert_eq!(repeat.value_type(), ValueType::Audio);
+
+        let slice = SemanticNodeKind::Slice {
+            input: value(1, ValueType::Video),
+            range: NativeRange::Frames(FrameRange::new(0, 1).expect("range")),
+        };
+        assert_eq!(slice.value_type(), ValueType::Video);
     }
 
     #[test]

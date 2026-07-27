@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use super::{ExactNumber, FrameCount, FrameRate, ValueRef};
-use crate::diagnostic::{Diagnostic, Result};
+use super::{ExactNumber, FrameRate, ValueRef, exact_seconds_to_frames, exact_seconds_to_samples};
+use crate::diagnostic::Result;
 use crate::source::SourceSpan;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -26,12 +26,12 @@ impl TimelineExpression {
         }
     }
 
-    pub(crate) fn extent(value: ValueRef, seconds_per_frame: ExactNumber) -> Self {
+    pub(crate) fn extent(value: ValueRef, seconds_per_unit: ExactNumber) -> Self {
         Self {
             constant: ExactNumber::from_integer(0),
             terms: vec![TimelineTerm {
                 value,
-                coefficient: seconds_per_frame,
+                coefficient: seconds_per_unit,
             }],
         }
     }
@@ -86,11 +86,11 @@ impl TimelineExpression {
 
     pub(crate) fn resolve(
         &self,
-        mut frames: impl FnMut(ValueRef) -> Result<FrameCount>,
+        mut units: impl FnMut(ValueRef) -> Result<u64>,
     ) -> Result<ExactNumber> {
         let mut value = self.constant.clone();
         for term in &self.terms {
-            let extent = ExactNumber::from_unsigned_integer(frames(term.value)?.0);
+            let extent = ExactNumber::from_unsigned_integer(units(term.value)?);
             value = value.add(&extent.multiply(&term.coefficient));
         }
         Ok(value)
@@ -99,30 +99,19 @@ impl TimelineExpression {
     pub(crate) fn resolve_frame_boundary(
         &self,
         fps: FrameRate,
-        frames: impl FnMut(ValueRef) -> Result<FrameCount>,
+        units: impl FnMut(ValueRef) -> Result<u64>,
         span: &SourceSpan,
     ) -> Result<u64> {
-        let seconds = self.resolve(frames)?;
-        let boundary = seconds
-            .multiply(&ExactNumber::from_unsigned_integer(u64::from(
-                fps.numerator(),
-            )))
-            .divide(&ExactNumber::from_unsigned_integer(u64::from(
-                fps.denominator(),
-            )))
-            .expect("frame-rate denominator is nonzero");
-        boundary.to_u64().ok_or_else(|| {
-            Diagnostic::new(
-                "E_TIME_NOT_FRAME_ALIGNED",
-                format!(
-                    "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
-                    seconds.authored_display(),
-                    fps.numerator(),
-                    fps.denominator()
-                ),
-                span.clone(),
-            )
-        })
+        exact_seconds_to_frames(&self.resolve(units)?, fps, span)
+    }
+
+    pub(crate) fn resolve_sample_boundary(
+        &self,
+        sample_rate: u32,
+        units: impl FnMut(ValueRef) -> Result<u64>,
+        span: &SourceSpan,
+    ) -> Result<u64> {
+        exact_seconds_to_samples(&self.resolve(units)?, sample_rate, span)
     }
 
     fn combine(&self, other: &Self, subtract: bool) -> Self {

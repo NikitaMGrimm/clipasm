@@ -14,7 +14,9 @@ pub use audio::{AudioDomain, AudioSpec};
 pub use number::Number;
 pub(crate) use number::Number as ExactNumber;
 pub use time::{FrameCount, FrameRange, SampleRange};
-pub(crate) use time::{SourceTime, SourceTimeRange};
+pub(crate) use time::{
+    NativeRange, SourceTime, SourceTimeRange, exact_seconds_to_frames, exact_seconds_to_samples,
+};
 pub(crate) use timeline::{FrameSampleStep, TimelineRate};
 pub(crate) use timeline_expression::{TimelineExpression, TimelineRangeExpression};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
@@ -91,6 +93,14 @@ impl ValueType {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub(crate) const fn native_unit_name(self) -> &'static str {
+        match self {
+            Self::Video => "frames",
+            Self::Audio => "samples",
+        }
+    }
 }
 
 impl std::fmt::Display for ValueType {
@@ -126,7 +136,7 @@ impl ValueRef {
 
     #[must_use]
     /// Return the value's compiler-checked type.
-    pub fn value_type(self) -> ValueType {
+    pub const fn value_type(self) -> ValueType {
         self.value_type
     }
 }

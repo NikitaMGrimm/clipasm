@@ -170,18 +170,18 @@ fn stack_access_is_generic_invocation_metadata() {
 }
 
 #[test]
-fn during_uses_video_as_its_single_input_name() {
+fn during_uses_timeline_as_its_single_input_name() {
     compile_source(
+        Path::new("during-timeline.clipasm"),
+        "clipasm 1\nclip { image(\"card.ppm\", 2s) } as selected\nduring(timeline=$selected, range=500ms..1500ms) { repeat(2) }\n",
+    )
+    .expect("during.timeline input");
+
+    let error = clipasm::language::parse_str(
         Path::new("during-video.clipasm"),
         "clipasm 1\nclip { image(\"card.ppm\", 2s) } as selected\nduring(video=$selected, range=500ms..1500ms) { repeat(2) }\n",
     )
-    .expect("during.video input");
-
-    let error = clipasm::language::parse_str(
-        Path::new("during-base.clipasm"),
-        "clipasm 1\nclip { image(\"card.ppm\", 2s) } as selected\nduring(base=$selected, range=500ms..1500ms) { repeat(2) }\n",
-    )
-    .expect_err("obsolete during.base");
+    .expect_err("obsolete during.video");
     assert_eq!(error.code, "E_UNKNOWN_PROGRAM_ARGUMENT");
 }
 
@@ -196,7 +196,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 17);
+    assert_eq!(document["format_version"], 20);
     assert_eq!(
         compiled.result_domain().expect("known result").frames().0,
         30
@@ -500,7 +500,11 @@ fn project_audio_sample_rate_controls_audio_timeline_semantics() {
         .as_array()
         .expect("compiled nodes")
         .iter()
-        .find(|node| node["kind"]["operation"] == "audio_slice")
+        .find(|node| {
+            node["value_type"] == "audio"
+                && node["kind"]["operation"] == "slice"
+                && node["kind"]["unit"] == "samples"
+        })
         .expect("audio slice");
     assert_eq!(slice["kind"]["range"]["start"], 0);
     assert_eq!(slice["kind"]["range"]["end"], 44_100);

@@ -61,10 +61,11 @@ authoring semantics. The native `.clipasm` grammar is implemented under
   placements may share one immutable value while retaining different marker
   roots.
 - A **placement marker** is a named closed-open child region of a composed
-  Video timeline. Explicit output bindings name placements; one uniquely
-  referenced value may also contribute its reference name implicitly.
-- A timeline view retains one canonical ordered child sequence. Anonymous
-  composition layers are transparent and contribute their children directly;
+  Video or Audio timeline. Explicit output bindings name placements; one
+  uniquely referenced value may also contribute its reference name implicitly.
+- A timeline view retains one canonical ordered child sequence. Its spelling
+  index contains only indexes into that sequence, never copied placement state.
+  Anonymous composition layers are transparent and contribute their children directly;
   naming an occurrence creates a deliberate selector boundary. Selector lookup
   is a derived spelling-to-occurrences index rather than separately authored
   state.
@@ -126,15 +127,18 @@ Constructs that do not accept a caller body still reject authored braces.
 
 Every body program exposes each resolved fixed graph input as a local immutable
 reference named after its port. Arguments are evaluated in the caller scope
-before those aliases are introduced. Thus an inner `during.video: $video` reads
-the outer `$video`, while `$video` inside the inner body names the inner bound
-port. The body itself is structural invocation data, not a port.
+before those aliases are introduced. Thus `during(timeline=$timeline, ...)`
+evaluates its argument against the outer `$timeline`, while `$timeline` inside
+the new body names the newly bound port. The body itself is structural
+invocation data, not a port.
 
 - `join` resolves one homogeneous timeline type, starts its body with two bound
   values of that type, exposes `$before` and `$after`, and concatenates the
   body's owned values in order.
-- `during` exposes its complete bound `$video`, starts the body stack with only
-  the selected range, requires one processed owned Video, and splices it back.
+- `during` resolves one timeline type, exposes its complete bound `$timeline`,
+  starts the body stack with only the selected range and its provably contained
+  nested layout, requires one owned value of the same type, and splices it back
+  into the original timeline.
 - A plain stack block starts a visible child frame and returns its complete
   ordered owned remainder. `@owned { ... }` establishes an explicit visibility
   boundary.
@@ -196,7 +200,8 @@ alignment, and parameter constraints are likewise validated only at the final
 use. Timeline selectors inside aliases are explicitly rooted and do not borrow
 contextual roots from later invocations.
 
-Timeline selectors use `::` and remain frame-native. A selector such as
+Timeline selectors use `::` and remain native-grid: Video boundaries are exact
+project frames, while Audio boundaries are exact project samples. A selector such as
 `$edit::credits::start` addresses a boundary in the marker layout rooted at
 `$edit`; nested placement paths are permitted. A placement selector without a
 boundary, such as `$edit::credits`, denotes that placement's complete
@@ -210,16 +215,21 @@ alignment, range ordering, and bounds are checked only when the result is
 consumed as a TimeRange. A bound timeline provides context for a selector
 suffix such as `$interview::start` or `$chapter::interview::start`. The suffix
 may begin at any uniquely matching addressable descendant; multiple matches are
-ambiguous and require more leading placement names or the owning timeline.
+ambiguous and require more leading placement names or the owning timeline. The
+lookup operates on the shared timeline-view DAG and tracks only zero, one, or
+multiple matches, so repeated shared sublayouts are not expanded exponentially.
 Explicitly rooted selectors remain exact paths, and aliases never borrow this
 invocation-local context. The consuming timeline input must have the same root.
 `concat` and the `join` body finalizer create canonical placement layouts
 from their actual surviving occurrences. Anonymous composition is associative
 and transparent: blocks, redundant one-input concatenations, and regrouping do
 not change selector paths. A named occurrence remains one nested selector
-boundary. Identity mappings copy layouts, while
-Video `trim` rebases only child placements whose complete regions are provably
-contained by the selected range; partial or uncertain placements disappear.
+boundary. Identity mappings copy layouts. The repeat mapping preserves the
+complete layout for the `repeat(1)` alias. `repeat(2+)` creates a fresh unindexed
+root with no child placements, but its root extent remains the exact input extent
+multiplied by the count. Video and Audio `trim` rebase only child placements whose complete
+regions are provably contained by the selected range; partial or uncertain
+placements disappear.
 `during` retains base placements provably before its selected range, shifts
 placements provably after it by the replacement-duration delta, drops
 intersecting or uncertain placements, and exposes the inserted body as the
@@ -228,15 +238,21 @@ reserved `replacement` region with its nested layout. If a base placement named
 instead of shadowing either occurrence. Transition mappings are operation-owned:
 `flash_cut` exposes sequential `before` and `after` regions, while `crossfade`
 exposes overlapping `before` and `after` regions plus their shared `overlap`.
-Transition input regions retain their nested layouts. Marker coordinates are
-canonical linear expressions in exact seconds.
-Known frame boundaries reduce to constants; unknown Video extents remain terms
-referencing semantic values. Video `trim` and `during` may carry such ranges
-through the compiled graph, where preflight substitutes probed project-frame
-domains and then validates exact alignment, ordering, and final bounds.
-`during` also propagates the selected extent as a symbolic requested-duration
-context, allowing duration-inheriting images in its body to remain pure until
-preflight resolves their concrete frame counts.
+Transition input regions retain their nested layouts. Generic timeline programs lower to one typed semantic `Repeat`, `Concat`,
+`Slice`, or `ReplaceRange` regardless of media. Concrete ranges carry either a
+frame or sample range; deferred ranges retain one exact expression. Preflight is
+the only phase that dispatches these generic semantic nodes into media-specific
+prepared operations. Marker coordinates are
+canonical linear expressions in exact seconds. Known frame or sample boundaries
+reduce to constants; unknown Video or Audio extents remain terms referencing
+semantic values and scaled by seconds per native unit. Video and Audio `trim`
+and `during` may carry such ranges through the compiled graph.
+Preflight substitutes probed frame or sample domains and then validates exact
+native-grid alignment, ordering, and final bounds.
+Video `during` also propagates the selected extent as a symbolic requested-
+duration context, allowing duration-inheriting images in its body to remain pure
+until preflight resolves their concrete frame counts. Audio `during` does not
+convert sample extents into an implicit Video duration.
 
 An inline input body starts empty, inherits the enclosing requested Video
 extent, and must leave exactly one value accepted by its input port after any

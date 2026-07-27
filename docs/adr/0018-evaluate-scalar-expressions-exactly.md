@@ -48,7 +48,8 @@ to `8%`, and stores the exact fractional increase.
   checked only when reached from a real scalar use, while retaining the same
   exact evaluator and parameter ABI.
 - Timeline coordinates normalize to linear exact expressions. Media-dependent
-  Video extents may remain symbolic through compilation and are substituted by
-  preflight before final frame-alignment and bounds validation.
+  Video or Audio extents may remain symbolic through compilation and are
+  substituted by preflight before final native-grid alignment and bounds
+  validation.
 - Adding arithmetic for another scalar quantity requires explicit typed
   operator definitions rather than treating every scalar as Number.

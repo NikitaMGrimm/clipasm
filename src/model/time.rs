@@ -1,8 +1,53 @@
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ExactNumber, FrameRate};
+use crate::model::{ExactNumber, FrameRate, ValueType};
 use crate::source::SourceSpan;
+
+pub(crate) fn exact_seconds_to_frames(
+    seconds: &ExactNumber,
+    fps: FrameRate,
+    span: &SourceSpan,
+) -> Result<u64> {
+    let frames = seconds
+        .multiply(&ExactNumber::from_unsigned_integer(u64::from(
+            fps.numerator(),
+        )))
+        .divide(&ExactNumber::from_unsigned_integer(u64::from(
+            fps.denominator(),
+        )))
+        .expect("frame-rate denominator is nonzero");
+    frames.to_u64().ok_or_else(|| {
+        Diagnostic::new(
+            "E_TIME_NOT_FRAME_ALIGNED",
+            format!(
+                "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
+                seconds.authored_display(),
+                fps.numerator(),
+                fps.denominator()
+            ),
+            span.clone(),
+        )
+    })
+}
+
+pub(crate) fn exact_seconds_to_samples(
+    seconds: &ExactNumber,
+    sample_rate: u32,
+    span: &SourceSpan,
+) -> Result<u64> {
+    let samples = seconds.multiply(&ExactNumber::from_unsigned_integer(u64::from(sample_rate)));
+    samples.to_u64().ok_or_else(|| {
+        Diagnostic::new(
+            "E_TIME_NOT_SAMPLE_ALIGNED",
+            format!(
+                "timeline coordinate {}s is not an exact nonnegative boundary at {sample_rate} Hz",
+                seconds.authored_display()
+            ),
+            span.clone(),
+        )
+    })
+}
 
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
@@ -161,6 +206,22 @@ impl SampleRange {
     #[must_use]
     pub const fn samples(self) -> u64 {
         self.end - self.start
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum NativeRange {
+    Frames(FrameRange),
+    Samples(SampleRange),
+}
+
+impl NativeRange {
+    #[must_use]
+    pub(crate) const fn value_type(self) -> ValueType {
+        match self {
+            Self::Frames(_) => ValueType::Video,
+            Self::Samples(_) => ValueType::Audio,
+        }
     }
 }
 

@@ -150,8 +150,9 @@ reaches that alias. Declaration syntax and duplicate names remain eager.
 Parameters, graph values, inputs, and aliases share one program-wide name
 namespace.
 
-Composed Video timelines expose frame-native placement markers. Explicit names
-on the values that reach a clip's final concatenation become placement names:
+Composed Video and Audio timelines expose native-grid placement markers. Video
+boundaries are exact project frames; Audio boundaries are exact project samples.
+Explicit names on values that reach a final concatenation become placement names:
 
 ```clipasm
 clip {
@@ -167,15 +168,20 @@ during($edit::credits) {
 
 Selector paths may be nested, such as
 `$edit::chapter::interview::start`. A placement selector without a final
-boundary denotes its complete closed-open range. `::start`, `::middle`, and
-`::end` select exact coordinates. A uniquely placed bare reference contributes
+boundary denotes its complete closed-open range. Terminal `::start`,
+`::middle`, and `::end` select exact coordinates and remain reserved as boundary
+words. A placement with one of those spellings is selected with an additional
+boundary component, for example
+`$edit::middle::start..$edit::middle::end`; bare `$edit::middle` always remains
+the midpoint of `$edit`. A uniquely placed bare reference contributes
 its reference name implicitly, and identity-preserving programs such as
 `zoom_in` retain that marker. When an operation has already bound its timeline,
 a selector may omit leading ancestors when the remaining suffix identifies one
 addressable descendant. For example, `$interview::start` or
 `$chapter::interview::start` may stand for a longer path under the bound root.
 Multiple matches are ambiguous and require more leading names or the owning
-timeline. Explicitly rooted selectors remain exact paths.
+timeline. Lookup is performed over the shared view DAG without expanding every
+reused occurrence. Explicitly rooted selectors remain exact paths.
 
 Selector structure follows names rather than operation history. Anonymous
 composition layers are transparent, so these forms expose the same direct
@@ -219,12 +225,24 @@ spelling is ambiguous and needs a distinct explicit name.
 
 Marker ranges must be used with the timeline that owns their root. `join`
 preserves the exact views of untouched inputs and exposes named values created
-by its body as placements in the joined result. Both
-`during` and Video `trim` accept rooted marker ranges. Video `trim` preserves
-child placements only when their complete closed-open region is provably inside
-the selected range, rebasing their starts to the trimmed timeline. Partially
-surviving or symbolically uncertain placements are omitted. A trimmed occurrence
-keeps its own placement label when it is later inserted into a clip.
+by its body as placements in the joined result. `trim` and `during` accept rooted
+marker ranges for both Video and Audio. `trim`
+preserves child placements only when their complete closed-open region is
+provably inside the selected range, rebasing their starts to the trimmed
+timeline. Partially surviving or symbolically uncertain placements are omitted.
+A trimmed occurrence keeps its own placement label when later composed.
+
+Audio uses the same selector, contextual-suffix, and interval-replacement rules:
+
+```clipasm
+audio("intro.wav") as intro
+audio("song.wav") as song
+join as mix
+
+during(timeline=$mix, range=$mix::song) {
+    repeat(2)
+}
+```
 
 `during` splices timeline layouts as well as media. Base placements fully before
 the replaced range keep their coordinates. Placements fully after it shift by
@@ -267,16 +285,19 @@ during(
 ```
 
 Intermediate coordinates may be negative or beyond the owning timeline. Exact
-frame alignment, ordering, and final bounds are checked only when the expression
-is consumed as a TimeRange. `::middle` is therefore valid as an exact rational
-coordinate even when it falls between frames, but using that value as a frame
-boundary reports an alignment error. Video `trim` retains marker expressions
-whose boundaries depend on unprobed media and resolves them during preflight
-after the referenced source domains are known. The prepared operation still
-contains an ordinary exact frame range. `during` uses the same deferred range
-model. Its body receives the selected extent symbolically, so an `image`
-without an explicit duration inherits that media-dependent extent and is
-resolved to a concrete frame count during preflight.
+native-grid alignment, ordering, and final bounds are checked only when the
+expression is consumed as a TimeRange. `::middle` is therefore valid as an
+exact rational coordinate even when it falls between frames or samples, but
+using an unaligned value reports the applicable frame- or sample-alignment
+error. Video and Audio `trim` retain marker expressions whose boundaries depend
+on unprobed media and resolve them during preflight after the referenced source
+domains are known. The prepared operation contains an ordinary exact frame or
+sample range. `during` uses the same deferred native-range model and lowers to
+existing slice and concat primitives. A Video `during` body receives the selected
+extent symbolically, so an `image` without an explicit duration inherits that
+media-dependent extent and is resolved to a concrete frame count during
+preflight. Audio `during` does not reinterpret a sample extent as a Video frame
+request.
 
 Aliases make long marker expressions reusable:
 
@@ -459,8 +480,8 @@ $title
 Output names are immutable, program-wide, and unique. Names declared in nested
 bodies remain available throughout the containing source program. Forward
 references are allowed when dependencies can be resolved; cycles are diagnosed.
-Body-input aliases such as `$before`, `$after`, and `$video` temporarily shadow
-program-wide names while their body is active.
+Body-input aliases such as `$before`, `$after`, and `$timeline` temporarily
+shadow program-wide names while their body is active.
 
 `as name` requires one output. `as (first, second)` names an exact ordered
 multi-output result. Naming does not remove a value from the stack.
@@ -523,7 +544,7 @@ Audio and may use `<Video>` or `<Audio>`.
 | `extract_audio` | `video: Video` | Audio |
 | `set_audio` | `video: Video`, `audio: Audio` | Video |
 | `join` | `before: T`, `after: T`, body | T |
-| `during` | `video: Video`, `range: TimeRange`, body | Video |
+| `during` | `timeline: T`, `range: TimeRange`, body | T |
 
 Defaults are: image/video fit `cover`, zoom_in `8%`, crossfade `500ms`, and
 `flash_cut` `160ms`.
@@ -540,10 +561,18 @@ falls between frame boundaries therefore rounds up; `0ms` is invalid.
 `image.duration` may be omitted only when the surrounding body supplies a
 requested duration; otherwise it is required.
 
+`repeat(1)` is a true timeline identity and preserves nested placement markers.
+Larger repeat counts create a fresh unindexed timeline whose root duration and
+`::start`/`::end` boundaries remain exact; repeated child markers
+remain unavailable until the language has explicit occurrence indexing.
+
 `join` starts with `$before` and `$after` and concatenates its homogeneous body
-remainder. `during` starts its body stack with the selected range, exposes the
-complete bound input as `$video`, requires exactly one processed Video, and
-splices it back into the original Video.
+remainder. `during` starts its body stack with the selected range and every
+nested placement provably contained by it, exposes the complete bound input as
+`$timeline`, requires exactly one result of the same
+Video or Audio type, and splices it back into the original timeline. Use
+`during<Video>` or `during<Audio>` when a mixed stack makes the generic type
+ambiguous.
 
 ## CLI bindings
 

@@ -152,9 +152,6 @@ fn operation_identity(
         SemanticNodeKind::Repeat { count, .. } => {
             Ok(serde_json::json!({"operation": "repeat", "count": count}))
         }
-        SemanticNodeKind::AudioRepeat { count, .. } => {
-            Ok(serde_json::json!({"operation": "audio_repeat", "count": count}))
-        }
         SemanticNodeKind::ZoomIn { by, .. } => {
             Ok(serde_json::json!({"operation": "zoom_in", "by": by}))
         }
@@ -165,21 +162,16 @@ fn operation_identity(
             Ok(serde_json::json!({"operation": "crossfade", "frames": frames}))
         }
         SemanticNodeKind::Concat { .. } => Ok(serde_json::json!({"operation": "concat"})),
-        SemanticNodeKind::AudioConcat { .. } => {
-            Ok(serde_json::json!({"operation": "audio_concat"}))
-        }
-        SemanticNodeKind::Slice { range, .. } => {
-            Ok(serde_json::json!({"operation": "slice", "range": range}))
-        }
-        SemanticNodeKind::DeferredSlice { range, .. } => Ok(deferred_slice_identity(range, hashes)),
-        SemanticNodeKind::AudioSlice { range, .. } => {
-            Ok(serde_json::json!({"operation": "audio_slice", "range": range}))
+        SemanticNodeKind::Slice { range, .. } => Ok(native_range_identity("slice", *range)),
+        SemanticNodeKind::DeferredSlice { input, range } => {
+            Ok(deferred_slice_identity(range, hashes, input.value_type()))
         }
         SemanticNodeKind::ReplaceRange { range, .. } => {
-            Ok(serde_json::json!({"operation": "replace_range", "range": range}))
+            Ok(native_range_identity("replace_range", *range))
         }
-        SemanticNodeKind::DeferredReplaceRange { range, .. } => Ok(serde_json::json!({
+        SemanticNodeKind::DeferredReplaceRange { base, range, .. } => Ok(serde_json::json!({
             "operation": "deferred_replace_range",
+            "unit": base.value_type().native_unit_name(),
             "range": timeline_range_identity(range, hashes),
         })),
         SemanticNodeKind::ExtractAudio { .. } => {
@@ -217,12 +209,29 @@ fn operation_identity(
     }
 }
 
+fn native_range_identity(operation: &str, range: crate::model::NativeRange) -> serde_json::Value {
+    match range {
+        crate::model::NativeRange::Frames(range) => serde_json::json!({
+            "operation": operation,
+            "unit": "frames",
+            "range": range,
+        }),
+        crate::model::NativeRange::Samples(range) => serde_json::json!({
+            "operation": operation,
+            "unit": "samples",
+            "range": range,
+        }),
+    }
+}
+
 fn deferred_slice_identity(
     range: &crate::model::TimelineRangeExpression,
     hashes: &[Option<String>],
+    value_type: crate::model::ValueType,
 ) -> serde_json::Value {
     serde_json::json!({
         "operation": "deferred_slice",
+        "unit": value_type.native_unit_name(),
         "range": timeline_range_identity(range, hashes),
     })
 }

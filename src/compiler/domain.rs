@@ -1,6 +1,6 @@
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{FrameCount, ValueRef, ValueType, VideoDomain, VideoSpec};
+use crate::model::{FrameCount, NativeRange, ValueRef, ValueType, VideoDomain, VideoSpec};
 use crate::semantic::SemanticNodeKind;
 
 #[derive(Clone)]
@@ -37,11 +37,9 @@ pub(super) fn infer_domains(
                 let preserved = invocation.inputs[&invocation.preserve_input];
                 knowledge[preserved.id().get() as usize].clone()
             }
-            SemanticNodeKind::AudioSource { .. }
-            | SemanticNodeKind::AudioRepeat { .. }
-            | SemanticNodeKind::AudioConcat { .. }
-            | SemanticNodeKind::AudioSlice { .. }
-            | SemanticNodeKind::ExtractAudio { .. } => DomainKnowledge::NotVideo,
+            SemanticNodeKind::AudioSource { .. } | SemanticNodeKind::ExtractAudio { .. } => {
+                DomainKnowledge::NotVideo
+            }
             SemanticNodeKind::Reference { symbol, .. } => {
                 let target = evaluation.symbols[symbol.index()]
                     .value
@@ -90,6 +88,9 @@ pub(super) fn infer_domains(
                 infer_concat_domain(inputs, &knowledge, video, &node.origin().span)?
             }
             SemanticNodeKind::Slice { input, range } => {
+                let NativeRange::Frames(range) = range else {
+                    unreachable!("Video semantic slice has a frame range")
+                };
                 if let DomainKnowledge::Known(input_domain) = &knowledge[input.id().get() as usize]
                 {
                     validate_range(*range, input_domain.frames(), &node.origin().span)?;
@@ -101,6 +102,9 @@ pub(super) fn infer_domains(
                 replacement,
                 range,
             } => {
+                let NativeRange::Frames(range) = range else {
+                    unreachable!("Video semantic replacement has a frame range")
+                };
                 let base_domain = &knowledge[base.id().get() as usize];
                 if let DomainKnowledge::Known(base_domain) = base_domain {
                     validate_range(*range, base_domain.frames(), &node.origin().span)?;

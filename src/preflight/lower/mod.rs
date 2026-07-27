@@ -44,15 +44,6 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::AudioSource { path } => {
                 media::audio_source(self, compiled_node, path)?
             }
-            SemanticNodeKind::AudioSlice { input, range } => {
-                timeline::audio_slice(self, compiled_node, *input, *range)?
-            }
-            SemanticNodeKind::AudioRepeat { input, count } => {
-                timeline::audio_repeat(self, compiled_node, *input, *count)?
-            }
-            SemanticNodeKind::AudioConcat { inputs } => {
-                timeline::audio_concat(self, compiled_node, inputs)?
-            }
             SemanticNodeKind::Reference { symbol, .. } => {
                 let target = self.compiled.symbol_value(*symbol).ok_or_else(|| {
                     Diagnostic::new(
@@ -64,7 +55,7 @@ impl PreflightLowerer<'_> {
                 self.prepared_dependency(target, compiled_node.origin())?
             }
             SemanticNodeKind::Repeat { input, count } => {
-                timeline::video_repeat(self, compiled_node, *input, *count)?
+                timeline::repeat(self, compiled_node, *input, *count)?
             }
             SemanticNodeKind::ZoomIn { input, by } => {
                 effects::zoom_in(self, compiled_node, *input, by.clone())?
@@ -79,14 +70,12 @@ impl PreflightLowerer<'_> {
                 after,
                 frames,
             } => transitions::crossfade(self, compiled_node, *before, *after, *frames)?,
-            SemanticNodeKind::Concat { inputs } => {
-                timeline::video_concat(self, compiled_node, inputs)?
-            }
+            SemanticNodeKind::Concat { inputs } => timeline::concat(self, compiled_node, inputs)?,
             SemanticNodeKind::Slice { input, range } => {
-                timeline::video_slice(self, compiled_node, *input, *range)?
+                timeline::slice(self, compiled_node, *input, *range)?
             }
             SemanticNodeKind::DeferredSlice { input, range } => {
-                timeline::deferred_video_slice(self, compiled_node, *input, range)?
+                timeline::deferred_slice(self, compiled_node, *input, range)?
             }
             SemanticNodeKind::ReplaceRange {
                 base,

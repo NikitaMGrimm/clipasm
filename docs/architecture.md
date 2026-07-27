@@ -156,29 +156,48 @@ same visible suffix to independently visible descendants.
 
 The crate-private `semantic` module owns graph operations, draft and compiled
 nodes, origins, graph construction, graph-local type checks, and semantic
-version propagation. Compilation retains references for dependency analysis,
+version propagation. Generic timeline programs remain generic in this graph:
+there is one typed semantic `Repeat`, `Concat`, `Slice`, and `ReplaceRange` for
+both Video and Audio. Concrete ranges carry an invariant-checked native frame or
+sample range; deferred ranges carry one exact expression and derive their media
+type from the bound input. Preflight is the sole phase that dispatches these
+operations into media-specific prepared Video or Audio primitives. Compilation
+retains references for dependency analysis,
 infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
-Timeline marker arithmetic is normalized into exact linear expressions. A Video
-slice whose marker range depends on unprobed media remains a deferred semantic
-slice; its extent terms are semantic dependencies and its identity uses upstream
-value hashes rather than engine-assigned IDs. Preflight resolves those terms to
-ordinary exact frame ranges after probing. Evaluated stack occurrences carry a
-separate timeline-view identity with symbolic extent and one canonical ordered
-child sequence. Composition splices the children of unnamed occurrences into
-the parent and preserves named occurrences as selector boundaries. The named
-selector index is derived centrally from that sequence and stores every
-immediate occurrence for each spelling. Exact paths require one occurrence at
+Timeline marker arithmetic is normalized into exact linear expressions in
+seconds. Each extent term is scaled from its semantic value's native unit:
+project frames for Video and project samples for Audio. A trim whose marker
+range depends on unprobed media remains a typed deferred semantic slice; a
+`during` replacement may likewise remain one typed deferred replacement. Their
+extent terms are semantic dependencies and their identities use upstream value
+hashes rather than engine-assigned IDs. Preflight resolves those terms to
+ordinary exact frame or sample ranges after probing, then reuses existing native
+slice and concat primitives. Evaluated stack occurrences carry a separate
+timeline-view identity with symbolic extent and one canonical ordered child
+sequence. Composition splices the children of unnamed occurrences into the
+parent and preserves named occurrences as selector boundaries. The named
+selector index is derived centrally from that sequence and stores child indexes
+for every immediate occurrence of each spelling; it never copies offsets or
+child-view identity. Exact paths require one occurrence at
 each level; no label origin shadows another. Selector evaluation in a
-timeline-anchored call may search this canonical graph for one
-uniquely matching descendant suffix; aliases and explicitly rooted selectors
-do not use that contextual search. Selector failures format the canonical
+timeline-anchored call may search this canonical graph for one uniquely
+matching descendant suffix; aliases and explicitly rooted selectors do not use
+that contextual search. The search uses capped zero/one/multiple dynamic
+programming over the timeline-view DAG, so repeated shared views do not expand
+into an exponential occurrence walk. Selector failures format the canonical
 occurrence graph as a bounded root-relative tree;
 mixed-root failures carry the two originating trees through scalar evaluation.
-Program definitions declare their layout mapping: identity mappings preserve an
-input view, direct concat and body-concat finalizers create cumulative placements
-from evaluated occurrences, crop mappings retain and
-rebase only fully contained child regions, replacement mappings splice
+Program definitions declare their layout mapping, and registry validation checks
+that every non-fresh mapping has one type-compatible output, every mapped input
+slot exists, and every body shape matches its mapping before compilation. Body
+prepare functions are checked again against their declared initial-value
+contract when invoked. Identity mappings preserve an input view. Repeat mappings
+preserve the complete layout for the `repeat(1)` alias; larger counts create a
+fresh unindexed root whose extent is the exact input extent multiplied by the
+count. Direct concat and body-concat finalizers create cumulative placements
+from evaluated occurrences, media-neutral crop mappings retain and rebase only
+fully contained child regions, replacement mappings splice
 unaffected base regions with a nested replacement view, and transitions create
 operation-owned regions. Crossfade maps `before` and `after` into overlapping
 coordinates and exposes their shared `overlap`; flash cut maps its inputs

@@ -37,7 +37,7 @@ impl CompiledNode {
         self.id
     }
 
-    pub(crate) const fn value_type(&self) -> ValueType {
+    pub(crate) fn value_type(&self) -> ValueType {
         self.kind.value_type()
     }
 
@@ -93,7 +93,7 @@ impl DraftNode {
         &self.kind
     }
 
-    pub(crate) const fn value_type(&self) -> ValueType {
+    pub(crate) fn value_type(&self) -> ValueType {
         self.kind.value_type()
     }
 

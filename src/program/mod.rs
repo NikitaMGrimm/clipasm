@@ -6,8 +6,9 @@ use std::path::PathBuf;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::model::{
-    ExactNumber, FrameCount, FrameRange, SourceTime, SourceTimeRange, TimelineRangeExpression,
-    TimelineViewId, ValueRef, ValueType,
+    ExactNumber, FrameCount, FrameRange, NativeRange, SampleRange, SourceTime, SourceTimeRange,
+    TimelineRangeExpression, TimelineViewId, ValueRef, ValueType, exact_seconds_to_frames,
+    exact_seconds_to_samples,
 };
 use crate::semantic::GraphBuilder;
 use crate::source::{SourceSpan, SourceUnitId};
@@ -158,37 +159,66 @@ pub(crate) enum ParameterValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TimeRangeValue {
     Absolute(SourceTimeRange),
-    VideoMarker {
+    Marker {
         owner: TimelineViewId,
         range: TimelineRangeExpression,
     },
 }
 
 impl TimeRangeValue {
-    pub(crate) fn to_video_range(
+    pub(crate) fn to_native_range(
+        &self,
+        value_type: ValueType,
+        fps: crate::model::FrameRate,
+        sample_rate: u32,
+        span: &SourceSpan,
+    ) -> Result<NativeTimeRange> {
+        match value_type {
+            ValueType::Video => self.to_frame_range(fps, span),
+            ValueType::Audio => self.to_sample_range(sample_rate, span),
+        }
+    }
+
+    fn to_frame_range(
         &self,
         fps: crate::model::FrameRate,
         span: &SourceSpan,
-    ) -> Result<VideoTimeRange> {
+    ) -> Result<NativeTimeRange> {
         match self {
-            Self::Absolute(range) => range.to_frames(fps, span).map(VideoTimeRange::Concrete),
-            Self::VideoMarker { range, .. } => {
+            Self::Absolute(range) => range
+                .to_frames(fps, span)
+                .map(|range| NativeTimeRange::Concrete(NativeRange::Frames(range))),
+            Self::Marker { range, .. } => {
                 let (Some(start), Some(end)) =
                     (range.start.constant_value(), range.end.constant_value())
                 else {
-                    return Ok(VideoTimeRange::Deferred(range.clone()));
+                    return Ok(NativeTimeRange::Deferred(range.clone()));
                 };
                 let start = exact_seconds_to_frames(start, fps, span)?;
                 let end = exact_seconds_to_frames(end, fps, span)?;
                 FrameRange::new(start, end)
-                    .map(VideoTimeRange::Concrete)
-                    .ok_or_else(|| {
-                        Diagnostic::new(
-                            "E_INVALID_TIME_RANGE",
-                            "timeline-range start must be earlier than its end",
-                            span.clone(),
-                        )
-                    })
+                    .map(|range| NativeTimeRange::Concrete(NativeRange::Frames(range)))
+                    .ok_or_else(|| invalid_timeline_range(span))
+            }
+        }
+    }
+
+    fn to_sample_range(&self, sample_rate: u32, span: &SourceSpan) -> Result<NativeTimeRange> {
+        match self {
+            Self::Absolute(range) => range
+                .to_samples(sample_rate, span)
+                .map(|range| NativeTimeRange::Concrete(NativeRange::Samples(range))),
+            Self::Marker { range, .. } => {
+                let (Some(start), Some(end)) =
+                    (range.start.constant_value(), range.end.constant_value())
+                else {
+                    return Ok(NativeTimeRange::Deferred(range.clone()));
+                };
+                let start = exact_seconds_to_samples(start, sample_rate, span)?;
+                let end = exact_seconds_to_samples(end, sample_rate, span)?;
+                SampleRange::new(start, end)
+                    .map(|range| NativeTimeRange::Concrete(NativeRange::Samples(range)))
+                    .ok_or_else(|| invalid_timeline_range(span))
             }
         }
     }
@@ -196,14 +226,22 @@ impl TimeRangeValue {
     pub(crate) const fn marker_owner(&self) -> Option<TimelineViewId> {
         match self {
             Self::Absolute(_) => None,
-            Self::VideoMarker { owner, .. } => Some(*owner),
+            Self::Marker { owner, .. } => Some(*owner),
         }
     }
 }
 
+fn invalid_timeline_range(span: &SourceSpan) -> Diagnostic {
+    Diagnostic::new(
+        "E_INVALID_TIME_RANGE",
+        "timeline-range start must be earlier than its end",
+        span.clone(),
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum VideoTimeRange {
-    Concrete(FrameRange),
+pub(crate) enum NativeTimeRange {
+    Concrete(NativeRange),
     Deferred(TimelineRangeExpression),
 }
 
@@ -211,42 +249,6 @@ pub(crate) enum VideoTimeRange {
 pub(crate) enum RequestedVideoExtent {
     Concrete(FrameCount),
     Deferred(crate::model::TimelineExpression),
-}
-
-impl RequestedVideoExtent {
-    pub(crate) fn from_range(range: VideoTimeRange) -> Self {
-        match range {
-            VideoTimeRange::Concrete(range) => Self::Concrete(range.frames()),
-            VideoTimeRange::Deferred(range) => Self::Deferred(range.end.subtract(&range.start)),
-        }
-    }
-}
-
-fn exact_seconds_to_frames(
-    seconds: &ExactNumber,
-    fps: crate::model::FrameRate,
-    span: &SourceSpan,
-) -> Result<u64> {
-    let frames = seconds
-        .multiply(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.numerator(),
-        )))
-        .divide(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.denominator(),
-        )))
-        .expect("frame-rate denominator is nonzero");
-    frames.to_u64().ok_or_else(|| {
-        Diagnostic::new(
-            "E_TIME_NOT_FRAME_ALIGNED",
-            format!(
-                "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
-                seconds.authored_display(),
-                fps.numerator(),
-                fps.denominator()
-            ),
-            span.clone(),
-        )
-    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -372,6 +374,7 @@ pub(crate) struct ProgramDefinition {
 pub(crate) enum TimelineBehavior {
     Fresh,
     Identity { input: InputSlot },
+    Repeat { input: InputSlot },
     Concat { input: InputSlot },
     BodyConcat { inputs: &'static [InputSlot] },
     Crop { input: InputSlot },
@@ -543,8 +546,158 @@ fn validate_definitions(definitions: &[ProgramDefinition]) -> Result<()> {
                 )));
             }
         }
+        validate_timeline_behavior(definition)?;
     }
     Ok(())
+}
+
+fn validate_timeline_behavior(definition: &ProgramDefinition) -> Result<()> {
+    let descriptor = &definition.descriptor;
+    if !matches!(definition.timeline_behavior, TimelineBehavior::Fresh)
+        && descriptor.outputs.len() != 1
+    {
+        return Err(definition_error(format!(
+            "program `{}` timeline behavior requires exactly one declared output",
+            descriptor.name
+        )));
+    }
+
+    match definition.timeline_behavior {
+        TimelineBehavior::Fresh => Ok(()),
+        TimelineBehavior::Identity { input }
+        | TimelineBehavior::Repeat { input }
+        | TimelineBehavior::Crop { input } => {
+            let input = fixed_timeline_input(descriptor, input, "source")?;
+            require_timeline_output_type(descriptor, input.value_type)
+        }
+        TimelineBehavior::Concat { input } => {
+            let input = timeline_input(descriptor, input, "concat")?;
+            require_timeline_output_type(descriptor, input.value_type)
+        }
+        TimelineBehavior::BodyConcat { inputs } => {
+            let ProgramImplementation::Body { contract, .. } = &definition.implementation else {
+                return Err(definition_error(format!(
+                    "program `{}` uses body-concat timeline behavior without a body implementation",
+                    descriptor.name
+                )));
+            };
+            if inputs.len() != contract.initial_values.len() {
+                return Err(definition_error(format!(
+                    "program `{}` body-concat timeline behavior maps {} input(s), but its body contract declares {} initial value(s)",
+                    descriptor.name,
+                    inputs.len(),
+                    contract.initial_values.len()
+                )));
+            }
+            for (slot, expected) in inputs.iter().zip(&contract.initial_values) {
+                let input = fixed_timeline_input(descriptor, *slot, "body")?;
+                if input.value_type != *expected {
+                    return Err(definition_error(format!(
+                        "program `{}` body-concat input `{}` does not match its initial body value type",
+                        descriptor.name, input.name
+                    )));
+                }
+            }
+            let output_type = homogeneous_body_output_type(contract).ok_or_else(|| {
+                definition_error(format!(
+                    "program `{}` body-concat behavior requires homogeneous nonempty body outputs",
+                    descriptor.name
+                ))
+            })?;
+            require_timeline_output_type(descriptor, output_type)
+        }
+        TimelineBehavior::Replace { base } => {
+            let base = fixed_timeline_input(descriptor, base, "base")?;
+            let ProgramImplementation::Body { contract, .. } = &definition.implementation else {
+                return Err(definition_error(format!(
+                    "program `{}` uses replacement timeline behavior without a body implementation",
+                    descriptor.name
+                )));
+            };
+            if contract.initial_values.as_slice() != [base.value_type]
+                || !matches!(
+                    &contract.outputs,
+                    BodyOutputConstraint::Exactly(outputs)
+                        if outputs.as_slice() == [base.value_type]
+                )
+            {
+                return Err(definition_error(format!(
+                    "program `{}` replacement timeline behavior requires one initial body value and one body output matching its base type",
+                    descriptor.name
+                )));
+            }
+            require_timeline_output_type(descriptor, base.value_type)
+        }
+        TimelineBehavior::FlashCut { before, after }
+        | TimelineBehavior::Crossfade { before, after } => {
+            let before = fixed_timeline_input(descriptor, before, "before")?;
+            let after = fixed_timeline_input(descriptor, after, "after")?;
+            let video = ValueTypeSpec::Exact(ValueType::Video);
+            if before.value_type != video || after.value_type != video {
+                return Err(definition_error(format!(
+                    "program `{}` transition timeline behavior requires Video inputs",
+                    descriptor.name
+                )));
+            }
+            require_timeline_output_type(descriptor, video)
+        }
+    }
+}
+
+fn timeline_input<'a>(
+    descriptor: &'a ProgramDescriptor,
+    slot: InputSlot,
+    role: &str,
+) -> Result<&'a InputPort> {
+    descriptor.inputs.get(slot.index()).ok_or_else(|| {
+        definition_error(format!(
+            "program `{}` timeline behavior maps missing {role} input slot {}",
+            descriptor.name,
+            slot.index()
+        ))
+    })
+}
+
+fn fixed_timeline_input<'a>(
+    descriptor: &'a ProgramDescriptor,
+    slot: InputSlot,
+    role: &str,
+) -> Result<&'a InputPort> {
+    let input = timeline_input(descriptor, slot, role)?;
+    if !matches!(input.cardinality, Cardinality::One) {
+        return Err(definition_error(format!(
+            "program `{}` timeline behavior requires `{}` to be a fixed input",
+            descriptor.name, input.name
+        )));
+    }
+    Ok(input)
+}
+
+fn require_timeline_output_type(
+    descriptor: &ProgramDescriptor,
+    expected: ValueTypeSpec,
+) -> Result<()> {
+    if descriptor.outputs.as_slice() == [expected] {
+        Ok(())
+    } else {
+        Err(definition_error(format!(
+            "program `{}` timeline output must match its mapped input type",
+            descriptor.name
+        )))
+    }
+}
+
+fn homogeneous_body_output_type(contract: &BodyContract) -> Option<ValueTypeSpec> {
+    match &contract.outputs {
+        BodyOutputConstraint::Exactly(outputs) => {
+            let first = *outputs.first()?;
+            outputs
+                .iter()
+                .all(|output| *output == first)
+                .then_some(first)
+        }
+        BodyOutputConstraint::Variadic { value_type, min } => (*min > 0).then_some(*value_type),
+    }
 }
 
 fn body_contract_uses_generic(contract: &BodyContract) -> bool {
@@ -741,5 +894,102 @@ mod tests {
         let error = ProgramRegistry::from_definitions(vec![definition])
             .expect_err("variadic body input has no lexical binding semantics");
         assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+    }
+    #[test]
+    fn rejects_timeline_behavior_that_maps_a_missing_input() {
+        let mut definition = definition(
+            "bad-timeline-input",
+            vec![],
+            vec![],
+            ProgramImplementation::Direct(direct_stub),
+        );
+        definition.timeline_behavior = TimelineBehavior::Identity {
+            input: InputSlot::new(0),
+        };
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("timeline behavior input must exist");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        assert!(error.message.contains("missing"));
+    }
+
+    #[test]
+    fn rejects_replacement_behavior_without_its_exact_body_shape() {
+        let mut definition = definition(
+            "bad-replacement-body",
+            vec![InputPort {
+                name: "timeline".to_owned(),
+                value_type: ValueType::Video.into(),
+                cardinality: Cardinality::One,
+            }],
+            vec![],
+            ProgramImplementation::Body {
+                prepare: body_stub,
+                contract: BodyContract {
+                    initial_values: vec![],
+                    outputs: BodyOutputConstraint::Exactly(vec![ValueType::Video.into()]),
+                    count_error_code: "E_TEST",
+                },
+            },
+        );
+        definition.timeline_behavior = TimelineBehavior::Replace {
+            base: InputSlot::new(0),
+        };
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("replacement body shape must match its timeline behavior");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        assert!(error.message.contains("one initial body value"));
+    }
+    #[test]
+    fn rejects_timeline_behavior_with_a_mismatched_output_type() {
+        let mut definition = definition(
+            "bad-timeline-output",
+            vec![InputPort {
+                name: "audio".to_owned(),
+                value_type: ValueType::Audio.into(),
+                cardinality: Cardinality::One,
+            }],
+            vec![],
+            ProgramImplementation::Direct(direct_stub),
+        );
+        definition.timeline_behavior = TimelineBehavior::Identity {
+            input: InputSlot::new(0),
+        };
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("timeline output type must match its source");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        assert!(error.message.contains("output"));
+    }
+    #[test]
+    fn rejects_transition_timeline_behavior_for_audio() {
+        let mut definition = definition(
+            "bad-audio-transition",
+            vec![
+                InputPort {
+                    name: "before".to_owned(),
+                    value_type: ValueType::Audio.into(),
+                    cardinality: Cardinality::One,
+                },
+                InputPort {
+                    name: "after".to_owned(),
+                    value_type: ValueType::Audio.into(),
+                    cardinality: Cardinality::One,
+                },
+            ],
+            vec![],
+            ProgramImplementation::Direct(direct_stub),
+        );
+        definition.descriptor.outputs = vec![ValueType::Audio.into()];
+        definition.timeline_behavior = TimelineBehavior::FlashCut {
+            before: InputSlot::new(0),
+            after: InputSlot::new(1),
+        };
+
+        let error = ProgramRegistry::from_definitions(vec![definition])
+            .expect_err("transition mapping is Video-only");
+        assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
+        assert!(error.message.contains("Video"));
     }
 }

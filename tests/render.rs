@@ -722,6 +722,61 @@ fn renders_native_audio_trim_repeat_and_concat() {
     assert!(report.output.is_file());
 }
 
+#[test]
+fn renders_audio_during_through_existing_audio_primitives() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio during render test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  255 0 0\n255 0 0  255 0 0\n",
+    )
+    .expect("image");
+    let tone = directory.path().join("tone.wav");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=1",
+            "-ac",
+            "2",
+        ])
+        .arg(&tone)
+        .status()
+        .expect("create audio fixture");
+    assert!(status.success());
+
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"audio-during.mp4\" }\nimage(\"card.ppm\", 2s)\naudio(\"tone.wav\")\nduring<Audio>(200ms..400ms) { repeat(2) }\nset_audio\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile Audio during");
+    let plan = preflight::preflight(&compiled).expect("preflight Audio during");
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.audio_kind(),
+        Some(preflight::PreparedAudioKind::AudioSlice { .. })
+    )));
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.audio_kind(),
+        Some(preflight::PreparedAudioKind::AudioRepeat { .. })
+    )));
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.audio_kind(),
+        Some(preflight::PreparedAudioKind::AudioConcat { .. })
+    )));
+    let report = render::render(&plan).expect("render Audio during");
+    assert!(report.output.is_file());
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn renders_non_utf8_output_without_serializing_local_paths() {

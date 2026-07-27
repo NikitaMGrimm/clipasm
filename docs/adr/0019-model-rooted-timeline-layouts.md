@@ -16,7 +16,7 @@ names.
 
 ## Decision drivers
 
-- Preserve pure compilation and exact project-frame boundaries.
+- Preserve pure compilation and exact native frame or sample boundaries.
 - Keep authored occurrence identity distinct from semantic media identity.
 - Make coordinate propagation an explicit program contract.
 - Reject ambiguous or unrelated roots instead of searching provenance.
@@ -40,16 +40,17 @@ The compiler maintains a timeline-view sidecar for each evaluated occurrence.
 A view owns an exact symbolic extent and one canonical ordered child sequence.
 Its named selector index is derived centrally from those children. Selectors
 resolve to coordinates or closed-open ranges rooted in one view.
-Timeline coordinates are canonical linear expressions in exact seconds; terms
-may reference semantic Video extents whose project-frame domains are resolved by
-preflight.
+Timeline coordinates are canonical linear expressions in exact seconds. Terms
+may reference semantic Video or Audio extents and are scaled by seconds per
+native unit: frames for Video and samples for Audio. Preflight resolves those
+native domains before a marker range is consumed.
 
 Media `ValueRef` identity remains unchanged. Repeated occurrences can therefore
 share media while retaining distinct timeline views and placement names.
 
 Direct and body program definitions declare `TimelineBehavior`. Identity
 mappings copy the input layout, direct concat and body-concat mappings build
-cumulative child placements from evaluated occurrences, and crop
+cumulative child placements from evaluated occurrences, and media-neutral crop
 mappings rebase fully contained placements into the selected range, replacement
 mappings keep provably unaffected base placements and insert the body output as
 a nested `replacement` region, and transition mappings define operation-owned
@@ -57,9 +58,12 @@ regions. `crossfade` exposes `before`, `after`, and `overlap`; `flash_cut`
 exposes sequential `before` and `after`. A placement that only partially
 survives a crop or replacement, or whose relation cannot be proven from the
 normalized symbolic expressions, is omitted rather than represented
-inaccurately. Programs with fresh behavior, including external programs and
-repeat, do not inherit layouts. No parser or evaluator branch recognizes a
-registered program name.
+inaccurately. Programs with fresh behavior, including external programs, do not inherit
+layouts. The repeat mapping preserves the complete input layout when
+`repeat(1)` lowers to the exact input value. Larger counts create a fresh root
+without unindexed child placements, while deriving its extent exactly as the
+input extent multiplied by the count. No parser or evaluator branch recognizes
+a registered program name.
 
 Composition treats an unnamed occurrence with children as transparent and
 splices those children into the parent at the occurrence offset. A named
@@ -75,9 +79,12 @@ occurrence. Explicit output labels, inferred bare-reference labels, and
 operation-created labels never shadow one another; adding a duplicate can make
 a selector ambiguous but cannot silently redirect it. In a direct
 timeline-consuming call, selector shorthand may match a unique descendant
-suffix anywhere below a bound timeline. Multiple matching occurrences report
-`E_AMBIGUOUS_TIMELINE_PLACEMENT`. Explicitly rooted selectors remain exact
-paths, and aliases never borrow invocation-local context.
+suffix anywhere below a bound timeline. The compiler computes a capped
+zero/one/multiple result with dynamic programming over the timeline-view DAG;
+shared sublayouts are not expanded into their potentially exponential occurrence
+tree. Multiple matching occurrences report `E_AMBIGUOUS_TIMELINE_PLACEMENT`.
+Explicitly rooted selectors remain exact paths, and aliases never borrow
+invocation-local context.
 
 Operation-owned spellings that are part of a result contract are reserved when
 that operation merges existing sibling placements. `during` therefore rejects
@@ -92,11 +99,14 @@ root-relative ranges, and named nesting, but omit transparent anonymous
 composition wrappers. These trees are bounded before being attached as
 diagnostic notes.
 
-Concrete boundaries lower immediately. Media-dependent trim and during ranges,
-requested body extents, inherited image lengths, and replacements remain
+Generic timeline programs use one typed semantic operation per language
+concept: `Repeat`, `Concat`, `Slice`, and `ReplaceRange` do not fork into Audio
+copies. Concrete slice and replacement ranges carry an invariant-checked native
+frame or sample range. Media-dependent Video or Audio trim and during ranges,
+requested Video body extents, inherited image lengths, and replacements remain
 symbolic semantic operations until preflight substitutes exact media domains.
-Preflight then validates alignment, ordering, and bounds and emits only existing
-concrete prepared operations.
+Preflight is the sole phase that dispatches the generic graph into existing
+media-specific prepared operations and validates alignment, ordering, and bounds.
 
 Marker names and unused scalar aliases do not enter rendered semantic identity.
 When a symbolic range is consumed, its normalized expression and referenced
@@ -105,26 +115,32 @@ upstream semantic hashes do enter the consuming operation's identity.
 ## Consequences
 
 - Repeated media values and nested compositions retain deterministic placement
-  identity without duplicating media nodes.
+  identity without duplicating media nodes or forcing contextual lookup to
+  expand shared occurrence trees.
 - Equivalent anonymous composition rewrites retain the same selector paths;
   authored names remain the only ordinary nesting boundaries.
-- Exact marker arithmetic works across known and probed media domains without a
-  nanosecond round trip.
+- Exact marker arithmetic works across known and probed Video and Audio domains
+  without a nanosecond round trip or a shared master-tick grid.
 - New timeline-changing programs must deliberately specify their coordinate
   mapping or remain fresh.
 - Layout propagation adds compiler-side state and deferred semantic variants,
   but no symbolic behavior reaches the renderer.
-- Repeat and future mappings must be introduced explicitly rather than inferred
-  from equal duration.
+- A one-count repeat is a true identity; larger repeats remain fresh until an
+  explicit occurrence-indexing design can represent their child placements.
+- Future mappings must be introduced explicitly rather than inferred from equal
+  duration.
 
 ## Confirmation
 
 Semantic integration tests cover explicit, implicit, nested, contextual,
 transition, midpoint, root-mismatch, anonymous identity and associativity,
 cross-program composition, strict placement uniqueness, ambiguity diagnostics,
-and reserved operation-name collisions. Preflight contract tests
-cover deferred trim, during, inherited image extents, replacement splicing,
-transition regions, alignment, and bounds. `TimelineBehavior` owns program mapping declarations;
+Audio composition and crop propagation, selected-layout preservation inside
+replacement bodies, shared-layout DAG lookup, canonical replacement ordering,
+and reserved operation-name collisions.
+Preflight contract tests cover deferred Video and Audio trim and during, inherited
+image extents, replacement splicing, transition regions, native-grid alignment,
+and bounds. `TimelineBehavior` owns program mapping declarations;
 semantic-operation dependency traversal and fingerprinting exhaustively own
 deferred expressions. The compiled format version changes whenever serialized
 deferred operations change. `./scripts/check.sh` validates all native, browser,

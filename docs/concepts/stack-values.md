@@ -89,7 +89,7 @@ Forward references affect dependency resolution, not statement execution
 order, and dependency cycles are errors.
 
 Body programs add one narrow exception. Their fixed graph inputs appear inside
-the body as local aliases such as `$before`, `$after`, or `$video`. Those aliases
+the body as local aliases such as `$before`, `$after`, or `$timeline`. Those aliases
 temporarily shadow an outer name while the body is active. Arguments are
 evaluated before the aliases are introduced, so an argument cannot accidentally
 self-reference the port it is defining.

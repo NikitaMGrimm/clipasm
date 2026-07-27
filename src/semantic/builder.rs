@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use crate::diagnostic::{Diagnostic, Result};
 use crate::external::ExternalInvocation;
 use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, SourceTimeRange,
-    TimelineRangeExpression, ValueId, ValueRef, ValueType, VideoSpec,
+    AudioSpec, ExactNumber, FrameCount, ImageFit, NativeRange, TimelineRangeExpression, ValueId,
+    ValueRef, ValueType, VideoSpec,
 };
 use crate::source::SourceSpan;
 
@@ -39,6 +39,11 @@ impl<'a> GraphBuilder<'a> {
     #[must_use]
     pub(crate) const fn video_spec(&self) -> &VideoSpec {
         self.video
+    }
+
+    #[must_use]
+    pub(crate) const fn audio_spec(&self) -> &AudioSpec {
+        &self.audio
     }
 
     pub(crate) fn at_span(&mut self, span: SourceSpan) -> GraphBuilder<'_> {
@@ -119,13 +124,13 @@ impl<'a> GraphBuilder<'a> {
         self.push(SemanticNodeKind::ExternalVideo { invocation })
     }
 
-    /// Add a checked semantic Video slice.
+    /// Add a checked semantic slice on the input's native frame or sample grid.
     ///
     /// # Errors
     ///
     /// Returns a type or graph-size diagnostic.
-    pub(crate) fn slice(&mut self, input: ValueRef, range: FrameRange) -> Result<ValueRef> {
-        self.require_type(input, ValueType::Video, "input")?;
+    pub(crate) fn slice(&mut self, input: ValueRef, range: NativeRange) -> Result<ValueRef> {
+        self.require_type(input, range.value_type(), "input")?;
         self.push(SemanticNodeKind::Slice { input, range })
     }
 
@@ -134,7 +139,6 @@ impl<'a> GraphBuilder<'a> {
         input: ValueRef,
         range: TimelineRangeExpression,
     ) -> Result<ValueRef> {
-        self.require_type(input, ValueType::Video, "input")?;
         self.push(SemanticNodeKind::DeferredSlice { input, range })
     }
 
@@ -147,10 +151,7 @@ impl<'a> GraphBuilder<'a> {
         if count.get() == 1 {
             return Ok(input);
         }
-        match input.value_type() {
-            ValueType::Video => self.push(SemanticNodeKind::Repeat { input, count }),
-            ValueType::Audio => self.push(SemanticNodeKind::AudioRepeat { input, count }),
-        }
+        self.push(SemanticNodeKind::Repeat { input, count })
     }
 
     /// Add a centered full-clip linear `zoom_in` that preserves the input domain.
@@ -220,16 +221,6 @@ impl<'a> GraphBuilder<'a> {
             ));
         };
         let value_type = first.value_type();
-        if !matches!(value_type, ValueType::Video | ValueType::Audio) {
-            return Err(Diagnostic::new(
-                "E_TYPE_MISMATCH",
-                format!(
-                    "program `{}` concat does not accept {value_type}",
-                    self.origin.construct
-                ),
-                self.origin.span.clone(),
-            ));
-        }
         for input in &inputs {
             if input.value_type() != value_type {
                 return Err(Diagnostic::new(
@@ -245,23 +236,7 @@ impl<'a> GraphBuilder<'a> {
         if inputs.len() == 1 {
             return Ok(first);
         }
-        match value_type {
-            ValueType::Video => self.push(SemanticNodeKind::Concat { inputs }),
-            ValueType::Audio => self.push(SemanticNodeKind::AudioConcat { inputs }),
-        }
-    }
-
-    pub(crate) fn trim(&mut self, input: ValueRef, range: SourceTimeRange) -> Result<ValueRef> {
-        match input.value_type() {
-            ValueType::Video => {
-                let range = range.to_frames(self.video.fps(), &self.origin.span)?;
-                self.slice(input, range)
-            }
-            ValueType::Audio => {
-                let range = range.to_samples(self.audio.sample_rate(), &self.origin.span)?;
-                self.push(SemanticNodeKind::AudioSlice { input, range })
-            }
-        }
+        self.push(SemanticNodeKind::Concat { inputs })
     }
 
     pub(crate) fn reference(
@@ -275,11 +250,12 @@ impl<'a> GraphBuilder<'a> {
     pub(crate) fn replace_range(
         &mut self,
         base: ValueRef,
-        range: FrameRange,
+        range: NativeRange,
         replacement: ValueRef,
     ) -> Result<ValueRef> {
-        self.require_type(base, ValueType::Video, "base")?;
-        self.require_type(replacement, ValueType::Video, "replacement")?;
+        let value_type = range.value_type();
+        self.require_type(base, value_type, "base")?;
+        self.require_type(replacement, value_type, "replacement")?;
         self.push(SemanticNodeKind::ReplaceRange {
             base,
             replacement,
@@ -293,8 +269,16 @@ impl<'a> GraphBuilder<'a> {
         range: TimelineRangeExpression,
         replacement: ValueRef,
     ) -> Result<ValueRef> {
-        self.require_type(base, ValueType::Video, "base")?;
-        self.require_type(replacement, ValueType::Video, "replacement")?;
+        if base.value_type() != replacement.value_type() {
+            return Err(Diagnostic::new(
+                "E_TYPE_MISMATCH",
+                format!(
+                    "program `{}` replacement must have the same type as its base timeline",
+                    self.origin.construct
+                ),
+                self.origin.span.clone(),
+            ));
+        }
         self.push(SemanticNodeKind::DeferredReplaceRange {
             base,
             replacement,
@@ -394,7 +378,10 @@ mod tests {
         {
             let mut selection = builder.at_span(SourceSpan::new("test.clipasm", 9, 3));
             selection
-                .slice(source, FrameRange::new(0, 1).expect("range"))
+                .slice(
+                    source,
+                    NativeRange::Frames(crate::model::FrameRange::new(0, 1).expect("range")),
+                )
                 .expect("slice");
         }
         builder
@@ -455,6 +442,42 @@ mod tests {
             SemanticNodeKind::Repeat { input, count }
                 if *input == source && count.get() == 1_000_000
         ));
+    }
+
+    #[test]
+    fn native_ranges_must_match_their_media_values() {
+        let video = VideoSpec::default();
+        let mut nodes = Vec::new();
+        let mut builder = GraphBuilder::for_program(
+            &mut nodes,
+            &video,
+            crate::model::AudioSpec::default(),
+            1,
+            origin("trim", 8),
+        );
+        let picture = builder
+            .image_video("picture.png".into(), FrameCount(2), ImageFit::Cover)
+            .expect("Video source");
+        let sound = builder
+            .audio_source("sound.wav".into())
+            .expect("Audio source");
+        let frames = NativeRange::Frames(crate::model::FrameRange::new(0, 1).expect("frames"));
+        let samples = NativeRange::Samples(crate::model::SampleRange::new(0, 1).expect("samples"));
+
+        let video_error = builder
+            .slice(picture, samples)
+            .expect_err("sample range cannot slice Video");
+        assert_eq!(video_error.code, "E_TYPE_MISMATCH");
+
+        let audio_error = builder
+            .slice(sound, frames)
+            .expect_err("frame range cannot slice Audio");
+        assert_eq!(audio_error.code, "E_TYPE_MISMATCH");
+
+        let replacement_error = builder
+            .replace_range(picture, frames, sound)
+            .expect_err("replacement must match the native range and base");
+        assert_eq!(replacement_error.code, "E_TYPE_MISMATCH");
     }
 
     #[test]

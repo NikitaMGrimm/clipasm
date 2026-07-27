@@ -113,9 +113,6 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         SemanticNodeKind::Repeat { input, count } => serde_json::json!({
             "operation": "repeat", "input": input, "count": count,
         }),
-        SemanticNodeKind::AudioRepeat { input, count } => serde_json::json!({
-            "operation": "audio_repeat", "input": input, "count": count,
-        }),
         SemanticNodeKind::ZoomIn { input, by } => serde_json::json!({
             "operation": "zoom_in",
             "input": input,
@@ -134,19 +131,19 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
         SemanticNodeKind::Concat { inputs } => serde_json::json!({
             "operation": "concat", "inputs": inputs,
         }),
-        SemanticNodeKind::AudioConcat { inputs } => serde_json::json!({
-            "operation": "audio_concat", "inputs": inputs,
-        }),
-        SemanticNodeKind::Slice { input, range } => serde_json::json!({
-            "operation": "slice", "input": input, "range": range,
-        }),
+        SemanticNodeKind::Slice { input, range } => native_range_document("slice", *input, *range),
         SemanticNodeKind::DeferredSlice { input, range } => serde_json::json!({
-            "operation": "slice", "input": input, "range": range,
-        }),
-        SemanticNodeKind::AudioSlice { input, range } => serde_json::json!({
-            "operation": "audio_slice", "input": input, "range": range,
+            "operation": "slice",
+            "input": input,
+            "unit": input.value_type().native_unit_name(),
+            "range": range,
         }),
         SemanticNodeKind::ReplaceRange {
+            base,
+            replacement,
+            range,
+        } => native_replace_document(*base, *replacement, *range),
+        SemanticNodeKind::DeferredReplaceRange {
             base,
             replacement,
             range,
@@ -154,16 +151,7 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "operation": "replace_range",
             "base": base,
             "replacement": replacement,
-            "range": range,
-        }),
-        SemanticNodeKind::DeferredReplaceRange {
-            base,
-            replacement,
-            range,
-        } => serde_json::json!({
-            "operation": "deferred_replace_range",
-            "base": base,
-            "replacement": replacement,
+            "unit": base.value_type().native_unit_name(),
             "range": range,
         }),
         SemanticNodeKind::ExtractAudio { video } => serde_json::json!({
@@ -180,6 +168,45 @@ fn operation_document(program: &CompiledProgram, node: &CompiledNode) -> Result<
             "audio": audio,
         }),
         SemanticNodeKind::ExternalVideo { invocation } => external_video_document(invocation),
+    })
+}
+
+fn native_range_document(
+    operation: &str,
+    input: ValueRef,
+    range: crate::model::NativeRange,
+) -> serde_json::Value {
+    match range {
+        crate::model::NativeRange::Frames(range) => serde_json::json!({
+            "operation": operation,
+            "input": input,
+            "unit": "frames",
+            "range": range,
+        }),
+        crate::model::NativeRange::Samples(range) => serde_json::json!({
+            "operation": operation,
+            "input": input,
+            "unit": "samples",
+            "range": range,
+        }),
+    }
+}
+
+fn native_replace_document(
+    base: ValueRef,
+    replacement: ValueRef,
+    range: crate::model::NativeRange,
+) -> serde_json::Value {
+    let (unit, range) = match range {
+        crate::model::NativeRange::Frames(range) => ("frames", serde_json::json!(range)),
+        crate::model::NativeRange::Samples(range) => ("samples", serde_json::json!(range)),
+    };
+    serde_json::json!({
+        "operation": "replace_range",
+        "base": base,
+        "replacement": replacement,
+        "unit": unit,
+        "range": range,
     })
 }
 

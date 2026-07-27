@@ -2,8 +2,7 @@ use std::num::NonZeroU64;
 
 use crate::diagnostic::{Diagnostic, Result};
 use crate::program::{
-    Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall, TimeRangeValue,
-    VideoTimeRange,
+    Cardinality, NativeTimeRange, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall,
 };
 use crate::semantic::GraphBuilder;
 
@@ -27,16 +26,19 @@ pub(super) fn concat() -> ProgramDefinition {
 }
 
 pub(super) fn repeat() -> ProgramDefinition {
-    direct(
+    direct_with_timeline(
         generic_descriptor(
             "repeat",
-            3,
+            4,
             "value",
             Cardinality::One,
             vec![parameter("count", ParameterType::Integer, true)],
             true,
         ),
         lower_repeat,
+        crate::program::TimelineBehavior::Repeat {
+            input: crate::program::InputSlot::new(0),
+        },
     )
 }
 
@@ -44,7 +46,7 @@ pub(super) fn trim() -> ProgramDefinition {
     direct_with_timeline(
         generic_descriptor(
             "trim",
-            2,
+            3,
             "value",
             Cardinality::One,
             vec![parameter("range", ParameterType::TimeRange, true)],
@@ -87,23 +89,16 @@ fn lower_repeat(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<P
 fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let value = call.one_input("value")?;
     let (range, span) = call.time_range_parameter("range")?;
-    one_output(match value.value_type() {
-        crate::model::ValueType::Video => match range
-            .to_video_range(builder.video_spec().fps(), span)?
-        {
-            VideoTimeRange::Concrete(range) => builder.at_span(span.clone()).slice(value, range),
-            VideoTimeRange::Deferred(range) => {
-                builder.at_span(span.clone()).deferred_slice(value, range)
-            }
-        },
-        crate::model::ValueType::Audio => match range {
-            TimeRangeValue::Absolute(range) => builder.at_span(span.clone()).trim(value, *range),
-            TimeRangeValue::VideoMarker { .. } => Err(Diagnostic::new(
-                "E_TIMELINE_ROOT_MISMATCH",
-                "a Video marker range cannot trim an Audio timeline",
-                span.clone(),
-            )),
-        },
+    let range = range.to_native_range(
+        value.value_type(),
+        builder.video_spec().fps(),
+        builder.audio_spec().sample_rate(),
+        span,
+    )?;
+    let mut builder = builder.at_span(span.clone());
+    one_output(match range {
+        NativeTimeRange::Concrete(range) => builder.slice(value, range),
+        NativeTimeRange::Deferred(range) => builder.deferred_slice(value, range),
     })
 }
 

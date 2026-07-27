@@ -34,6 +34,12 @@ times must still be exactly sample-aligned. Coverage conversion is used only
 where an operation explicitly requires enough frames or samples to contain a
 native duration.
 
+Timeline marker arithmetic may remain an exact rational number of seconds while
+media extents are unresolved. Consuming a marker range selects the owning
+timeline's native grid: Video requires an exact frame boundary and Audio
+requires an exact sample boundary. Marker consumption never uses the covering
+frame-to-sample mapper or silently rounds between grids.
+
 Standalone audio sources use their stream timeline duration when available. That
 rational duration is mapped to the project sample grid with the same covering
 policy. Decoded source-sample counts divided by the source sample rate are a
