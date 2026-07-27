@@ -863,9 +863,9 @@ fn initialized_project_renders_when_media_tools_are_available() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
-fn init_accepts_a_non_utf8_target_path() {
+fn init_accepts_a_non_utf8_target_path_on_linux() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt as _;
 

@@ -21,6 +21,7 @@ cargo run --locked -p clipasm-reference-docs -- check
 mdbook build
 python3 scripts/check_docs.py
 python3 scripts/check_package_contents.py
+python3 -m unittest discover -s scripts -p 'test_*.py'
 node --check theme/clipasm-playground.js
 node --check playground/web/clipasm-playground-worker.js
 node --check playground/web/clipasm-playground-render-worker.js

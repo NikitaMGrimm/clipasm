@@ -81,8 +81,19 @@ Before requesting review, confirm that:
 
 ## Releases
 
-A release commit does not publish by itself. Create and push an annotated tag
-that exactly matches `v` followed by the version in `Cargo.toml`:
+Prepare the version from a clean, synchronized `main` branch:
+
+```console
+python scripts/prepare_release.py X.Y.Z
+./scripts/check.sh
+git commit -am "release: X.Y.Z"
+git push origin main
+```
+
+The preparation script updates the root package, playground package, and lockfile
+as one checked operation. It never commits, tags, pushes, or publishes. Wait for
+all `main` CI checks to succeed before creating an annotated tag that exactly
+matches `v` followed by the version in `Cargo.toml`:
 
 ```console
 python scripts/package_release.py verify --tag vX.Y.Z
@@ -90,9 +101,12 @@ git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-The tag starts the Release workflow. It verifies the repository, builds native
-archives, publishes through crates.io trusted publishing, and creates the GitHub
-release.
+The tag starts the Release workflow. Before crates.io publication, that workflow
+repeats repository verification and the portable Rust suite on Linux, macOS, and
+Windows, then builds native archives. It publishes through crates.io trusted
+publishing and creates the GitHub release only after every required job succeeds.
+Do not move or reuse a pushed release tag; use a new patch version after an
+aborted tagged release.
 
 ## Examples and fixtures
 
