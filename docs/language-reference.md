@@ -141,14 +141,19 @@ image("card.png", $length)
 repeat($count)
 ```
 
-Aliases may refer forward to other aliases. Their expressions are checked and
-evaluated only when an actual scalar use reaches them, including transitive
-references. An unused alias may contain an unknown reference, invalid operator,
-division by zero, dependency cycle, mixed timeline roots, or an invalid value
-without causing an error. The same problem is diagnosed when a parameter use
-reaches that alias. Declaration syntax and duplicate names remain eager.
-Parameters, graph values, inputs, and aliases share one program-wide name
-namespace.
+Each program body is a scalar scope. Aliases in that body may refer forward to
+one another, and aliases from enclosing bodies remain visible. A nested alias
+does not escape its body; sibling bodies may reuse the same name. Declaring an
+alias that shadows a visible alias, or collides with a program input, parameter,
+or named graph value, is an error.
+
+Every alias is structurally checked when its body is compiled: references must
+resolve, operators must type-check, and dependency cycles are rejected even when
+the alias is unused. Exact evaluation still happens only when an actual scalar
+use reaches the alias. Unused division by zero, mixed timeline roots,
+out-of-bounds coordinates, and destination parameter failures therefore remain
+inert until use. Timeline selectors in aliases may capture lexical body inputs,
+but do not borrow a contextual timeline root from a later invocation.
 
 Composed Video and Audio timelines expose native-grid placement markers. Video
 boundaries are exact project frames; Audio boundaries are exact project samples.
@@ -482,6 +487,11 @@ bodies remain available throughout the containing source program. Forward
 references are allowed when dependencies can be resolved; cycles are diagnosed.
 Body-input aliases such as `$before`, `$after`, and `$timeline` temporarily
 shadow program-wide names while their body is active.
+
+Scalar aliases are different: they are lexical to one program body, inherit
+visible aliases from enclosing bodies, and never escape to a parent or sibling
+body. They still may not collide with program inputs, parameters, or output
+names.
 
 `as name` requires one output. `as (first, second)` names an exact ordered
 multi-output result. Naming does not remove a value from the stack.

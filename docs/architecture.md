@@ -97,19 +97,27 @@ therefore knows expression structure but not rational arithmetic or parameter
 constraints. Inputs, parameters, stack plans, and body-port
 identities remain aligned to typed descriptor slots throughout checked source.
 
-Immutable scalar aliases are canonical zero-output items. Name collection gives
-them the same program-wide namespace as parameters, inputs, and graph values,
-while graph type inference treats them as non-stack values. Compact scalar-local
-identities are allocated eagerly, but expression checking is demand-driven. An
-alias moves from unchecked to checking to checked only when a scalar parameter
-use reaches it; recursive entry into a checking alias diagnoses a reached cycle.
-Only reached aliases store checked expressions, and invocation evaluation then
-reduces those expressions through the existing exact scalar evaluator. Unused
-alias expressions contribute neither diagnostics nor executable semantics.
-Timeline selectors in aliases remain explicitly rooted; call-site timeline
-inference applies only to selectors authored directly in that call.
-It consumes the resolver's concrete signatures, stack plans, and output types
-rather than recomputing them. Checked items are complete when constructed; no
+Immutable scalar aliases are canonical zero-output items. Every draft body has
+one scalar scope identified independently from graph-value scope. The compiler
+predeclares all aliases in that body, links the scope to its parent, and assigns
+compact alias identities. This permits forward references and lexical captures
+without runtime scope maps. Parent aliases are visible in descendants; nested
+aliases do not escape; sibling bodies may reuse a name; and declarations may not
+shadow a visible alias or collide with a program input, parameter, or named graph
+value.
+
+Checked-source materialization eagerly resolves every alias reference, checks
+operator types, and diagnoses dependency cycles in the lexical environment of
+the declaring body. The resulting checked alias table is dense: every identity
+owns one complete checked expression. Invocation evaluation reduces an alias
+through the existing exact scalar evaluator only when a parameter use reaches
+it. Value-dependent failures such as division by zero, mixed timeline roots,
+native-grid bounds, and destination parameter constraints therefore remain
+use-time checks. Timeline selectors in aliases may capture lexical body ports
+but never borrow a contextual timeline root from a later invocation.
+Materialization consumes the resolver's concrete signatures, stack plans, and
+output types rather than recomputing them. Checked items are complete when
+constructed; no
 later source/checked lockstep pass repairs references or output bindings. Inline
 input bodies and lexical body-port aliases are represented directly in checked
 source. Canonical bodies and invocations are not retained for ordinary

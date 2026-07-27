@@ -433,31 +433,54 @@ fn out_of_bounds_coordinate_alias_can_be_brought_back_in_range() {
 }
 
 #[test]
-fn scalar_alias_declared_in_nested_body_is_program_wide() {
+fn scalar_alias_declared_in_nested_body_does_not_escape() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 2s)\nduring(0s..1s) {\n  nested_start = 200ms\n  zoom_in(2%)\n} as edited\ntrim(value=$edited, range=$nested_start..1s)\n",
+        "clipasm 1\nimage(\"a.ppm\", 2s)\nduring(0s..1s) {\n  amount = 2%\n  zoom_in($amount)\n}\nzoom_in($amount)\n",
     );
 
-    let compiled = compiler::compile(&workflow).expect("nested scalar alias");
-    let json = compiled_json(&compiled);
-    let slice = json["nodes"]
-        .as_array()
-        .expect("nodes")
-        .iter()
-        .rev()
-        .find(|node| node["kind"]["operation"] == "slice")
-        .expect("trim slice");
-    assert_eq!(slice["kind"]["range"]["start"], 2);
-    assert_eq!(slice["kind"]["range"]["end"], 10);
+    let error = compiler::compile(&workflow).expect_err("nested alias must not escape");
+    assert_eq!(error.code, "E_MISSING_REFERENCE");
 }
 
 #[test]
-fn unused_invalid_scalar_aliases_are_inert() {
+fn unused_scalar_aliases_are_eagerly_checked_for_structure() {
+    let cases = [
+        (
+            "missing reference",
+            "clipasm 1\nmissing = $does_not_exist + 1s\nimage(\"a.ppm\", 1s)\n",
+            "E_MISSING_REFERENCE",
+        ),
+        (
+            "invalid operator",
+            "clipasm 1\ninvalid = 1s * 2\nimage(\"a.ppm\", 1s)\n",
+            "E_INVALID_SCALAR_OPERATION",
+        ),
+        (
+            "graph value",
+            "clipasm 1\nimage(\"a.ppm\", 1s) as picture\ninvalid = $picture\n",
+            "E_INVALID_ARGUMENT_TYPE",
+        ),
+        (
+            "dependency cycle",
+            "clipasm 1\ncycle_a = $cycle_b + 1s\ncycle_b = $cycle_a + 1s\nimage(\"a.ppm\", 1s)\n",
+            "E_DEPENDENCY_CYCLE",
+        ),
+    ];
+
+    for (name, source, expected) in cases {
+        let (_directory, workflow) = project(source);
+        let error = compiler::compile(&workflow).expect_err(name);
+        assert_eq!(error.code, expected, "{name}: {}", error.message);
+    }
+}
+
+#[test]
+fn unused_value_dependent_scalar_alias_errors_remain_inert() {
     let (_directory, workflow) = project(
-        "clipasm 1\nimage(\"a.ppm\", 1s) as first\nimage(\"b.ppm\", 1s) as second\ndivision = 1 / 0\nmissing = $does_not_exist + 1s\ninvalid_operator = 1s * 2\nmixed_roots = $first::start + $second::end\ngraph_value = $first\ncycle_a = $cycle_b + 1s\ncycle_b = $cycle_a + 1s\n",
+        "clipasm 1\nimage(\"a.ppm\", 1s) as first\nimage(\"b.ppm\", 1s) as second\ndivision = 1 / 0\nmixed_roots = $first::start + $second::end\n",
     );
 
-    let compiled = compiler::compile(&workflow).expect("unused invalid aliases are inert");
+    let compiled = compiler::compile(&workflow).expect("unused values are not evaluated");
     assert!(!compiled.compiled_json().expect("compiled JSON").is_empty());
 }
 
@@ -499,12 +522,12 @@ fn reached_invalid_scalar_aliases_report_their_errors() {
 }
 
 #[test]
-fn graph_values_fail_as_scalar_alias_values_only_when_reached() {
+fn graph_values_are_rejected_during_eager_alias_checking() {
     let (_directory, workflow) = project(
         "clipasm 1\nimage(\"a.ppm\", 1s) as picture\ninvalid = $picture\nimage(\"b.ppm\", $invalid)\n",
     );
 
-    let error = compiler::compile(&workflow).expect_err("graph value in used scalar alias");
+    let error = compiler::compile(&workflow).expect_err("graph value in scalar alias");
     assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
     assert!(error.message.contains("graph value `$picture`"));
 }
@@ -523,23 +546,41 @@ fn scalar_and_body_input_names_are_resolved_by_context() {
 }
 
 #[test]
-fn unused_nested_alias_may_reference_a_body_input() {
+fn nested_aliases_may_capture_body_inputs() {
     let (_directory, workflow) = project(
-        "clipasm 1\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  body_start = $timeline::start\n  zoom_in(2%)\n}\n",
+        "clipasm 1\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  body_start = $timeline::start\n  body_end = $timeline::end\n  drop<Video>\n  trim(value=$timeline, range=$body_start..$body_end)\n}\n",
     );
 
-    compiler::compile(&workflow).expect("unused body-input alias is inert");
+    compiler::compile(&workflow).expect("body-input aliases are lexical captures");
 }
 
 #[test]
-fn reached_nested_alias_cannot_capture_a_body_input() {
+fn parent_scalar_aliases_are_visible_in_nested_bodies() {
     let (_directory, workflow) = project(
-        "clipasm 1\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  body_start = $timeline::start\n  zoom_in(2%)\n} as edited\ntrim(value=$edited, range=$body_start..1s)\n",
+        "clipasm 1\namount = 2%\nimage(\"base.ppm\", 2s)\nduring(0s..1s) {\n  zoom_in($amount)\n}\n",
     );
 
-    let error =
-        compiler::compile(&workflow).expect_err("program-wide alias cannot capture body input");
-    assert_eq!(error.code, "E_MISSING_REFERENCE");
+    compiler::compile(&workflow).expect("parent alias is visible in child body");
+}
+
+#[test]
+fn sibling_bodies_may_reuse_scalar_alias_names() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nset_audio(\n  video={\n    count = 1\n    image(\"base.ppm\", 1s)\n    repeat($count)\n  },\n  audio={\n    count = 1\n    audio(\"missing.wav\")\n    repeat($count)\n  },\n)\n",
+    );
+
+    compiler::compile(&workflow).expect("sibling scalar scopes are independent");
+}
+
+#[test]
+fn nested_scalar_aliases_cannot_shadow_visible_aliases() {
+    let (_directory, workflow) = project(
+        "clipasm 1\namount = 2%\nimage(\"base.ppm\", 1s)\nduring(0s..1s) {\n  amount = 3%\n  zoom_in($amount)\n}\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("visible alias shadowing");
+    assert_eq!(error.code, "E_DUPLICATE_NAME");
+    assert!(error.message.contains("shadows a visible alias"));
 }
 
 #[test]
@@ -547,7 +588,7 @@ fn scalar_alias_cannot_be_used_as_a_graph_statement() {
     let (_directory, workflow) = project("clipasm 1\nlength = 1s\n$length\n");
 
     let error = compiler::compile(&workflow).expect_err("scalar alias as graph value");
-    assert_eq!(error.code, "E_PARAMETER_NOT_VALUE");
+    assert_eq!(error.code, "E_SCALAR_NOT_VALUE");
 }
 
 #[test]
@@ -684,7 +725,7 @@ fn join_without_body_concat_still_supplies_context_to_a_named_consumer() {
 #[test]
 fn join_body_has_no_aggregate_timeline_before_finalization() {
     let (_directory, workflow) = project(
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {\n  point = $a::start + $b::start\n  concat\n} as joined\ntrim(value=$joined, range=$joined::start..$point)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s) as a\nimage(\"b.ppm\", 1s) as b\njoin {\n  point = $a::start + $b::start\n  concat\n  trim(range=$a::start..$point)\n} as joined\n",
     );
 
     let error = compiler::compile(&workflow).expect_err("join body inputs remain separate roots");
@@ -1090,13 +1131,13 @@ fn during_symbolic_replacement_rebases_later_placements_exactly() {
 }
 
 #[test]
-fn reached_scalar_alias_cycles_are_rejected() {
+fn scalar_alias_cycles_report_the_complete_path() {
     let (_directory, workflow) =
         project("clipasm 1\na = $b + 1s\nb = $a + 1s\nimage(\"a.ppm\", $a)\n");
 
-    let error = compiler::compile(&workflow).expect_err("reached scalar cycle must fail");
+    let error = compiler::compile(&workflow).expect_err("scalar cycle must fail");
     assert_eq!(error.code, "E_DEPENDENCY_CYCLE");
-    assert!(error.message.contains("scalar-alias"));
+    assert!(error.message.contains("a -> b -> a"));
 }
 
 #[test]
@@ -1123,12 +1164,22 @@ fn scalar_aliases_infer_number_and_duration_types() {
 }
 
 #[test]
-fn scalar_aliases_share_the_program_wide_name_namespace() {
+fn scalar_aliases_cannot_collide_with_named_graph_values() {
     let (_directory, workflow) =
         project("clipasm 1\nimage(\"a.ppm\", 1s) as shared\nshared = 500ms\n$shared\n");
 
     let error = compiler::compile(&workflow).expect_err("duplicate local name must fail");
     assert_eq!(error.code, "E_DUPLICATE_NAME");
+}
+
+#[test]
+fn duplicate_scalar_aliases_in_one_body_are_rejected() {
+    let (_directory, workflow) =
+        project("clipasm 1\namount = 2%\namount = 3%\nimage(\"a.ppm\", 1s)\n");
+
+    let error = compiler::compile(&workflow).expect_err("duplicate scalar alias");
+    assert_eq!(error.code, "E_DUPLICATE_NAME");
+    assert!(error.message.contains("same body"));
 }
 
 #[test]

@@ -14,16 +14,13 @@ use crate::source::{
 };
 
 use super::draft::{
-    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, IdTable, InvocationId,
-    StackBlockId,
+    BodyId, DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftParameter, IdTable,
+    InvocationId, StackBlockId,
 };
 #[derive(Clone, Debug)]
 pub(super) enum LocalType {
     Value(ValueType),
     Parameter(ParameterType),
-    ScalarAlias {
-        expression: crate::source::ScalarExpression,
-    },
     Inferred {
         dependencies: BTreeSet<String>,
         span: crate::source::SourceSpan,
@@ -33,8 +30,8 @@ pub(super) enum LocalType {
 pub(super) use super::checked::{
     BodyInputId, CheckedBody, CheckedInputValue, CheckedInvocation, CheckedItem, CheckedItemKind,
     CheckedLocal, CheckedOutput, CheckedPackage, CheckedParameter, CheckedParameterValue,
-    CheckedProgram, CheckedProgramInput, CheckedScalarExpression, CheckedScalarLocal,
-    CheckedSourceProgram, CheckedStackBlock, ParameterId, ReferenceTarget, ScalarLocalId,
+    CheckedProgram, CheckedProgramInput, CheckedScalarAlias, CheckedScalarExpression,
+    CheckedSourceProgram, CheckedStackBlock, ParameterId, ReferenceTarget, ScalarAliasId,
     ValueLocalId,
 };
 
@@ -352,9 +349,17 @@ fn check_program(
     }
     collect_body_names(&draft.body, &mut local_types, definitions)?;
     validate_local_dependencies(&local_types)?;
-    let resolved = super::typecheck::resolve_program_types(draft, &mut local_types, definitions)?;
+    let reserved_names = local_types.keys().cloned().collect();
+    let scalar_scopes =
+        super::scalar_scope::ScalarScopes::build(&draft.body, draft.body_count, &reserved_names)?;
+    let resolved = super::typecheck::resolve_program_types(
+        draft,
+        &mut local_types,
+        definitions,
+        &scalar_scopes,
+    )?;
     ensure_local_types_resolved(&local_types)?;
-    resolved.into_checked(program, &local_types, definitions)
+    resolved.into_checked(program, &local_types, definitions, &scalar_scopes)
 }
 
 impl super::typecheck::ResolvedDraftProgram {
@@ -363,13 +368,14 @@ impl super::typecheck::ResolvedDraftProgram {
         program: &SourceProgram,
         local_types: &BTreeMap<String, LocalType>,
         definitions: &[ProgramDefinition],
+        scalar_scopes: &super::scalar_scope::ScalarScopes,
     ) -> Result<(Vec<ValueType>, CheckedProgram)> {
         let bindings = prepare_program_bindings(program, &self.draft, local_types)?;
         let alias_checker = ScalarAliasChecker::new(
             local_types,
             &bindings.local_ids,
             &bindings.parameter_ids,
-            &bindings.scalar_ids,
+            scalar_scopes,
         );
         let Self {
             draft,
@@ -390,7 +396,7 @@ impl super::typecheck::ResolvedDraftProgram {
         materializer.ensure_consumed(&draft.span)?;
         let body_input_count = materializer.body_input_count;
         drop(materializer);
-        let scalar_locals = alias_checker.finish();
+        let scalar_aliases = alias_checker.finish();
         Ok((
             outputs,
             CheckedProgram {
@@ -407,7 +413,7 @@ impl super::typecheck::ResolvedDraftProgram {
                     .collect(),
                 locals: bindings.locals,
                 parameters: bindings.parameters,
-                scalar_locals,
+                scalar_aliases,
                 body_input_count,
                 body: checked_body,
             },
@@ -420,7 +426,6 @@ struct ProgramBindings {
     local_ids: BTreeMap<String, ValueLocalId>,
     parameters: Vec<CheckedParameter>,
     parameter_ids: BTreeMap<String, ParameterId>,
-    scalar_ids: BTreeMap<String, ScalarLocalId>,
 }
 
 fn prepare_program_bindings(
@@ -483,30 +488,11 @@ fn prepare_program_bindings(
     }
     declare_body_outputs(&draft.body, &mut declare)?;
 
-    let scalar_ids = local_types
-        .iter()
-        .filter(|(_, local)| matches!(local, LocalType::ScalarAlias { .. }))
-        .enumerate()
-        .map(|(index, (name, _))| {
-            Ok((
-                name.clone(),
-                ScalarLocalId(u32::try_from(index).map_err(|_| {
-                    Diagnostic::new(
-                        "E_GRAPH_TOO_LARGE",
-                        "too many scalar aliases were declared",
-                        program.span().clone(),
-                    )
-                })?),
-            ))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
-
     Ok(ProgramBindings {
         locals,
         local_ids,
         parameters,
         parameter_ids,
-        scalar_ids,
     })
 }
 
@@ -523,8 +509,9 @@ struct ScalarAliasChecker<'a> {
     local_types: &'a BTreeMap<String, LocalType>,
     local_ids: &'a BTreeMap<String, ValueLocalId>,
     parameter_ids: &'a BTreeMap<String, ParameterId>,
-    scalar_ids: &'a BTreeMap<String, ScalarLocalId>,
+    scalar_scopes: &'a super::scalar_scope::ScalarScopes,
     states: RefCell<Vec<ScalarAliasState>>,
+    stack: RefCell<Vec<ScalarAliasId>>,
 }
 
 impl<'a> ScalarAliasChecker<'a> {
@@ -532,35 +519,45 @@ impl<'a> ScalarAliasChecker<'a> {
         local_types: &'a BTreeMap<String, LocalType>,
         local_ids: &'a BTreeMap<String, ValueLocalId>,
         parameter_ids: &'a BTreeMap<String, ParameterId>,
-        scalar_ids: &'a BTreeMap<String, ScalarLocalId>,
+        scalar_scopes: &'a super::scalar_scope::ScalarScopes,
     ) -> Self {
         Self {
             local_types,
             local_ids,
             parameter_ids,
-            scalar_ids,
+            scalar_scopes,
             states: RefCell::new(
                 std::iter::repeat_with(|| ScalarAliasState::Unchecked)
-                    .take(scalar_ids.len())
+                    .take(scalar_scopes.alias_count())
                     .collect(),
             ),
+            stack: RefCell::new(Vec::new()),
         }
+    }
+
+    fn check_body(&self, scope: BodyId, lexical: &BTreeMap<String, BodyBinding>) -> Result<()> {
+        for alias in self.scalar_scopes.local_aliases(scope) {
+            self.check_alias(*alias, scope, lexical)?;
+        }
+        Ok(())
     }
 
     fn resolve_scalar(
         &self,
+        scope: BodyId,
+        lexical: &BTreeMap<String, BodyBinding>,
         reference: &Spanned<String>,
     ) -> Result<super::parameter::ScalarReference> {
+        if let Some(alias) = self.scalar_scopes.resolve(scope, &reference.value) {
+            let kind = self.check_alias(alias, scope, lexical)?;
+            return Ok(super::parameter::ScalarReference::Alias(alias, kind));
+        }
         match self.local_types.get(&reference.value) {
             Some(LocalType::Parameter(parameter_type)) => {
                 Ok(super::parameter::ScalarReference::Parameter(
                     self.parameter_ids[&reference.value],
                     parameter_type.clone(),
                 ))
-            }
-            Some(LocalType::ScalarAlias { .. }) => {
-                let (id, kind) = self.check_alias(reference)?;
-                Ok(super::parameter::ScalarReference::Local(id, kind))
             }
             Some(LocalType::Value(_) | LocalType::Inferred { .. }) => Err(Diagnostic::new(
                 "E_INVALID_ARGUMENT_TYPE",
@@ -574,62 +571,87 @@ impl<'a> ScalarAliasChecker<'a> {
         }
     }
 
-    fn resolve_timeline(&self, reference: &Spanned<String>) -> Result<ReferenceTarget> {
-        self.local_ids
-            .get(&reference.value)
-            .copied()
-            .map(ReferenceTarget::Local)
-            .ok_or_else(|| missing_reference(&reference.value, &reference.span))
+    fn resolve_timeline(
+        &self,
+        lexical: &BTreeMap<String, BodyBinding>,
+        reference: &Spanned<String>,
+    ) -> Result<ReferenceTarget> {
+        resolve_value_target(&reference.value, &reference.span, self.local_ids, lexical)
     }
 
     fn check_alias(
         &self,
-        reference: &Spanned<String>,
-    ) -> Result<(ScalarLocalId, super::parameter::ScalarKind)> {
-        let id = self.scalar_ids[&reference.value];
+        id: ScalarAliasId,
+        scope: BodyId,
+        lexical: &BTreeMap<String, BodyBinding>,
+    ) -> Result<super::parameter::ScalarKind> {
         {
             let states = self.states.borrow();
             match &states[id.index()] {
-                ScalarAliasState::Checked { kind, .. } => return Ok((id, *kind)),
+                ScalarAliasState::Checked { kind, .. } => return Ok(*kind),
                 ScalarAliasState::Checking => {
+                    let declaration = self.scalar_scopes.declaration(id);
+                    let stack = self.stack.borrow();
+                    let start = stack
+                        .iter()
+                        .position(|candidate| *candidate == id)
+                        .expect("checking alias appears in the active stack");
+                    let mut cycle = stack[start..]
+                        .iter()
+                        .map(|alias| self.scalar_scopes.declaration(*alias).name.value.clone())
+                        .collect::<Vec<_>>();
+                    cycle.push(declaration.name.value.clone());
                     return Err(Diagnostic::new(
                         "E_DEPENDENCY_CYCLE",
-                        format!(
-                            "scalar-alias dependency cycle includes `{}`",
-                            reference.value
-                        ),
-                        reference.span.clone(),
+                        format!("scalar-alias dependency cycle: {}", cycle.join(" -> ")),
+                        declaration.name.span.clone(),
                     ));
                 }
                 ScalarAliasState::Unchecked => {}
             }
         }
-        let Some(LocalType::ScalarAlias { expression, .. }) =
-            self.local_types.get(&reference.value)
-        else {
-            unreachable!("scalar alias IDs refer to scalar alias declarations");
-        };
+        let declaration = self.scalar_scopes.declaration(id);
+        if declaration.scope != scope {
+            return Err(Diagnostic::new(
+                "E_INTERNAL_BINDING",
+                format!(
+                    "scalar alias `{}` was reached before its declaration scope was checked",
+                    declaration.name.value
+                ),
+                declaration.name.span.clone(),
+            ));
+        }
         self.states.borrow_mut()[id.index()] = ScalarAliasState::Checking;
-        let (expression, kind) = super::parameter::check_inferred_expression(
-            expression,
-            &mut |nested| self.resolve_scalar(nested),
-            &mut |timeline| self.resolve_timeline(timeline),
-        )?;
-        self.states.borrow_mut()[id.index()] = ScalarAliasState::Checked { expression, kind };
-        Ok((id, kind))
+        self.stack.borrow_mut().push(id);
+        let checked = super::parameter::check_inferred_expression(
+            &declaration.expression,
+            &mut |nested| self.resolve_scalar(scope, lexical, nested),
+            &mut |timeline| self.resolve_timeline(lexical, timeline),
+        );
+        let popped = self.stack.borrow_mut().pop();
+        debug_assert_eq!(popped, Some(id));
+        match checked {
+            Ok((expression, kind)) => {
+                self.states.borrow_mut()[id.index()] =
+                    ScalarAliasState::Checked { expression, kind };
+                Ok(kind)
+            }
+            Err(error) => {
+                self.states.borrow_mut()[id.index()] = ScalarAliasState::Unchecked;
+                Err(error)
+            }
+        }
     }
 
-    fn finish(self) -> Vec<Option<CheckedScalarLocal>> {
+    fn finish(self) -> Vec<CheckedScalarAlias> {
         self.states
             .into_inner()
             .into_iter()
-            .map(|state| match state {
-                ScalarAliasState::Unchecked => None,
-                ScalarAliasState::Checked { expression, .. } => {
-                    Some(CheckedScalarLocal { expression })
-                }
-                ScalarAliasState::Checking => {
-                    unreachable!("successful checking cannot leave a scalar alias in progress")
+            .enumerate()
+            .map(|(index, state)| match state {
+                ScalarAliasState::Checked { expression, .. } => CheckedScalarAlias { expression },
+                ScalarAliasState::Unchecked | ScalarAliasState::Checking => {
+                    panic!("scalar alias {index} was not fully checked")
                 }
             })
             .collect()
@@ -705,17 +727,7 @@ fn collect_body_names(
             }
         }
         match &item.kind {
-            DraftItemKind::Reference(_) => {}
-            DraftItemKind::ScalarBinding { name, value } => {
-                insert_local(
-                    locals,
-                    &name.value,
-                    LocalType::ScalarAlias {
-                        expression: value.clone(),
-                    },
-                    &name.span,
-                )?;
-            }
+            DraftItemKind::Reference(_) | DraftItemKind::ScalarBinding { .. } => {}
             DraftItemKind::Invocation(invocation) => {
                 if let Some(body) = invocation.body.as_deref() {
                     collect_body_names(body, locals, definitions)?;
@@ -870,6 +882,8 @@ impl CheckedMaterializer<'_> {
         body: DraftBody,
         lexical: &BTreeMap<String, BodyBinding>,
     ) -> Result<CheckedBody> {
+        let scope = body.id;
+        self.alias_checker.check_body(scope, lexical)?;
         let mut checked_items = Vec::with_capacity(body.items.len());
         for item in body.items {
             if matches!(item.kind, DraftItemKind::ScalarBinding { .. }) {
@@ -922,6 +936,7 @@ impl CheckedMaterializer<'_> {
                         inputs,
                         parameters,
                         definition,
+                        scope,
                         lexical,
                     )?;
                     let mut body_input_ids = vec![None; definition.descriptor.inputs.len()];
@@ -1043,6 +1058,7 @@ impl CheckedMaterializer<'_> {
         inputs: Vec<Option<DraftInput>>,
         parameters: Vec<Option<DraftParameter>>,
         definition: &ProgramDefinition,
+        scope: BodyId,
         lexical: &BTreeMap<String, BodyBinding>,
     ) -> Result<MaterializedArguments> {
         let inputs = inputs
@@ -1066,6 +1082,8 @@ impl CheckedMaterializer<'_> {
                             parameter,
                             argument,
                             self.alias_checker,
+                            scope,
+                            lexical,
                         )
                     })
                     .transpose()
@@ -1105,6 +1123,8 @@ fn check_parameter_argument(
     parameter: &ParameterDescriptor,
     argument: DraftParameter,
     aliases: &ScalarAliasChecker<'_>,
+    scope: BodyId,
+    lexical: &BTreeMap<String, BodyBinding>,
 ) -> Result<CheckedParameterValue> {
     let DraftParameter::Expression(expression) = argument;
     let checked = super::parameter::check_expression(
@@ -1112,8 +1132,8 @@ fn check_parameter_argument(
         &parameter.name,
         &parameter.parameter_type,
         &expression,
-        &mut |reference| aliases.resolve_scalar(reference),
-        &mut |reference| aliases.resolve_timeline(reference),
+        &mut |reference| aliases.resolve_scalar(scope, lexical, reference),
+        &mut |reference| aliases.resolve_timeline(lexical, reference),
     )?;
     Ok(CheckedParameterValue::Expression(checked))
 }
@@ -1159,7 +1179,7 @@ fn validate_local_dependencies(locals: &BTreeMap<String, LocalType>) -> Result<(
             LocalType::Inferred {
                 dependencies, span, ..
             } => Some((name.clone(), (dependencies.clone(), span.clone()))),
-            LocalType::Value(_) | LocalType::Parameter(_) | LocalType::ScalarAlias { .. } => None,
+            LocalType::Value(_) | LocalType::Parameter(_) => None,
         })
         .collect::<BTreeMap<_, _>>();
     let mut states = BTreeMap::<String, u8>::new();
@@ -1306,11 +1326,6 @@ fn value_local(
         Some(LocalType::Parameter(_)) => Err(Diagnostic::new(
             "E_PARAMETER_NOT_VALUE",
             format!("parameter `${name}` is not a graph value"),
-            span.clone(),
-        )),
-        Some(LocalType::ScalarAlias { .. }) => Err(Diagnostic::new(
-            "E_SCALAR_NOT_VALUE",
-            format!("scalar alias `${name}` is not a graph value"),
             span.clone(),
         )),
         Some(LocalType::Inferred { .. }) => Err(Diagnostic::new(

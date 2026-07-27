@@ -188,17 +188,18 @@ semantic identity; equivalent forms such as `8%`, `0.08`, and `2 / 25` hash
 identically.
 
 `name = expression` declares an immutable scalar alias with an inferred scalar
-type and no stack effect. Aliases, parameters, inputs, and graph output names
-share one program-wide namespace. Alias references may be forward. Alias
-expressions are checked and evaluated on demand only when a scalar parameter use
-reaches them; transitive references are followed at that point and reached
-cycles are rejected. An unused alias may therefore contain an unknown name, an
-invalid operator, division by zero, mixed timeline roots, or an invalid value
-without affecting compilation. Declaration syntax and duplicate names remain
-eager because they determine whether a binding exists. Timeline bounds,
-alignment, and parameter constraints are likewise validated only at the final
-use. Timeline selectors inside aliases are explicitly rooted and do not borrow
-contextual roots from later invocations.
+type and no stack effect. Each program body is one scalar scope: aliases are
+predeclared for forward references, parent aliases are visible in descendants,
+nested aliases do not escape, and sibling bodies may reuse a name. A declaration
+may not shadow a visible alias or collide with a program input, parameter, or
+named graph value. Alias names, operator types, references, and dependency cycles
+are checked eagerly for every body. Exact values are still evaluated only when a
+scalar parameter use reaches an alias, so unused division by zero, mixed timeline
+roots, out-of-bounds coordinates, and parameter-constraint failures remain
+inert. Timeline bounds, alignment, and parameter constraints are validated only
+at the final use. Timeline selectors inside aliases may capture lexical body
+inputs, but remain explicitly rooted and do not borrow contextual roots from
+later invocations.
 
 Timeline selectors use `::` and remain native-grid: Video boundaries are exact
 project frames, while Audio boundaries are exact project samples. A selector such as
@@ -270,8 +271,9 @@ Output bindings share one program-wide namespace. `as name` names one output;
 `as (first, second)` completely names a multi-output item in bottom-to-top stack
 order. IDs declared in nested bodies and stack blocks remain available
 throughout the containing source program. Duplicate names are errors rather
-than lexical shadowing; only body-input aliases shadow while their body is
-active. Forward references affect dependency resolution, not statement
+than lexical shadowing; scalar aliases use separate body scopes but may not
+shadow a visible alias, while body-input aliases shadow graph names only while
+their body is active. Forward references affect dependency resolution, not statement
 execution order. Naming attaches local identities to already-produced outputs
 and never changes type inference, input selection, stack effects, or body
 semantics. Generic types are inferred from explicit type arguments, explicit

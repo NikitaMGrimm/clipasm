@@ -8,11 +8,11 @@ use crate::source::{
     SourceSpan, Spanned,
 };
 
-use super::checked::{CheckedScalarExpression, ParameterId, ReferenceTarget, ScalarLocalId};
+use super::checked::{CheckedScalarExpression, ParameterId, ReferenceTarget, ScalarAliasId};
 
 pub(super) enum ScalarReference {
     Parameter(ParameterId, ParameterType),
-    Local(ScalarLocalId, ScalarKind),
+    Alias(ScalarAliasId, ScalarKind),
 }
 
 type ScalarResolver<'a> = dyn FnMut(&Spanned<String>) -> Result<ScalarReference> + 'a;
@@ -239,8 +239,8 @@ fn check_reference(
             },
             parameter_kind(&parameter_type),
         )),
-        ScalarReference::Local(id, kind) => Ok((
-            CheckedScalarExpression::ScalarLocal {
+        ScalarReference::Alias(id, kind) => Ok((
+            CheckedScalarExpression::ScalarAlias {
                 id,
                 name: reference.value.clone(),
                 span: reference.span.clone(),
@@ -400,11 +400,11 @@ pub(super) fn evaluate_expression(
     expected: &ParameterType,
     expression: &CheckedScalarExpression,
     parameters: &[Spanned<ParameterValue>],
-    scalar_locals: &[Option<CheckedScalarExpression>],
+    scalar_aliases: &[CheckedScalarExpression],
     resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<Spanned<ParameterValue>> {
     let result = (|| {
-        let value = evaluate(expression, parameters, scalar_locals, resolve_selector)?;
+        let value = evaluate(expression, parameters, scalar_aliases, resolve_selector)?;
         let value = coerce(
             program,
             parameter,
@@ -500,7 +500,7 @@ pub(super) fn from_text(
 fn evaluate(
     expression: &CheckedScalarExpression,
     parameters: &[Spanned<ParameterValue>],
-    scalar_locals: &[Option<CheckedScalarExpression>],
+    scalar_aliases: &[CheckedScalarExpression],
     resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<ScalarValue> {
     match expression {
@@ -513,29 +513,16 @@ fn evaluate(
                     span.clone(),
                 )
             })?;
-            Ok(match &parameter.value {
-                ParameterValue::Number(value) => ScalarValue::Number(value.clone()),
-                ParameterValue::Integer(value) => {
-                    ScalarValue::Number(ExactNumber::from_integer(*value))
-                }
-                ParameterValue::File(value) => ScalarValue::File(value.clone()),
-                ParameterValue::Duration(value) => ScalarValue::Duration(value.exact_seconds()),
-                ParameterValue::TimeRange(TimeRangeValue::Absolute(value)) => {
-                    ScalarValue::TimeRange(*value)
-                }
-                ParameterValue::TimeRange(TimeRangeValue::Marker { owner, range }) => {
-                    ScalarValue::TimelineRange {
-                        owner: *owner,
-                        start: range.start.clone(),
-                        end: range.end.clone(),
-                    }
-                }
-                ParameterValue::Keyword(value) => ScalarValue::Keyword(value.clone()),
-            })
+            Ok(parameter_scalar_value(&parameter.value))
         }
-        CheckedScalarExpression::ScalarLocal { id, name, span } => {
-            evaluate_scalar_local(*id, name, span, parameters, scalar_locals, resolve_selector)
-        }
+        CheckedScalarExpression::ScalarAlias { id, name, span } => evaluate_scalar_alias(
+            *id,
+            name,
+            span,
+            parameters,
+            scalar_aliases,
+            resolve_selector,
+        ),
         CheckedScalarExpression::TimelineSelector {
             root,
             root_name,
@@ -563,7 +550,7 @@ fn evaluate(
             operand,
             span,
         } => {
-            let operand = evaluate(operand, parameters, scalar_locals, resolve_selector)?;
+            let operand = evaluate(operand, parameters, scalar_aliases, resolve_selector)?;
             match (operator, operand) {
                 (
                     ScalarUnaryOperator::Positive,
@@ -589,8 +576,8 @@ fn evaluate(
             right,
             span,
         } => {
-            let left = evaluate(left, parameters, scalar_locals, resolve_selector)?;
-            let right = evaluate(right, parameters, scalar_locals, resolve_selector)?;
+            let left = evaluate(left, parameters, scalar_aliases, resolve_selector)?;
+            let right = evaluate(right, parameters, scalar_aliases, resolve_selector)?;
             evaluate_binary(*operator, left, right, span)
         }
         CheckedScalarExpression::Postfix {
@@ -598,31 +585,48 @@ fn evaluate(
             operand,
             span,
         } => {
-            let operand = evaluate(operand, parameters, scalar_locals, resolve_selector)?;
+            let operand = evaluate(operand, parameters, scalar_aliases, resolve_selector)?;
             evaluate_postfix(*operator, operand, span)
         }
     }
 }
 
-fn evaluate_scalar_local(
-    id: ScalarLocalId,
+fn parameter_scalar_value(parameter: &ParameterValue) -> ScalarValue {
+    match parameter {
+        ParameterValue::Number(value) => ScalarValue::Number(value.clone()),
+        ParameterValue::Integer(value) => ScalarValue::Number(ExactNumber::from_integer(*value)),
+        ParameterValue::File(value) => ScalarValue::File(value.clone()),
+        ParameterValue::Duration(value) => ScalarValue::Duration(value.exact_seconds()),
+        ParameterValue::TimeRange(TimeRangeValue::Absolute(value)) => {
+            ScalarValue::TimeRange(*value)
+        }
+        ParameterValue::TimeRange(TimeRangeValue::Marker { owner, range }) => {
+            ScalarValue::TimelineRange {
+                owner: *owner,
+                start: range.start.clone(),
+                end: range.end.clone(),
+            }
+        }
+        ParameterValue::Keyword(value) => ScalarValue::Keyword(value.clone()),
+    }
+}
+
+fn evaluate_scalar_alias(
+    id: ScalarAliasId,
     name: &str,
     span: &SourceSpan,
     parameters: &[Spanned<ParameterValue>],
-    scalar_locals: &[Option<CheckedScalarExpression>],
+    scalar_aliases: &[CheckedScalarExpression],
     resolve_selector: &mut SelectorEvaluator<'_>,
 ) -> Result<ScalarValue> {
-    let expression = scalar_locals
-        .get(id.index())
-        .and_then(Option::as_ref)
-        .ok_or_else(|| {
-            Diagnostic::new(
-                "E_INTERNAL_BINDING",
-                format!("scalar local `${name}` was not checked before evaluation"),
-                span.clone(),
-            )
-        })?;
-    evaluate(expression, parameters, scalar_locals, resolve_selector)
+    let expression = scalar_aliases.get(id.index()).ok_or_else(|| {
+        Diagnostic::new(
+            "E_INTERNAL_BINDING",
+            format!("scalar alias `${name}` has no checked expression"),
+            span.clone(),
+        )
+    })?;
+    evaluate(expression, parameters, scalar_aliases, resolve_selector)
 }
 
 fn evaluate_literal(literal: &Literal) -> Result<ScalarValue> {
@@ -1057,7 +1061,7 @@ fn expression_span(expression: &CheckedScalarExpression) -> &SourceSpan {
     match expression {
         CheckedScalarExpression::Literal(literal) => literal.span(),
         CheckedScalarExpression::Parameter { span, .. }
-        | CheckedScalarExpression::ScalarLocal { span, .. }
+        | CheckedScalarExpression::ScalarAlias { span, .. }
         | CheckedScalarExpression::TimelineSelector { span, .. }
         | CheckedScalarExpression::Unary { span, .. }
         | CheckedScalarExpression::Binary { span, .. }
@@ -1074,7 +1078,7 @@ fn evaluated_span<'a>(
             .get(id.index())
             .map_or_else(|| expression_span(expression), |parameter| &parameter.span),
         CheckedScalarExpression::Literal(_)
-        | CheckedScalarExpression::ScalarLocal { .. }
+        | CheckedScalarExpression::ScalarAlias { .. }
         | CheckedScalarExpression::TimelineSelector { .. }
         | CheckedScalarExpression::Unary { .. }
         | CheckedScalarExpression::Binary { .. }
@@ -1128,7 +1132,7 @@ fn collect_parameter_references<'a>(
 ) {
     match expression {
         CheckedScalarExpression::Literal(_)
-        | CheckedScalarExpression::ScalarLocal { .. }
+        | CheckedScalarExpression::ScalarAlias { .. }
         | CheckedScalarExpression::TimelineSelector { .. } => {}
         CheckedScalarExpression::Parameter { id, name, .. } => {
             references.push((*id, name));

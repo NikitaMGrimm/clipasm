@@ -17,9 +17,10 @@ use crate::source::{OutputBindings, SourceSpan};
 
 use super::check::LocalType;
 use super::draft::{
-    DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftProgram, IdTable, InvocationId,
-    StackBlockId,
+    BodyId, DraftBody, DraftInput, DraftInvocation, DraftItemKind, DraftProgram, IdTable,
+    InvocationId, StackBlockId,
 };
+use super::scalar_scope::ScalarScopes;
 use super::stack::{
     EvaluationStack, StackBindingInput, StackBindingOutcome, StackBindingPlan, StackCompatibility,
     StackFrame,
@@ -378,12 +379,13 @@ pub(super) fn resolve_program_types(
     program: DraftProgram,
     locals: &mut BTreeMap<String, LocalType>,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
 ) -> Result<ResolvedDraftProgram> {
     let mut types = prepare_type_state(&program, locals, definitions);
-    infer_fixpoint(&program, definitions, &mut types)?;
+    infer_fixpoint(&program, definitions, scalar_scopes, &mut types)?;
     apply_resolved_local_types(locals, &types);
     let FinalResolution { decisions, outputs } =
-        resolve_final_program(&program, definitions, &types)?;
+        resolve_final_program(&program, definitions, scalar_scopes, &types)?;
     Ok(ResolvedDraftProgram {
         draft: program,
         invocations: decisions.invocations,
@@ -403,7 +405,7 @@ fn prepare_type_state(
         .map(|(name, local)| {
             let slot = match local {
                 LocalType::Value(value_type) => LocalSlot::Value(arena.allocate_exact(*value_type)),
-                LocalType::Parameter(_) | LocalType::ScalarAlias { .. } => LocalSlot::Parameter,
+                LocalType::Parameter(_) => LocalSlot::Parameter,
                 LocalType::Inferred { .. } => LocalSlot::Value(arena.allocate()),
             };
             (name.clone(), slot)
@@ -426,6 +428,7 @@ fn prepare_type_state(
 fn infer_fixpoint(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
     types: &mut TypeState,
 ) -> Result<()> {
     loop {
@@ -435,6 +438,7 @@ fn infer_fixpoint(
         infer_program_body(
             program,
             definitions,
+            scalar_scopes,
             &types.slots,
             &types.invocation_generics,
             &mut attempt,
@@ -478,6 +482,7 @@ fn apply_resolved_local_types(locals: &mut BTreeMap<String, LocalType>, types: &
 fn resolve_final_program(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
     types: &TypeState,
 ) -> Result<FinalResolution> {
     let mut arena = types.arena.clone();
@@ -485,6 +490,7 @@ fn resolve_final_program(
     let outputs = infer_program_body(
         program,
         definitions,
+        scalar_scopes,
         &types.slots,
         &types.invocation_generics,
         &mut arena,
@@ -521,6 +527,7 @@ fn resolve_final_program(
 fn infer_program_body(
     program: &DraftProgram,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
     slots: &BTreeMap<String, LocalSlot>,
     invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
@@ -534,6 +541,7 @@ fn infer_program_body(
         slots,
         &BTreeMap::new(),
         definitions,
+        scalar_scopes,
         invocation_generics,
         arena,
         &mut stack,
@@ -577,6 +585,7 @@ fn infer_body(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
     invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
@@ -589,6 +598,8 @@ fn infer_body(
                 vec![lookup_value(
                     globals,
                     lexical,
+                    scalar_scopes,
+                    body.id,
                     &reference.value,
                     &reference.span,
                 )?]
@@ -600,6 +611,8 @@ fn infer_body(
                 globals,
                 lexical,
                 definitions,
+                scalar_scopes,
+                body.id,
                 invocation_generics,
                 arena,
                 stack,
@@ -618,6 +631,7 @@ fn infer_body(
                     globals,
                     lexical,
                     definitions,
+                    scalar_scopes,
                     invocation_generics,
                     arena,
                     stack,
@@ -647,6 +661,8 @@ fn infer_invocation(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
+    scope: BodyId,
     invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     stack: &mut EvaluationStack<TypeVarId>,
@@ -682,6 +698,8 @@ fn infer_invocation(
             globals,
             lexical,
             definitions,
+            scalar_scopes,
+            scope,
             invocation_generics,
             arena,
             state,
@@ -737,6 +755,7 @@ fn infer_invocation(
             globals,
             &lexical_body,
             definitions,
+            scalar_scopes,
             invocation_generics,
             arena,
             stack,
@@ -799,6 +818,8 @@ fn explicit_values(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
     definitions: &[ProgramDefinition],
+    scalar_scopes: &ScalarScopes,
+    scope: BodyId,
     invocation_generics: &IdTable<InvocationId, TypeVarId>,
     arena: &mut TypeArena,
     state: &mut PassState,
@@ -807,6 +828,8 @@ fn explicit_values(
         DraftInput::Reference(reference) => Ok(vec![lookup_value(
             globals,
             lexical,
+            scalar_scopes,
+            scope,
             &reference.value,
             &reference.span,
         )?]),
@@ -818,6 +841,7 @@ fn explicit_values(
                 globals,
                 lexical,
                 definitions,
+                scalar_scopes,
                 invocation_generics,
                 arena,
                 &mut stack,
@@ -1163,13 +1187,32 @@ fn constrain_bindings(
 fn lookup_value(
     globals: &BTreeMap<String, LocalSlot>,
     lexical: &BTreeMap<String, TypeVarId>,
+    scalar_scopes: &ScalarScopes,
+    scope: BodyId,
     name: &str,
     span: &SourceSpan,
 ) -> Result<TypeVarId> {
-    lexical
-        .get(name)
-        .copied()
-        .map_or_else(|| value_slot(globals, name, span), Ok)
+    if let Some(value) = lexical.get(name) {
+        return Ok(*value);
+    }
+    match globals.get(name) {
+        Some(LocalSlot::Value(variable)) => Ok(*variable),
+        Some(LocalSlot::Parameter) => Err(Diagnostic::new(
+            "E_PARAMETER_NOT_VALUE",
+            format!("parameter `${name}` is not a graph value"),
+            span.clone(),
+        )),
+        None if scalar_scopes.resolve(scope, name).is_some() => Err(Diagnostic::new(
+            "E_SCALAR_NOT_VALUE",
+            format!("scalar alias `${name}` is not a graph value"),
+            span.clone(),
+        )),
+        None => Err(Diagnostic::new(
+            "E_MISSING_REFERENCE",
+            format!("reference `${name}` does not name an input, body alias, or output binding"),
+            span.clone(),
+        )),
+    }
 }
 
 fn value_slot(

@@ -149,7 +149,7 @@ struct EvalScope {
     local_symbols: Vec<SymbolId>,
     body_inputs: Vec<Option<EvaluatedValue>>,
     parameters: Vec<Spanned<crate::program::ParameterValue>>,
-    scalar_locals: Vec<Option<CheckedScalarExpression>>,
+    scalar_aliases: Vec<CheckedScalarExpression>,
 }
 
 #[derive(Clone)]
@@ -217,10 +217,10 @@ impl Evaluator {
                         })
                 })
                 .collect::<Result<Vec<_>>>()?,
-            scalar_locals: checked_program
-                .scalar_locals
+            scalar_aliases: checked_program
+                .scalar_aliases
                 .iter()
-                .map(|local| local.as_ref().map(|local| local.expression.clone()))
+                .map(|alias| alias.expression.clone())
                 .collect(),
         };
         for local in &checked_program.locals {
@@ -604,7 +604,7 @@ impl Evaluator {
                             &descriptor.parameter_type,
                             expression,
                             &scope.parameters,
-                            &scope.scalar_locals,
+                            &scope.scalar_aliases,
                             &mut |target, root_name, path, contextual, selector_span| {
                                 self.resolve_timeline_selector(
                                     target,

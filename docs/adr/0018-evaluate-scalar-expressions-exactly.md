@@ -12,14 +12,19 @@ through binary floating point.
 
 The native parser owns precedence and produces a source-located scalar
 expression tree. It does not evaluate arithmetic or inspect the implementation
-of exact numbers. Checked-source construction validates a scalar expression only
-when an invocation parameter reaches it. Reached immutable scalar aliases are
-resolved recursively, inferred, and cached as checked expressions; recursive
-entry diagnoses a reached dependency cycle. Invocation evaluation then reduces
-the reached expression exactly before applying the destination parameter
-constraint. Scalar aliases have no stack effect, and unused alias expressions
-produce neither diagnostics nor executable semantics. Syntax and duplicate-name
-validation remain eager because they define the source program's bindings.
+of exact numbers. Every program body defines one lexical scalar-alias scope.
+Aliases in that scope are predeclared for forward references, may capture body
+inputs, inherit visible aliases from enclosing bodies, and do not escape to a
+parent or sibling body. Shadowing a visible alias is rejected.
+
+Checked-source construction eagerly resolves every alias reference, infers its
+scalar kind, validates operator types, and diagnoses dependency cycles. The
+result is a dense table of fully checked expressions addressed by compact alias
+identities. Invocation evaluation reduces an alias exactly only when a scalar
+parameter reaches it, then applies the destination parameter constraint. Scalar
+aliases have no stack effect. Value-dependent failures such as division by zero,
+mixed timeline roots, bounds, alignment, and destination constraints therefore
+remain use-time checks rather than declaration-time checks.
 
 Postfix `%` is ordinary division by 100 and may repeat. Postfix `ms` and `s`
 require an Integer-valued Number and construct an exact Duration. Duration is a
@@ -44,9 +49,12 @@ to `8%`, and stores the exact fractional increase.
   program-specific parsing or hardcoded expression patterns.
 - The parser, exact evaluator, scalar type checker, and parameter binder remain
   separate phase owners.
-- Scalar aliases may refer forward to one another. Their dependency chain is
-  checked only when reached from a real scalar use, while retaining the same
-  exact evaluator and parameter ABI.
+- Scalar aliases may refer forward within one body and may capture lexical body
+  inputs. Parent aliases are visible in descendants, nested aliases do not
+  escape, and sibling bodies may reuse a name.
+- Alias references, scalar kinds, operator types, and dependency cycles are
+  checked eagerly, while exact value evaluation remains demand-driven and uses
+  the same exact evaluator and parameter ABI.
 - Timeline coordinates normalize to linear exact expressions. Media-dependent
   Video or Audio extents may remain symbolic through compilation and are
   substituted by preflight before final native-grid alignment and bounds

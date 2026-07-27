@@ -69,12 +69,9 @@ pub(crate) fn lower_source(
         .iter()
         .map(|parameter| parameter.name.value.clone())
         .collect();
-    let mut scalar_aliases = BTreeSet::new();
-    collect_scalar_alias_names(&syntax.statements, &mut scalar_aliases);
     let lowerer = Lowerer {
         programs,
         parameters,
-        scalar_aliases,
     };
     let implementation = match declarations.external {
         Some(external) => {
@@ -88,7 +85,7 @@ pub(crate) fn lower_source(
             SourceProgramImplementation::External(external)
         }
         None => SourceProgramImplementation::Body(ProgramBody {
-            items: lowerer.lower_statements(&syntax.statements, &lexical)?,
+            items: lowerer.lower_statements(&syntax.statements, &lexical, &BTreeSet::new())?,
             span: syntax.span.clone(),
         }),
     };
@@ -450,7 +447,6 @@ fn lower_scalar_expression(expression: &ScalarExpression) -> SourceScalarExpress
 struct Lowerer<'a> {
     programs: &'a BTreeMap<String, CallableShape>,
     parameters: BTreeSet<String>,
-    scalar_aliases: BTreeSet<String>,
 }
 
 impl Lowerer<'_> {
@@ -458,10 +454,13 @@ impl Lowerer<'_> {
         &self,
         statements: &[Statement],
         lexical: &BTreeSet<String>,
+        parent_scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
+        let mut scalars = parent_scalars.clone();
+        collect_body_scalar_alias_names(statements, &mut scalars);
         let mut items = Vec::new();
         for statement in statements {
-            items.extend(self.lower_statement(statement, lexical)?);
+            items.extend(self.lower_statement(statement, lexical, &scalars)?);
         }
         Ok(items)
     }
@@ -470,6 +469,7 @@ impl Lowerer<'_> {
         &self,
         statement: &Statement,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
         let bindings = lower_output_bindings(&statement.output_bindings);
         match &statement.expression {
@@ -489,12 +489,13 @@ impl Lowerer<'_> {
                 origin: ItemOrigin::authored("scalar binding", statement.span.clone()),
             }]),
             Expression::Invocation(invocation) => {
-                self.lower_invocation(invocation, bindings, lexical)
+                self.lower_invocation(invocation, bindings, lexical, scalars)
             }
             Expression::Block(block) => Ok(vec![self.lower_stack_block(
                 block,
                 bindings,
                 lexical,
+                scalars,
                 statement.span.clone(),
             )?]),
             Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => {
@@ -512,9 +513,10 @@ impl Lowerer<'_> {
         invocation: &super::syntax::Invocation,
         output_bindings: OutputBindings,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
         if let Some(sugar) = sugar::resolve(&invocation.name.value) {
-            return self.lower_sugar(sugar, invocation, output_bindings, lexical);
+            return self.lower_sugar(sugar, invocation, output_bindings, lexical, scalars);
         }
         let shape = self.programs.get(&invocation.name.value).ok_or_else(|| {
             Diagnostic::new(
@@ -542,7 +544,7 @@ impl Lowerer<'_> {
             }
             let lowered = if shape.has_input(&name.value) {
                 has_named_graph_input = true;
-                self.lower_explicit_input(value, lexical)?
+                self.lower_explicit_input(value, lexical, scalars)?
             } else if let Some(slot) = shape.parameter_index(&name.value) {
                 assigned_parameters.insert(slot);
                 Self::lower_scalar_argument(value, &invocation.name.value, &name.value)?
@@ -564,7 +566,7 @@ impl Lowerer<'_> {
             let Argument::Positional(value) = argument else {
                 continue;
             };
-            if self.is_scalar_expression(value, lexical) {
+            if self.is_scalar_expression(value, lexical, scalars) {
                 while assigned_parameters.contains(&next_parameter) {
                     next_parameter += 1;
                 }
@@ -592,7 +594,7 @@ impl Lowerer<'_> {
                         value.span().clone(),
                     ));
                 }
-                preceding.extend(self.lower_graph_expression(value, lexical)?);
+                preceding.extend(self.lower_graph_expression(value, lexical, scalars)?);
             }
         }
 
@@ -601,7 +603,7 @@ impl Lowerer<'_> {
         let body = invocation
             .body
             .as_ref()
-            .map(|block| self.lower_program_body(block, &body_lexical))
+            .map(|block| self.lower_program_body(block, &body_lexical, scalars))
             .transpose()?;
 
         preceding.push(Item {
@@ -624,9 +626,10 @@ impl Lowerer<'_> {
         invocation: &super::syntax::Invocation,
         output_bindings: OutputBindings,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
         match sugar {
-            sugar::Sugar::Clip => self.lower_clip(invocation, output_bindings, lexical),
+            sugar::Sugar::Clip => self.lower_clip(invocation, output_bindings, lexical, scalars),
         }
     }
 
@@ -635,6 +638,7 @@ impl Lowerer<'_> {
         invocation: &super::syntax::Invocation,
         output_bindings: OutputBindings,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
         if let Some(argument) = invocation.arguments.first() {
             let span = match argument {
@@ -650,7 +654,7 @@ impl Lowerer<'_> {
         let mut body = invocation
             .body
             .as_ref()
-            .map(|body| self.lower_program_body(body, lexical))
+            .map(|body| self.lower_program_body(body, lexical, scalars))
             .transpose()?
             .unwrap_or_else(|| ProgramBody {
                 items: Vec::new(),
@@ -734,12 +738,13 @@ impl Lowerer<'_> {
         &self,
         expression: &Expression,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<ArgumentValue> {
         match expression {
             Expression::Reference(reference) => Ok(ArgumentValue::Reference(reference.clone())),
             Expression::Invocation(_) | Expression::Block(_) => {
                 Ok(ArgumentValue::Body(ProgramBody {
-                    items: self.lower_graph_expression(expression, lexical)?,
+                    items: self.lower_graph_expression(expression, lexical, scalars)?,
                     span: expression.span().clone(),
                 }))
             }
@@ -758,6 +763,7 @@ impl Lowerer<'_> {
         &self,
         expression: &Expression,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
     ) -> Result<Vec<Item>> {
         match expression {
             Expression::Reference(reference) => Ok(vec![Item {
@@ -768,12 +774,13 @@ impl Lowerer<'_> {
                 origin: ItemOrigin::authored("reference", reference.span.clone()),
             }]),
             Expression::Invocation(invocation) => {
-                self.lower_invocation(invocation, OutputBindings::None, lexical)
+                self.lower_invocation(invocation, OutputBindings::None, lexical, scalars)
             }
             Expression::Block(block) => Ok(vec![self.lower_stack_block(
                 block,
                 OutputBindings::None,
                 lexical,
+                scalars,
                 block.span.clone(),
             )?]),
             Expression::ScalarBinding { .. }
@@ -792,6 +799,7 @@ impl Lowerer<'_> {
         block: &Block,
         output_bindings: OutputBindings,
         lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
         span: crate::source::SourceSpan,
     ) -> Result<Item> {
         Ok(Item {
@@ -800,27 +808,37 @@ impl Lowerer<'_> {
                     .access
                     .as_ref()
                     .map_or(STACK_BLOCK_DEFAULT_STACK_ACCESS, |access| access.value),
-                body: self.lower_program_body(block, lexical)?,
+                body: self.lower_program_body(block, lexical, scalars)?,
             }),
             output_bindings,
             origin: ItemOrigin::authored("stack block", span),
         })
     }
 
-    fn lower_program_body(&self, block: &Block, lexical: &BTreeSet<String>) -> Result<ProgramBody> {
+    fn lower_program_body(
+        &self,
+        block: &Block,
+        lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
+    ) -> Result<ProgramBody> {
         Ok(ProgramBody {
-            items: self.lower_statements(&block.statements, lexical)?,
+            items: self.lower_statements(&block.statements, lexical, scalars)?,
             span: block.span.clone(),
         })
     }
 
-    fn is_scalar_expression(&self, expression: &Expression, lexical: &BTreeSet<String>) -> bool {
+    fn is_scalar_expression(
+        &self,
+        expression: &Expression,
+        lexical: &BTreeSet<String>,
+        scalars: &BTreeSet<String>,
+    ) -> bool {
         match expression {
             Expression::String(_) | Expression::Atom(_) | Expression::Scalar(_) => true,
             Expression::Reference(reference) => {
                 !lexical.contains(&reference.value)
                     && (self.parameters.contains(&reference.value)
-                        || self.scalar_aliases.contains(&reference.value))
+                        || scalars.contains(&reference.value))
             }
             Expression::ScalarBinding { .. } | Expression::Invocation(_) | Expression::Block(_) => {
                 false
@@ -829,37 +847,11 @@ impl Lowerer<'_> {
     }
 }
 
-fn collect_scalar_alias_names(statements: &[Statement], names: &mut BTreeSet<String>) {
+fn collect_body_scalar_alias_names(statements: &[Statement], names: &mut BTreeSet<String>) {
     for statement in statements {
         if let Expression::ScalarBinding { name, .. } = &statement.expression {
             names.insert(name.value.clone());
         }
-        collect_scalar_alias_names_from_expression(&statement.expression, names);
-    }
-}
-
-fn collect_scalar_alias_names_from_expression(
-    expression: &Expression,
-    names: &mut BTreeSet<String>,
-) {
-    match expression {
-        Expression::Invocation(invocation) => {
-            if let Some(body) = &invocation.body {
-                collect_scalar_alias_names(&body.statements, names);
-            }
-            for argument in &invocation.arguments {
-                let value = match argument {
-                    Argument::Positional(value) | Argument::Named { value, .. } => value,
-                };
-                collect_scalar_alias_names_from_expression(value, names);
-            }
-        }
-        Expression::Block(block) => collect_scalar_alias_names(&block.statements, names),
-        Expression::Reference(_)
-        | Expression::ScalarBinding { .. }
-        | Expression::String(_)
-        | Expression::Atom(_)
-        | Expression::Scalar(_) => {}
     }
 }
 

@@ -88,6 +88,12 @@ containing source program; ordinary braces do not create a lexical name scope.
 Forward references affect dependency resolution, not statement execution
 order, and dependency cycles are errors.
 
+Scalar aliases use a separate rule. Every body is one scalar scope: enclosing
+aliases are visible inside descendants, aliases declared in a nested body do not
+escape, and sibling bodies may reuse a scalar name. A scalar alias cannot shadow
+a visible scalar alias or collide with an input, parameter, or output name.
+Aliases have no stack effect.
+
 Body programs add one narrow exception. Their fixed graph inputs appear inside
 the body as local aliases such as `$before`, `$after`, or `$timeline`. Those aliases
 temporarily shadow an outer name while the body is active. Arguments are

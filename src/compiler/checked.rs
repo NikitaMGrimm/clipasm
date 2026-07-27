@@ -2,7 +2,7 @@ use crate::model::ValueType;
 use crate::program::{ProgramId, ProgramRegistry, ResolvedSignature};
 
 pub(super) use super::ids::{
-    BodyInputId, ParameterId, ReferenceTarget, ScalarLocalId, ValueLocalId,
+    BodyInputId, ParameterId, ReferenceTarget, ScalarAliasId, ValueLocalId,
 };
 use super::stack::StackBindingPlan;
 
@@ -14,7 +14,7 @@ pub(super) struct CheckedParameter {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct CheckedScalarLocal {
+pub(super) struct CheckedScalarAlias {
     pub(super) expression: CheckedScalarExpression,
 }
 
@@ -37,8 +37,8 @@ pub(super) enum CheckedScalarExpression {
         name: String,
         span: crate::source::SourceSpan,
     },
-    ScalarLocal {
-        id: ScalarLocalId,
+    ScalarAlias {
+        id: ScalarAliasId,
         name: String,
         span: crate::source::SourceSpan,
     },
@@ -114,7 +114,7 @@ pub(super) struct CheckedProgram {
     pub(super) inputs: Vec<CheckedProgramInput>,
     pub(super) locals: Vec<CheckedLocal>,
     pub(super) parameters: Vec<CheckedParameter>,
-    pub(super) scalar_locals: Vec<Option<CheckedScalarLocal>>,
+    pub(super) scalar_aliases: Vec<CheckedScalarAlias>,
     pub(super) body_input_count: usize,
     pub(super) body: CheckedBody,
 }

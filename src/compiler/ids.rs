@@ -26,9 +26,9 @@ impl ParameterId {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct ScalarLocalId(pub(super) u32);
+pub(super) struct ScalarAliasId(pub(super) u32);
 
-impl ScalarLocalId {
+impl ScalarAliasId {
     pub(super) const fn index(self) -> usize {
         self.0 as usize
     }

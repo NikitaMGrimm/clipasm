@@ -17,6 +17,51 @@ pub(super) struct InvocationId(pub(super) usize);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct StackBlockId(pub(super) usize);
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(super) struct BodyId(pub(super) usize);
+
+impl BodyId {
+    pub(super) const fn index(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Default)]
+struct DraftIds {
+    bodies: usize,
+    invocations: usize,
+    stack_blocks: usize,
+}
+
+impl DraftIds {
+    fn body(&mut self) -> BodyId {
+        let id = BodyId(self.bodies);
+        self.bodies = self
+            .bodies
+            .checked_add(1)
+            .expect("draft body count fits in usize");
+        id
+    }
+
+    fn invocation(&mut self) -> InvocationId {
+        let id = InvocationId(self.invocations);
+        self.invocations = self
+            .invocations
+            .checked_add(1)
+            .expect("draft invocation count fits in usize");
+        id
+    }
+
+    fn stack_block(&mut self) -> StackBlockId {
+        let id = StackBlockId(self.stack_blocks);
+        self.stack_blocks = self
+            .stack_blocks
+            .checked_add(1)
+            .expect("draft stack block count fits in usize");
+        id
+    }
+}
+
 pub(super) trait TableId: Copy {
     fn index(self) -> usize;
 }
@@ -77,12 +122,14 @@ impl<I: TableId, T> IdTable<I, T> {
 pub(super) struct DraftProgram {
     pub(super) span: SourceSpan,
     pub(super) body: DraftBody,
+    pub(super) body_count: usize,
     pub(super) invocation_count: usize,
     pub(super) stack_block_count: usize,
 }
 
 #[derive(Debug)]
 pub(super) struct DraftBody {
+    pub(super) id: BodyId,
     pub(super) span: SourceSpan,
     pub(super) items: Vec<DraftItem>,
 }
@@ -181,29 +228,22 @@ impl DraftProgram {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
     ) -> Result<Self> {
-        let mut invocation_count = 0;
-        let mut stack_block_count = 0;
-        let body = DraftBody::build(
-            body,
-            definitions,
-            builtins,
-            namespace,
-            0,
-            &mut invocation_count,
-            &mut stack_block_count,
-        )?;
+        let mut ids = DraftIds::default();
+        let body = DraftBody::build(body, definitions, builtins, namespace, 0, &mut ids)?;
         Ok(Self {
             span: source.span().clone(),
             body,
-            invocation_count,
-            stack_block_count,
+            body_count: ids.bodies,
+            invocation_count: ids.invocations,
+            stack_block_count: ids.stack_blocks,
         })
     }
 }
 
 impl DraftBody {
-    fn empty(span: SourceSpan) -> Self {
+    fn empty(span: SourceSpan, ids: &mut DraftIds) -> Self {
         Self {
+            id: ids.body(),
             span,
             items: Vec::new(),
         }
@@ -215,8 +255,7 @@ impl DraftBody {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
         depth: usize,
-        invocation_count: &mut usize,
-        stack_block_count: &mut usize,
+        ids: &mut DraftIds,
     ) -> Result<Self> {
         if depth > crate::source::MAX_SYNTAX_NESTING {
             return Err(Diagnostic::new(
@@ -229,6 +268,7 @@ impl DraftBody {
             ));
         }
         Ok(Self {
+            id: ids.body(),
             span: source.span.clone(),
             items: source
                 .items
@@ -249,8 +289,7 @@ impl DraftBody {
                                 builtins,
                                 namespace,
                                 depth,
-                                invocation_count,
-                                stack_block_count,
+                                ids,
                             )?)
                         }
                         ItemKind::StackBlock(block) => {
@@ -260,8 +299,7 @@ impl DraftBody {
                                 builtins,
                                 namespace,
                                 depth,
-                                invocation_count,
-                                stack_block_count,
+                                ids,
                             )?)
                         }
                     };
@@ -284,13 +322,9 @@ impl DraftInvocation {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
         depth: usize,
-        invocation_count: &mut usize,
-        stack_block_count: &mut usize,
+        ids: &mut DraftIds,
     ) -> Result<Self> {
-        let id = InvocationId(*invocation_count);
-        *invocation_count = invocation_count
-            .checked_add(1)
-            .expect("draft invocation count fits in usize");
+        let id = ids.invocation();
         let program = program_id_for(
             &source.program.value,
             builtins,
@@ -342,8 +376,7 @@ impl DraftInvocation {
                             builtins,
                             namespace,
                             depth + 1,
-                            invocation_count,
-                            stack_block_count,
+                            ids,
                         )?))
                     }
                     ArgumentValue::Scalar(_) => {
@@ -447,18 +480,10 @@ impl DraftInvocation {
                     .body
                     .as_ref()
                     .map(|body| {
-                        DraftBody::build(
-                            body,
-                            definitions,
-                            builtins,
-                            namespace,
-                            depth + 1,
-                            invocation_count,
-                            stack_block_count,
-                        )
+                        DraftBody::build(body, definitions, builtins, namespace, depth + 1, ids)
                     })
                     .transpose()?
-                    .unwrap_or_else(|| DraftBody::empty(source.program.span.clone()));
+                    .unwrap_or_else(|| DraftBody::empty(source.program.span.clone(), ids));
                 Some(Box::new(body))
             }
         };
@@ -483,13 +508,9 @@ impl DraftStackBlock {
         builtins: &BTreeMap<String, ProgramId>,
         namespace: &BTreeMap<String, ProgramId>,
         depth: usize,
-        invocation_count: &mut usize,
-        stack_block_count: &mut usize,
+        ids: &mut DraftIds,
     ) -> Result<Self> {
-        let id = StackBlockId(*stack_block_count);
-        *stack_block_count = stack_block_count
-            .checked_add(1)
-            .expect("draft stack block count fits in usize");
+        let id = ids.stack_block();
         Ok(Self {
             id,
             access: source.stack_access,
@@ -499,8 +520,7 @@ impl DraftStackBlock {
                 builtins,
                 namespace,
                 depth + 1,
-                invocation_count,
-                stack_block_count,
+                ids,
             )?),
         })
     }

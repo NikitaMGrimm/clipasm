@@ -15,6 +15,7 @@ pub(crate) mod fingerprint;
 mod ids;
 mod link;
 mod parameter;
+mod scalar_scope;
 mod stack;
 pub(crate) mod traversal;
 mod typecheck;

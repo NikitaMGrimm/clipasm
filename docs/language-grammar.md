@@ -161,10 +161,13 @@ construct. Consequently `join`, `join()`, `join {}`, and `join() {}` are
 equivalent before normal binding and body-contract validation.
 
 A scalar binding is immutable, has no stack effect, and infers its scalar type
-from the right-hand expression. Scalar bindings, parameters, inputs, and graph
-output names share one program-wide namespace. Scalar bindings may refer
-forward to other scalar bindings; cycles are errors. A timeline selector inside
-a scalar binding resolves only from its explicit root and never borrows a later
+from the right-hand expression. Each program body defines one scalar scope.
+Bindings in that body are predeclared for forward references, inherit visible
+bindings from enclosing bodies, and do not escape to a parent or sibling body.
+Sibling bodies may reuse a binding name, but a declaration may not shadow a
+visible scalar binding or collide with a program input, parameter, or graph
+output name. A timeline selector inside a scalar binding resolves only from its
+explicit root, may capture a lexical body input, and never borrows a later
 invocation's contextual timeline root.
 
 ## Scalar expressions

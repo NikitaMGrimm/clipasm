@@ -31,9 +31,11 @@ complete ordered final owned values of each body.
 
 An authored invocation opens an isolated local scope and an empty local stack.
 Bound inputs become local graph-value bindings. Bound parameters become local
-scalar bindings. Inputs, parameters, body aliases, and output bindings share one
-local namespace and do not escape the invocation. Only the ordered program
-outputs return to the caller.
+scalar bindings. Program inputs, parameters, body-port aliases, graph output
+bindings, and scalar-alias scopes are all isolated to that invocation. Graph
+output names remain program-wide within the invocation, while scalar aliases are
+lexical to their declaring body. Only the ordered program outputs return to the
+caller.
 
 Semantic references use typed internal symbol identities. Public root names
 remain a separate compiled interface. Compiled JSON serializes a reference's
