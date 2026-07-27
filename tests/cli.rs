@@ -584,6 +584,29 @@ fn init_success_does_not_emit_terminal_controls_from_the_target_path() {
 
 #[cfg(unix)]
 #[test]
+fn init_failure_does_not_emit_terminal_controls_from_the_target_path() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let target = "project-\u{1b}[31m";
+    fs::create_dir(directory.path().join(target)).expect("target directory");
+    fs::write(
+        directory.path().join(target).join("main.clipasm"),
+        b"keep me",
+    )
+    .expect("conflicting source");
+
+    let output = run_clipasm(directory.path(), &["init", target]);
+
+    assert!(!output.status.success());
+    assert!(!output.stderr.contains(&0x1b), "{:?}", output.stderr);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(r"\u{001B}"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn init_preserves_dotdot_resolution_through_a_symlink() {
     use std::os::unix::fs::symlink;
 

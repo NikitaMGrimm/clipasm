@@ -7,6 +7,8 @@ use std::path::{Component, Path, PathBuf};
 use clipasm::diagnostic::{Diagnostic, Result};
 use clipasm::source::SourceSpan;
 
+use super::safe_display_path;
+
 const DIRECTORIES: &[&str] = &["assets"];
 const FILES: &[ScaffoldFile] = &[
     ScaffoldFile::new(
@@ -118,19 +120,22 @@ impl ProjectPlan {
             match fs::symlink_metadata(&file.path) {
                 Ok(_) => conflicts.push(format!(
                     "refusing to replace existing path `{}`",
-                    file.path.display()
+                    safe_display_path(&file.path)
                 )),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) if error.kind() == io::ErrorKind::NotADirectory => {
                     conflicts.push(format!(
                         "an ancestor of `{}` is not a directory",
-                        file.path.display()
+                        safe_display_path(&file.path)
                     ));
                 }
                 Err(error) => {
                     return Err(init_io_error(
                         &file.path,
-                        format!("could not inspect `{}`: {error}", file.path.display()),
+                        format!(
+                            "could not inspect `{}`: {error}",
+                            safe_display_path(&file.path)
+                        ),
                     ));
                 }
             }
@@ -146,9 +151,9 @@ impl ProjectPlan {
                 "E_INIT_CONFLICT",
                 format!(
                     "cannot initialize `{}` because {count} scaffold path(s) conflict",
-                    self.target.display()
+                    safe_display_path(&self.target)
                 ),
-                SourceSpan::file_start(&self.target),
+                init_source_span(&self.target),
             ),
             Diagnostic::note,
         ))
@@ -218,36 +223,42 @@ fn directory_conflict(path: &Path) -> Result<Option<String>> {
         Ok(metadata) if metadata.is_dir() => Ok(None),
         Ok(_) => Ok(Some(format!(
             "`{}` exists but is not a directory",
-            path.display()
+            safe_display_path(path)
         ))),
         Err(error) if error.kind() == io::ErrorKind::NotFound => match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_symlink() => Ok(Some(format!(
                 "`{}` is a symbolic link that does not resolve to a directory",
-                path.display()
+                safe_display_path(path)
             ))),
             Ok(_) => Err(init_io_error(
                 path,
                 format!(
                     "could not inspect `{}` after resolving it: {error}",
-                    path.display()
+                    safe_display_path(path)
                 ),
             )),
             Err(inspect_error) if inspect_error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(inspect_error) if inspect_error.kind() == io::ErrorKind::NotADirectory => Ok(Some(
-                format!("an ancestor of `{}` is not a directory", path.display()),
-            )),
+            Err(inspect_error) if inspect_error.kind() == io::ErrorKind::NotADirectory => {
+                Ok(Some(format!(
+                    "an ancestor of `{}` is not a directory",
+                    safe_display_path(path)
+                )))
+            }
             Err(inspect_error) => Err(init_io_error(
                 path,
-                format!("could not inspect `{}`: {inspect_error}", path.display()),
+                format!(
+                    "could not inspect `{}`: {inspect_error}",
+                    safe_display_path(path)
+                ),
             )),
         },
         Err(error) if error.kind() == io::ErrorKind::NotADirectory => Ok(Some(format!(
             "an ancestor of `{}` is not a directory",
-            path.display()
+            safe_display_path(path)
         ))),
         Err(error) => Err(init_io_error(
             path,
-            format!("could not inspect `{}`: {error}", path.display()),
+            format!("could not inspect `{}`: {error}", safe_display_path(path)),
         )),
     }
 }
@@ -263,7 +274,7 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
             return Err(Diagnostic::new(
                 "E_INIT_CONFLICT",
                 conflict,
-                SourceSpan::file_start(path),
+                init_source_span(path),
             ));
         }
     }
@@ -285,13 +296,16 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
                 Some(conflict) => Err(Diagnostic::new(
                     "E_INIT_CONFLICT",
                     conflict,
-                    SourceSpan::file_start(path),
+                    init_source_span(path),
                 )),
             }
         }
         Err(error) => Err(init_io_error(
             path,
-            format!("could not create directory `{}`: {error}", path.display()),
+            format!(
+                "could not create directory `{}`: {error}",
+                safe_display_path(path)
+            ),
         )),
     }
 }
@@ -308,15 +322,18 @@ fn write_new_file(file: &PlannedFile, created_paths: &mut Vec<CreatedPath>) -> R
                 "E_INIT_CONFLICT",
                 format!(
                     "refusing to replace existing path `{}`",
-                    file.path.display()
+                    safe_display_path(&file.path)
                 ),
-                SourceSpan::file_start(&file.path),
+                init_source_span(&file.path),
             ));
         }
         Err(error) => {
             return Err(init_io_error(
                 &file.path,
-                format!("could not create `{}`: {error}", file.path.display()),
+                format!(
+                    "could not create `{}`: {error}",
+                    safe_display_path(&file.path)
+                ),
             ));
         }
     };
@@ -328,7 +345,10 @@ fn write_new_file(file: &PlannedFile, created_paths: &mut Vec<CreatedPath>) -> R
     destination.write_all(file.contents).map_err(|error| {
         init_io_error(
             &file.path,
-            format!("could not write `{}`: {error}", file.path.display()),
+            format!(
+                "could not write `{}`: {error}",
+                safe_display_path(&file.path)
+            ),
         )
     })
 }
@@ -352,7 +372,7 @@ fn clean_up_created_paths(mut diagnostic: Diagnostic, created_paths: &[CreatedPa
                 Ok(_) => {
                     diagnostic = diagnostic.note(format!(
                         "preserved `{}` because its contents changed during initialization",
-                        path.display()
+                        safe_display_path(path)
                     ));
                     continue;
                 }
@@ -361,7 +381,7 @@ fn clean_up_created_paths(mut diagnostic: Diagnostic, created_paths: &[CreatedPa
             (_, Ok(_)) => {
                 diagnostic = diagnostic.note(format!(
                     "preserved `{}` because its file type changed during initialization",
-                    path.display()
+                    safe_display_path(path)
                 ));
                 continue;
             }
@@ -371,7 +391,7 @@ fn clean_up_created_paths(mut diagnostic: Diagnostic, created_paths: &[CreatedPa
         if let Err(error) = result {
             diagnostic = diagnostic.note(format!(
                 "could not remove incomplete scaffold path `{}`: {error}",
-                path.display()
+                safe_display_path(path)
             ));
         }
     }
@@ -379,19 +399,20 @@ fn clean_up_created_paths(mut diagnostic: Diagnostic, created_paths: &[CreatedPa
 }
 
 fn init_path_error(target: &Path, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new(
-        "E_INIT_PATH",
-        message,
-        SourceSpan::file_start(if target.as_os_str().is_empty() {
-            Path::new("<command-line>")
-        } else {
-            target
-        }),
-    )
+    let target = if target.as_os_str().is_empty() {
+        Path::new("<command-line>")
+    } else {
+        target
+    };
+    Diagnostic::new("E_INIT_PATH", message, init_source_span(target))
 }
 
 fn init_io_error(path: &Path, message: impl Into<String>) -> Diagnostic {
-    Diagnostic::new("E_INIT_IO", message, SourceSpan::file_start(path))
+    Diagnostic::new("E_INIT_IO", message, init_source_span(path))
+}
+
+fn init_source_span(path: &Path) -> SourceSpan {
+    SourceSpan::file_start(safe_display_path(path))
 }
 
 #[cfg(test)]
