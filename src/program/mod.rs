@@ -13,7 +13,9 @@ use crate::model::{
 use crate::semantic::GraphBuilder;
 use crate::source::{SourceSpan, SourceUnitId};
 
-pub(crate) use builtins::builtin_programs;
+pub(crate) use builtins::{
+    BuiltinBodyInitialValue, BuiltinDefault, BuiltinProgram, builtin_programs, builtin_references,
+};
 pub(crate) use call::{ResolvedCall, ResolvedInput};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -5,6 +5,7 @@ use crate::program::{
 };
 use crate::semantic::GraphBuilder;
 
+use super::DEFAULT_FIT;
 use super::support::{direct, exact_descriptor, one_output, parameter};
 
 pub(super) fn image() -> ProgramDefinition {
@@ -125,10 +126,13 @@ fn lower_audio(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pr
 }
 
 fn image_fit(call: &ResolvedCall) -> Result<ImageFit> {
-    Ok(match call.optional_keyword_parameter("fit")? {
-        None | Some(("cover", _)) => ImageFit::Cover,
-        Some(("contain", _)) => ImageFit::Contain,
-        Some(("stretch", _)) => ImageFit::Stretch,
-        Some((_, _)) => unreachable!("fit keyword was validated by the binder"),
+    let fit = call
+        .optional_keyword_parameter("fit")?
+        .map_or_else(|| DEFAULT_FIT.keyword(), |(fit, _)| fit);
+    Ok(match fit {
+        "cover" => ImageFit::Cover,
+        "contain" => ImageFit::Contain,
+        "stretch" => ImageFit::Stretch,
+        _ => unreachable!("fit keyword and built-in default were validated by the catalog"),
     })
 }

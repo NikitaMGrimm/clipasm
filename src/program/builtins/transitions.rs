@@ -4,9 +4,7 @@ use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutpu
 use crate::semantic::GraphBuilder;
 
 use super::support::{direct_with_timeline, exact_descriptor, input, one_output, parameter};
-
-const DEFAULT_FLASH_CUT_MILLISECONDS: u64 = 160;
-const DEFAULT_CROSSFADE_MILLISECONDS: u64 = 500;
+use super::{DEFAULT_CROSSFADE_DURATION, DEFAULT_FLASH_CUT_DURATION};
 
 pub(super) fn crossfade() -> ProgramDefinition {
     direct_with_timeline(
@@ -51,14 +49,22 @@ pub(super) fn flash_cut() -> ProgramDefinition {
 fn lower_crossfade(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let before = call.one_input("before")?;
     let after = call.one_input("after")?;
-    let frames = duration_frames(call, builder, DEFAULT_CROSSFADE_MILLISECONDS)?;
+    let frames = duration_frames(
+        call,
+        builder,
+        DEFAULT_CROSSFADE_DURATION.duration_milliseconds(),
+    )?;
     one_output(builder.crossfade(before, after, frames))
 }
 
 fn lower_flash_cut(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let before = call.one_input("before")?;
     let after = call.one_input("after")?;
-    let frames = duration_frames(call, builder, DEFAULT_FLASH_CUT_MILLISECONDS)?;
+    let frames = duration_frames(
+        call,
+        builder,
+        DEFAULT_FLASH_CUT_DURATION.duration_milliseconds(),
+    )?;
     one_output(builder.flash_cut(before, after, frames))
 }
 

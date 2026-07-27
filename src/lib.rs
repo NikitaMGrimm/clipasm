@@ -37,6 +37,7 @@ pub(crate) mod media_tool;
 pub mod model;
 pub mod preflight;
 pub(crate) mod program;
+pub mod reference;
 pub mod render;
 pub(crate) mod semantic;
 pub mod source;

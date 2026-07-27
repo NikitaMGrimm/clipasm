@@ -12,6 +12,7 @@ use clipasm::source::{SourceFile, SourceSpan};
 use clipasm::{compiler, language, preflight, render};
 
 mod init;
+mod programs;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -38,6 +39,17 @@ enum Command {
     Init {
         /// Directory to initialize. Defaults to the current directory.
         path: Option<PathBuf>,
+    },
+    /// List built-in programs or show one built-in program reference.
+    #[command(
+        about = "List built-in programs or show one built-in program reference",
+        long_about = "List ClipAsm's built-in programs or show the reference for one built-in program.\n\n\
+            This command never inspects a project, source file, media asset, FFmpeg, or FFprobe."
+    )]
+    Programs {
+        /// Built-in program name. Omit to list every built-in program.
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
     },
     /// Parse, type-check, and infer source-independent Video and Audio domains.
     Validate {
@@ -106,6 +118,7 @@ fn execute(cli: Cli) -> Result<()> {
                 path.is_none() || target_is_current_directory(&initialized_target),
             );
         }
+        Command::Programs { name } => programs::print(name.as_deref())?,
         Command::Validate { source, bindings } => {
             let authored = language::parse_file(&source)?;
             let bindings = entrypoint_bindings(bindings, None)?;

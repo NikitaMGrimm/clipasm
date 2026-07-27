@@ -1,8 +1,9 @@
 use crate::diagnostic::{Diagnostic, Result};
-use crate::model::{ExactNumber, ValueType};
+use crate::model::ValueType;
 use crate::program::{Cardinality, ParameterType, ProgramDefinition, ProgramOutputs, ResolvedCall};
 use crate::semantic::GraphBuilder;
 
+use super::DEFAULT_ZOOM_BY;
 use super::support::{direct_with_timeline, exact_descriptor, input, one_output, parameter};
 
 pub(super) fn zoom_in() -> ProgramDefinition {
@@ -32,7 +33,7 @@ fn lower_zoom(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pro
                 span.clone(),
             ));
         }
-        None => ExactNumber::from_ratio(2, 25),
+        None => DEFAULT_ZOOM_BY.number(),
     };
     one_output(builder.zoom_in(video, by))
 }
