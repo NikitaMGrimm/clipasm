@@ -71,12 +71,21 @@ Before requesting review, confirm that:
 
 ## Releases
 
-A release tag must exactly match `v` followed by the version in `Cargo.toml`. The
-tag workflow reruns the full repository check, dependency policy, and Cargo
-publish dry run before building native Linux x64, macOS arm64, and Windows x64
-archives. Each archive includes a SHA-256 checksum. The GitHub release is created
-only after every build succeeds. Publishing to crates.io remains a separate
-manual decision.
+A release commit does not publish by itself. Create and push an annotated tag
+that exactly matches `v` followed by the version in `Cargo.toml`:
+
+```console
+python scripts/package_release.py verify --tag vX.Y.Z
+git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
+git push origin vX.Y.Z
+```
+
+The tag push starts the Release workflow. It reruns the full repository check,
+dependency policy, and Cargo publish dry run before building native Linux x64,
+macOS arm64, and Windows x64 archives. Each archive includes a SHA-256 checksum.
+After every build succeeds, the workflow publishes the crate through crates.io
+trusted publishing and creates the GitHub release. Re-running the same tag is
+safe only when the already-published crate archive has the same checksum.
 
 ## Examples and fixtures
 
