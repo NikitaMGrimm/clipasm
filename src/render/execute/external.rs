@@ -8,7 +8,6 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::external::EXTERNAL_PROTOCOL_VERSION;
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 use crate::preflight::tools::ExternalToolIdentity;
 use crate::preflight::{PreparedExternalArgument, PreparedExternalParameterValue};
@@ -94,7 +93,7 @@ pub(super) fn video(
         })
         .collect();
     let request = ExternalRunRequest {
-        protocol_version: EXTERNAL_PROTOCOL_VERSION,
+        protocol_version: crate::contracts::EXTERNAL_PROGRAM_PROTOCOL_VERSION,
         inputs,
         parameters,
         output: context.temporary(),
@@ -297,7 +296,7 @@ fn main() {
         let audio = AudioSpec::default();
         let output = directory.path().join("output.mkv");
         let request = ExternalRunRequest {
-            protocol_version: EXTERNAL_PROTOCOL_VERSION,
+            protocol_version: crate::contracts::EXTERNAL_PROGRAM_PROTOCOL_VERSION,
             inputs: BTreeMap::new(),
             parameters: BTreeMap::new(),
             output: &output,

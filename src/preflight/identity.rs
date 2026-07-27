@@ -8,7 +8,7 @@ use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, Video
 use super::plan::PreparedMedia;
 use super::policy::{ArtifactCachePolicy, RenderPolicy};
 use super::tools::ToolIdentity;
-use super::{PREPARED_FORMAT_VERSION, PreparedAudioKind, PreparedNode, PreparedVideoKind};
+use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
@@ -128,7 +128,7 @@ fn video_identity(kind: &PreparedVideoKind) -> serde_json::Value {
             preserve_input,
         } => serde_json::json!({
             "operation": "external_video",
-            "protocol_version": crate::external::EXTERNAL_PROTOCOL_VERSION,
+            "protocol_version": crate::contracts::EXTERNAL_PROGRAM_PROTOCOL_VERSION,
             "executable_content_hash": executable.content_hash(),
             "arguments": arguments.iter().map(|argument| match argument {
                 super::PreparedExternalArgument::Text(value) => {
@@ -201,7 +201,7 @@ pub(super) fn prepared_semantic_hash(
         .map(|(name, id)| (name.as_str(), nodes[id.get() as usize].fingerprint()))
         .collect::<BTreeMap<_, _>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
-        format_version: PREPARED_FORMAT_VERSION,
+        format_version: crate::contracts::PREPARED_INSPECTION_FORMAT_VERSION,
         video,
         audio,
         result: nodes[result.get() as usize].fingerprint(),
