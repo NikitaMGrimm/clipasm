@@ -37,6 +37,9 @@ Examples:
 
 Unrelated paths in an existing compatible directory are left alone.
 Initialization never prompts for permission.
+It follows ordinary local filesystem directory links, and assumes the caller
+controls the target tree while it runs; concurrent external path changes are
+outside its guarantee.
 
 The two forms are:
 

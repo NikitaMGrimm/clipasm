@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::Write as _;
@@ -55,8 +56,10 @@ enum Command {
         #[command(flatten)]
         bindings: BindingArgs,
     },
-    /// Compile and render a Video, including attached Audio, using `FFmpeg`.
-    #[command(about = "Compile and render a Video, including attached Audio, using FFmpeg")]
+    /// Compile and render a Video, including attached Audio, using `FFmpeg` and `FFprobe`.
+    #[command(
+        about = "Compile and render a Video, including attached Audio, using FFmpeg and FFprobe"
+    )]
     Render {
         /// Native `.clipasm` source program. Relative paths resolve from its directory.
         source: PathBuf,
@@ -97,7 +100,7 @@ fn execute(cli: Cli) -> Result<()> {
         Command::Init { path } => {
             let target = path.as_deref().unwrap_or_else(|| Path::new("."));
             let initialized_target = init::initialize(target)?;
-            let displayed_target = displayed_init_target(target, &initialized_target);
+            let displayed_target = displayed_init_target(target);
             print_init_success(
                 &displayed_target,
                 path.is_none() || target_is_current_directory(&initialized_target),
@@ -172,7 +175,10 @@ fn execute(cli: Cli) -> Result<()> {
 }
 
 fn print_init_success(target: &Path, initializes_current_directory: bool) {
-    println!("Created ClipAsm project at `{}`.", target.display());
+    println!(
+        "Created ClipAsm project at `{}`.",
+        safe_display_path(target)
+    );
     println!("\nNext:");
     if !initializes_current_directory {
         if let Some(target) = portable_shell_path(target) {
@@ -183,6 +189,20 @@ fn print_init_success(target: &Path, initializes_current_directory: bool) {
     }
     println!("  clipasm validate main.clipasm");
     println!("  clipasm render main.clipasm");
+}
+
+fn safe_display_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    let mut displayed = String::with_capacity(path.len());
+    for character in path.chars() {
+        if character.is_control() {
+            write!(displayed, "\\u{{{:04X}}}", character as u32)
+                .expect("writing to a String cannot fail");
+        } else {
+            displayed.push(character);
+        }
+    }
+    displayed
 }
 
 fn portable_shell_path(path: &Path) -> Option<&str> {
@@ -197,18 +217,8 @@ fn portable_shell_path(path: &Path) -> Option<&str> {
     Some(path)
 }
 
-fn displayed_init_target(requested: &Path, initialized: &Path) -> PathBuf {
-    if requested.is_absolute() {
-        return initialized.to_path_buf();
-    }
-    let Ok(current_directory) = std::env::current_dir() else {
-        return requested.to_path_buf();
-    };
-    match initialized.strip_prefix(current_directory) {
-        Ok(relative) if relative.as_os_str().is_empty() => PathBuf::from("."),
-        Ok(relative) => relative.to_path_buf(),
-        Err(_) => initialized.to_path_buf(),
-    }
+fn displayed_init_target(requested: &Path) -> PathBuf {
+    requested.to_path_buf()
 }
 
 fn target_is_current_directory(target: &Path) -> bool {

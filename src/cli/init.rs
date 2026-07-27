@@ -80,7 +80,7 @@ impl ProjectPlan {
                 "the initialization path must not be empty",
             ));
         }
-        let target = normalized_absolute_target(target)?;
+        let target = absolute_target(target)?;
 
         let mut directories = Vec::with_capacity(DIRECTORIES.len() + 1);
         directories.push(target.clone());
@@ -107,33 +107,10 @@ impl ProjectPlan {
 
     fn detect_conflicts(&self) -> Result<()> {
         let mut conflicts = Vec::new();
-        if let Some(symlink) = first_symlink_component(&self.target)? {
-            conflicts.push(format!(
-                "refusing to initialize through symbolic link `{}`",
-                symlink.display()
-            ));
-        }
 
         for directory in &self.directories {
-            match fs::symlink_metadata(directory) {
-                Ok(metadata) if !metadata.file_type().is_dir() => conflicts.push(format!(
-                    "`{}` exists but is not a directory",
-                    directory.display()
-                )),
-                Ok(_) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) if error.kind() == io::ErrorKind::NotADirectory => {
-                    conflicts.push(format!(
-                        "an ancestor of `{}` is not a directory",
-                        directory.display()
-                    ));
-                }
-                Err(error) => {
-                    return Err(init_io_error(
-                        directory,
-                        format!("could not inspect `{}`: {error}", directory.display()),
-                    ));
-                }
+            if let Some(conflict) = directory_conflict(directory)? {
+                conflicts.push(conflict);
             }
         }
 
@@ -219,98 +196,74 @@ fn validate_relative_path(relative_path: &str, target: &Path) -> Result<()> {
     Ok(())
 }
 
-fn normalized_absolute_target(target: &Path) -> Result<PathBuf> {
-    let absolute = if target.is_absolute() {
-        target.to_path_buf()
+fn absolute_target(target: &Path) -> Result<PathBuf> {
+    if target.is_absolute() {
+        Ok(target.to_path_buf())
     } else {
+        // Retain `..`: filesystem traversal resolves it after directory links,
+        // unlike lexical normalization of `link/../project`.
         std::env::current_dir()
             .map_err(|error| {
                 init_io_error(
                     target,
                     format!("could not determine the current directory: {error}"),
                 )
-            })?
-            .join(target)
-    };
-    let mut normalized = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                normalized.push(component.as_os_str());
-            }
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return Err(init_path_error(
-                        target,
-                        format!(
-                            "initialization path `{}` escapes its filesystem root",
-                            target.display()
-                        ),
-                    ));
-                }
-            }
-        }
+            })
+            .map(|current_directory| current_directory.join(target))
     }
-    Ok(normalized)
 }
 
-fn first_symlink_component(path: &Path) -> Result<Option<PathBuf>> {
-    let mut current = PathBuf::new();
-    for component in path.components() {
-        current.push(component.as_os_str());
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(Some(current)),
-            Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
-                ) =>
-            {
-                return Ok(None);
-            }
-            Err(error) => {
-                return Err(init_io_error(
-                    &current,
-                    format!("could not inspect `{}`: {error}", current.display()),
-                ));
-            }
-        }
+fn directory_conflict(path: &Path) -> Result<Option<String>> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(None),
+        Ok(_) => Ok(Some(format!(
+            "`{}` exists but is not a directory",
+            path.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Ok(Some(format!(
+                "`{}` is a symbolic link that does not resolve to a directory",
+                path.display()
+            ))),
+            Ok(_) => Err(init_io_error(
+                path,
+                format!(
+                    "could not inspect `{}` after resolving it: {error}",
+                    path.display()
+                ),
+            )),
+            Err(inspect_error) if inspect_error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(inspect_error) if inspect_error.kind() == io::ErrorKind::NotADirectory => Ok(Some(
+                format!("an ancestor of `{}` is not a directory", path.display()),
+            )),
+            Err(inspect_error) => Err(init_io_error(
+                path,
+                format!("could not inspect `{}`: {inspect_error}", path.display()),
+            )),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotADirectory => Ok(Some(format!(
+            "an ancestor of `{}` is not a directory",
+            path.display()
+        ))),
+        Err(error) => Err(init_io_error(
+            path,
+            format!("could not inspect `{}`: {error}", path.display()),
+        )),
     }
-    Ok(None)
-}
-
-fn reject_symlink_ancestor(path: &Path) -> Result<()> {
-    if let Some(symlink) = first_symlink_component(path)? {
-        return Err(Diagnostic::new(
-            "E_INIT_CONFLICT",
-            format!(
-                "refusing to initialize through symbolic link `{}`",
-                symlink.display()
-            ),
-            SourceSpan::file_start(symlink),
-        ));
-    }
-    Ok(())
 }
 
 fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result<()> {
-    reject_symlink_ancestor(path)?;
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => return Ok(()),
-        Ok(_) => {
+    match directory_conflict(path)? {
+        None => {
+            if fs::symlink_metadata(path).is_ok() {
+                return Ok(());
+            }
+        }
+        Some(conflict) => {
             return Err(Diagnostic::new(
                 "E_INIT_CONFLICT",
-                format!("`{}` exists but is not a directory", path.display()),
+                conflict,
                 SourceSpan::file_start(path),
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(init_io_error(
-                path,
-                format!("could not inspect `{}`: {error}", path.display()),
             ));
         }
     }
@@ -327,19 +280,12 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
             Ok(())
         }
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            match fs::symlink_metadata(path) {
-                Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
-                Ok(_) => Err(Diagnostic::new(
+            match directory_conflict(path)? {
+                None => Ok(()),
+                Some(conflict) => Err(Diagnostic::new(
                     "E_INIT_CONFLICT",
-                    format!("`{}` exists but is not a directory", path.display()),
+                    conflict,
                     SourceSpan::file_start(path),
-                )),
-                Err(inspect_error) => Err(init_io_error(
-                    path,
-                    format!(
-                        "could not inspect `{}` after a concurrent change: {inspect_error}",
-                        path.display()
-                    ),
                 )),
             }
         }
@@ -351,7 +297,6 @@ fn create_directory(path: &Path, created_paths: &mut Vec<CreatedPath>) -> Result
 }
 
 fn write_new_file(file: &PlannedFile, created_paths: &mut Vec<CreatedPath>) -> Result<()> {
-    reject_symlink_ancestor(&file.path)?;
     let mut destination = match OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -393,14 +338,6 @@ fn clean_up_created_paths(mut diagnostic: Diagnostic, created_paths: &[CreatedPa
         let path = match created_path {
             CreatedPath::Directory(path) | CreatedPath::File { path, .. } => path,
         };
-        if let Err(error) = reject_symlink_ancestor(path) {
-            diagnostic = diagnostic.note(format!(
-                "preserved incomplete scaffold path `{}` because its ancestry changed: {}",
-                path.display(),
-                error.message
-            ));
-            continue;
-        }
         let result = match (created_path, fs::symlink_metadata(path)) {
             (CreatedPath::Directory(_), Ok(metadata)) if metadata.file_type().is_dir() => {
                 fs::remove_dir(path)
@@ -496,6 +433,50 @@ mod tests {
                 .map(|entry| entry.expect("entry").file_name())
                 .collect::<Vec<_>>(),
             [OsString::from("main.clipasm")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rollback_preserves_a_preexisting_symlinked_directory() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let target = directory.path().join("project");
+        let asset_store = directory.path().join("asset-store");
+        let plan = ProjectPlan::new(&target).expect("project plan");
+        plan.detect_conflicts().expect("initially conflict-free");
+
+        fs::create_dir(&target).expect("concurrent target directory");
+        fs::create_dir(&asset_store).expect("asset store");
+        fs::write(target.join("notes.txt"), b"keep me").expect("unrelated content");
+        symlink(&asset_store, target.join("assets")).expect("assets symlink");
+        fs::write(target.join("main.clipasm"), b"owned source").expect("concurrent file");
+
+        let error = plan.write().expect_err("concurrent conflict");
+
+        assert_eq!(error.code, "E_INIT_CONFLICT");
+        assert_eq!(
+            fs::read(target.join("notes.txt")).expect("preserved content"),
+            b"keep me"
+        );
+        assert_eq!(
+            fs::read(target.join("main.clipasm")).expect("preserved source"),
+            b"owned source"
+        );
+        assert!(
+            fs::symlink_metadata(target.join("assets"))
+                .expect("preserved assets link")
+                .file_type()
+                .is_symlink()
+        );
+        assert!(!target.join(".gitignore").exists());
+        assert!(!target.join("README.md").exists());
+        assert!(
+            fs::read_dir(&asset_store)
+                .expect("preserved asset store")
+                .next()
+                .is_none()
         );
     }
 
