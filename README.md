@@ -109,9 +109,8 @@ and [architecture](https://nikitamgrimm.github.io/clipasm/architecture.html).
 Contributors should follow
 [CONTRIBUTING.md](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
 
-`CONTEXT.md` owns settled domain language and authoring semantics. The language
-reference owns public syntax and behavior, while Architecture and the ADRs
-describe maintainer internals and durable design decisions.
+The language reference owns public syntax and behavior. Architecture owns phase
+responsibilities, and ADRs record durable design decisions.
 
 ## Development
 

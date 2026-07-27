@@ -73,10 +73,8 @@ This gives two deliberately different scopes:
 An unused imported program must therefore be valid source, but its unused media
 does not make preflight reject an otherwise reachable plan.
 
-The output of preflight is the
-[prepared plan](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#glossary):
-resolved assets and tools, exact media domains, and the primitives the renderer
-can execute.
+The output of preflight is the prepared plan: resolved assets and tools,
+exact media domains, and the primitives the renderer can execute.
 
 ## Rendering executes and publishes
 
@@ -100,9 +98,8 @@ its sibling manifest.
 
 ## Where to find exact rules
 
-- [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md)
-  defines canonical phase and output terms.
-- The [architecture](../architecture.md) specifies the front end, compiler,
+- The [architecture](../architecture.md) defines phase terminology and
+  specifies the front end, compiler,
   preflight, renderer, cache, and publication responsibilities.
 - [ADR 0001](../adr/0001-keep-compilation-pure.md) explains the pure compilation
   boundary.

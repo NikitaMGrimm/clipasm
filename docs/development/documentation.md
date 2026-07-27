@@ -1,134 +1,85 @@
 # Documentation maintenance
 
-ClipAsm documentation serves readers with different goals without creating
-multiple sources of truth. Decide who a page is for, what job it performs, and
-which canonical document owns its claims before writing it.
+Give each page one job and keep exact rules in one place.
 
-## Choose the page type
+## Page types
 
-- A **tutorial** guides a learner through a successful experience in a deliberate
-  order. Introduce a construct when the learner first needs it.
-- A **how-to guide** helps a reader who already has some context complete one
-  concrete task.
-- **Reference** states exact syntax and behavior for lookup. Keep it complete,
-  structured, and direct.
-- **Explanation** builds a mental model and discusses relationships or
-  trade-offs without redefining normative behavior.
-- **Development documentation** helps contributors change or verify the project
-  while preserving its boundaries.
+- **Tutorial:** guide a learner through one successful path.
+- **How-to guide:** complete one concrete task.
+- **Reference:** state exact behavior for lookup.
+- **Explanation:** build a mental model or explain trade-offs.
+- **Development documentation:** help contributors change and verify the project.
 
-A page may link across these modes, but it should have one primary job. Prefer a
-small complete page over a broad outline or placeholder.
+## Canonical owners
 
-## Respect canonical ownership
-
-Use the existing owner for each kind of claim:
-
-| Owner | Authority |
+| Claim | Owner |
 | --- | --- |
-| [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md) | Canonical domain language and settled authoring semantics |
-| [Language reference](../language-reference.md) | Normative public syntax and language behavior |
-| [Architecture](../architecture.md) | Phase responsibilities and internal architecture |
-| [Architecture decision records](../adr/index.md) | Durable decisions, trade-offs, relationships, and status |
-| [Change guide](change-guide.md) | Change ownership and impact routing |
-| `examples/` ([catalog](../examples.md)) | Committed runnable source examples |
-| [`CONTRIBUTING.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md) | Human contribution workflow |
-| [`AGENTS.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/AGENTS.md) | Repository operating instructions for agents |
-| [`AI_POLICY.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/AI_POLICY.md) | Human accountability for AI-assisted contributions |
+| Public syntax and behavior | `docs/language-reference.md` and `docs/language-grammar.md` |
+| Phase responsibilities and internal terms | `docs/architecture.md` |
+| Durable decisions and trade-offs | `docs/adr/` |
+| Change impact and identity review | `docs/development/change-guide.md` |
+| Runnable source programs | `examples/` |
+| Contribution workflow | `CONTRIBUTING.md` |
 
-Reader-oriented pages should summarize the minimum context their audience needs
-and link to the owner for exact detail. Do not copy a semantic definition into
-several pages or turn compiled JSON, implementation structures, or an ADR's
-historical syntax into a second public language.
+Reader-oriented pages may summarize these sources for their audience, but should
+link to the owner for exact rules. Do not infer public guarantees from incidental
+implementation details or turn compiled JSON into another authoring format.
 
-If canonical documents appear to disagree, use the safer current statement,
-record the exact conflicting paths, and resolve the owners directly. Do not
-infer the answer from incidental implementation behavior or silently redesign
-an accepted decision.
+Use established spelling and capitalization, including ClipAsm, Video, Audio,
+FFmpeg, and FFprobe. Change terminology in its canonical owner first, then review
+diagnostics, concepts, examples, and code names that use it.
 
-## Use canonical terminology
+## Examples and commands
 
-Use the names defined in `CONTEXT.md`, including the capitalization of `Video`,
-`Audio`, ClipAsm, FFmpeg, and FFprobe. Preserve distinctions such as source
-program versus external program, graph input versus scalar parameter, clip
-block versus stack block, and compilation versus preflight versus rendering.
+Prefer committed examples. For every documented command:
 
-Change terminology in `CONTEXT.md` first. Then review the language reference,
-architecture, diagnostics, examples, and reader-oriented pages for affected
-uses. Avoid introducing a synonym merely to vary the prose.
-
-## Verify examples and commands
-
-Prefer a committed example over a parallel invented version. Keep excerpts
-small enough that a reader can connect them to the complete source.
-
-For every command:
-
-1. State the directory or other prerequisite from which it runs.
+1. State required tools or working directory when it is not obvious.
 2. Run the exact command when the environment permits.
-3. Explain what success means without inventing output or error text.
-4. Report any unavailable tool, asset, or platform condition instead of
-   claiming verification.
+3. Explain success without inventing output.
+4. Report unavailable tools or assets.
 
 Use `clipasm` fences for ClipAsm source and `console` fences for terminal
-sessions. Do not commit generated media, render output, manifests, or caches.
+sessions. Keep generated media, render output, manifests, and caches untracked.
 
-### Keep exact CLI output executable
+### Exact CLI output
 
-When a page promises exact CLI output, write the command and output as one
-terminal transcript beginning with `$`. Register the page in
-`tests/documented_cli.rs`; normal `cargo test` then runs the command and rejects
-stale output. Mark command-only blocks on a registered page as
-`console,ignore` so the transcript test does not execute them.
+When a page promises exact CLI output, use one terminal transcript beginning
+with `$` and register the page in `tests/documented_cli.rs`. Mark command-only
+blocks on a registered page as `console,ignore`.
 
-Update registered transcripts after an intentional CLI change with:
+Regenerate intentional transcript changes with:
 
 ```console
 TRYCMD=overwrite cargo test --locked --test documented_cli
 ```
 
-Review the Markdown diff before committing it. Register only deterministic,
-side-effect-free commands; do not execute installation, rendering, or file
-mutation from a documentation test.
+Review the Markdown diff. Register only deterministic, side-effect-free commands.
 
-## Link and navigate
+## Links and navigation
 
-Use relative links within the published book. Use stable repository links for
-root files outside `docs/`. Link to a section or canonical owner instead of
-repeating its contents. After adding, moving, or renaming a page:
+- Use relative links inside the book.
+- Use stable repository links for root files outside `docs/`.
+- Update inbound links after moving or renaming a page.
+- Add every public page to `docs/SUMMARY.md`.
+- Do not leave public pages orphaned.
+- Build the book and inspect the affected route.
 
-- update inbound links
-- add every public page to `docs/SUMMARY.md`
-- ensure a public page is not unintentionally orphaned
-- keep internal agent-operation pages reachable from an intentional agent or
-  contributor entry point rather than presenting them as end-user chapters
-- build the book and inspect the affected reader journey
+## ADRs
 
-## Record durable decisions
+Write an ADR for a durable phase boundary, identity rule, or non-obvious
+trade-off. Start from `docs/adr/template.md`. Keep accepted ADRs focused on the
+current decision and let Git preserve superseded history.
 
-Write an ADR when a change establishes or revisits a durable architectural
-boundary, non-obvious trade-off, identity rule, or phase owner. Keep the public
-ADR set focused on active decisions and let Git preserve obsolete history. When
-a decision changes, transfer any still-relevant rationale to the replacement,
-remove the superseded record and its inbound links, and state how the new
-decision is confirmed. Use the [ADR template](../adr/template.md).
+## Interactive examples
 
-## Mark volatile material selectively
+Place a normal `clipasm` block immediately before:
 
-A freshness note can help on a maintainer page whose details are expected to
-change. State what was verified and against which source or condition; update
-the note when rechecking the content. Do not add dates to stable explanations
-or use a freshness marker as a substitute for verification.
+```html
+<div data-clipasm-playground></div>
+```
 
-## Add an interactive ClipAsm example
-
-Put a normal `clipasm` code block immediately before an empty
-`<div data-clipasm-playground></div>`. The published book progressively replaces
-that pair with the browser editor; readers without JavaScript still see the
-source. Prefer an mdBook `{{#include}}` of a committed example so the book and
-repository do not drift.
-
-To provide bundled files for rendering, add a project-relative base:
+Prefer an mdBook `{{#include}}` of a committed example. To bundle project files,
+add both attributes:
 
 ```html
 <div data-clipasm-playground
@@ -136,22 +87,16 @@ To provide bundled files for rendering, add a project-relative base:
      data-clipasm-assets='["assets/morning.png"]'></div>
 ```
 
-Both attributes are optional, but they are used together: the JSON path list is
-loaded relative to the base. Bundled files begin as ordinary virtual project
-files, so readers may preview, rename, replace, or delete them; reset restores
-the original set. Readers may also upload individual files or a directory. The
-adapter accepts one source unit plus still-image and video-file sources. It
-probes videos in the browser, but does not resolve imports, accept standalone
-Audio-file sources, or run external programs. Rendering uses a pinned,
-separately licensed FFmpeg WebAssembly runtime loaded on demand.
+The browser adapter accepts one source unit plus still-image and video-file
+sources. It probes videos in the browser, but does not resolve imports, accept
+standalone Audio-file sources, or run external programs.
 
-Changes to compilation/preparation responses must update the response version
-in `playground/src/lib.rs` and `theme/clipasm-playground.js`. Changes to recipe
-or runtime compatibility must update the browser plan metadata and render
-worker together.
+Changes to compilation or preparation responses must update the response version
+in `playground/src/lib.rs` and `theme/clipasm-playground.js`. Changes to recipe or
+runtime compatibility must update browser plan metadata and the render worker
+together.
 
-To build the WebAssembly assets locally, install the pinned target and binding
-tool, build the book, and run the asset script:
+Build the browser assets with the pinned tools:
 
 ```console
 rustup target add wasm32-unknown-unknown
@@ -160,16 +105,12 @@ mdbook build
 ./scripts/build_playground.sh
 ```
 
-Serve `target/book` over HTTP to test the workers; browsers do not load
-WebAssembly modules correctly from a `file://` URL. Render the scenic example,
-cancel and restart once, and test an uploaded replacement before changing the
-runtime lifecycle. CI checks the adapter and JavaScript, while the Pages
-workflow builds the same pinned assets before deployment. The browser CI job
-also renders the scenic example in Chrome and exercises cancellation.
+Serve `target/book` over HTTP. Render the scenic example, cancel and restart it,
+and test an uploaded replacement after changing the runtime lifecycle.
 
-## Check the result
+## Checks
 
-During documentation work, run targeted checks early:
+Run targeted checks while editing:
 
 ```console
 mdbook build
@@ -177,19 +118,11 @@ python3 scripts/check_docs.py
 git diff --check
 ```
 
-The documentation checker validates repository-local Markdown targets, confirms
-that public book pages are represented in `docs/SUMMARY.md`, and checks links
-and anchors in the generated HTML book. Individual ADRs are intentionally
-indexed through `docs/adr/index.md`, while internal `docs/agents/` pages remain
-outside the public book navigation.
-
-Before handoff, run the complete repository check:
+Before handoff, run:
 
 ```console
 ./scripts/check.sh
 ```
 
-Review the final diff for broken links, missing navigation, terminology drift,
-duplicated rules, unsupported claims, unverified commands, generated artifacts,
-and unrelated changes. If a check cannot run, report the exact limitation and
-all checks that did run.
+Review the final diff for broken links, missing navigation, duplicated rules,
+unverified commands, generated artifacts, and unrelated changes.

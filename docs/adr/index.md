@@ -6,11 +6,9 @@ identity, program model, authoring contract, or media-timing rule.
 
 ADRs explain constraints and trade-offs; they are not the normative language
 reference or an implementation history. Git retains superseded decisions. Use
-[`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md)
-for current domain language and settled authoring semantics, the
-[language reference](../language-reference.md) for current public syntax and
+the [language reference](../language-reference.md) for current public syntax and
 behavior, and the [architecture](../architecture.md) for current phase
-responsibilities.
+responsibilities and internal terminology.
 
 Write an ADR for a durable boundary, non-obvious trade-off, identity rule, or
 phase owner. Keep accepted records focused on the active decision and remove
@@ -46,11 +44,9 @@ responsibility map.
 | [0010](0010-add-typed-audio-and-body-input-scopes.md) | `accepted` | Add typed Audio, per-occurrence stack ownership, exact-type binding, and body-input aliases. |
 | [0011](0011-add-type-preserving-timeline-programs.md) | `accepted` | Resolve type-preserving Video or Audio timeline programs during checking. |
 
-For current vocabulary and behavior, see
-[settled stack semantics](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#settled-stack-semantics)
-and
-[names, references, and dependencies](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#names-references-and-dependencies).
-Use the [language reference](../language-reference.md) for authored examples.
+For current behavior, see the language reference sections on
+[arguments and stack binding](../language-reference.md#arguments-and-stack-binding)
+and [references and output names](../language-reference.md#references-and-output-names).
 
 ## Media domains, execution, and rendering
 

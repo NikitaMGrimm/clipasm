@@ -1,73 +1,76 @@
 # Contributing
 
-Choose the canonical owner of a change before editing. Read
-[CONTEXT.md](CONTEXT.md) before changing terminology or settled authoring
-semantics, [the language reference](docs/language-reference.md) before changing
-public syntax or language behavior, [the architecture](docs/architecture.md)
-before moving responsibilities between phases, and the relevant
-[architecture decision records](docs/adr/index.md) before revisiting a durable
-decision.
+Use the [language reference](docs/language-reference.md) for public syntax and
+behavior, [architecture](docs/architecture.md) for phase responsibilities, and
+[ADRs](docs/adr/index.md) before revisiting a durable decision. Use the
+[change guide](docs/development/change-guide.md) to find affected code, tests,
+documentation, and identity versions.
 
-Before implementing a change, use the
-[change guide](docs/development/change-guide.md) to identify affected code,
-tests, documentation, and identity versions.
-
-Contributions may use AI assistance under the
-[AI contribution policy](AI_POLICY.md). A human contributor remains accountable
-for the submitted work.
+AI-assisted contributions are welcome under [AI_POLICY.md](AI_POLICY.md). The
+human contributor remains accountable for the submitted work.
 
 ## Setup
 
 Install Rust 1.95 or newer. Full verification also requires FFmpeg, FFprobe,
 mdBook, and Node.js on `PATH`.
 
-## Contribution workflow
+## Workflow
 
-Use Conventional Commits for commit messages, for example `feat: add trim program`.
+1. Inspect the worktree and preserve unrelated changes.
+2. Find the existing owner of the behavior before editing.
+3. Implement the smallest coherent root-cause fix without bypassing phase boundaries.
+4. Add or update tests at the interface that owns the behavior.
+5. Update the canonical documentation and affected examples in the same change.
+6. Review the final diff and run the complete repository check.
 
-1. Inspect the existing worktree and preserve unrelated changes.
-2. Identify the canonical document and affected phases through the change
-   guide.
-3. Implement the smallest coherent change without bypassing phase boundaries.
-4. Add or update tests at the public or internal interface that owns the
-   behavior.
-5. Update the canonical documentation owner when behavior or terminology
-   changes. Update affected examples and reader-oriented documentation, but link
-   to the canonical owner instead of duplicating semantic definitions.
-6. Run the complete repository check before handoff:
+Use Conventional Commits, for example `feat: add trim program`.
+
+## Tests
+
+Run focused tests while iterating. Prefer integration tests under `tests/` for
+observable behavior and unit tests for private invariants. Follow nearby test
+style rather than introducing a parallel pattern.
+
+Before review or handoff, run:
 
 ```console
 ./scripts/check.sh
 ```
 
-## Documentation contributions
+Report the exact limitation when a required check cannot run.
 
-Read the
-[documentation maintenance guide](docs/development/documentation.md) before
-adding or substantially changing documentation. Identify the intended audience
-and page type, verify every example and command the environment permits, and
-keep relative links and book navigation current. A tutorial or guide may
-explain canonical behavior for its reader, but it must not become a competing
-language reference, architecture description, or decision record.
+## Rust
 
-When behavior changes, update its canonical owner in the same contribution.
-When terminology changes, update `CONTEXT.md` first and review the language
-reference, architecture, diagnostics, examples, and other affected prose.
+- Prefer correctness and clarity over compactness.
+- Prefer narrow visibility and exhaustive matches.
+- Handle user-controlled and runtime fallibility explicitly.
+- Reserve `expect`, `unreachable!`, and assertions for established internal invariants.
+- Explain non-obvious reasons and invariants; do not narrate visible code.
+- Fix Clippy findings when practical. Prefer `#[expect(..., reason = "...")]` over `#[allow(...)]` for justified exceptions.
+- Avoid speculative traits, context objects, and generic machinery without demonstrated reuse.
+- Prefer an existing abstraction over a parallel implementation, but fix the owning abstraction rather than adding a local workaround.
 
-## Review-ready contributions
+Breaking changes are acceptable before 1.0 when they make the language or
+architecture substantially simpler.
+
+## Documentation
+
+Read the [documentation maintenance guide](docs/development/documentation.md)
+before adding or substantially changing documentation. Give each page one job,
+link to the canonical owner for exact rules, verify examples and commands, and
+keep public pages reachable from `docs/SUMMARY.md`.
+
+## Review
 
 Before requesting review, confirm that:
 
-- the change has a clear scope and excludes unrelated work
-- tests cover changed behavior at the interface that owns it
-- canonical documentation, examples, and commands agree with the change
-- new or moved public pages are reachable from `docs/SUMMARY.md`
-- local links are valid and no public page was unintentionally orphaned
-- relevant ADR implications and identity-version changes were considered
-- `./scripts/check.sh` passes, or the exact limitation and remaining checks are
-  reported
-- material AI assistance is disclosed as described in
-  [AI_POLICY.md](AI_POLICY.md)
+- the change excludes unrelated work
+- tests cover changed behavior
+- public behavior, architecture, examples, and diagnostics agree
+- semantic, format, protocol, and cache versions were considered where relevant
+- generated files and lockfile changes are intentional
+- `./scripts/check.sh` passes or the exact limitation is reported
+- material AI assistance is disclosed under `AI_POLICY.md`
 
 ## Releases
 
@@ -80,22 +83,12 @@ git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
 git push origin vX.Y.Z
 ```
 
-The tag push starts the Release workflow. It reruns the full repository check,
-dependency policy, and Cargo publish dry run before building native Linux x64,
-macOS arm64, and Windows x64 archives. Each archive includes a SHA-256 checksum.
-After every build succeeds, the workflow publishes the crate through crates.io
-trusted publishing and creates the GitHub release. Re-running the same tag is
-safe only when the already-published crate archive has the same checksum.
+The tag starts the Release workflow. It verifies the repository, builds native
+archives, publishes through crates.io trusted publishing, and creates the GitHub
+release.
 
 ## Examples and fixtures
 
-Keep committed examples small, readable, and representative of the public
-language. Run the documented commands that exercise a changed example and
-update `docs/examples.md` when adding or changing a committed source program.
-
-Prefer deterministic text fixtures such as PPM images. Keep generated media,
-render outputs, manifests, and caches untracked. Use `local/` for personal media
-experiments.
-
-Rendering tests may skip when FFmpeg or FFprobe is unavailable, but contributors
-with those tools installed should run the complete check before handoff.
+Keep examples small, readable, and runnable. Prefer deterministic text fixtures
+such as PPM images. Keep generated media, render outputs, manifests, and caches
+untracked; use `local/` for personal experiments.

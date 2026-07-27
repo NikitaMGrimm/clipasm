@@ -4,9 +4,9 @@ A ClipAsm source program is a typed stack program. The stack makes composition
 concise, while types, per-occurrence ownership, and explicit visibility
 boundaries keep nested bodies predictable.
 
-This page explains the model.
-[`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#settled-stack-semantics)
-owns the exact stack semantics, and
+This page explains the model. The
+[language reference](../language-reference.md#arguments-and-stack-binding) owns
+the authored behavior, and
 [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) records the
 current typed ownership design.
 
@@ -106,11 +106,9 @@ only the program's ordered outputs return to its caller.
 
 ## Where to find exact rules
 
-- [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#settled-stack-semantics)
-  owns binding,
-  ownership, visibility, naming, and adaptation semantics.
-- The [language reference](../language-reference.md#statements) owns current
-  access modifiers, blocks, references, output bindings, and call syntax.
+- The [language reference](../language-reference.md#arguments-and-stack-binding)
+  owns binding, visibility, adaptation, blocks, references, output bindings,
+  and call syntax.
 - [ADR 0010](../adr/0010-add-typed-audio-and-body-input-scopes.md) replaces the
   earlier contiguous stack-access model with typed per-occurrence ownership.
 - [ADR 0011](../adr/0011-add-type-preserving-timeline-programs.md) explains

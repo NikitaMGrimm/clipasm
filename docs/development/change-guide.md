@@ -1,8 +1,9 @@
 # Change guide
 
-Use this guide to find the canonical owner of a change. Start with `CONTEXT.md`,
-then review the relevant architecture, language reference, ADRs, tests, and
-identity versions. Run `./scripts/check.sh` before handoff.
+Use this guide when a change affects public behavior, crosses phase boundaries,
+or may change an identity contract. The language reference owns public syntax
+and behavior, architecture owns phase responsibilities, and ADRs record durable
+decisions. Run `./scripts/check.sh` before handoff.
 
 ## Source map
 
@@ -41,7 +42,8 @@ identity versions. Run `./scripts/check.sh` before handoff.
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, compatibility implications |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
-| Change terminology | `CONTEXT.md` first | language reference, architecture, diagnostics, code names |
+| Change public terminology | `docs/language-reference.md` | concepts, diagnostics, examples |
+| Change internal terminology | `docs/architecture.md` | code names, ADRs, development docs |
 | Add a dependency | `Cargo.toml`, CI | requirements and execution identity where relevant |
 
 ## Final review

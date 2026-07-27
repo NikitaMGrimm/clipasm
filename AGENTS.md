@@ -1,27 +1,26 @@
 # Working in ClipAsm
 
-This is the mandatory entry point for context-free agents. Follow canonical
-documents rather than reconstructing decisions from code or prior conversation.
-
-## Start here
-
-1. Read `CONTEXT.md`.
-2. Use `docs/development/change-guide.md` to scope the task.
-3. Read the architecture, language reference, and ADRs routed by that guide.
-4. Follow `CONTRIBUTING.md`.
-
-## Guardrails
-
+- Read `CONTRIBUTING.md` before changing files.
+- Use `docs/development/change-guide.md` for public, cross-phase, or identity-affecting changes.
+- Read only the relevant language reference, architecture section, and ADRs.
 - Preserve unrelated worktree changes.
-- Treat handoffs as working notes and verify consequential claims.
-- Do not redesign accepted ADR decisions silently.
-- Keep compilation media-pure.
-- Do not branch on registered program names in parser or evaluator logic.
-- Run `./scripts/check.sh` before handoff.
-
-## Agent operations
-
-- Local issue workflow: `docs/agents/issue-tracker.md`
-- Triage roles: `docs/agents/triage-labels.md`
-- Domain-document conventions: `docs/agents/domain.md`
-- Documentation work: `docs/agents/documentation.md`
+- Verify consequential claims from code or tests; treat handoffs as working notes.
+- Do not silently override accepted ADRs.
+- ALWAYS attempt to add or update a test for changed behavior.
+- PREFER integration tests under `tests/` over unit tests when behavior is observable.
+- ALWAYS read and copy the style of nearby tests before adding new cases.
+- PREFER running specific tests while iterating; run `./scripts/check.sh` before handoff.
+- NEVER assume Clippy warnings are pre-existing.
+- PREFER `#[expect(clippy::..., reason = "...")]` over `#[allow(...)]` when a lint must be disabled.
+- AVOID new `panic!`, `unreachable!`, `.unwrap()`, unsafe code, and Clippy ignores on user-controlled or runtime-fallible paths.
+- Use `expect` and `unreachable!` only for invariants established by an owning phase.
+- ALWAYS write a `SAFETY` comment for unsafe code.
+- PREFER let chains over nested `if let` statements.
+- PREFER top-level imports over local imports or fully qualified names.
+- AVOID shortened variable names when a full name is clearer.
+- PREFER [`TypeName`] links in Rust documentation comments.
+- NEVER update all dependencies in the lockfile; use `cargo update -p <package> --precise <version>`.
+- Keep compilation media-pure; asset and tool inspection belongs to preflight.
+- Do not branch on registered program names in parser, type-checker, or evaluator logic.
+- Prefer the existing mechanism and a coherent root-cause fix over compatibility shims or parallel models.
+- Add agent rules only for non-obvious, repeated, actionable repository traps.

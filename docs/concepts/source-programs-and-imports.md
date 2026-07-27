@@ -5,9 +5,8 @@ those programs through typed interfaces rather than copying text or merging
 their stacks and names.
 
 This page explains the relationship between files, packages, and calls.
-[`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#names-references-and-dependencies)
-owns the settled semantics, the
-[language reference](../language-reference.md#imports) owns current syntax, and
+The [language reference](../language-reference.md#imports) owns current syntax
+and behavior, while
 [ADR 0009](../adr/0009-call-authored-source-programs.md) records the import and
 invocation design.
 
@@ -91,12 +90,9 @@ tools reachable from the Video being prepared. See
 
 ## Where to find exact rules
 
-- [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#names-references-and-dependencies)
-  defines
-  source units, packages, programs, namespaces, dependencies, and path bases.
 - The [language reference](../language-reference.md#configuration-and-declarations)
-  specifies declarations, root-only configuration, imports, inputs, and
-  parameters.
+  specifies declarations, source programs, root-only configuration, imports,
+  inputs, parameters, namespaces, and path behavior.
 - [ADR 0005](../adr/0005-treat-source-files-as-programs.md) separates source
   program outputs from entrypoint publication.
 - [ADR 0009](../adr/0009-call-authored-source-programs.md) records linked

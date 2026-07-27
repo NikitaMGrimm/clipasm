@@ -102,10 +102,8 @@ author's contract.
 
 ## Where to find exact rules
 
-- [`CONTEXT.md`](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTEXT.md#external-programs)
-  defines external-program terminology and the supported interface.
 - The [language reference](../language-reference.md#external-implementations)
-  owns the declaration form and path behavior.
+  owns the declaration form, supported interface, and path behavior.
 - [ADR 0012](../adr/0012-run-external-programs.md) records execution,
   verification, cache identity, protocol limits, and the trust boundary.
 - The architecture's
