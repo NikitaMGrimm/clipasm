@@ -86,10 +86,10 @@ impl DiagnosticCategory {
         }
     }
 
-    /// Return the generated-book diagnostics route.
+    /// Return the standalone diagnostics route.
     #[must_use]
     pub const fn documentation_route(self) -> &'static str {
-        "reference/diagnostics/index.html"
+        "diagnostics/index.html"
     }
 
     const fn related_links(self) -> &'static [RelatedReference] {
@@ -401,7 +401,7 @@ impl DiagnosticReference {
         self.retry_guidance
     }
 
-    /// Return the generated-book diagnostics route.
+    /// Return the standalone diagnostics route.
     #[must_use]
     pub const fn category_documentation_route(self) -> &'static str {
         self.category.documentation_route()
@@ -413,7 +413,7 @@ impl DiagnosticReference {
         self.code.to_ascii_lowercase()
     }
 
-    /// Return the book-root-relative route including the stable code fragment.
+    /// Return the site-root-relative route including the code fragment.
     #[must_use]
     pub fn documentation_route(self) -> String {
         format!(
@@ -423,7 +423,7 @@ impl DiagnosticReference {
         )
     }
 
-    /// Return the full hosted-guide URL for this code.
+    /// Return the full hosted diagnostics URL for this code.
     #[must_use]
     pub fn documentation_url(self) -> String {
         format!(

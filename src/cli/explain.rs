@@ -4,7 +4,7 @@ use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use clipasm::reference::DiagnosticReference;
 use clipasm::source::SourceSpan;
 
-const DIAGNOSTIC_INDEX_URL: &str = "https://nikitamgrimm.github.io/clipasm/reference/diagnostics/";
+const DIAGNOSTIC_INDEX_URL: &str = "https://nikitamgrimm.github.io/clipasm/diagnostics/";
 const MAX_DISPLAYED_CODE_CHARACTERS: usize = 120;
 
 pub(super) fn print(code: &str) -> Result<()> {

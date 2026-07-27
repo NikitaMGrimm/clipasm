@@ -77,7 +77,7 @@ def main() -> int:
     required = (
         REQUIRED_PATHS
         | generated_reference_paths(root, "programs")
-        | generated_reference_paths(root, "diagnostics")
+        | {"docs/diagnostics/index.html"}
     )
     missing = sorted(required - packaged)
     if missing:
@@ -96,7 +96,7 @@ def main() -> int:
             print(f"- {path}", file=sys.stderr)
         return 1
     print(
-        "package contains generated program and diagnostic reference pages, initializer sources, assets, "
+        "package contains generated program pages, the standalone diagnostics page, initializer sources, assets, "
         "starter files, and external examples without workspace tools"
     )
     return 0

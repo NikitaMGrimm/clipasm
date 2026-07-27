@@ -144,7 +144,9 @@ def main() -> int:
         problems.append(f"generated book directory does not exist: {book.relative_to(root)}")
     else:
         problems.extend(expected_generated_routes(root, book, "programs"))
-        problems.extend(expected_generated_routes(root, book, "diagnostics"))
+        diagnostics = book / "diagnostics/index.html"
+        if not diagnostics.is_file():
+            problems.append(f"{book}: missing standalone diagnostics page: diagnostics/index.html")
         problems.extend(generated_html_links(root, book))
     if problems:
         print("documentation checks failed:", file=sys.stderr)

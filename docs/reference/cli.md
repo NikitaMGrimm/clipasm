@@ -123,10 +123,10 @@ This command reads only the diagnostic catalog compiled into the installed
 binary. It never parses source, discovers a project, opens media, or inspects
 FFmpeg, FFprobe, or external programs, and it does not require a repository
 checkout. Unknown codes fail with a dedicated diagnostic and direct readers to
-the [diagnostic index](diagnostics/index.md).
+the [diagnostic index](https://nikitamgrimm.github.io/clipasm/diagnostics/).
 
 For a complete, searchable list of built-in diagnostics, see the
-[diagnostics reference](diagnostics/index.md).
+[diagnostics reference](https://nikitamgrimm.github.io/clipasm/diagnostics/).
 
 ## Common source argument
 

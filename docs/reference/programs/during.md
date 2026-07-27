@@ -81,7 +81,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are the diagnostics most specific to this program.
 
-- [`E_BODY_OUTPUT_COUNT`](../diagnostics/index.md#e_body_output_count) — Wrong body output count
+- [`E_BODY_OUTPUT_COUNT`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_body_output_count) — Wrong body output count
 
 ## See also
 

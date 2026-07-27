@@ -40,7 +40,7 @@ Use reference pages when you already know what you need to look up:
 - [Language reference](reference/language/index.md) for `.clipasm` syntax and behavior
 - [Programs and composition](reference/programs/index.md) for `clip`, stack blocks, and built-in calls
 - [Command-line reference](reference/cli.md) for every CLI command and option
-- [Diagnostics](reference/diagnostics/index.md) for error-code guidance
+- [Diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/) for error-code guidance
 - [Machine-readable contracts](reference/machine-contracts.md) for supported JSON integrations
 - [Runnable examples](examples.md) for programs in a source checkout
 

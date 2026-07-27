@@ -201,7 +201,7 @@ fn explain_rejects_unknown_codes_with_bounded_ascii_safe_output() {
     assert!(stderr.contains(r"\u{E9}"));
     assert!(stderr.contains("...`"));
     assert!(stderr.contains("check the code's spelling"));
-    assert!(stderr.contains("reference/diagnostics/"));
+    assert!(stderr.contains("diagnostics/"));
     assert!(project_inventory(directory.path()).is_empty());
 }
 
@@ -234,7 +234,7 @@ Retry:
   Retry after correcting the source.
 
 Reference:
-  https://nikitamgrimm.github.io/clipasm/reference/diagnostics/index.html#e_unknown_program
+  https://nikitamgrimm.github.io/clipasm/diagnostics/index.html#e_unknown_program
 "
     );
     assert!(output.stderr.is_empty());

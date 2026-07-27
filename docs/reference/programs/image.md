@@ -65,8 +65,8 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are the diagnostics most specific to this program.
 
-- [`E_MISSING_IMAGE_DURATION`](../diagnostics/index.md#e_missing_image_duration) — Missing image duration
-- [`E_INVALID_DURATION`](../diagnostics/index.md#e_invalid_duration) — Invalid duration
+- [`E_MISSING_IMAGE_DURATION`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_missing_image_duration) — Missing image duration
+- [`E_INVALID_DURATION`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_invalid_duration) — Invalid duration
 
 ## See also
 

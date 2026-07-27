@@ -6,7 +6,7 @@ tool, and execution problems.
 
 Every ordinary ClipAsm error includes a diagnostic code. Look up the code with
 `clipasm explain <CODE>` for a concise explanation, or use the searchable
-[diagnostic reference](../reference/diagnostics/index.md) for the complete
+[diagnostic reference](https://nikitamgrimm.github.io/clipasm/diagnostics/) for the complete
 catalog. This guide is organized by symptom. The diagnostic reference contains the full
 per-code advice and retry guidance.
 
@@ -30,9 +30,9 @@ to hide it.
 
 Consult the [language reference](../reference/language/index.md) for exact
 syntax and the [stack-binding reference](../reference/language/stack-binding.md)
-for binding rules. The [parsing and source](../reference/diagnostics/index.md#parsing-and-source),
-[imports and declarations](../reference/diagnostics/index.md#imports-and-declarations),
-and [types and stack](../reference/diagnostics/index.md#types-and-stack) diagnostic
+for binding rules. The [parsing and source](https://nikitamgrimm.github.io/clipasm/diagnostics/#parsing-and-source),
+[imports and declarations](https://nikitamgrimm.github.io/clipasm/diagnostics/#imports-and-declarations),
+and [types and stack](https://nikitamgrimm.github.io/clipasm/diagnostics/#types-and-stack) diagnostic
 sections group the corresponding failures.
 
 ## A root input or parameter is missing
@@ -78,7 +78,7 @@ Imported programs keep their own path base. Moving only the root source or
 running the command from another directory does not rebase paths authored in an
 imported source file.
 
-See [preflight and media diagnostics](../reference/diagnostics/index.md#preflight-and-media)
+See [preflight and media diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#preflight-and-media)
 when the reported code concerns an unreadable or unsuitable asset.
 
 ## FFmpeg or FFprobe is unavailable
@@ -94,7 +94,7 @@ ffprobe -version
 If the commands are installed but ClipAsm cannot find them, run ClipAsm from an
 environment whose `PATH` includes the corresponding executables.
 
-See [preflight and media diagnostics](../reference/diagnostics/index.md#preflight-and-media)
+See [preflight and media diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#preflight-and-media)
 for tool discovery and capability failures.
 
 ## FFmpeg lacks a required capability
@@ -130,7 +130,7 @@ executable, or an incompatible filesystem object occupies either destination.
 Do not point output at a source asset. Publication writes both the MP4 and
 `<output>.manifest.json`.
 
-See [rendering and publication diagnostics](../reference/diagnostics/index.md#rendering-and-publication)
+See [rendering and publication diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#rendering-and-publication)
 for the reported destination or publication code.
 
 ## An external program fails or hangs
@@ -146,7 +146,7 @@ using the operating system's normal process controls.
 
 See [Review and run an external program](external-programs.md) and
 [External programs and the trust boundary](../concepts/external-programs-and-trust.md).
-The [external-program diagnostics](../reference/diagnostics/index.md#external-programs)
+The [external-program diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#external-programs)
 section explains protocol and process failures.
 
 ## A cached artifact is not reused
@@ -160,7 +160,7 @@ and stores a verified replacement. Do not edit cache artifacts or sidecars by
 hand.
 
 For a cache lock or filesystem error, use the
-[cache and filesystem diagnostics](../reference/diagnostics/index.md#cache-and-filesystem)
+[cache and filesystem diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#cache-and-filesystem)
 section to determine whether retrying is appropriate.
 
 ## Inspection output is surprising
@@ -174,7 +174,7 @@ semantics from preflight and rendering.
 
 ## An internal diagnostic is reported
 
-An [internal-contract diagnostic](../reference/diagnostics/index.md#internal) usually
+An [internal-contract diagnostic](https://nikitamgrimm.github.io/clipasm/diagnostics/#internal) usually
 means user input exposed a ClipAsm defect rather than a source mistake. Preserve
 the diagnostic code, ClipAsm version, safe reproduction steps, and the original
 output. Do not delete caches or generated state unless that code's explanation

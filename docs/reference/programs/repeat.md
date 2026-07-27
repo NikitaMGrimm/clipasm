@@ -68,7 +68,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are the diagnostics most specific to this program.
 
-- [`E_INVALID_REPEAT_COUNT`](../diagnostics/index.md#e_invalid_repeat_count) — Invalid repeat count
+- [`E_INVALID_REPEAT_COUNT`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_invalid_repeat_count) — Invalid repeat count
 
 ## See also
 

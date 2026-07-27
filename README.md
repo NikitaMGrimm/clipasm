@@ -34,7 +34,7 @@ for tutorials, task guides, the language reference, and CLI reference. Use
 `clipasm programs [NAME]` without a project, or browse the
 [built-in program reference](https://nikitamgrimm.github.io/clipasm/reference/programs/index.html).
 When ClipAsm reports a diagnostic code, run `clipasm explain <CODE>` or browse
-the [diagnostic reference](https://nikitamgrimm.github.io/clipasm/reference/diagnostics/index.html).
+the [diagnostic reference](https://nikitamgrimm.github.io/clipasm/diagnostics/).
 
 ## Contribute and report security issues
 

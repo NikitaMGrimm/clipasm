@@ -80,7 +80,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are the diagnostics most specific to this program.
 
-- [`E_EMPTY_JOIN`](../diagnostics/index.md#e_empty_join) — Empty join result
+- [`E_EMPTY_JOIN`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_empty_join) — Empty join result
 
 ## See also
 

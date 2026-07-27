@@ -68,7 +68,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 These are the diagnostics most specific to this program.
 
-- [`E_INVALID_FLASH_CUT_DURATION`](../diagnostics/index.md#e_invalid_flash_cut_duration) — Invalid flash-cut duration
+- [`E_INVALID_FLASH_CUT_DURATION`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_invalid_flash_cut_duration) — Invalid flash-cut duration
 
 ## See also
 

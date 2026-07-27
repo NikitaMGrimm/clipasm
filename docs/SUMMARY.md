@@ -48,9 +48,7 @@
   - [`join`](reference/programs/join.md)
   - [`during`](reference/programs/during.md)
 <!-- END GENERATED PROGRAM REFERENCE NAVIGATION -->
-<!-- BEGIN GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->
-- [Diagnostics](reference/diagnostics/index.md)
-<!-- END GENERATED DIAGNOSTIC REFERENCE NAVIGATION -->
+
 - [Machine-readable contracts](reference/machine-contracts.md)
 - [Command-line reference](reference/cli.md)
 - [Formal grammar](language-grammar.md)

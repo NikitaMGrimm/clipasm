@@ -109,7 +109,7 @@ fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
         assert!(
             reference
                 .documentation_route()
-                .starts_with("reference/diagnostics/index.html#"),
+                .starts_with("diagnostics/index.html#"),
             "{code}"
         );
         assert_eq!(reference.documentation_anchor(), code.to_ascii_lowercase());

@@ -40,7 +40,7 @@ and behavior, while architecture owns phase responsibilities. Run
 | Change preflight behavior | `src/preflight` | pure-compile boundary, capability tests, prepared identity |
 | Change media formats or frame/sample mapping | `src/model`, preflight, render | exact-domain tests, serialized shape, and cache identity |
 | Change CLI behavior | `src/cli.rs` | CLI tests, README, examples, Rustdoc |
-| Add or change a built-in diagnostic | diagnostic catalog and emitting phase | title, category, retry guidance, `explain` output, generated diagnostic reference, and focused tests |
+| Add or change a built-in diagnostic | diagnostic catalog and emitting phase | title, category, retry guidance, `explain` output, standalone diagnostic reference, and focused tests |
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, and downstream impact |
 | Change a machine-readable boundary | serialization owner and `src/contracts.rs` | support level, version bump, reference page, consumers, serialization tests |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
