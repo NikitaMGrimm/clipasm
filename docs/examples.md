@@ -11,10 +11,10 @@ follow [Install and render ClipAsm](getting-started/first-render.md).
 
 | Example | Demonstrates | Expected render | Extra requirement | Guide |
 | --- | --- | --- | --- | --- |
-| `examples/scenic-sequence.clipasm` | image sources and `concat` | 4.5 seconds | — | [Scenic sequence tutorial](tutorials/scenic-sequence.md) |
+| `examples/scenic-sequence.clipasm` | `clip`, image sources, a name, and a reference | 4.5 seconds | — | [Scenic sequence tutorial](tutorials/scenic-sequence.md) |
 | `examples/crossfade.clipasm` | exact crossfade overlap | 3.5 seconds | — | [`crossfade` reference](reference/programs/crossfade.md) |
 | `examples/gentle-motion-edit.clipasm` | `during` and `zoom_in` | 2 seconds | — | [`during` reference](reference/programs/during.md) |
-| `examples/reusable-composition.clipasm` | `clip`, names, references, and explicit inputs | 4 seconds | — | [Reusable composition tutorial](tutorials/reusable-composition.md) |
+| `examples/reusable-composition.clipasm` | a named value, an inline block, and `flash_cut` | 4 seconds | — | [Flash-cut tutorial](tutorials/add-a-transition.md) |
 | `examples/imported-program.clipasm` | importing a ClipAsm source program | 2 seconds | — | [Import guide](guides/import-a-program.md) |
 | `examples/external-brighten.clipasm` | trusted external implementation | 2 seconds | Python 3 and a code review | [External-program guide](guides/external-programs.md) |
 | `examples/root-bindings.clipasm` | root Video input and required parameters | 2 seconds | CLI bindings and `--output` | [Root-bindings guide](guides/root-inputs-and-parameters.md) |

@@ -717,7 +717,7 @@ Optional source check:
     );
     assert_eq!(
         String::from_utf8(validation.stdout).expect("UTF-8 validation"),
-        "valid: 4 semantic value(s), 108 frame(s)\n"
+        "valid: 5 semantic value(s), 108 frame(s)\n"
     );
 }
 

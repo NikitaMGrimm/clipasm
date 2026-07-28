@@ -10,7 +10,7 @@
 # Tutorials
 
 - [Build the scenic sequence](tutorials/scenic-sequence.md)
-- [Build a reusable composition](tutorials/reusable-composition.md)
+- [Add a flash-cut transition](tutorials/add-a-transition.md)
 
 # How-to guides
 

@@ -184,7 +184,7 @@ mod tests {
         let response = response(include_str!("../../examples/scenic-sequence.clipasm"));
 
         assert_eq!(response["status"], "success");
-        assert_eq!(response["value_count"], 4);
+        assert_eq!(response["value_count"], 5);
         assert_eq!(response["outputs"], serde_json::json!(["video"]));
         assert_eq!(response["frames"], 108);
         assert_eq!(response["render"]["status"], "ready");

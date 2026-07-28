@@ -9,9 +9,10 @@ config {
     output = "generated/scenic-sequence.mp4"
 }
 
-{
+clip {
     image("assets/morning.png", 1500ms, contain)
     image("assets/meadow.png", 1500ms, contain)
     image("assets/evening.png", 1500ms, contain)
-    concat
-}
+} as pictures
+
+$pictures
