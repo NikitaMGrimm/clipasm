@@ -15,17 +15,16 @@ clip {
 } as opening
 
 clip {
+    image("assets/meadow.png", 1s, contain)
+    zoom_in(2%)
+} as meadow
+
+clip {
     image("assets/evening.png", 1s, contain)
 } as closing
 
 $opening
-flash_cut(
-    before=$opening,
-    after={
-        image("assets/meadow.png", 1s, contain)
-        zoom_in(2%)
-    },
-    duration=200ms,
-)
+$meadow
+flash_cut(200ms)
 $closing
 concat

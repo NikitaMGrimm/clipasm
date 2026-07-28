@@ -18,7 +18,7 @@ scenic sequence without installing anything. To work locally, follow
 | Try ClipAsm in the browser | [Try ClipAsm](try-clipasm.md) |
 | Install the CLI and render a project | [Install and render ClipAsm](getting-started/first-render.md) |
 | Learn the language one idea at a time | [Build the scenic sequence](tutorials/scenic-sequence.md) |
-| Add a transition with an inline input | [Add a flash-cut transition](tutorials/add-a-transition.md) |
+| Add a transition between named clips | [Add a flash-cut transition](tutorials/add-a-transition.md) |
 | Solve a specific problem | [How-to guides](#how-to-guides) |
 | Understand how the phases and stack fit together | [Concepts](#understand-the-model) |
 | Look up exact syntax or behavior | [Reference](#reference) |
