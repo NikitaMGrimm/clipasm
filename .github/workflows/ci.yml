@@ -2,10 +2,15 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   supply-chain:
@@ -13,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
+      - uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2.85.3
         with:
-          toolchain: 1.95.0
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --version 0.20.2 --locked
+          tool: cargo-deny@0.20.2
+          fallback: none
       - name: Check dependency policy
         run: cargo deny --all-features check
       - name: Verify publish package
@@ -36,10 +41,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
-          toolchain: 1.95.0
           components: clippy,rustfmt
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: cargo install mdbook --version 0.5.4 --locked
+      - uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2.85.3
+        with:
+          tool: mdbook@0.5.4
+          fallback: none
       - run: ./scripts/check.sh
 
   browser-playground:
@@ -48,8 +55,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd1 # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
-          toolchain: 1.95.0
           targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2.85.3
+        with:
+          tool: mdbook@0.5.4,wasm-bindgen@0.2.126
+          fallback: none
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 24
@@ -57,10 +67,6 @@ jobs:
           cache-dependency-path: playground/web/package-lock.json
       - uses: browser-actions/setup-chrome@2e1d749697dd1612b833dba4a722266286fbefcd # v2.1.2
         id: chrome
-      - name: Install WebAssembly bindings
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
-      - name: Install mdBook
-        run: cargo install mdbook --version 0.5.4 --locked
       - name: Build browser playground
         run: mdbook build && ./scripts/build_playground.sh
       - name: Check browser JavaScript
@@ -82,8 +88,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
-        with:
-          toolchain: 1.95.0
       - if: runner.os == 'macOS'
         run: brew install ffmpeg
       - name: Install FFmpeg

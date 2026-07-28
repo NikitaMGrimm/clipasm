@@ -20,13 +20,12 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
-          toolchain: 1.95.0
           components: clippy,rustfmt
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install verification tools
-        run: |
-          cargo install mdbook --version 0.5.4 --locked
-          cargo install cargo-deny --version 0.20.2 --locked
+      - uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2.85.3
+        with:
+          tool: cargo-deny@0.20.2,mdbook@0.5.4
+          fallback: none
       - name: Verify tag version
         run: python scripts/package_release.py verify --tag "$GITHUB_REF_NAME"
       - name: Run repository checks
@@ -55,8 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
-        with:
-          toolchain: 1.95.0
       - name: Install FFmpeg
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
@@ -131,8 +128,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
-        with:
-          toolchain: 1.95.0
       - name: Check published crate
         id: crate
         run: |

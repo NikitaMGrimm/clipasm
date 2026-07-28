@@ -19,17 +19,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@f133eefe930d61f0d9371efd474daf0125ed3dd1 # 1.95.0
         with:
-          toolchain: 1.95.0
           targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@18b1216eba7f8039b0f8d131d5473787f0edce68 # v2.85.3
+        with:
+          tool: mdbook@0.5.4,wasm-bindgen@0.2.126
+          fallback: none
       - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: playground/web/package-lock.json
-      - name: Install mdBook
-        run: cargo install mdbook --version 0.5.4 --locked
-      - name: Install WebAssembly bindings
-        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Build book
         run: mdbook build
