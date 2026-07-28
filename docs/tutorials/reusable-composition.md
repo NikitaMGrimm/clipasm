@@ -1,7 +1,14 @@
 # Build a reusable composition
 
 This tutorial names a composed clip, reuses it, and supplies an inline Video to
-a transition. Start from the scenic tutorial project, or create a fresh one:
+a transition. The result is a four-second MP4 with a repeated opening, a flash
+cut, and a closing scene.
+
+## Before you start
+
+Complete [Build the scenic sequence](scenic-sequence.md), then stay in that
+initialized project so the three images remain available. To start separately,
+create and enter a project:
 
 ```console,ignore
 clipasm init reusable-video
@@ -81,7 +88,8 @@ clipasm render composition.clipasm
 
 Validation reports 96 frames. The result is four seconds at 24 fps: one second
 for the standalone opening, two seconds for the flash-cut result, and one second
-for the closing.
+for the closing. Open `generated/reusable-composition.mp4` and check that the
+opening appears twice before the closing scene.
 
 ## 5. Change the transition
 

@@ -74,4 +74,4 @@ drop<Audio>
 
 See [Stack binding](stack-binding.md) for arguments and access modifiers,
 [Composition forms](composition-forms.md) for `clip`, blocks, and names, and
-[Programs and composition](../programs/index.md) for exact built-in call shapes.
+[Built-in programs](../programs/index.md) for exact call shapes.

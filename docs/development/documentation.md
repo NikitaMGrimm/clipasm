@@ -4,11 +4,21 @@ Give each page one job and keep exact rules in one place.
 
 ## Page types
 
-- **Tutorial:** guide a learner through one successful path.
-- **How-to guide:** complete one concrete task.
-- **Reference:** state exact behavior for lookup.
-- **Explanation:** build a mental model or explain trade-offs.
+- **Tutorial:** teach through one complete, successful project. State the
+  outcome and prerequisites, use numbered steps with observable results, and
+  finish with a short recap and one next step.
+- **How-to guide:** complete one concrete task. State the starting conditions,
+  use numbered actions, verify success, and link to reference for alternatives
+  and exact rules.
+- **Reference:** state exact behavior for lookup. Organize around stable names,
+  signatures, options, tables, and constraints rather than a learning sequence.
+- **Explanation:** build a mental model or explain trade-offs. Link to reference
+  when a precise rule matters instead of restating every edge case.
 - **Development documentation:** help contributors change and verify the project.
+
+Tutorials may explain why each step matters. How-to guides assume a reader who
+already has a goal and should not detour into a full lesson. Keep one reader
+journey per page; link to a different page type when the reader's need changes.
 
 ## Canonical owners
 

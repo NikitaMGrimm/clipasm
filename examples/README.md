@@ -7,8 +7,8 @@ binary. The bundled starter may differ. See [the starter README](starter/README.
 for commands to run outside a checkout, and the [CLI reference](../docs/reference/cli.md#init)
 for the starter's compatibility and lifecycle.
 
-The canonical explanation of each source program and its validation/render
-commands is in [the examples chapter](../docs/examples.md).
+The [examples chapter](../docs/examples.md) catalogs each source program,
+expected result, extra requirements, and related guide.
 
 All source assets are committed and intentionally small:
 

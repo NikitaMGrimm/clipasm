@@ -18,9 +18,10 @@ input whose duration and audio state the output preserves.
 
 ## What rendering checks
 
-Before execution, ClipAsm locates and hashes the executable and declared File
-arguments. It sends a versioned JSON request over standard input and passes the
-executable and arguments separately rather than building a shell command.
+Before execution, ClipAsm locates and hashes the executable, declared File
+arguments, and File-valued parameters. It sends a versioned JSON request over
+standard input and passes the executable and arguments separately rather than
+building a shell command.
 
 A zero exit status is not enough: ClipAsm probes the produced artifact and
 checks it against the declared Video result before accepting it.

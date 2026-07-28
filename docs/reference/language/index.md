@@ -12,7 +12,7 @@ Choose the topic you need:
 | `clip`, stack blocks, graph names, and references | [Composition forms](composition-forms.md) |
 | placement paths, marker ranges, and timeline coordinates | [Timeline selectors and ranges](timeline-selectors.md) |
 | source imports and trusted external implementations | [Imports and external programs](imports-and-external-programs.md) |
-| built-in call signatures and examples | [Programs and composition](../programs/index.md) |
+| built-in call signatures and examples | [Built-in programs](../programs/index.md) |
 | CLI source and root bindings | [Command-line reference](../cli.md) |
 
 The [formal grammar](../../language-grammar.md) is the normative EBNF for

@@ -52,9 +52,9 @@ external {
   state the single Video output must retain.
 
 A `file("...")` argument resolves from the external source file. ClipAsm hashes
-declared executable and File bytes during preflight and checks them again before
-execution. It passes the executable and argument vector separately rather than
-constructing a shell command.
+the executable, declared File arguments, and File-valued parameters during
+preflight and checks them again before execution. It passes the executable and
+argument vector separately rather than constructing a shell command.
 
 External programs currently support fixed Video or Audio inputs; Integer, File,
 or Keyword parameters; and exactly one Video output. Defaults are applied before

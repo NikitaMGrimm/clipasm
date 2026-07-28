@@ -386,17 +386,13 @@ fn example_source(program: &BuiltinProgram) -> String {
 
 fn render_index(programs: &[BuiltinProgram]) -> String {
     let mut output = generated_header(
-        "Programs and composition",
-        "Use language composition forms to group work, and callable programs to create or transform Video and Audio values.",
+        "Built-in programs",
+        "Look up the callable programs that create or transform Video and Audio values.",
     );
     output.push_str(
-        "ClipAsm has three user-facing kinds of program-like building block:\n\n\
-         - [`clip { ... }`](../language/composition-forms.md#clip) builds one reusable Video or Audio value and removes its temporary stack occurrence.\n\
-         - [Stack blocks](../language/composition-forms.md#stack-blocks) group statements and may return one or several values.\n\
-         - Callable programs use normal call syntax. Built-ins are listed below; imported source programs use the same call model.\n\n\
-         `clip` and stack blocks are language forms, not registered callable programs, so `clipasm programs` lists only the built-ins below.\n\n\
+        "These programs are registered in ClipAsm and use normal call syntax. Imported source programs use the same call model. Language forms such as [`clip` and stack blocks](../language/composition-forms.md) are documented separately and do not appear in `clipasm programs`.\n\n\
          The type shapes below are lookup notation, not ClipAsm declaration syntax. See [statements and calls](../language/statements-and-calls.md) for authored syntax.\n\n\
-         ## Callable built-ins\n\n",
+         ## Program catalog\n\n",
     );
     for (index, category) in BuiltinCategory::ALL.into_iter().enumerate() {
         if index > 0 {
@@ -977,8 +973,7 @@ fn markdown_cell(value: &str) -> String {
 
 fn render_program_summary_block(programs: &[BuiltinProgram]) -> String {
     let mut output = format!("{PROGRAM_SUMMARY_START}\n");
-    output.push_str("- [Programs and composition](reference/programs/index.md)\n");
-    output.push_str("  - [`clip` and stack blocks](reference/language/composition-forms.md)\n");
+    output.push_str("- [Built-in programs](reference/programs/index.md)\n");
     for program in programs {
         writeln!(
             output,
@@ -1441,14 +1436,14 @@ mod tests {
         GeneratedReference {
             program_pages: BTreeMap::from([(
                 "index.md".to_owned(),
-                format!("{GENERATED_MARKER}\n\n# Programs and composition\n"),
+                format!("{GENERATED_MARKER}\n\n# Built-in programs\n"),
             )]),
             diagnostic_pages: BTreeMap::from([(
                 "index.html".to_owned(),
                 format!("{GENERATED_MARKER}\n<!doctype html>\n"),
             )]),
             program_summary_block: format!(
-                "{PROGRAM_SUMMARY_START}\n- [Programs and composition](reference/programs/index.md)\n  - [`clip` and stack blocks](reference/language/composition-forms.md)\n{PROGRAM_SUMMARY_END}"
+                "{PROGRAM_SUMMARY_START}\n- [Built-in programs](reference/programs/index.md)\n{PROGRAM_SUMMARY_END}"
             ),
         }
     }
@@ -1485,7 +1480,7 @@ mod tests {
         assert_eq!(
             fs::read_to_string(repository.path().join("docs/reference/programs/index.md"))
                 .expect("generated index"),
-            format!("{GENERATED_MARKER}\n\n# Programs and composition\n")
+            format!("{GENERATED_MARKER}\n\n# Built-in programs\n")
         );
         assert_eq!(
             fs::read_to_string(repository.path().join("docs/diagnostics/index.html"))
@@ -1496,7 +1491,7 @@ mod tests {
             fs::read_to_string(repository.path().join("docs/SUMMARY.md"))
                 .expect("summary")
                 .contains(
-                    "  - [`clip` and stack blocks](reference/language/composition-forms.md)\n\
+                    "- [Built-in programs](reference/programs/index.md)\n\
                      <!-- END GENERATED PROGRAM REFERENCE NAVIGATION -->"
                 )
         );

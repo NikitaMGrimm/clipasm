@@ -1208,6 +1208,49 @@ mod tests {
     }
 
     #[test]
+    fn parses_newlines_in_delimited_lists() {
+        let syntax = parse_text(
+            "clipasm 1\n\
+             external {\n\
+               executable = \"tool\"\n\
+               arguments = [\n\
+                 \"--flag\",\n\
+                 file(\"data.bin\"),\n\
+               ]\n\
+               semantic_version = 1\n\
+               preserve = source\n\
+             }\n\
+             input source: Video\n\
+             param fit: Keyword(\n\
+               contain,\n\
+               cover\n\
+             ) = contain\n",
+        );
+        assert_eq!(syntax.declarations.len(), 3);
+
+        let syntax = parse_text(
+            "clipasm 1\n\
+             set_audio(\n\
+               video=video(\"picture.mp4\"),\n\
+               audio=audio(\"sound.wav\"),\n\
+             ) as (\n\
+               picture,\n\
+               sound\n\
+             )\n",
+        );
+        let OutputBindings::Many(names, _) = &syntax.statements[0].output_bindings else {
+            panic!("multi-output binding");
+        };
+        assert_eq!(
+            names
+                .iter()
+                .map(|name| name.value.as_str())
+                .collect::<Vec<_>>(),
+            ["picture", "sound"]
+        );
+    }
+
+    #[test]
     fn scalar_expression_precedence_keeps_postfix_inside_product_inside_sum() {
         let syntax = parse_text("clipasm 1\nrepeat(5 + 6 / 2ms%%)\n");
         let Expression::Invocation(invocation) = &syntax.statements[0].expression else {

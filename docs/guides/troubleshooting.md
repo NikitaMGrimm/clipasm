@@ -1,14 +1,22 @@
 # Troubleshooting
 
-Start with `validate`, then move to `inspect`, and render only when the source is
-structurally correct. This separates language and binding problems from media,
-tool, and execution problems.
-
 Every ordinary ClipAsm error includes a diagnostic code. Look up the code with
 `clipasm explain <CODE>` for a concise explanation, or use the searchable
-[diagnostic reference](https://nikitamgrimm.github.io/clipasm/diagnostics/) for the complete
+[diagnostic reference](../diagnostics/index.html) for the complete
 catalog. This guide is organized by symptom. The diagnostic reference contains the full
 per-code advice and retry guidance.
+
+## Diagnostic workflow
+
+1. Run `clipasm validate SOURCE` to separate source and binding problems from
+   media, tool, and execution problems.
+2. If validation fails, fix the first reported source location. Run
+   `clipasm explain <CODE>` when you need the diagnostic's causes and actions.
+3. When validation succeeds, run `render`. Rendering repeats source checks and
+   then reports reachable media, tool, external-process, cache, or publication
+   problems.
+4. Use `inspect` only when the compiled graph or JSON integration is itself the
+   question; it is not a required step before rendering.
 
 ## The source does not validate
 
@@ -30,9 +38,9 @@ to hide it.
 
 Consult the [language reference](../reference/language/index.md) for exact
 syntax and the [stack-binding reference](../reference/language/stack-binding.md)
-for binding rules. The [parsing and source](https://nikitamgrimm.github.io/clipasm/diagnostics/#parsing-and-source),
-[imports and declarations](https://nikitamgrimm.github.io/clipasm/diagnostics/#imports-and-declarations),
-and [types and stack](https://nikitamgrimm.github.io/clipasm/diagnostics/#types-and-stack) diagnostic
+for binding rules. The [parsing and source](../diagnostics/index.html#parsing-and-source),
+[imports and declarations](../diagnostics/index.html#imports-and-declarations),
+and [types and stack](../diagnostics/index.html#types-and-stack) diagnostic
 sections group the corresponding failures.
 
 ## A root input or parameter is missing
@@ -78,7 +86,7 @@ Imported programs keep their own path base. Moving only the root source or
 running the command from another directory does not rebase paths authored in an
 imported source file.
 
-See [preflight and media diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#preflight-and-media)
+See [preflight and media diagnostics](../diagnostics/index.html#preflight-and-media)
 when the reported code concerns an unreadable or unsuitable asset.
 
 ## FFmpeg or FFprobe is unavailable
@@ -94,7 +102,7 @@ ffprobe -version
 If the commands are installed but ClipAsm cannot find them, run ClipAsm from an
 environment whose `PATH` includes the corresponding executables.
 
-See [preflight and media diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#preflight-and-media)
+See [preflight and media diagnostics](../diagnostics/index.html#preflight-and-media)
 for tool discovery and capability failures.
 
 ## FFmpeg lacks a required capability
@@ -130,7 +138,7 @@ executable, or an incompatible filesystem object occupies either destination.
 Do not point output at a source asset. Publication writes both the MP4 and
 `<output>.manifest.json`.
 
-See [rendering and publication diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#rendering-and-publication)
+See [rendering and publication diagnostics](../diagnostics/index.html#rendering-and-publication)
 for the reported destination or publication code.
 
 ## An external program fails or hangs
@@ -146,7 +154,7 @@ using the operating system's normal process controls.
 
 See [Review and run an external program](external-programs.md) and
 [External programs and the trust boundary](../concepts/external-programs-and-trust.md).
-The [external-program diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#external-programs)
+The [external-program diagnostics](../diagnostics/index.html#external-programs)
 section explains protocol and process failures.
 
 ## A cached artifact is not reused
@@ -160,7 +168,7 @@ and stores a verified replacement. Do not edit cache artifacts or sidecars by
 hand.
 
 For a cache lock or filesystem error, use the
-[cache and filesystem diagnostics](https://nikitamgrimm.github.io/clipasm/diagnostics/#cache-and-filesystem)
+[cache and filesystem diagnostics](../diagnostics/index.html#cache-and-filesystem)
 section to determine whether retrying is appropriate.
 
 ## Inspection output is surprising
@@ -174,7 +182,7 @@ semantics from preflight and rendering.
 
 ## An internal diagnostic is reported
 
-An [internal-contract diagnostic](https://nikitamgrimm.github.io/clipasm/diagnostics/#internal) usually
+An [internal-contract diagnostic](../diagnostics/index.html#internal) usually
 means user input exposed a ClipAsm defect rather than a source mistake. Preserve
 the diagnostic code, ClipAsm version, safe reproduction steps, and the original
 output. Do not delete caches or generated state unless that code's explanation

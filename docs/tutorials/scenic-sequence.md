@@ -1,107 +1,144 @@
 # Build the scenic sequence
 
-This tutorial explains the starter one idea at a time: project settings, image
-values, statement order, and `concat`. You will predict each result, validate
-it, deliberately create one harmless error, and repair it.
+In this tutorial you will build a 4.5-second, three-scene video from an empty
+source file. Along the way you will use the language version, project settings,
+a stack block, image values, an effect, and `concat`.
 
-Create a fresh project and enter it:
+## Before you start
+
+Complete [Install and render ClipAsm](../getting-started/first-render.md) first.
+Stay in that initialized project so you can reuse its three images. If you are
+starting separately, create and enter a project:
 
 ```console,ignore
 clipasm init scenic-video
 cd scenic-video
 ```
 
-Open `main.clipasm`. ClipAsm created the file, but it will not manage or rewrite
-it after initialization.
+Create a new file named `scenic-tutorial.clipasm`. The steps below build that
+file incrementally without changing `main.clipasm`.
 
-## 1. Read the project settings
+## 1. Create one scene
 
-The configuration begins with:
+Add the language version, project settings, and one image:
 
 ```clipasm
+clipasm 1
+
 config {
     video {
         width = 320
         height = 180
         fps = 24
     }
-    output = "generated/scenic-sequence.mp4"
+    output = "generated/scenic-tutorial.mp4"
+}
+
+{
+    image("assets/morning.png", 1500ms, contain)
 }
 ```
 
-**Predict:** the output will be 320x180 at exactly 24 frames per second, and
-`render` will publish it to `generated/scenic-sequence.mp4`.
+`clipasm 1` selects the language version. The configuration sets the output
+frame and publication path. The outer `{ ... }` is a stack block: it groups the
+executable statements and returns the values left inside it.
 
-Now validate:
+Validate the file:
 
 ```console,ignore
-clipasm validate main.clipasm
+clipasm validate scenic-tutorial.clipasm
 ```
 
-**Observe:** validation succeeds with 108 frames. It can calculate that duration
-from the source without opening an image.
+Validation reports 36 frames: 1.5 seconds at 24 frames per second. It derives
+that duration from source without opening the image.
 
-## 2. Follow the values
+## 2. Add two more scenes
 
-The next three statements are:
+Inside the stack block, add the meadow and evening images after the morning
+image:
 
 ```clipasm
-image("assets/morning.png", 1500ms, contain)
-image("assets/meadow.png", 1500ms, contain)
-image("assets/evening.png", 1500ms, contain)
+{
+    image("assets/morning.png", 1500ms, contain)
+    image("assets/meadow.png", 1500ms, contain)
+    image("assets/evening.png", 1500ms, contain)
+}
 ```
 
-Each call creates one 1.5-second Video. `contain` fits the complete image inside
-the 320x180 frame, adding empty space when the aspect ratios differ.
+Each call leaves one Video value in the block. Validate again:
 
-**Predict:** three scenes × 1.5 seconds × 24 fps = 108 frames.
+```console,ignore
+clipasm validate scenic-tutorial.clipasm
+```
 
-The validation result confirms that calculation. The files themselves are not
-opened until rendering.
+The program is valid, but it has three root outputs. Rendering needs exactly one
+Video to publish, so the next step combines them.
 
-## 3. Join the scenes
+## 3. Join the sequence
 
-The final statement is:
+Add `concat` after the three image calls:
 
 ```clipasm
-concat
+{
+    image("assets/morning.png", 1500ms, contain)
+    image("assets/meadow.png", 1500ms, contain)
+    image("assets/evening.png", 1500ms, contain)
+    concat
+}
 ```
 
-`concat` takes the accessible Video values in their existing order and returns
-one combined Video. The rendered order is therefore morning, meadow, evening.
-
-Create a safe error by changing `concat` to `concatt`, then validate:
+`concat` consumes the accessible Videos in statement order and returns one
+combined Video. Predict the duration, then validate:
 
 ```console,ignore
-clipasm validate main.clipasm
+clipasm validate scenic-tutorial.clipasm
 ```
 
-The command reports an unknown program at `concatt`. Restore the spelling and
-validate once more. No media was opened and no output was written while testing
-this error.
+Three scenes × 1.5 seconds × 24 fps produces 108 frames.
 
-## 4. Change the timeline
+## 4. Render and check the result
 
-Change only the meadow duration from `1500ms` to `1s`.
-
-**Predict:** the complete sequence becomes four seconds, so validation should
-report 96 frames at 24 fps.
+Render the one combined Video:
 
 ```console,ignore
-clipasm validate main.clipasm
-clipasm render main.clipasm
+clipasm render scenic-tutorial.clipasm
 ```
 
-**Observe:** validation reports 96 frames, and the rendered MP4 has a shorter
+Open `generated/scenic-tutorial.mp4`. The scenes appear in this order: morning,
+meadow, evening, for a total of 4.5 seconds.
+
+## 5. Add movement without changing the duration
+
+Place `zoom_in(4%)` immediately after the meadow image:
+
+```clipasm
+{
+    image("assets/morning.png", 1500ms, contain)
+    image("assets/meadow.png", 1500ms, contain)
+    zoom_in(4%)
+    image("assets/evening.png", 1500ms, contain)
+    concat
+}
+```
+
+`zoom_in` takes the nearest Video, transforms it, and returns a Video with the
+same duration. Validate and render once more:
+
+```console,ignore
+clipasm validate scenic-tutorial.clipasm
+clipasm render scenic-tutorial.clipasm
+```
+
+Validation still reports 108 frames. Reopen the MP4 to see movement only in the
 middle scene.
 
 ## What you learned
 
-You configured a project, created three Video values, relied on statement order,
-and reduced them to one output with `concat`. You also used `validate` to repair
-a source error before rendering.
+You built a source file from its version declaration to one publishable Video.
+You used a stack block to group work, followed values in statement order, joined
+three scenes, and transformed the nearest Video without changing its duration.
 
 Next, [Build a reusable composition](reusable-composition.md). For exact lookup,
-see [`image`](../reference/programs/image.md),
-[`concat`](../reference/programs/concat.md), and
-[Files and configuration](../reference/language/files-and-configuration.md).
+see [Composition forms](../reference/language/composition-forms.md),
+[Stack binding](../reference/language/stack-binding.md), [`image`](../reference/programs/image.md),
+and [`concat`](../reference/programs/concat.md).

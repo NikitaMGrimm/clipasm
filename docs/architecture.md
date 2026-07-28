@@ -1,5 +1,10 @@
 # Architecture
 
+This page maps phase ownership and the internal contracts between phases. Use
+the [language reference](reference/language/index.md) for exact authored
+behavior and the [change guide](development/change-guide.md) to find affected
+code, tests, documentation, and identities.
+
 ```text
 native .clipasm source
   -> lexing, parsing, package loading, and structural lowering
@@ -7,10 +12,9 @@ Canonical source package + linked source programs
   -> program catalog linking and checked-source construction
 Self-contained checked source
   -> checked stack evaluation
-Semantic graph + ordered source outputs
-  -> compiled JSON adapter (optional)
-Compiled semantic document
-  -> preflight through native or browser asset host
+Semantic graph + ordered source outputs (`CompiledProgram`)
+  |-> compiled JSON adapter (optional inspection view)
+  `-> preflight through native or browser asset host
 Prepared primitive plan + one result
   -> closed renderer-owned FFmpeg recipes
   -> native process/cache adapter -> published MP4 + manifest
@@ -19,10 +23,14 @@ Prepared primitive plan + one result
 
 ## Language and canonical source
 
+### Authored model
+
 `source` owns the lowered authored model: linked source packages, source units,
 imports, root project/publication settings, source program signatures, bodies,
 invocations, references, literals, and output bindings. The compiler consumes
 only this model.
+
+### Parsing and lowering
 
 The native `.clipasm` language is the sole supported source language. Its
 normative EBNF, lexer, parser, package loader, and lowerer own surface grammar
@@ -40,13 +48,11 @@ programs continue to reject caller-supplied bodies. `clip` applies the same
 normalization while lowering its sugar expansion.
 
 `StackBlock` is a structural canonical-source item rather than a registered
-program. It evaluates a nested body in a child stack frame and returns every
-remaining value owned by that frame, preserving order and types. Blocks default
-to visible access in the native language, so an explicitly visible descendant
-may consume enclosing values without a redundant modifier on the block itself;
-`@owned { ... }` establishes an explicit visibility boundary. Output bindings
-apply to the block's complete ordered result sequence, while output names
-declared inside remain program-wide.
+program. It evaluates through the same checked body machinery as program bodies;
+the [composition reference](reference/language/composition-forms.md#stack-blocks)
+owns its authored behavior.
+
+### Surface provenance
 
 Every canonical item also carries one surface origin separate from its
 executable target. The origin records the authored construct name and span,
@@ -59,6 +65,8 @@ appearing as user-authored operations. Surface provenance is excluded from
 semantic and cache identity.
 
 ## Compilation
+
+### Package linking and type resolution
 
 Before evaluation, the compiler validates the complete linked source-unit
 graph, including the root and every import target, rejects cycles, and derives a
@@ -84,6 +92,8 @@ invocation's concrete signature and stack-binding plan, and the ordered output
 types of structural stack blocks and the source body. There is no separate
 concrete type or stack interpreter. Imported definitions and built-ins share
 the resulting runtime catalog.
+
+### Checked source and scalar evaluation
 
 Checked-source materialization allocates compact local and parameter identities,
 resolves graph and scalar references, statically checks scalar operator types,
@@ -120,6 +130,8 @@ input bodies and lexical body-port aliases are represented directly in checked
 source. Canonical bodies and invocations are not retained for ordinary
 evaluation.
 
+### Stack evaluation and root bindings
+
 `compiler` evaluates the checked body and every nested body as a typed postfix
 stack program over one physical heterogeneous evaluation stack. Each stack
 occurrence records its owning body depth, and recursive frames record the nearest
@@ -150,14 +162,13 @@ does not repeat type inference. Program implementations therefore receive a
 fully resolved call rather than surface arguments, generic types, or
 stack-frame metadata.
 
-Every program descriptor explicitly declares a default `StackAccess`. Generic
-invocation metadata may override it with `@owned` or `@visible`.
-`owned` binding is limited to values owned by the current frame. `visible`
-binding may also consume enclosing values down to the frame's visibility
-boundary. Values of unrelated types remain ordered and untouched. The setting is per invocation and does not propagate to child calls. Direct built-ins and source programs default to
-`owned`; the native body programs `join` and `during` default to
-`visible`, so they may bind through an enclosing body boundary and expose that
-same visible suffix to independently visible descendants.
+Every program descriptor explicitly declares a default `StackAccess`; checked
+invocation metadata may override it. The evaluator applies that plan using
+frame ownership and visibility boundaries. The
+[stack-binding reference](reference/language/stack-binding.md) owns the public
+access rules.
+
+### Semantic graph and timeline identity
 
 The crate-private `semantic` module owns graph operations, draft and compiled
 nodes, origins, graph construction, graph-local type checks, and semantic
@@ -213,6 +224,8 @@ from operation-specific exceptions. Media values and timeline views therefore
 remain distinct. Entrypoint `output` metadata remains separate from the semantic
 result and its structure hash.
 
+### Formats and host adapters
+
 Project media formats are invariant-protected model values: Video dimensions,
 frame-rate components, audio sample rate, and channel count are positive by
 construction. Language lowering may carry representable raw settings such as
@@ -238,6 +251,8 @@ and external processes do not enter the browser boundary.
 
 ## Programs
 
+### Program definitions
+
 All programs are runtime `ProgramDefinition` values in one crate-private
 catalog. Each definition contains typed inputs, typed parameters, an ordered
 output sequence, a semantic version, and an explicit default stack access.
@@ -246,6 +261,8 @@ their preparer and declarative body contract, authored source programs, or
 external implementations that own their runtime specification. Implementation-
 specific data is carried by the applicable variant rather than optional
 sidecars on every definition.
+
+### Built-in and authored execution
 
 Direct programs lower immediately. Body programs prepare initial values and an
 optional requested Video extent. The extent is an exact concrete frame count
@@ -262,9 +279,12 @@ definition's declared output sequence.
 
 An authored program receives the same concrete resolved-call interface. Its
 invocation opens an isolated local scope and empty local stack. Bound graph inputs and
-scalar parameters become immutable local bindings. Local clips and `id`/`ids`
-bindings do not escape; only the complete ordered final owned values return to the caller. Internal references use typed symbol identities, while public root
-names remain a separate compiled interface.
+scalar parameters become immutable local bindings. Local graph names do not
+escape; only the complete ordered final owned values return to the caller.
+Internal references use typed symbol identities, while public root names remain
+a separate compiled interface.
+
+### Entrypoint bindings
 
 External root bindings enter compilation through `EntrypointBindings` after
 checked-source construction. The adapter validates names and concrete checked
@@ -274,6 +294,8 @@ reconstructing canonical source. Scalar text uses the same parameter conversion
 module as authored literals. Binding spans carry the caller's path base, so the CLI can resolve
 supplied media, `File` parameters, and output destinations from its working
 directory without rewriting authored source.
+
+### Built-in catalog and semantic operations
 
 Registered programs are:
 
@@ -302,6 +324,8 @@ native operation is not a dynamically registered cross-phase plugin. Branching
 on registered program names in parser or evaluator logic is unhealthy; program
 behavior belongs in registry definitions and their direct or body
 implementations.
+
+### Source programs and imports
 
 Native file declarations are language syntax, not registered invocations. The
 evaluator treats the executable body uniformly without granting any registered
@@ -340,6 +364,8 @@ identity.
 
 ## Preflight
 
+### Responsibilities
+
 `preflight` is the first phase allowed to inspect assets or external tools. It:
 
 - resolves each authored path relative to the source unit that contains it
@@ -353,6 +379,8 @@ identity.
 - lowers reachable semantic nodes, including `replace_range`, to compact
   renderer primitives
 - assigns content fingerprints and an execution namespace
+
+### Prepared plan
 
 The prepared-plan model is separate from preflight orchestration. It represents
 Video and Audio nodes as separate structural variants. A Video variant always
@@ -381,6 +409,8 @@ nodes; external artifacts may use other encodings when they satisfy the
 verified media contract. Export-only policy changes reuse compatible working
 artifacts because publication is always performed afresh.
 
+### Native and browser hosts
+
 Native preflight supplies filesystem assets, media probes, and tool identities.
 Browser preflight accepts normalized virtual assets and their host-computed
 hashes without opening media or invoking tools. For video-file sources, the
@@ -390,6 +420,8 @@ project-frame domain. It reuses the same prepared lowering for operations
 reachable from still images and video files. The browser renderer turns that
 plan into the versioned execution document. Audio-file sources, imports, and
 external programs are explicitly unsupported in the browser.
+
+### Exact media domains
 
 Audio is normalized to the configured stereo project sample rate, which
 defaults to 48 kHz. Working Video artifacts always contain one lossless
@@ -412,6 +444,8 @@ its shortened prefix, overlap, and suffix, including phase-adjusting the latter
 input to global output boundaries.
 
 ## Rendering
+
+### Recipe generation and native execution
 
 `render` verifies the prepared FFmpeg and FFprobe build identities and reached
 source assets, reuses only verified cached artifacts, renders missing native
@@ -438,6 +472,8 @@ temporary naming, failure cleanup, and atomic cache replacement. External
 programs bypass FFmpeg recipes, use the versioned process protocol, and must
 satisfy artifact verification rather than the native encoding policy.
 
+### Execution planning and cache validation
+
 Before execution, a private execution plan walks backward from the prepared
 result. A cache entry becomes a dependency barrier only after both its sidecar
 content hash and exact prepared media contract have been verified. A miss
@@ -450,6 +486,8 @@ irrelevant. FFmpeg/FFprobe identity verification and final export remain
 unconditional.
 Rehashing detects ordinary changes but does not snapshot files or make the
 check atomic with a renderer or external process opening the path.
+
+### Exact audio and video execution
 
 Video joins normalize each child audio stream to its cumulative allocation
 before concat. Fractional Video repeats remain compact and timestamp repeated
@@ -466,6 +504,8 @@ verification, locking, and rollback-capable publication remain separate deep
 modules; there is no generic process runner, operation trait hierarchy, or
 renderer backend interface.
 
+### Browser rendering
+
 The browser adapter materializes the same recipes against a private virtual
 filesystem and executes them sequentially in a dedicated worker. It verifies
 the exact stream shape, frame count, and Audio sample count after every step,
@@ -474,6 +514,7 @@ work limits are browser policy rather than semantic Video limits. The pinned
 single-threaded FFmpeg WebAssembly runtime loads only when rendering starts;
 cancellation terminates the worker. Browser rendering has no persistent cache.
 
+### Cache and publication
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without

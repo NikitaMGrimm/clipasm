@@ -7,7 +7,6 @@ fn documented_cli_transcripts_are_current() {
     for page in [
         "docs/reference/cli.md",
         "docs/guides/root-inputs-and-parameters.md",
-        "docs/guides/import-a-program.md",
     ] {
         cases.case(root.join(page));
     }

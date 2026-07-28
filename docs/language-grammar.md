@@ -15,6 +15,8 @@ quotes.
 ```ebnf
 letter           = "A"…"Z" | "a"…"z" ;
 digit            = "0"…"9" ;
+source-character = ? any Unicode scalar value ? ;
+string-character = source-character - ( '"' | "\\" | newline ) ;
 
 identifier       = (letter | "_"),
                    { letter | digit | "_" | "-" } ;
@@ -27,7 +29,7 @@ escape           = '\\"' | "\\\\" | "\\n" | "\\r" | "\\t" ;
 
 newline          = "\n" ;
 horizontal-space = " " | "\t" | "\r" ;
-comment          = "#", { character - newline }, [ newline ] ;
+comment          = "#", { source-character - newline }, [ newline ] ;
 ```
 
 Horizontal space and comments are ignored. Newlines remain tokens because they
@@ -85,7 +87,7 @@ external-field      = "executable", "=", string
 external-arguments  = "[", { newline },
                       [ external-argument,
                         { ",", { newline }, external-argument },
-                        [ "," ] ],
+                        [ ",", { newline } ] ],
                       "]" ;
 
 external-argument   = string | "file", "(", string, ")" ;
@@ -102,8 +104,9 @@ parameter-type      = "Number"
                     | "File"
                     | "Duration"
                     | "TimeRange"
-                    | "Keyword", "(", identifier,
-                      { ",", identifier }, ")" ;
+                    | "Keyword", "(", { newline }, identifier,
+                      { { newline }, ",", { newline }, identifier },
+                      { newline }, ")" ;
 ```
 
 All declarations precede the first statement. A `statement-end` is one or more
@@ -130,8 +133,9 @@ type-argument       = "<", value-type, ">" ;
 
 arguments           = "(", { newline },
                       [ argument,
-                        { ",", { newline }, argument },
-                        [ "," ] ],
+                        { { newline }, ",", { newline }, argument },
+                        [ { newline }, "," ],
+                        { newline } ],
                       ")" ;
 
 argument            = [ identifier, "=" ], argument-expression ;
@@ -146,8 +150,10 @@ stack-block         = [ access ], block ;
 reference-expression = "$", identifier ;
 
 output-binding      = "as", identifier
-                    | "as", "(", identifier, ",", identifier,
-                      { ",", identifier }, ")" ;
+                    | "as", "(", { newline },
+                      identifier, { newline }, ",", { newline }, identifier,
+                      { { newline }, ",", { newline }, identifier },
+                      { newline }, ")" ;
 ```
 
 Whether an identifier-led argument expression is an invocation is determined

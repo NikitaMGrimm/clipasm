@@ -1,8 +1,8 @@
 # Try ClipAsm
 
-The playground below contains a complete three-scene project. Edit the source,
-then select **Validate**, **Inspect**, or **Render video**.
-<kbd>Ctrl</kbd>+<kbd>Enter</kbd> validates.
+The playground below contains a complete three-scene project. In a few minutes
+you can check the source, make one edit, and render the result. Nothing is
+uploaded.
 
 ```clipasm
 {{#include ../examples/scenic-sequence.clipasm}}
@@ -12,15 +12,26 @@ then select **Validate**, **Inspect**, or **Render video**.
      data-clipasm-assets-base="playground/example-assets/"
      data-clipasm-assets='["assets/morning.png","assets/meadow.png","assets/evening.png"]'></div>
 
-A useful first experiment is to change one `1500ms` duration to `1s`, validate,
-and render again. At `fps = 24`, the complete timeline changes from 108 frames
-to 96 frames.
+## 1. Validate the original
+
+Select **Validate**, or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>. The source
+passes with 108 frames: three 1.5-second scenes at 24 frames per second.
+
+## 2. Change one scene
+
+Change the meadow duration from `1500ms` to `1s`, then validate again. The
+timeline is now four seconds, or 96 frames.
+
+## 3. Render and play the video
+
+Select **Render video**. When rendering finishes, play the preview and check
+that the middle scene is shorter. Use **Reset** whenever you want to restore the
+original source and project files.
 
 ## Project files
 
 The images appear under **Virtual project files**. You can preview, rename,
-replace, or delete them. **Reset** restores the original source and files.
-Everything stays in your browser; source and project files are not uploaded.
+replace, or delete them. Everything stays in your browser.
 
 ## Browser limits
 

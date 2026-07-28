@@ -29,8 +29,8 @@ images. `render` performs the required source checks; use `clipasm validate
 main.clipasm` when you want a faster check without opening media. Open
 `generated/scenic-sequence.mp4` after rendering. Continue with the
 [first-render guide](https://nikitamgrimm.github.io/clipasm/getting-started/first-render.html)
-to edit it, or browse the [full guide](https://nikitamgrimm.github.io/clipasm/)
-for tutorials, task guides, the language reference, and CLI reference. Use
+to edit it, or browse the [documentation](https://nikitamgrimm.github.io/clipasm/)
+for tutorials, how-to guides, the language reference, and CLI reference. Use
 `clipasm programs [NAME]` without a project, or browse the
 [built-in program reference](https://nikitamgrimm.github.io/clipasm/reference/programs/index.html).
 When ClipAsm reports a diagnostic code, run `clipasm explain <CODE>` or browse

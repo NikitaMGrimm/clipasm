@@ -123,10 +123,10 @@ This command reads only the diagnostic catalog compiled into the installed
 binary. It never parses source, discovers a project, opens media, or inspects
 FFmpeg, FFprobe, or external programs, and it does not require a repository
 checkout. Unknown codes fail with a dedicated diagnostic and direct readers to
-the [diagnostic index](https://nikitamgrimm.github.io/clipasm/diagnostics/).
+the [diagnostic index](../diagnostics/index.html).
 
 For a complete, searchable list of built-in diagnostics, see the
-[diagnostics reference](https://nikitamgrimm.github.io/clipasm/diagnostics/).
+[diagnostics reference](../diagnostics/index.html).
 
 ## Common source argument
 
@@ -156,7 +156,7 @@ Names must match declarations exactly. Duplicate, unknown, missing, or
 type-incompatible bindings are errors. Media and `File` paths supplied through
 these options resolve from the working directory.
 
-Binding options work the same way for validation and rendering:
+Binding options work the same way for validation, inspection, and rendering:
 
 ```console,ignore
 clipasm validate template.clipasm \
@@ -191,7 +191,15 @@ clipasm validate main.clipasm
 ```
 
 Successful output reports the semantic value count and either an exact frame
-count or that duration will resolve during preflight.
+count, a deferred Video duration, one non-Video output type, or the number of
+root outputs:
+
+| Root result | Success summary |
+| --- | --- |
+| One Video with an authored domain | exact frame count |
+| One Video whose domain depends on media | duration resolves during preflight |
+| One Audio output | output type |
+| Zero or multiple outputs | output count |
 
 ## `inspect`
 
@@ -229,9 +237,9 @@ clipasm render main.clipasm
 
 The root source may declare `config.output`. Override it with `-o` or
 `--output`; an override resolves from the caller's working directory. Rendering
-requires exactly one publishable `Video` output. It may inspect media, invoke
-FFmpeg and FFprobe, and execute reachable external programs as trusted native
-code.
+requires an output path from one of those sources and exactly one publishable
+`Video` output. It may inspect media, invoke FFmpeg and FFprobe, and execute
+reachable external programs as trusted native code.
 
 ## Help and version
 
@@ -245,7 +253,7 @@ clipasm --version
 
 ## Related documentation
 
-- [Validate and inspect a program](../guides/validate-and-inspect.md)
+- [Check a program before rendering](../guides/validate-and-inspect.md)
 - [Supply root inputs and parameters](../guides/root-inputs-and-parameters.md)
 - [Troubleshooting](../guides/troubleshooting.md)
 - [Language reference](language/index.md)
