@@ -28,7 +28,8 @@ guidance and explanation, add focused coverage, and regenerate the
 diagnostic reference. See the [documentation maintenance guide](docs/development/documentation.md)
 for the required generator commands and consistency review.
 
-Use Conventional Commits, for example `feat: add trim program`.
+Use Conventional Commits, for example `feat: add trim program`. Pull request
+titles must use the same format so squash merges preserve a semantic history.
 
 ## Tests
 
@@ -80,21 +81,28 @@ Before requesting review, confirm that:
 
 ## Releases
 
-Prepare the version from a clean, synchronized `main` branch:
+Prepare the version from a new branch based on a clean, synchronized `main`
+branch:
 
 ```console
+git switch main
+git pull --ff-only
+git switch -c feat/release-X-Y-Z
 python scripts/prepare_release.py X.Y.Z
 ./scripts/check.sh
 git commit -am "release: X.Y.Z"
-git push origin main
+git push -u origin feat/release-X-Y-Z
 ```
 
 The preparation script updates the root package, playground package, and lockfile
-as one checked operation. It never commits, tags, pushes, or publishes. Wait for
-all `main` CI checks to succeed before creating an annotated tag that exactly
-matches `v` followed by the version in `Cargo.toml`:
+as one checked operation. It never commits, tags, pushes, or publishes. Open and
+merge a pull request titled `release: X.Y.Z`, then update the local `main`
+branch. Wait for all `main` CI checks to succeed before creating an annotated
+tag that exactly matches `v` followed by the version in `Cargo.toml`:
 
 ```console
+git switch main
+git pull --ff-only
 python scripts/package_release.py verify --tag vX.Y.Z
 git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
 git push origin vX.Y.Z
