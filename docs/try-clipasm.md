@@ -44,7 +44,7 @@ It accepts one source file up to 256 KiB, individual assets up to 128 MiB, and
 FFmpeg runtime and applies a bounded work budget, so larger projects belong in
 the installed CLI.
 
-Continue with [Install and render ClipAsm](getting-started/first-render.md) to
+Continue with [Get ClipAsm running](learn/01-get-clipasm-running.md) to
 create a local project and use the complete native feature set.
 
 The renderer is downloaded only when you select **Render video**. It is separate

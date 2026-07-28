@@ -1,0 +1,6 @@
+clipasm 1
+
+input video: Video
+param by: Number = 6%
+
+zoom_in($video, $by)

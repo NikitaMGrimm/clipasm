@@ -1,58 +1,56 @@
-# The ClipAsm guide
+# ClipAsm
 
-ClipAsm turns a small text program into a video. You describe media sources and
-operations, ClipAsm checks the program before opening media, and `render`
-produces an MP4 with FFmpeg.
-
-Try the [browser playground](try-clipasm.md) to edit and render the included
-scenic sequence without installing anything. To work locally, follow
-[Install and render ClipAsm](getting-started/first-render.md).
+ClipAsm turns a small text program into a video. You describe sources and edits,
+check the program without opening media, and render an MP4 with FFmpeg.
 
 > ClipAsm is pre-release software. The language and command line may change as
 > the project is simplified.
 
-## Choose a path
+## Learn ClipAsm in order
 
-| Goal | Start here |
-| --- | --- |
-| Try ClipAsm in the browser | [Try ClipAsm](try-clipasm.md) |
-| Install the CLI and render a project | [Install and render ClipAsm](getting-started/first-render.md) |
-| Learn the language one idea at a time | [Build the scenic sequence](tutorials/scenic-sequence.md) |
-| Add a transition between named clips | [Add a flash-cut transition](tutorials/add-a-transition.md) |
-| Solve a specific problem | [How-to guides](#how-to-guides) |
-| Understand how the phases and stack fit together | [Concepts](#understand-the-model) |
-| Look up exact syntax or behavior | [Reference](#reference) |
+After setup, the learning chapters follow one project centered on one evolving
+composition. Each chapter starts from the previous checkpoint, introduces an
+idea only when the edit needs it, and ends with a valid result you can inspect.
+This path teaches ClipAsm's core video-composition workflow.
 
-`clipasm init` creates a normal standalone project. You do not need a Git
-checkout, and ClipAsm does not continue managing the files after creating them.
-See the [`init` reference](reference/cli.md#init) for its exact lifecycle.
+1. [Get ClipAsm running](learn/01-get-clipasm-running.md) and render the included
+   starter.
+2. Go [from one image to a sequence](learn/02-first-sequence.md).
+3. [Name and reference a clip](learn/03-name-and-reference-clip.md).
+4. [Transform one scene](learn/04-transform-scene.md).
+5. [Add a flash between scenes](learn/05-transition.md).
+6. [Change a named scene after assembly](learn/06-timeline-edit.md).
+7. [Reuse a scene style across source files](learn/07-reusable-program.md).
+
+If you only want to evaluate ClipAsm first, [try it in the browser](try-clipasm.md).
+The playground contains a complete project and uploads nothing.
 
 ## How-to guides
 
+Use these when you already have a concrete task:
+
 - [Check a program before rendering](guides/validate-and-inspect.md)
+- [Inspect compiled JSON](guides/inspect-compiled-json.md)
 - [Supply root inputs and parameters](guides/root-inputs-and-parameters.md)
 - [Import and call a source program](guides/import-a-program.md)
+- [Add or replace a soundtrack](guides/add-audio.md)
 - [Review and run an external program](guides/external-programs.md)
 - [Troubleshoot validation, media, tools, rendering, and cache problems](guides/troubleshooting.md)
 
-## Understand the model
+## Understand ClipAsm
 
-These pages explain why the language behaves as it does without requiring
-compiler internals:
+These pages develop the underlying model without walking through the learning
+project:
 
 - [From source to published video](concepts/pipeline.md)
-- [Stack values, ownership, and visibility](concepts/stack-values.md)
+- [Stack ownership and visibility](concepts/stack-values.md)
 - [Source programs and imports](concepts/source-programs-and-imports.md)
 - [External programs and the trust boundary](concepts/external-programs-and-trust.md)
 
-## Explore runnable examples
+## Examples and reference
 
-Use the [example catalog](examples.md) when you have a source checkout and want
-small programs to validate, render, or adapt.
-
-## Reference
-
-Use reference pages when you already know what you need to look up:
+Use the [example catalog](examples.md) for small runnable programs. For exact
+lookup, use:
 
 - [Language reference](reference/language/index.md) for `.clipasm` syntax and behavior
 - [Built-in programs](reference/programs/index.md) for call signatures and constraints
@@ -60,7 +58,7 @@ Use reference pages when you already know what you need to look up:
 - [Diagnostics](diagnostics/index.html) for error-code guidance
 - [Machine-readable contracts](reference/machine-contracts.md) for supported JSON integrations
 
-After an error, the quickest lookup is usually:
+When ClipAsm reports a diagnostic code, the quickest explanation is usually:
 
 ```console,ignore
 clipasm explain E_UNKNOWN_PROGRAM

@@ -16,5 +16,5 @@ Choose the topic you need:
 | CLI source and root bindings | [Command-line reference](../cli.md) |
 
 The [formal grammar](../../language-grammar.md) is the normative EBNF for
-language version 1. Tutorials and guides explain common workflows; these pages
-own exact authored behavior.
+language version 1. Learning chapters and guides explain common workflows;
+these pages own exact authored behavior.

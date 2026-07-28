@@ -1,0 +1,37 @@
+clipasm 1
+
+config {
+    video {
+        width = 320
+        height = 180
+        fps = 24
+    }
+    output = "generated/learning.mp4"
+}
+
+import "programs/scene_motion.clipasm" as scene_motion
+
+clip {
+    image("assets/morning.png", 1500ms, contain)
+} as morning
+
+clip {
+    image("assets/meadow.png", 1500ms, contain)
+    scene_motion
+} as meadow
+
+clip {
+    image("assets/evening.png", 1500ms, contain)
+} as evening
+
+clip {
+    $morning
+    $meadow
+    flash_cut(200ms)
+    $evening
+} as edit
+
+$edit
+during($edit::evening) {
+    scene_motion(2%)
+}

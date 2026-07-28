@@ -1,13 +1,17 @@
-# Stack values, ownership, and visibility
+# Stack ownership and visibility
 
-Most ClipAsm calls can take their Video or Audio inputs from values produced by
-preceding statements. This is the stack model.
+The learning chapters show the everyday rule: a call with omitted Video or
+Audio inputs consumes matching values produced nearby. This page explains what
+happens when bodies and nested compositions create more than one stack frame.
 
-## Values stay immutable
+## Values and occurrences are different
 
-A Video or Audio value is an immutable result. Placing the same named value on
-the stack more than once creates several usable occurrences; it does not copy or
-change the underlying result.
+A Video or Audio value is an immutable graph result. A statement places an
+occurrence of that value on a stack; a program consumes occurrences and returns
+new values.
+
+Referencing a name creates another usable occurrence without copying or moving
+the underlying graph:
 
 ```clipasm
 image("title.png", 1s) as title
@@ -16,59 +20,52 @@ $title
 concat
 ```
 
-The two references can both be consumed by `concat`.
+The two references can both be consumed by `concat`. The original named value
+continues to identify the same immutable result.
 
-## Omitted inputs come from the stack
+## Bodies create ownership boundaries
+
+Each source-program invocation and program body owns the occurrences created
+directly in its stack frame. Ownership prevents an inner operation from
+accidentally consuming unrelated values created by a caller or enclosing body.
+
+Most direct built-ins and imported programs use **owned** access: omitted inputs
+may come only from the current owned frame. `join` and `during` use **visible**
+access because their bodies commonly need the values those programs provide.
+
+## Explicit access is local
+
+`@owned` restricts one block or call to the current ownership frame. `@visible`
+allows one call to search enclosing visible frames until it reaches an owned
+boundary:
 
 ```clipasm
-image("before.png", 2s)
-image("after.png", 2s)
-crossfade(500ms)
+@owned {
+    image("inside.png", 1s)
+    @visible concat
+}
 ```
 
-`crossfade` needs `before` and `after`. It binds the nearest matching Video to
-its last input first, so the second image becomes `after` and the first becomes
-`before`.
+The owned block stops the visible `concat` from reaching Videos outside the
+block. Access annotations apply only to the form they prefix; they do not
+silently change every nested operation.
 
-Values of another type remain in place. A generic variadic program such as
-`concat` consumes all accessible values of the selected type in their physical
-order.
+Use explicit access only when a nested composition genuinely needs different
+visibility. Ordinary linear compositions should rely on each program's
+documented default.
 
-Explicit arguments do not consume occurrences from the caller's stack:
+## Names do not create lexical graph scope
 
-```clipasm
-set_audio(
-    video=video("picture.mp4"),
-    audio=audio("sound.wav"),
-)
-```
+Stack ownership and name visibility are separate. A graph name created in a
+nested body remains available throughout the containing source-program
+invocation. Temporary body-input names such as `$before`, `$after`, and
+`$timeline` exist only while that body is active.
 
-## Bodies own the values they create
+A bare `{ ... }` stack block groups work and returns every child-stack value
+left inside it; it is not a lexical name scope. `clip { ... }` instead combines
+one timeline type and removes its temporary outer occurrence, leaving an
+optional name available for later references.
 
-`@owned` restricts a call to values created by the current body. `@visible`
-allows it to also reach values from enclosing bodies until an owned boundary is
-encountered.
-
-Most direct programs and imported programs default to owned access. `join` and
-`during` default to visible access because their bodies commonly work with the
-inputs those programs provide.
-
-A plain `{ ... }` stack block can expose enclosing values to explicitly visible
-calls inside it. `@owned { ... }` creates a boundary.
-
-## Names read values; they do not consume them
-
-`as name` attaches an immutable name to an output. `$name` places a readable
-occurrence of that value where the reference appears. Naming and referencing do
-not remove another stack occurrence.
-
-Graph names are unique within one source-program invocation. Names created in a
-nested body remain available in that invocation. Body-input names such as
-`$before`, `$after`, and `$timeline` are temporary exceptions scoped to the
-active body.
-
-Scalar aliases are separate from graph names and do not affect the media stack.
-
-See [Stack binding](../reference/language/stack-binding.md) for exact input and
-visibility rules and [Composition forms](../reference/language/composition-forms.md)
-for blocks, `clip`, names, and references.
+See [Stack binding](../reference/language/stack-binding.md) for exact selection
+rules and [Composition forms](../reference/language/composition-forms.md) for
+`clip`, stack blocks, names, and references.

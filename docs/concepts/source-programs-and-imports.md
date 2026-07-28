@@ -53,6 +53,9 @@ Validation checks every linked imported source program, even when the root does
 not call it. Rendering later opens only media and tools reachable from the Video
 being published.
 
-See [Imports](../reference/language/imports-and-external-programs.md#imports) for
-exact syntax and [Import and call a source program](../guides/import-a-program.md)
-for a complete example.
+Follow [Import and call a source program](../guides/import-a-program.md) for the
+complete task workflow. Chapter 7,
+[Reuse a scene style across source files](../learn/07-reusable-program.md),
+introduces imports within the learning project. See
+[Imports](../reference/language/imports-and-external-programs.md#imports) for
+exact syntax.

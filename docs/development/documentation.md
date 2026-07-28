@@ -16,9 +16,35 @@ Give each page one job and keep exact rules in one place.
   when a precise rule matters instead of restating every edge case.
 - **Development documentation:** help contributors change and verify the project.
 
-Tutorials may explain why each step matters. How-to guides assume a reader who
-already has a goal and should not detour into a full lesson. Keep one reader
-journey per page; link to a different page type when the reader's need changes.
+Learning chapters may explain why each step matters. How-to guides assume a
+reader who already has a goal and should not detour into a full lesson. Keep one
+reader journey per page; link to a different page type when the reader's need
+changes.
+
+## Learning chapters
+
+The user-facing tutorial sequence is presented as **Learn ClipAsm**, one ordered
+set of chapters rather than a collection of independent tutorials.
+
+- Continue the same project, source filename, assets, durations, and output path
+  unless a chapter explicitly motivates a change.
+- Begin from the preceding checkpoint and end in a valid, unambiguous edit
+  state. Do not repeat a complete source listing when precise incremental edits
+  are clearer.
+- Introduce a construct only when the current edit needs it.
+- Deliberately show an error only when it exposes an important invariant. Warn
+  that failure is expected, identify the mismatch, repair it immediately, and
+  validate the repaired source.
+- Prefer normal stack binding in linear compositions. Do not introduce named
+  graph inputs, stack blocks, `join`, or explicit access modes merely to cover
+  syntax.
+- End with an observable validation or render result, a short statement of what
+  changed in the reader's model, and exactly one next chapter.
+- Keep a runnable final checkpoint under `examples/` and validate it with the
+  rest of the repository.
+
+The browser playground is a separate quick-success path. Guides remain
+task-oriented and may assume the language concepts taught by the ordered path.
 
 ## Canonical owners
 

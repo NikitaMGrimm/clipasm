@@ -15,6 +15,7 @@ create-missing = false
 [output.html]
 additional-css = ["theme/clipasm-playground.css"]
 additional-js = ["theme/clipasm-playground.js"]
+no-section-label = true
 
 [output.html.playground]
 runnable = false

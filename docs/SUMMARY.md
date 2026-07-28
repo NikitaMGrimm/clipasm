@@ -1,29 +1,34 @@
 # Summary
 
 [Introduction](index.md)
+[Try ClipAsm in the browser](try-clipasm.md)
 
-# Getting started
+# Learn ClipAsm
 
-- [Try ClipAsm](try-clipasm.md)
-- [Install and render ClipAsm](getting-started/first-render.md)
+- [1. Get ClipAsm running](learn/01-get-clipasm-running.md)
+- [2. From one image to a sequence](learn/02-first-sequence.md)
+- [3. Name and reference a clip](learn/03-name-and-reference-clip.md)
+- [4. Transform one scene](learn/04-transform-scene.md)
+- [5. Add a flash between scenes](learn/05-transition.md)
+- [6. Change a named scene after assembly](learn/06-timeline-edit.md)
+- [7. Reuse a scene style across source files](learn/07-reusable-program.md)
 
-# Tutorials
-
-- [Build the scenic sequence](tutorials/scenic-sequence.md)
-- [Add a flash-cut transition](tutorials/add-a-transition.md)
+---
 
 # How-to guides
 
 - [Check a program before rendering](guides/validate-and-inspect.md)
+- [Inspect compiled JSON](guides/inspect-compiled-json.md)
 - [Supply root inputs and parameters](guides/root-inputs-and-parameters.md)
 - [Import and call a source program](guides/import-a-program.md)
+- [Add or replace a soundtrack](guides/add-audio.md)
 - [Review and run an external program](guides/external-programs.md)
 - [Troubleshooting](guides/troubleshooting.md)
 
-# Concepts
+# Understand ClipAsm
 
 - [From source to published video](concepts/pipeline.md)
-- [Stack values, ownership, and visibility](concepts/stack-values.md)
+- [Stack ownership and visibility](concepts/stack-values.md)
 - [Source programs and imports](concepts/source-programs-and-imports.md)
 - [External programs and the trust boundary](concepts/external-programs-and-trust.md)
 
