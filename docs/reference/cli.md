@@ -54,6 +54,7 @@ The starter tree is exactly:
 ```text
 .gitignore
 README.md
+clipasm.toml
 main.clipasm
 assets/
   morning.png
@@ -74,10 +75,10 @@ Created ClipAsm project at `hello-video`.
 
 Next:
   cd "hello-video"
-  clipasm render main.clipasm
+  clipasm render
 
 Optional source check:
-  clipasm validate main.clipasm
+  clipasm validate
 ```
 
 When the target is the current directory, the `cd` line is omitted. For a path
@@ -128,17 +129,36 @@ the [diagnostic index](../diagnostics/index.html).
 For a complete, searchable list of built-in diagnostics, see the
 [diagnostics reference](../diagnostics/index.html).
 
-## Common source argument
+## Projects and source selection
 
-The `validate`, `inspect`, and `render` commands accept one native `.clipasm`
-source program:
+The `validate`, `inspect`, and `render` commands accept an optional native
+`.clipasm` source program:
 
 ```text
-clipasm <COMMAND> [OPTIONS] <SOURCE>
+clipasm <COMMAND> [OPTIONS] [SOURCE]
 ```
 
-The source file and paths authored inside it resolve according to the source
-unit rules in the [language reference](language/index.md). Paths supplied
+When `SOURCE` is omitted, ClipAsm searches the current directory and then each
+parent directory for the nearest `clipasm.toml`. The manifest is strict and
+currently contains exactly:
+
+```toml
+[project]
+entrypoint = "main.clipasm"
+```
+
+`project.entrypoint` is a forward-slash relative `.clipasm` path
+resolved from the manifest directory. Unknown fields, absolute paths,
+backslashes, drive-style prefixes, and paths containing `.` or `..` are
+rejected. An explicit `SOURCE` remains a
+standalone invocation and does not read an ambient project manifest.
+
+Project renders keep persistent state under `.clipasm/` at the manifest root,
+even when the entrypoint is in a nested directory. Explicit standalone sources
+keep the existing source-adjacent cache location.
+
+The selected source file and paths authored inside it resolve according to the
+source-unit rules in the [language reference](language/index.md). Paths supplied
 through CLI options resolve from the caller's working directory.
 
 ## Root bindings
@@ -177,7 +197,7 @@ from the source file that contains them.
 ## `validate`
 
 ```text
-clipasm validate [OPTIONS] <SOURCE>
+clipasm validate [OPTIONS] [SOURCE]
 ```
 
 `validate` parses and checks the complete linked source package, evaluates its
@@ -187,7 +207,7 @@ not open media, invoke FFmpeg or FFprobe, or execute external programs.
 Use it as the first check while editing:
 
 ```console,ignore
-clipasm validate main.clipasm
+clipasm validate
 ```
 
 Successful output reports the semantic value count and either an exact frame
@@ -204,14 +224,14 @@ root outputs:
 ## `inspect`
 
 ```text
-clipasm inspect [OPTIONS] <SOURCE>
+clipasm inspect [OPTIONS] [SOURCE]
 ```
 
 `inspect` performs the same pure compilation work and serializes the compiled
 semantic program as JSON. By default it writes JSON to standard output.
 
 ```console,ignore
-clipasm inspect main.clipasm
+clipasm inspect
 ```
 
 Use `-o` or `--output` to write a new file. Create the parent directory first
@@ -223,7 +243,7 @@ source or an authoring format. Consumers must check `format_version`; see
 ## `render`
 
 ```text
-clipasm render [OPTIONS] <SOURCE>
+clipasm render [OPTIONS] [SOURCE]
 ```
 
 `render` compiles the source, performs preflight, executes the prepared plan,
@@ -232,7 +252,7 @@ See [Machine-readable contracts](machine-contracts.md#render-manifest) before
 consuming that JSON.
 
 ```console,ignore
-clipasm render main.clipasm
+clipasm render
 ```
 
 The root source may declare `config.output`. Override it with `-o` or

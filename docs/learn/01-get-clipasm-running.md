@@ -33,6 +33,7 @@ The new project contains:
 ```text
 .gitignore
 README.md
+clipasm.toml
 main.clipasm
 assets/
   morning.png
@@ -46,7 +47,7 @@ render, or contact the network, and ClipAsm does not rewrite the project later.
 ## 2. Render the starter
 
 ```console,ignore
-clipasm render main.clipasm
+clipasm render
 ```
 
 ClipAsm checks the source, opens the three images, verifies the required media

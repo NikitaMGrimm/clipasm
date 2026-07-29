@@ -69,7 +69,7 @@ fn every_builtin_reference_example_compiles_and_uses_its_program() {
 #[test]
 fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
     let references = diagnostics();
-    assert_eq!(references.len(), 164);
+    assert_eq!(references.len(), 167);
 
     let mut codes = BTreeSet::new();
     let mut categories = BTreeSet::new();

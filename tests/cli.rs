@@ -983,10 +983,10 @@ Created ClipAsm project at `projects/hello-video`.
 
 Next:
   cd \"projects/hello-video\"
-  clipasm render main.clipasm
+  clipasm render
 
 Optional source check:
-  clipasm validate main.clipasm
+  clipasm validate
 "
     );
     assert!(output.stderr.is_empty());
@@ -999,6 +999,7 @@ Optional source check:
             "assets/evening.png",
             "assets/meadow.png",
             "assets/morning.png",
+            "clipasm.toml",
             "main.clipasm",
         ]
         .map(PathBuf::from)
@@ -1011,10 +1012,11 @@ Optional source check:
         readme.as_bytes(),
         include_bytes!("../examples/starter/README.md")
     );
-    for command in [
-        "clipasm validate main.clipasm",
-        "clipasm render main.clipasm",
-    ] {
+    assert_eq!(
+        fs::read(target.join("clipasm.toml")).expect("generated manifest"),
+        include_bytes!("../examples/starter/clipasm.toml")
+    );
+    for command in ["clipasm validate", "clipasm render"] {
         assert!(readme.contains(command));
     }
     assert_eq!(
@@ -1049,7 +1051,7 @@ Optional source check:
     }
     assert!(!target.join(".git").exists());
 
-    let validation = run_clipasm(&target, &["validate", "main.clipasm"]);
+    let validation = run_clipasm(&target.join("assets"), &["validate"]);
     assert!(
         validation.status.success(),
         "generated source failed validation: {}",
@@ -1080,10 +1082,10 @@ fn init_uses_the_current_directory_and_preserves_unrelated_content() {
 Created ClipAsm project at `.`.
 
 Next:
-  clipasm render main.clipasm
+  clipasm render
 
 Optional source check:
-  clipasm validate main.clipasm
+  clipasm validate
 "
     );
     assert_eq!(
@@ -1173,14 +1175,14 @@ fn initialized_project_renders_when_media_tools_are_available() {
     let initialized = run_clipasm(directory.path(), &["init"]);
     assert!(initialized.status.success());
 
-    let validated = run_clipasm(directory.path(), &["validate", "main.clipasm"]);
+    let validated = run_clipasm(directory.path(), &["validate"]);
     assert!(
         validated.status.success(),
         "starter validation failed: {}",
         String::from_utf8_lossy(&validated.stderr)
     );
 
-    let rendered = run_clipasm(directory.path(), &["render", "main.clipasm"]);
+    let rendered = run_clipasm(directory.path(), &["render"]);
 
     assert!(
         rendered.status.success(),
@@ -1487,6 +1489,108 @@ fn inspect_prints_machine_readable_semantics() {
     let plan: serde_json::Value = serde_json::from_slice(&output.stdout).expect("plan JSON");
     assert!(plan["structure_hash"].as_str().is_some());
     assert_eq!(plan["nodes"][0]["kind"]["operation"], "image_video");
+}
+
+#[test]
+fn project_commands_discover_the_nearest_manifest_from_subdirectories() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::create_dir_all(directory.path().join("src/nested")).expect("nested directory");
+    fs::write(
+        directory.path().join("clipasm.toml"),
+        "[project]\nentrypoint = \"src/main.clipasm\"\n",
+    )
+    .expect("manifest");
+    fs::write(
+        directory.path().join("src/main.clipasm"),
+        "clipasm 1\nimage(\"missing.png\", 1s)\n",
+    )
+    .expect("source");
+
+    let validate = run_clipasm(&directory.path().join("src/nested"), &["validate"]);
+    assert!(
+        validate.status.success(),
+        "{}",
+        String::from_utf8_lossy(&validate.stderr)
+    );
+
+    let inspect = run_clipasm(&directory.path().join("src/nested"), &["inspect"]);
+    assert!(
+        inspect.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&inspect.stdout).expect("compiled JSON");
+    assert_eq!(document["nodes"][0]["kind"]["operation"], "image_video");
+}
+
+#[test]
+fn project_render_keeps_cache_at_the_manifest_root() {
+    if !common::media_tools_available() {
+        eprintln!("skipping project-root cache test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::create_dir_all(directory.path().join("src/nested")).expect("nested directory");
+    fs::write(
+        directory.path().join("clipasm.toml"),
+        "[project]\nentrypoint = \"src/main.clipasm\"\n",
+    )
+    .expect("manifest");
+    fs::write(
+        directory.path().join("src/card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    fs::write(
+        directory.path().join("src/main.clipasm"),
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("source");
+
+    let rendered = run_clipasm(&directory.path().join("src/nested"), &["render"]);
+    assert!(
+        rendered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rendered.stderr)
+    );
+    assert!(directory.path().join(".clipasm/cache").is_dir());
+    assert!(!directory.path().join("src/.clipasm").exists());
+}
+
+#[test]
+fn explicit_sources_do_not_depend_on_ambient_project_manifests() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(directory.path().join("clipasm.toml"), "not valid toml").expect("manifest");
+    fs::write(
+        directory.path().join("standalone.clipasm"),
+        "clipasm 1\nimage(\"missing.png\", 1s)\n",
+    )
+    .expect("source");
+
+    let output = run_clipasm(directory.path(), &["validate", "standalone.clipasm"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn omitted_sources_report_missing_and_invalid_project_manifests() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let missing = run_clipasm(directory.path(), &["validate"]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("[E_PROJECT_NOT_FOUND]"));
+
+    fs::write(
+        directory.path().join("clipasm.toml"),
+        "[project]\nentrypoint = \"../outside.clipasm\"\n",
+    )
+    .expect("invalid manifest");
+    let invalid = run_clipasm(directory.path(), &["validate"]);
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("[E_PROJECT_MANIFEST]"));
 }
 
 #[test]

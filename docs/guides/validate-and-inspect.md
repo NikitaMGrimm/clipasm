@@ -12,7 +12,7 @@ repository checkout, substitute `examples/scenic-sequence.clipasm`.
 ## 1. Validate the source
 
 ```console,ignore
-clipasm validate main.clipasm
+clipasm validate
 ```
 
 A successful validation confirms that ClipAsm can parse the package, resolve
@@ -38,7 +38,7 @@ successful frame count or a duration that will resolve during preflight.
 ## 3. Render the checked program
 
 ```console,ignore
-clipasm render main.clipasm
+clipasm render
 ```
 
 Rendering repeats the source checks, then opens reachable media, verifies the

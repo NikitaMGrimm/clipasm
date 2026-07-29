@@ -17,7 +17,7 @@ mod publication;
 mod staging;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -62,7 +62,6 @@ pub struct RenderReport {
 /// Returns a diagnostic for changed execution-frontier assets,
 /// rendering/cache failures, contract violations, or publication failures.
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
-    plan.verify_tool_identities()?;
     let source_directory = plan.entrypoint_source().base_directory().ok_or_else(|| {
         Diagnostic::builtin(
             BuiltinDiagnostic::InvalidPlan,
@@ -70,10 +69,19 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
             SourceSpan::source_start(plan.entrypoint_source().clone()),
         )
     })?;
-    let cache_directory = source_directory
-        .join(".clipasm")
-        .join("cache")
-        .join(plan.execution_namespace());
+    render_with_cache_root(plan, &source_directory.join(".clipasm").join("cache"))
+}
+
+/// Render an invariant-protected prepared plan with an explicit persistent cache root.
+///
+/// `ClipAsm` stores execution-namespace directories beneath `cache_root`.
+///
+/// # Errors
+///
+/// Returns the same diagnostics as [`render`].
+pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<RenderReport> {
+    plan.verify_tool_identities()?;
+    let cache_directory = cache_root.join(plan.execution_namespace());
     fs::create_dir_all(&cache_directory).map_err(|error| {
         Diagnostic::builtin(
             BuiltinDiagnostic::CacheIo,

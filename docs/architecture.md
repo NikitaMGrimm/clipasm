@@ -23,6 +23,16 @@ Prepared primitive plan + one result
 
 ## Language and canonical source
 
+### CLI project discovery
+
+The native CLI owns `clipasm.toml` discovery and decoding. When a source path is
+omitted, it searches upward from the caller's current directory and resolves the
+manifest's relative entrypoint and project root. An explicit source path bypasses
+project discovery. The manifest selects a source package and the host location
+for project-local `.clipasm/` state only; it does not contribute language
+configuration, semantic identity, media settings, output settings, or renderer
+policy.
+
 ### Authored model
 
 `source` owns the lowered authored model: linked source packages, source units,
@@ -529,9 +539,11 @@ cancellation terminates the worker. Browser rendering has no persistent cache.
 
 ### Cache and publication
 
-The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
-file locks serialize validation and replacement across ClipAsm processes without
-blocking unrelated fingerprints. Exact media verification happens once, before
+Project renders keep the cache under `.clipasm/cache/` at the discovered
+manifest root. Explicit standalone sources use `.clipasm/cache/` beside the
+entrypoint source. Per-artifact file locks serialize validation and replacement
+across ClipAsm processes without blocking unrelated fingerprints. Exact media
+verification happens once, before
 the versioned sidecar for those bytes is committed. Later hits rehash the complete
 artifact and require the sidecar to identify the current execution namespace and
 node fingerprint. This detects accidental corruption and shape-compatible swaps
@@ -550,6 +562,7 @@ remain iterative so graph depth is not limited by the Rust call stack.
 ## Ownership rules
 
 - Canonical source owns lowered authored structures and source locations.
+- The native CLI owns project-manifest discovery and entrypoint selection.
 - The native language layer owns surface grammar, package loading, callable
   argument elaboration, and structural sugar.
 - The entrypoint adapter owns validation and conversion of root values supplied

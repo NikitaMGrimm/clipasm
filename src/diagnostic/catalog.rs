@@ -1355,6 +1355,27 @@ diagnostic_catalog! {
         retry: FixSource,
         summary: "An authored program body produces an output whose type differs from its declaration.",
     };
+    ProjectIo => {
+        code: "E_PROJECT_IO",
+        title: "Project manifest I/O failure",
+        category: CommandLineAndProjects,
+        retry: FixEnvironment,
+        summary: "ClipAsm could not discover, inspect, or read a project manifest path.",
+    };
+    ProjectManifest => {
+        code: "E_PROJECT_MANIFEST",
+        title: "Invalid project manifest",
+        category: CommandLineAndProjects,
+        retry: FixArguments,
+        summary: "A clipasm.toml file is malformed or contains an unsupported project setting.",
+    };
+    ProjectNotFound => {
+        code: "E_PROJECT_NOT_FOUND",
+        title: "Project manifest not found",
+        category: CommandLineAndProjects,
+        retry: FixArguments,
+        summary: "A command omitted its source path, but no clipasm.toml file was found in the current directory or its parents.",
+    };
     Publication => {
         code: "E_PUBLICATION",
         title: "Publication failed",
@@ -1853,7 +1874,7 @@ mod tests {
 
     #[test]
     fn catalog_is_complete_unique_valid_and_ordered() {
-        assert_eq!(REFERENCES.len(), 164);
+        assert_eq!(REFERENCES.len(), 167);
 
         let mut previous = None;
         let mut codes = HashSet::new();

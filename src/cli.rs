@@ -14,6 +14,7 @@ use clipasm::{compiler, language, preflight, render};
 mod explain;
 mod init;
 mod programs;
+mod project;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -67,15 +68,15 @@ enum Command {
     },
     /// Parse, type-check, and infer source-independent Video and Audio domains.
     Validate {
-        /// Native `.clipasm` source program.
-        source: PathBuf,
+        /// Native `.clipasm` source program. Omit to use the discovered project entrypoint.
+        source: Option<PathBuf>,
         #[command(flatten)]
         bindings: BindingArgs,
     },
     /// Inspect compiled Video and Audio semantics as JSON.
     Inspect {
-        /// Native `.clipasm` source program.
-        source: PathBuf,
+        /// Native `.clipasm` source program. Omit to use the discovered project entrypoint.
+        source: Option<PathBuf>,
         /// Write inspection JSON to a new path instead of stdout. Existing files are preserved.
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -87,8 +88,8 @@ enum Command {
         about = "Compile and render a Video, including attached Audio, using FFmpeg and FFprobe"
     )]
     Render {
-        /// Native `.clipasm` source program. Relative paths resolve from its directory.
-        source: PathBuf,
+        /// Native `.clipasm` source program. Omit to use the discovered project entrypoint.
+        source: Option<PathBuf>,
         /// Override `config.output`. Relative paths resolve from the caller's working directory.
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -135,7 +136,8 @@ fn execute(cli: Cli) -> Result<()> {
         Command::Programs { name } => programs::print(name.as_deref())?,
         Command::Explain { code } => explain::print(&code)?,
         Command::Validate { source, bindings } => {
-            let authored = language::parse_file(&source)?;
+            let selection = resolve_source(source)?;
+            let authored = language::parse_file(selection.source())?;
             let bindings = entrypoint_bindings(bindings, None)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             if let [output] = compiled.outputs() {
@@ -170,7 +172,8 @@ fn execute(cli: Cli) -> Result<()> {
             output,
             bindings,
         } => {
-            let authored = language::parse_file(&source)?;
+            let selection = resolve_source(source)?;
+            let authored = language::parse_file(selection.source())?;
             let bindings = entrypoint_bindings(bindings, None)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let json = compiled.compiled_json()?;
@@ -185,11 +188,15 @@ fn execute(cli: Cli) -> Result<()> {
             output,
             bindings,
         } => {
-            let authored = language::parse_file(&source)?;
+            let selection = resolve_source(source)?;
+            let authored = language::parse_file(selection.source())?;
             let bindings = entrypoint_bindings(bindings, output)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let prepared = preflight::preflight(&compiled)?;
-            let report = render::render(&prepared)?;
+            let report = match selection.project() {
+                Some(project) => render::render_with_cache_root(&prepared, &project.cache_root())?,
+                None => render::render(&prepared)?,
+            };
             println!(
                 "rendered {} (cache: {} hit(s), {} miss(es)); manifest: {}",
                 report.output.display(),
@@ -215,9 +222,37 @@ fn print_init_success(target: &Path, initializes_current_directory: bool) {
             println!("  In the created project directory, run:");
         }
     }
-    println!("  clipasm render main.clipasm");
+    println!("  clipasm render");
     println!("\nOptional source check:");
-    println!("  clipasm validate main.clipasm");
+    println!("  clipasm validate");
+}
+
+enum SourceSelection {
+    Explicit(PathBuf),
+    Project(project::Project),
+}
+
+impl SourceSelection {
+    fn source(&self) -> &Path {
+        match self {
+            Self::Explicit(source) => source,
+            Self::Project(project) => project.entrypoint(),
+        }
+    }
+
+    const fn project(&self) -> Option<&project::Project> {
+        match self {
+            Self::Explicit(_) => None,
+            Self::Project(project) => Some(project),
+        }
+    }
+}
+
+fn resolve_source(source: Option<PathBuf>) -> Result<SourceSelection> {
+    source.map_or_else(
+        || project::discover().map(SourceSelection::Project),
+        |source| Ok(SourceSelection::Explicit(source)),
+    )
 }
 
 fn safe_display_path(path: &Path) -> String {

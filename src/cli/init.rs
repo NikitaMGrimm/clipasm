@@ -12,6 +12,10 @@ use super::safe_display_path;
 const DIRECTORIES: &[&str] = &["assets"];
 const FILES: &[ScaffoldFile] = &[
     ScaffoldFile::new(
+        "clipasm.toml",
+        include_bytes!("../../examples/starter/clipasm.toml"),
+    ),
+    ScaffoldFile::new(
         ".gitignore",
         include_bytes!("../../examples/starter/.gitignore"),
     ),
