@@ -56,6 +56,9 @@ pub(crate) fn terminate(child: &mut Child) {
     terminate_group(child);
     let _ = child.kill();
     let _ = child.wait();
+    // The direct child can create another group member after the first signal
+    // was sent but before it is reaped. Sweep the now-orphaned group again.
+    terminate_group(child);
 }
 
 fn terminate_group(child: &Child) {
