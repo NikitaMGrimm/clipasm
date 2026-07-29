@@ -6,7 +6,7 @@ use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::VideoSpec;
 use crate::source::SourceSpan;
 
-const ARTIFACT_CONTRACT_REVISION: u32 = 10;
+const ARTIFACT_CONTRACT_REVISION: u32 = 11;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RenderPolicy {
@@ -192,7 +192,7 @@ mod tests {
         let current = RenderPolicy::CURRENT;
         let variants = [
             ArtifactCachePolicy {
-                contract_revision: 11,
+                contract_revision: 12,
                 ..current.artifact_cache
             },
             ArtifactCachePolicy {

@@ -101,14 +101,15 @@ impl ExecutionPlan {
                     } else {
                         cache::remove_entry(&action.artifact)?;
                         let staged = executor.render_node(node, &artifacts, &action.artifact)?;
-                        verify_prepared_artifact(
-                            plan.ffprobe().executable(),
-                            staged.path(),
-                            node,
-                            *plan.audio(),
-                            plan.render_policy().working_pixel_format(),
-                        )?;
-                        staged.commit(node.fingerprint())?;
+                        let verified = staged.verify(|path| {
+                            verify_prepared_artifact(
+                                plan.ffprobe().executable(),
+                                path,
+                                &node.artifact_contract(),
+                                plan.render_policy().working_pixel_format(),
+                            )
+                        })?;
+                        verified.commit(cache_identity(plan, node))?;
                         cache_misses += 1;
                     }
                 }
@@ -219,15 +220,14 @@ fn cache_artifact_path(
 }
 
 fn cache_is_valid(plan: &PreparedPlan, node: &PreparedNode, artifact: &Path) -> bool {
-    cache::verify_entry(artifact, node.fingerprint()).is_ok()
-        && verify_prepared_artifact(
-            plan.ffprobe().executable(),
-            artifact,
-            node,
-            *plan.audio(),
-            plan.render_policy().working_pixel_format(),
-        )
-        .is_ok()
+    cache::verify_entry(artifact, cache_identity(plan, node)).is_ok()
+}
+
+fn cache_identity<'a>(
+    plan: &'a PreparedPlan,
+    node: &'a PreparedNode,
+) -> cache::CacheEntryIdentity<'a> {
+    cache::CacheEntryIdentity::new(plan.execution_namespace(), node.fingerprint())
 }
 
 fn verify_node_resources(node: &PreparedNode) -> Result<()> {

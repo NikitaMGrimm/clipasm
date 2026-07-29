@@ -6,7 +6,7 @@
 /// Current compiled inspection JSON format version.
 pub(crate) const COMPILED_INSPECTION_FORMAT_VERSION: u32 = 21;
 /// Current prepared inspection JSON format version.
-pub(crate) const PREPARED_INSPECTION_FORMAT_VERSION: u32 = 11;
+pub(crate) const PREPARED_INSPECTION_FORMAT_VERSION: u32 = 12;
 /// Current render manifest format version.
 pub(crate) const RENDER_MANIFEST_FORMAT_VERSION: u32 = 1;
 /// Current external-program request protocol version.

@@ -16,7 +16,8 @@ use crate::preflight::{
     PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
 
-use context::{RenderContext, StagedArtifact};
+use super::cache::StagedArtifact;
+use context::RenderContext;
 pub(crate) use export::export_recipe;
 pub(crate) use recipe::{FfmpegArgument, FfmpegRecipe, RecipeContext};
 

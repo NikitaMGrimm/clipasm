@@ -59,7 +59,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 11);
+    assert_eq!(document["format_version"], 12);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -139,6 +139,51 @@ fn prepared_media_is_structurally_typed_without_changing_json_shape() {
     assert!(audio_json["domain"].is_null());
     assert!(audio_json["audio_domain"].is_object());
     assert_eq!(audio_json["has_audio"], false);
+}
+
+#[test]
+fn video_working_identity_includes_its_physical_audio_domain() {
+    if !common::media_tools_available() {
+        eprintln!("skipping working identity test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let default_source = directory.path().join("default.clipasm");
+    let changed_source = directory.path().join("changed.clipasm");
+    fs::write(
+        &default_source,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"default.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("default source");
+    fs::write(
+        &changed_source,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\naudio { sample_rate = 44100 }\noutput = \"changed.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("changed source");
+
+    let default_plan = clipasm::preflight::preflight(
+        &compile_file(&default_source).expect("compile default source"),
+    )
+    .expect("default preflight");
+    let changed_plan = clipasm::preflight::preflight(
+        &compile_file(&changed_source).expect("compile changed source"),
+    )
+    .expect("changed preflight");
+
+    assert_ne!(
+        default_plan.nodes()[default_plan.result().get() as usize].fingerprint(),
+        changed_plan.nodes()[changed_plan.result().get() as usize].fingerprint(),
+        "working Video bytes depend on the project audio format"
+    );
+    let default_json: serde_json::Value =
+        serde_json::from_str(&default_plan.prepared_json().expect("default JSON")).expect("JSON");
+    let changed_json: serde_json::Value =
+        serde_json::from_str(&changed_plan.prepared_json().expect("changed JSON")).expect("JSON");
+    assert_eq!(
+        default_json["execution_namespace"], changed_json["execution_namespace"],
+        "project media belongs to per-node artifact identity, not tool/policy namespace"
+    );
 }
 
 #[test]

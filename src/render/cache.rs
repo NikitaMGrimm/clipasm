@@ -8,14 +8,77 @@ use sha2::{Digest, Sha256};
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
-const ENTRY_FORMAT_VERSION: u32 = 1;
+use super::staging::StagingDirectory;
+
+const ENTRY_FORMAT_VERSION: u32 = 2;
 const MAX_METADATA_BYTES: u64 = 4 * 1024;
 
 #[derive(Deserialize, Serialize)]
 struct CacheEntryDocument<'a> {
     format_version: u32,
+    execution_namespace: &'a str,
     fingerprint: &'a str,
     content_hash: String,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct CacheEntryIdentity<'a> {
+    execution_namespace: &'a str,
+    fingerprint: &'a str,
+}
+
+impl<'a> CacheEntryIdentity<'a> {
+    pub(super) const fn new(execution_namespace: &'a str, fingerprint: &'a str) -> Self {
+        Self {
+            execution_namespace,
+            fingerprint,
+        }
+    }
+}
+
+pub(super) struct StagedArtifact {
+    _staging: StagingDirectory,
+    path: PathBuf,
+    metadata: PathBuf,
+    destination: PathBuf,
+}
+
+pub(super) struct VerifiedArtifact(StagedArtifact);
+
+impl StagedArtifact {
+    pub(super) fn new(destination: &Path, extension: &str) -> Result<Self> {
+        let staging = StagingDirectory::beside(destination, "cache", BuiltinDiagnostic::CacheIo)?;
+        Ok(Self {
+            path: staging.path(&format!("artifact.{extension}")),
+            metadata: staging.path("artifact.cache.json"),
+            destination: destination.to_path_buf(),
+            _staging: staging,
+        })
+    }
+
+    pub(super) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(super) fn verify(
+        self,
+        verifier: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<VerifiedArtifact> {
+        verifier(&self.path)?;
+        Ok(VerifiedArtifact(self))
+    }
+}
+
+impl VerifiedArtifact {
+    pub(super) fn commit(self, identity: CacheEntryIdentity<'_>) -> Result<()> {
+        let staged = self.0;
+        commit_verified(
+            &staged.path,
+            &staged.metadata,
+            &staged.destination,
+            identity,
+        )
+    }
 }
 
 pub(super) fn metadata_path(artifact: &Path) -> PathBuf {
@@ -27,7 +90,7 @@ pub(super) fn metadata_path(artifact: &Path) -> PathBuf {
         .join(name)
 }
 
-pub(super) fn verify_entry(artifact: &Path, fingerprint: &str) -> Result<()> {
+pub(super) fn verify_entry(artifact: &Path, identity: CacheEntryIdentity<'_>) -> Result<()> {
     require_regular_file(artifact, "cache artifact")?;
     let metadata_path = metadata_path(artifact);
     let metadata = require_regular_file(&metadata_path, "cache metadata")?;
@@ -49,10 +112,13 @@ pub(super) fn verify_entry(artifact: &Path, fingerprint: &str) -> Result<()> {
     let document: CacheEntryDocument<'_> = serde_json::from_slice(&bytes).map_err(|error| {
         cache_error(
             &metadata_path,
-            format!("cache metadata is not valid JSON: {error}"),
+            format!("cache metadata does not match the current schema: {error}"),
         )
     })?;
-    if document.format_version != ENTRY_FORMAT_VERSION || document.fingerprint != fingerprint {
+    if document.format_version != ENTRY_FORMAT_VERSION
+        || document.execution_namespace != identity.execution_namespace
+        || document.fingerprint != identity.fingerprint
+    {
         return Err(cache_error(
             &metadata_path,
             "cache metadata does not identify this prepared node",
@@ -68,16 +134,17 @@ pub(super) fn verify_entry(artifact: &Path, fingerprint: &str) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn commit_verified(
+fn commit_verified(
     artifact: &Path,
     staged_metadata: &Path,
     destination: &Path,
-    fingerprint: &str,
+    identity: CacheEntryIdentity<'_>,
 ) -> Result<()> {
     let content_hash = hash_file(artifact)?;
     let document = CacheEntryDocument {
         format_version: ENTRY_FORMAT_VERSION,
-        fingerprint,
+        execution_namespace: identity.execution_namespace,
+        fingerprint: identity.fingerprint,
         content_hash,
     };
     let bytes = serde_json::to_vec(&document).map_err(|error| {
@@ -185,6 +252,47 @@ fn cache_error(path: &Path, message: impl Into<String>) -> Diagnostic {
 mod tests {
     use super::*;
 
+    fn identity<'a>() -> CacheEntryIdentity<'a> {
+        CacheEntryIdentity::new("namespace", "fingerprint")
+    }
+
+    #[test]
+    fn unverified_staging_is_removed_on_drop() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("artifact.mkv");
+        let staged_path = {
+            let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
+            fs::write(staged.path(), b"invalid artifact").expect("staged bytes");
+            staged.path().to_path_buf()
+        };
+        assert!(!staged_path.exists());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn only_verified_staging_can_be_committed() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("artifact.mkv");
+        let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
+        let staging_parent = staged
+            .path()
+            .parent()
+            .expect("staging parent")
+            .to_path_buf();
+        fs::write(staged.path(), b"verified artifact").expect("staged bytes");
+        staged
+            .verify(|_| Ok(()))
+            .expect("verification")
+            .commit(identity())
+            .expect("commit");
+        assert_eq!(
+            fs::read(&destination).expect("artifact"),
+            b"verified artifact"
+        );
+        assert!(!staging_parent.exists());
+        verify_entry(&destination, identity()).expect("cache metadata");
+    }
+
     #[test]
     fn committed_metadata_detects_artifact_changes() {
         let directory = tempfile::tempdir().expect("temporary directory");
@@ -192,13 +300,48 @@ mod tests {
         let staged_metadata = directory.path().join("staged.json");
         let destination = directory.path().join("artifact.mkv");
         fs::write(&staged, b"verified artifact").expect("staged artifact");
-        commit_verified(&staged, &staged_metadata, &destination, "fingerprint")
+        commit_verified(&staged, &staged_metadata, &destination, identity())
             .expect("commit cache entry");
-        verify_entry(&destination, "fingerprint").expect("verified entry");
+        verify_entry(&destination, identity()).expect("verified entry");
 
         fs::write(&destination, b"substituted artifact").expect("substitute artifact");
-        let error = verify_entry(&destination, "fingerprint").expect_err("content mismatch");
+        let error = verify_entry(&destination, identity()).expect_err("content mismatch");
         assert!(error.message.contains("recorded hash"));
+    }
+
+    #[test]
+    fn metadata_must_match_the_execution_namespace() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let staged = directory.path().join("staged.mkv");
+        let staged_metadata = directory.path().join("staged.json");
+        let destination = directory.path().join("artifact.mkv");
+        fs::write(&staged, b"verified artifact").expect("staged artifact");
+        commit_verified(&staged, &staged_metadata, &destination, identity())
+            .expect("commit cache entry");
+
+        let wrong = CacheEntryIdentity::new("other-namespace", "fingerprint");
+        let error = verify_entry(&destination, wrong).expect_err("namespace mismatch");
+        assert!(error.message.contains("does not identify"));
+    }
+
+    #[test]
+    fn legacy_metadata_is_not_reusable() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let artifact = directory.path().join("artifact.mkv");
+        fs::write(&artifact, b"verified artifact").expect("artifact");
+        fs::write(
+            metadata_path(&artifact),
+            serde_json::to_vec(&serde_json::json!({
+                "format_version": 1,
+                "fingerprint": "fingerprint",
+                "content_hash": hex::encode(Sha256::digest(b"verified artifact")),
+            }))
+            .expect("legacy metadata"),
+        )
+        .expect("write legacy metadata");
+
+        let error = verify_entry(&artifact, identity()).expect_err("legacy metadata");
+        assert!(error.message.contains("current schema"));
     }
 
     #[cfg(unix)]
@@ -211,7 +354,7 @@ mod tests {
         let artifact = directory.path().join("artifact.mkv");
         fs::write(&target, b"target").expect("target");
         symlink(&target, &artifact).expect("artifact symlink");
-        let error = verify_entry(&artifact, "fingerprint").expect_err("symlink");
+        let error = verify_entry(&artifact, identity()).expect_err("symlink");
         assert!(error.message.contains("symlink"));
     }
 }

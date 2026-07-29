@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::diagnostic::Result;
 use crate::model::{
     AudioDomain, AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, ValueType,
@@ -208,11 +210,24 @@ pub struct PreparedNode {
     fingerprint: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "value_type", rename_all = "snake_case")]
+pub(crate) enum WorkingArtifactContract<'a> {
+    Video {
+        video: &'a VideoDomain,
+        audio: &'a AudioDomain,
+    },
+    Audio {
+        audio: &'a AudioDomain,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum PreparedMedia {
     Video {
         kind: PreparedVideoKind,
         domain: VideoDomain,
+        working_audio: AudioDomain,
         has_audio: bool,
     },
     Audio {
@@ -262,6 +277,10 @@ impl PreparedNode {
         &self.media
     }
 
+    pub(crate) const fn artifact_contract(&self) -> WorkingArtifactContract<'_> {
+        self.media.artifact_contract()
+    }
+
     #[must_use]
     /// Return this node's engine-assigned prepared-plan identifier.
     pub const fn id(&self) -> NodeId {
@@ -276,6 +295,7 @@ impl PreparedNode {
                 kind,
                 domain,
                 has_audio,
+                ..
             } => PreparedNodeMedia::Video {
                 kind,
                 domain,
@@ -358,6 +378,22 @@ impl PreparedNode {
         match &self.media {
             PreparedMedia::Video { kind, .. } => kind.visit_inputs(visitor),
             PreparedMedia::Audio { kind, .. } => kind.visit_inputs(visitor),
+        }
+    }
+}
+
+impl PreparedMedia {
+    pub(super) const fn artifact_contract(&self) -> WorkingArtifactContract<'_> {
+        match self {
+            Self::Video {
+                domain,
+                working_audio,
+                ..
+            } => WorkingArtifactContract::Video {
+                video: domain,
+                audio: working_audio,
+            },
+            Self::Audio { domain, .. } => WorkingArtifactContract::Audio { audio: domain },
         }
     }
 }

@@ -483,9 +483,14 @@ satisfy artifact verification rather than the native encoding policy.
 ### Execution planning and cache validation
 
 Before execution, a private execution plan walks backward from the prepared
-result. A cache entry becomes a dependency barrier only after both its sidecar
-content hash and exact prepared media contract have been verified. A miss
-expands to the node's canonical prepared inputs. Actions then run in stable
+result. Each prepared node owns one exact physical working-artifact contract:
+Video includes its exact Video domain plus the normalized physical Audio domain
+stored in every working Video artifact, while Audio includes its exact Audio
+domain. That contract participates in the node fingerprint and is verified
+before a new cache sidecar can be committed. A later cache entry becomes a
+dependency barrier when its versioned sidecar identifies the current execution
+namespace and node fingerprint and its recorded SHA-256 matches the artifact.
+A miss expands to the node's canonical prepared inputs. Actions then run in stable
 topological order, rechecking planned misses under their per-artifact lock so a
 concurrent renderer can satisfy them without duplicate work. Source assets,
 external executables, and declared external files are rehashed when their node
@@ -526,13 +531,17 @@ cancellation terminates the worker. Browser rendering has no persistent cache.
 
 The cache lives under `.clipasm/cache/` beside the entrypoint source. Per-artifact
 file locks serialize validation and replacement across ClipAsm processes without
-blocking unrelated fingerprints. A cache hit requires both the exact media
-contract and a versioned sidecar whose recorded SHA-256 matches the artifact.
-This detects accidental corruption or shape-compatible swaps. The cache remains
-trusted local state rather than an authenticated boundary: an actor able to
-replace both artifact and sidecar can define that local state. Output and manifest files are staged as
-temporary siblings and committed under a destination-specific file lock through
-one rollback-capable publication transaction after verification.
+blocking unrelated fingerprints. Exact media verification happens once, before
+the versioned sidecar for those bytes is committed. Later hits rehash the complete
+artifact and require the sidecar to identify the current execution namespace and
+node fingerprint. This detects accidental corruption and shape-compatible swaps
+without repeatedly decoding already certified bytes. The cache remains trusted
+local state rather than an authenticated boundary: an actor able to replace both
+artifact and sidecar can define that local state. Locks coordinate ClipAsm
+processes but do not snapshot a path against unrelated local mutation between
+validation and later use. Output and manifest files are staged as temporary
+siblings and committed under a destination-specific file lock through one
+rollback-capable publication transaction after verification.
 
 The native parser, package loader, and compiler enforce explicit nesting limits
 for authored structures. Semantic graph dependency, hashing, and domain passes

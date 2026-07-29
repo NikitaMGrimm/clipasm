@@ -61,7 +61,7 @@ permissions. This protocol is not a sandbox.
 
 ## Internal formats
 
-**Prepared inspection JSON** (`format_version: 11`) and the **Browser render plan**
+**Prepared inspection JSON** (`format_version: 12`) and the **Browser render plan**
 (`version: 1`, `recipe_contract: 1`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
 persistence or interchange contracts.
 

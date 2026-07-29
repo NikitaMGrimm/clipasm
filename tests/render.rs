@@ -7,7 +7,6 @@ use std::path::Path;
 use std::process::Command;
 
 use clipasm::{compiler, preflight, render};
-use sha2::{Digest, Sha256};
 
 fn compile_file(path: &Path) -> clipasm::diagnostic::Result<compiler::CompiledProgram> {
     let source = clipasm::language::parse_file(path)?;
@@ -117,16 +116,6 @@ fn invalid_downstream_cache_expands_to_its_valid_input() {
     let result = common::cache_artifact(directory.path(), plan.nodes()[1].fingerprint(), "mkv");
     let substituted = fs::read(&input).expect("input artifact");
     fs::write(&result, &substituted).expect("replace result with shorter input");
-    let metadata_path = common::cache_metadata(&result);
-    let mut metadata: serde_json::Value =
-        serde_json::from_slice(&fs::read(&metadata_path).expect("result metadata"))
-            .expect("cache metadata JSON");
-    metadata["content_hash"] = serde_json::Value::String(hex::encode(Sha256::digest(&substituted)));
-    fs::write(
-        &metadata_path,
-        serde_json::to_vec(&metadata).expect("cache metadata"),
-    )
-    .expect("update result metadata hash");
 
     let report = render::render(&plan).expect("repair invalid result cache");
     assert_eq!(report.cache_hits, 1);

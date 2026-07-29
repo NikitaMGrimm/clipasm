@@ -43,7 +43,7 @@ pub(super) fn stage_export(
             domain,
             audio,
             has_audio,
-            false,
+            None,
             render_policy.export_pixel_format(),
         )
     });

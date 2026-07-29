@@ -9,7 +9,9 @@ use std::collections::HashMap;
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{AudioDomain, FrameCount, NodeId, ValueId, ValueRef, VideoDomain, VideoSpec};
+use crate::model::{
+    AudioDomain, FrameCount, NodeId, TimelineRate, ValueId, ValueRef, VideoDomain, VideoSpec,
+};
 use crate::semantic::{SemanticNodeKind, SourceOrigin};
 
 use super::identity::node_fingerprint;
@@ -176,10 +178,14 @@ impl PreflightLowerer<'_> {
         semantic_version: u32,
         origin: SourceOrigin,
     ) -> Result<NodeId> {
+        let project_audio = *self.compiled.audio();
+        let samples = TimelineRate::new(domain.video_spec(), project_audio)
+            .samples_for_frames(domain.frames(), &origin.span)?;
         self.add_node(
             PreparedMedia::Video {
                 kind,
                 domain,
+                working_audio: AudioDomain::new(samples, project_audio),
                 has_audio,
             },
             semantic_version,

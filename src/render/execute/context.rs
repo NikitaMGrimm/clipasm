@@ -7,7 +7,6 @@ use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedPlan, RenderPolicy};
 use crate::source::SourceSpan;
 
-use super::super::{cache, staging::StagingDirectory};
 use super::recipe::{FfmpegRecipe, RecipeContext};
 
 pub(super) struct RenderContext<'a> {
@@ -98,77 +97,10 @@ impl<'a> RenderContext<'a> {
     }
 }
 
-pub(in crate::render) struct StagedArtifact {
-    _staging: StagingDirectory,
-    path: PathBuf,
-    metadata: PathBuf,
-    destination: PathBuf,
-}
-
-impl StagedArtifact {
-    pub(super) fn new(destination: &Path, extension: &str) -> Result<Self> {
-        let staging = StagingDirectory::beside(destination, "cache", BuiltinDiagnostic::CacheIo)?;
-        Ok(Self {
-            path: staging.path(&format!("artifact.{extension}")),
-            metadata: staging.path("artifact.cache.json"),
-            destination: destination.to_path_buf(),
-            _staging: staging,
-        })
-    }
-
-    pub(in crate::render) fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub(in crate::render) fn commit(self, fingerprint: &str) -> Result<()> {
-        cache::commit_verified(&self.path, &self.metadata, &self.destination, fingerprint)
-    }
-}
-
 pub(super) fn run_command(
     command: Command,
     diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
 ) -> Result<()> {
     media_tool::run(command, diagnostic, span)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn uncommitted_cache_staging_is_removed_on_drop() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let destination = directory.path().join("artifact.mkv");
-        let staged_path = {
-            let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
-            fs::write(staged.path(), b"invalid artifact").expect("staged bytes");
-            staged.path().to_path_buf()
-        };
-        assert!(!staged_path.exists());
-        assert!(!destination.exists());
-    }
-
-    #[test]
-    fn committed_cache_staging_moves_only_the_staged_file() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let destination = directory.path().join("artifact.mkv");
-        let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
-        let staging_parent = staged
-            .path()
-            .parent()
-            .expect("staging parent")
-            .to_path_buf();
-        fs::write(staged.path(), b"verified artifact").expect("staged bytes");
-        staged.commit("fingerprint").expect("commit");
-        assert_eq!(
-            fs::read(&destination).expect("artifact"),
-            b"verified artifact"
-        );
-        assert!(!staging_parent.exists());
-        cache::verify_entry(&destination, "fingerprint").expect("cache metadata");
-    }
 }

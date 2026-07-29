@@ -5,9 +5,9 @@ use serde::Deserialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool;
-use crate::model::{AudioDomain, AudioSpec, TimelineRate, VideoDomain};
+use crate::model::{AudioDomain, AudioSpec, VideoDomain};
+use crate::preflight::WorkingArtifactContract;
 use crate::preflight::tools::decoded_audio_samples;
-use crate::preflight::{PreparedNode, PreparedNodeMedia};
 use crate::source::SourceSpan;
 
 #[derive(Deserialize)]
@@ -32,16 +32,21 @@ struct ProbeStream {
 pub(super) fn verify_prepared_artifact(
     ffprobe: &Path,
     path: &Path,
-    node: &PreparedNode,
-    audio: AudioSpec,
+    contract: &WorkingArtifactContract,
     pixel_format: &str,
 ) -> Result<()> {
-    match node.media() {
-        PreparedNodeMedia::Video { domain, .. } => {
-            verify_video_artifact(ffprobe, path, domain, audio, true, true, pixel_format)
-        }
-        PreparedNodeMedia::Audio { domain, .. } => {
-            verify_audio_artifact(ffprobe, path, domain, audio)
+    match contract {
+        WorkingArtifactContract::Video { video, audio } => verify_video_artifact(
+            ffprobe,
+            path,
+            video,
+            audio.audio_spec(),
+            true,
+            Some(audio.samples()),
+            pixel_format,
+        ),
+        WorkingArtifactContract::Audio { audio } => {
+            verify_audio_artifact(ffprobe, path, audio, audio.audio_spec())
         }
     }
 }
@@ -81,7 +86,7 @@ pub(super) fn verify_video_artifact(
     domain: &VideoDomain,
     audio: AudioSpec,
     expect_audio: bool,
-    exact_audio_samples: bool,
+    expected_audio_samples: Option<u64>,
     pixel_format: &str,
 ) -> Result<()> {
     let document = probe_artifact(ffprobe, path)?;
@@ -165,9 +170,7 @@ pub(super) fn verify_video_artifact(
     }
     if let Some(audio_stream) = audios.first() {
         verify_audio_stream(path, audio_stream, audio)?;
-        if exact_audio_samples {
-            let expected_samples = TimelineRate::new(domain.video_spec(), audio)
-                .samples_for_frames(domain.frames(), &SourceSpan::file_start(path))?;
+        if let Some(expected_samples) = expected_audio_samples {
             verify_audio_samples(ffprobe, path, expected_samples)?;
         }
     }

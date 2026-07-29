@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::diagnostic::Result;
-use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
+use crate::model::{AudioSpec, NodeId, VideoSpec};
 
-use super::plan::PreparedMedia;
+use super::plan::{PreparedMedia, WorkingArtifactContract};
 use super::policy::{ArtifactCachePolicy, RenderPolicy};
 use super::tools::ToolIdentity;
 use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
@@ -13,9 +13,7 @@ use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
     semantic_version: u32,
-    value_type: ValueType,
-    domain: Option<VideoDomain>,
-    audio_domain: Option<AudioDomain>,
+    artifact_contract: WorkingArtifactContract<'a>,
     has_audio: bool,
     operation: serde_json::Value,
     upstream: Vec<&'a str>,
@@ -43,30 +41,16 @@ pub(super) fn node_fingerprint(
     existing: &[PreparedNode],
 ) -> Result<String> {
     let mut inputs = Vec::new();
-    let (value_type, domain, audio_domain, has_audio, operation) = match media {
+    let (has_audio, operation) = match media {
         PreparedMedia::Video {
-            kind,
-            domain,
-            has_audio,
+            kind, has_audio, ..
         } => {
             kind.visit_inputs(|input| inputs.push(input));
-            (
-                ValueType::Video,
-                Some(domain),
-                None,
-                *has_audio,
-                video_identity(kind),
-            )
+            (*has_audio, video_identity(kind))
         }
-        PreparedMedia::Audio { kind, domain } => {
+        PreparedMedia::Audio { kind, .. } => {
             kind.visit_inputs(|input| inputs.push(input));
-            (
-                ValueType::Audio,
-                None,
-                Some(domain),
-                false,
-                audio_identity(kind),
-            )
+            (false, audio_identity(kind))
         }
     };
     let upstream = inputs
@@ -75,9 +59,7 @@ pub(super) fn node_fingerprint(
         .collect::<Vec<_>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedNodeIdentity {
         semantic_version,
-        value_type,
-        domain: domain.copied(),
-        audio_domain: audio_domain.copied(),
+        artifact_contract: media.artifact_contract(),
         has_audio,
         operation,
         upstream,

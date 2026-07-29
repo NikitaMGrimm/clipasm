@@ -41,6 +41,7 @@ use assets::{
 use capabilities::ffmpeg_requirements;
 use identity::{cache_execution_namespace, prepared_semantic_hash};
 use lower::{NativePreparationHost, PreflightLowerer};
+pub(crate) use plan::WorkingArtifactContract;
 pub use plan::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
     PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
