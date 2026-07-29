@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
-use std::collections::VecDeque;
 use std::io;
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::thread::JoinHandle;
 
 use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
+use crate::media_tool::{self, RetainedOutput};
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 use crate::preflight::tools::ExternalToolIdentity;
 use crate::preflight::{PreparedExternalArgument, PreparedExternalParameterValue};
@@ -145,24 +146,8 @@ fn run_external(
                 span.clone(),
             )
         })?;
-    let mut stderr = child.stderr.take().expect("piped external stderr");
-    let stderr_reader = std::thread::spawn(move || {
-        let mut retained = VecDeque::with_capacity(STDERR_LIMIT);
-        let mut buffer = [0_u8; 8 * 1024];
-        let mut truncated = false;
-        loop {
-            let read = match stderr.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(read) => read,
-            };
-            retained.extend(&buffer[..read]);
-            while retained.len() > STDERR_LIMIT {
-                retained.pop_front();
-                truncated = true;
-            }
-        }
-        (retained.into_iter().collect::<Vec<_>>(), truncated)
-    });
+    let stderr = child.stderr.take().expect("piped external stderr");
+    let stderr_reader = std::thread::spawn(move || media_tool::read_tail(stderr, STDERR_LIMIT));
     if let Err(error) = child
         .stdin
         .take()
@@ -179,7 +164,7 @@ fn run_external(
         ));
     }
     let status = wait_external_with(&mut child, Child::wait);
-    let (stderr, truncated) = stderr_reader.join().unwrap_or_default();
+    let stderr = join_external_stderr(stderr_reader, span);
     let status = status.map_err(|error| {
         Diagnostic::builtin(
             BuiltinDiagnostic::ExternalExecution,
@@ -187,17 +172,18 @@ fn run_external(
             span.clone(),
         )
     })?;
+    let stderr = stderr?;
     if status.success() {
         return Ok(());
     }
-    let stderr = String::from_utf8_lossy(&stderr);
-    let stderr = if truncated {
+    let stderr_text = String::from_utf8_lossy(&stderr.bytes);
+    let stderr_text = if stderr.truncated {
         format!(
             "[stderr truncated to final {STDERR_LIMIT} bytes]\n{}",
-            stderr.trim()
+            stderr_text.trim()
         )
     } else {
-        stderr.trim().to_owned()
+        stderr_text.trim().to_owned()
     };
     Err(Diagnostic::builtin(
         BuiltinDiagnostic::ExternalExecution,
@@ -205,10 +191,32 @@ fn run_external(
             "external program `{}` failed with {}\n{}",
             executable.display(),
             status,
-            stderr
+            stderr_text
         ),
         span.clone(),
     ))
+}
+
+fn join_external_stderr(
+    reader: JoinHandle<io::Result<RetainedOutput>>,
+    span: &SourceSpan,
+) -> Result<RetainedOutput> {
+    reader
+        .join()
+        .map_err(|_| {
+            Diagnostic::builtin(
+                BuiltinDiagnostic::ExternalExecution,
+                "external program stderr reader panicked",
+                span.clone(),
+            )
+        })?
+        .map_err(|error| {
+            Diagnostic::builtin(
+                BuiltinDiagnostic::ExternalExecution,
+                format!("could not read external program stderr: {error}"),
+                span.clone(),
+            )
+        })
 }
 
 fn wait_external_with(
@@ -231,6 +239,26 @@ mod tests {
     use std::process::Command;
 
     use super::*;
+
+    #[test]
+    fn stderr_reader_failures_are_reported() {
+        let span = SourceSpan::file_start("effect.clipasm");
+        let read_failure = std::thread::spawn(|| -> io::Result<RetainedOutput> {
+            Err(io::Error::other("injected stderr read failure"))
+        });
+        let error = join_external_stderr(read_failure, &span).expect_err("stderr read failure");
+        assert!(
+            error
+                .message
+                .contains("could not read external program stderr")
+        );
+
+        let panic = std::thread::spawn(|| -> io::Result<RetainedOutput> {
+            panic!("injected stderr reader panic")
+        });
+        let error = join_external_stderr(panic, &span).expect_err("stderr reader panic");
+        assert!(error.message.contains("stderr reader panicked"));
+    }
 
     #[cfg(unix)]
     #[test]

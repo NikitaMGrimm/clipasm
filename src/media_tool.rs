@@ -17,9 +17,10 @@ pub(crate) struct CapturedOutput {
     pub(crate) stderr: Vec<u8>,
 }
 
-struct RetainedOutput {
-    bytes: Vec<u8>,
-    truncated: bool,
+#[derive(Debug)]
+pub(crate) struct RetainedOutput {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) truncated: bool,
 }
 
 pub(crate) fn capture(
@@ -241,7 +242,7 @@ fn read_prefix(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput
     Ok(RetainedOutput { bytes, truncated })
 }
 
-fn read_tail(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput> {
+pub(crate) fn read_tail(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput> {
     let mut bytes = VecDeque::with_capacity(limit.min(64 * 1024));
     let mut buffer = vec![0_u8; 16 * 1024].into_boxed_slice();
     let mut truncated = false;

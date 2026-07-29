@@ -299,21 +299,30 @@ fn resolve_executable(name: &str, code: BuiltinDiagnostic) -> Result<PathBuf> {
         let mut command = Command::new("where.exe");
         command.arg(name);
         let output = media_tool::capture(command, code, &SourceSpan::file_start(authored))?;
-        return String::from_utf8_lossy(&output.stdout)
+        let candidate = String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(PathBuf::from)
             .map(|candidate| windows_command_candidate(&candidate))
             .find(|candidate| is_executable_file(candidate))
-            .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
                 Diagnostic::builtin(
                     code,
                     format!("could not resolve executable `{name}` through Windows command lookup"),
                     SourceSpan::file_start(authored),
                 )
-            });
+            })?;
+        return fs::canonicalize(&candidate).map_err(|error| {
+            Diagnostic::builtin(
+                code,
+                format!(
+                    "could not resolve executable candidate `{}`: {error}",
+                    candidate.display()
+                ),
+                SourceSpan::file_start(&candidate),
+            )
+        });
     }
     #[cfg(not(windows))]
     {
@@ -331,17 +340,26 @@ fn resolve_executable(name: &str, code: BuiltinDiagnostic) -> Result<PathBuf> {
                 .map(|directory| directory.join(name))
                 .collect()
         };
-        candidates
+        let candidate = candidates
             .into_iter()
             .find(|candidate| is_executable_file(candidate))
-            .and_then(|candidate| fs::canonicalize(candidate).ok())
             .ok_or_else(|| {
                 Diagnostic::builtin(
                     code,
                     format!("could not resolve executable `{name}` on PATH"),
                     SourceSpan::file_start(authored),
                 )
-            })
+            })?;
+        fs::canonicalize(&candidate).map_err(|error| {
+            Diagnostic::builtin(
+                code,
+                format!(
+                    "could not resolve executable candidate `{}`: {error}",
+                    candidate.display()
+                ),
+                SourceSpan::file_start(&candidate),
+            )
+        })
     }
 }
 
@@ -413,7 +431,7 @@ fn inspect_tool_identity(tool: &Path, code: BuiltinDiagnostic) -> Result<ToolIde
         .unwrap_or_default()
         .to_owned();
     let executable_content_hash = hash_tool_executable(&executable, code)?;
-    let build_fingerprint = crate::compiler::fingerprint::hash_serializable(&ToolBuildIdentity {
+    let build_fingerprint = crate::identity::hash_serializable(&ToolBuildIdentity {
         executable_content_hash: &executable_content_hash,
         version_stdout: &version_stdout,
         version_stderr: &version_stderr,
