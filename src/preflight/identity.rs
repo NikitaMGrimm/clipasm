@@ -10,6 +10,11 @@ use super::policy::{ArtifactCachePolicy, RenderPolicy};
 use super::tools::ToolIdentity;
 use super::{PreparedAudioKind, PreparedNode, PreparedVideoKind};
 
+// Prepared semantic identity and prepared inspection JSON evolve independently.
+// Preserve the existing serialized key to avoid changing every prepared hash
+// merely because the ownership of this revision became explicit.
+const PREPARED_IDENTITY_REVISION: u32 = 12;
+
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
     semantic_version: u32,
@@ -21,7 +26,8 @@ struct PreparedNodeIdentity<'a> {
 
 #[derive(Serialize)]
 struct PreparedPlanIdentity<'a> {
-    format_version: u32,
+    #[serde(rename = "format_version")]
+    identity_revision: u32,
     video: &'a VideoSpec,
     audio: AudioSpec,
     result: &'a str,
@@ -183,7 +189,7 @@ pub(super) fn prepared_semantic_hash(
         .map(|(name, id)| (name.as_str(), nodes[id.get() as usize].fingerprint()))
         .collect::<BTreeMap<_, _>>();
     crate::compiler::fingerprint::hash_serializable(&PreparedPlanIdentity {
-        format_version: crate::contracts::PREPARED_INSPECTION_FORMAT_VERSION,
+        identity_revision: PREPARED_IDENTITY_REVISION,
         video,
         audio,
         result: nodes[result.get() as usize].fingerprint(),

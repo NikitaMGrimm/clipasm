@@ -61,7 +61,30 @@ pub(super) fn discover() -> Result<Project> {
 fn find_manifest(start: &Path) -> Result<Option<PathBuf>> {
     for directory in start.ancestors() {
         let candidate = directory.join(MANIFEST_NAME);
-        match fs::metadata(&candidate) {
+        match fs::symlink_metadata(&candidate) {
+            Ok(metadata) if metadata.file_type().is_symlink() => match fs::metadata(&candidate) {
+                Ok(target) if target.is_file() => return Ok(Some(candidate)),
+                Ok(_) => {
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::ProjectIo,
+                        format!(
+                            "project manifest path `{}` does not resolve to a regular file",
+                            candidate.display()
+                        ),
+                        SourceSpan::file_start(candidate),
+                    ));
+                }
+                Err(error) => {
+                    return Err(Diagnostic::builtin(
+                        BuiltinDiagnostic::ProjectIo,
+                        format!(
+                            "could not resolve project manifest path `{}`: {error}",
+                            candidate.display()
+                        ),
+                        SourceSpan::file_start(candidate),
+                    ));
+                }
+            },
             Ok(metadata) if metadata.is_file() => return Ok(Some(candidate)),
             Ok(_) => {
                 return Err(Diagnostic::builtin(
@@ -229,5 +252,25 @@ mod tests {
         let error = load(&manifest).expect_err("non-UTF-8 manifest");
         assert_eq!(error.code, "E_PROJECT_MANIFEST");
         assert_eq!(error.message, "project manifest must be valid UTF-8");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_broken_local_manifest_symlink_blocks_parent_discovery() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        fs::write(
+            directory.path().join(MANIFEST_NAME),
+            "[project]\nentrypoint = \"main.clipasm\"\n",
+        )
+        .expect("parent manifest");
+        let nested = directory.path().join("nested");
+        fs::create_dir(&nested).expect("nested directory");
+        symlink("missing.toml", nested.join(MANIFEST_NAME)).expect("broken manifest symlink");
+
+        let error = find_manifest(&nested).expect_err("broken local manifest");
+        assert_eq!(error.code, "E_PROJECT_IO");
+        assert!(error.message.contains("could not resolve"));
     }
 }

@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{AudioSpec, NodeId, TimelineRate, ValueType};
+use crate::model::{NodeId, TimelineRate, ValueType};
 use crate::preflight::browser::BrowserPreparedPlan;
 use crate::preflight::{
     PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind, RenderPolicy,
+    WorkingArtifactContract,
 };
 use crate::source::SourceSpan;
 
@@ -108,7 +109,7 @@ fn render_steps(
                 &node.origin().span,
             )?,
             output,
-            contract: artifact_contract(node, *plan.audio(), policy)?,
+            contract: artifact_contract(node, policy),
             delete_after,
         });
     }
@@ -359,34 +360,26 @@ fn artifact_path(node: NodeId, value_type: ValueType, policy: RenderPolicy) -> S
     format!("/work/node-{}.{extension}", node.get())
 }
 
-fn artifact_contract(
-    node: &PreparedNode,
-    audio: AudioSpec,
-    policy: RenderPolicy,
-) -> Result<BrowserArtifactContract> {
-    match node.media() {
-        PreparedNodeMedia::Video { domain, .. } => {
-            let samples = TimelineRate::new(domain.video_spec(), audio)
-                .samples_for_frames(domain.frames(), &node.origin().span)?;
-            Ok(BrowserArtifactContract::Video {
-                width: domain.width(),
-                height: domain.height(),
-                fps_numerator: domain.frame_rate().numerator(),
-                fps_denominator: domain.frame_rate().denominator(),
-                frames: domain.frames().0,
-                pixel_format: policy.working_pixel_format(),
-                audio: true,
-                sample_rate: audio.sample_rate(),
-                channels: audio.channels(),
-                exact_audio_samples: true,
-                samples: Some(samples),
-            })
-        }
-        PreparedNodeMedia::Audio { domain, .. } => Ok(BrowserArtifactContract::Audio {
-            sample_rate: domain.audio_spec().sample_rate(),
-            channels: domain.audio_spec().channels(),
-            samples: domain.samples(),
-        }),
+fn artifact_contract(node: &PreparedNode, policy: RenderPolicy) -> BrowserArtifactContract {
+    match node.artifact_contract() {
+        WorkingArtifactContract::Video { video, audio } => BrowserArtifactContract::Video {
+            width: video.width(),
+            height: video.height(),
+            fps_numerator: video.frame_rate().numerator(),
+            fps_denominator: video.frame_rate().denominator(),
+            frames: video.frames().0,
+            pixel_format: policy.working_pixel_format(),
+            audio: true,
+            sample_rate: audio.audio_spec().sample_rate(),
+            channels: audio.audio_spec().channels(),
+            exact_audio_samples: true,
+            samples: Some(audio.samples()),
+        },
+        WorkingArtifactContract::Audio { audio } => BrowserArtifactContract::Audio {
+            sample_rate: audio.audio_spec().sample_rate(),
+            channels: audio.audio_spec().channels(),
+            samples: audio.samples(),
+        },
     }
 }
 

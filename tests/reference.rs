@@ -97,6 +97,7 @@ fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
             matches!(
                 reference.retry_guidance(),
                 RetryGuidance::FixSource
+                    | RetryGuidance::FixProject
                     | RetryGuidance::FixArguments
                     | RetryGuidance::FixEnvironment
                     | RetryGuidance::RetryAfterExternalChange

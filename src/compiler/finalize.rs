@@ -35,14 +35,8 @@ pub(super) fn finalize(
         .chain(evaluation.outputs.iter().copied());
     let order = super::traversal::topological_order(&evaluation.nodes, &symbol_values, roots)?;
     let domains = super::domain::infer_domains(&evaluation, &video, &order)?;
-    let structure_hash = super::fingerprint::compiled_structure_hash(
-        &evaluation,
-        &domains,
-        &video,
-        audio,
-        format_version,
-        &order,
-    )?;
+    let structure_hash =
+        super::fingerprint::compiled_structure_hash(&evaluation, &domains, &video, audio, &order)?;
 
     let nodes = evaluation
         .nodes

@@ -9,9 +9,15 @@ use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
 use crate::semantic::{SemanticDependency, SemanticNodeKind};
 use crate::source::SourceSpan;
 
+// Keep semantic identity evolution independent from the compiled inspection
+// document. The serialized key remains unchanged so this refactor does not
+// create a gratuitous hash epoch.
+const COMPILED_IDENTITY_REVISION: u32 = 21;
+
 #[derive(Serialize)]
 struct CompiledIdentity<'a> {
-    format_version: u32,
+    #[serde(rename = "format_version")]
+    identity_revision: u32,
     video: &'a VideoSpec,
     audio: &'a AudioSpec,
     outputs: Vec<&'a str>,
@@ -32,7 +38,6 @@ pub(super) fn compiled_structure_hash(
     domains: &[Option<VideoDomain>],
     video: &VideoSpec,
     audio: AudioSpec,
-    format_version: u32,
     order: &[ValueRef],
 ) -> Result<String> {
     let hashes = value_hashes(evaluation, domains, order)?;
@@ -63,7 +68,7 @@ pub(super) fn compiled_structure_hash(
         .collect::<BTreeMap<_, _>>();
 
     hash_serializable(&CompiledIdentity {
-        format_version,
+        identity_revision: COMPILED_IDENTITY_REVISION,
         video,
         audio: &audio,
         outputs,

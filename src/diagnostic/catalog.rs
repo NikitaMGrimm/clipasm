@@ -223,6 +223,8 @@ impl fmt::Display for DiagnosticCategory {
 pub enum RetryGuidance {
     /// Correct authored source before retrying.
     FixSource,
+    /// Correct project metadata or project selection before retrying.
+    FixProject,
     /// Correct command or call arguments before retrying.
     FixArguments,
     /// Repair assets, tools, permissions, or another environment dependency.
@@ -243,6 +245,7 @@ impl RetryGuidance {
     pub const fn explanation(self) -> &'static str {
         match self {
             Self::FixSource => "Retry after correcting the source.",
+            Self::FixProject => "Retry after correcting the project manifest or project selection.",
             Self::FixArguments => "Retry after correcting the command or call arguments.",
             Self::FixEnvironment => "Retry after repairing the environment or media inputs.",
             Self::RetryAfterExternalChange => {
@@ -1366,14 +1369,14 @@ diagnostic_catalog! {
         code: "E_PROJECT_MANIFEST",
         title: "Invalid project manifest",
         category: CommandLineAndProjects,
-        retry: FixArguments,
+        retry: FixProject,
         summary: "A clipasm.toml file is malformed or contains an unsupported project setting.",
     };
     ProjectNotFound => {
         code: "E_PROJECT_NOT_FOUND",
         title: "Project manifest not found",
         category: CommandLineAndProjects,
-        retry: FixArguments,
+        retry: FixProject,
         summary: "A command omitted its source path, but no clipasm.toml file was found in the current directory or its parents.",
     };
     Publication => {

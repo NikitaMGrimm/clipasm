@@ -150,7 +150,9 @@ entrypoint = "main.clipasm"
 `project.entrypoint` is a forward-slash relative `.clipasm` path
 resolved from the manifest directory. Unknown fields, absolute paths,
 backslashes, drive-style prefixes, and paths containing `.` or `..` are
-rejected. An explicit `SOURCE` remains a
+rejected. A discovered manifest symlink must resolve to a regular file; a
+broken nearer manifest path is an error rather than permission to fall through
+to a parent project. An explicit `SOURCE` remains a
 standalone invocation and does not read an ambient project manifest.
 
 Project renders keep persistent state under `.clipasm/` at the manifest root,
