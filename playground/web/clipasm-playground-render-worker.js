@@ -1,7 +1,7 @@
 import { FFmpeg, FFFSType } from "./ffmpeg/wrapper/index.js";
 
 const PLAN_VERSION = 1;
-const RECIPE_CONTRACT = 1;
+const RECIPE_CONTRACT = 2;
 const WRAPPER_VERSION = "0.12.15";
 const CORE_VERSION = "0.12.10";
 const RUNTIME_POLICY = "ffv1-flac-matroska-v1";

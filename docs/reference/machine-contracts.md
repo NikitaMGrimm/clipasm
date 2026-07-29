@@ -73,7 +73,7 @@ permissions; this protocol is not a sandbox.
 ## Internal formats
 
 **Prepared inspection JSON** (`format_version: 13`) and the **Browser render plan**
-(`version: 1`, `recipe_contract: 1`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
+(`version: 1`, `recipe_contract: 2`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
 persistence or interchange contracts.
 
 **Cache entry metadata** is a **Private implementation detail**. Do not read,

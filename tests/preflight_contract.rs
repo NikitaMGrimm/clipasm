@@ -567,6 +567,46 @@ fn output_cannot_replace_a_reachable_video_asset() {
     assert!(error.message.contains("video asset"));
 }
 
+#[cfg(unix)]
+#[test]
+fn publication_cannot_replace_an_imported_source_symlink_target() {
+    use std::os::unix::fs::symlink;
+
+    for (target_name, expected_code) in [
+        ("final.mp4", "E_OUTPUT_COLLISION"),
+        ("final.mp4.manifest.json", "E_MANIFEST_COLLISION"),
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let programs = directory.path().join("programs");
+        fs::create_dir(&programs).expect("program directory");
+        let target = directory.path().join(target_name);
+        let imported = "clipasm 1\ninput video: Video\nzoom_in($video, 10%)\n";
+        fs::write(&target, imported).expect("imported source target");
+        symlink(
+            Path::new("..").join(target_name),
+            programs.join("effect.clipasm"),
+        )
+        .expect("import alias");
+        write_image(directory.path(), "card.ppm", "255 0 0");
+        let workflow = directory.path().join("workflow.clipasm");
+        fs::write(
+            &workflow,
+            "clipasm 1\nconfig { output = \"final.mp4\" }\nimport \"programs/effect.clipasm\" as effect\nimage(\"card.ppm\", 1s)\neffect\n",
+        )
+        .expect("workflow");
+
+        let compiled = compile_file(&workflow).expect("compile");
+        let error = clipasm::preflight::preflight(&compiled).expect_err("source collision");
+
+        assert_eq!(error.code, expected_code);
+        assert!(error.message.contains("source program"));
+        assert_eq!(
+            fs::read_to_string(&target).expect("preserved imported source"),
+            imported
+        );
+    }
+}
+
 #[test]
 fn manifest_cannot_replace_a_reachable_asset() {
     let directory = tempfile::tempdir().expect("temporary directory");

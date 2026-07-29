@@ -145,11 +145,9 @@ fn run_external(
             span.clone(),
         )
     })?;
-    let stderr = child.stderr.take().expect("piped external stderr");
+    let stderr = child_process::take_stderr(&mut child).expect("piped external stderr");
     let stderr_reader = std::thread::spawn(move || child_process::read_tail(stderr, STDERR_LIMIT));
-    if let Err(error) = child
-        .stdin
-        .take()
+    if let Err(error) = child_process::take_stdin(&mut child)
         .expect("piped external stdin")
         .write_all(&request)
     {

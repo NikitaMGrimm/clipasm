@@ -38,6 +38,10 @@ pub(crate) fn verify_image_decodable(
             "stream=codec_type,nb_read_frames",
             "-of",
             "json",
+            "-f",
+            "image2",
+            "-pattern_type",
+            "none",
         ])
         .arg(path);
     let output = media_tool::capture(probe, BuiltinDiagnostic::SourceDecodability, span).map_err(
@@ -111,7 +115,17 @@ fn validate_image_document(
 fn decode_image_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
     let mut decode = Command::new(ffmpeg.executable());
     decode
-        .args(["-v", "error", "-loop", "1", "-i"])
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "image2",
+            "-loop",
+            "1",
+            "-pattern_type",
+            "none",
+            "-i",
+        ])
         .arg(path)
         .args(["-map", "0:v:0", "-frames:v", "1", "-an", "-f", "null", "-"]);
     media_tool::run(decode, BuiltinDiagnostic::SourceDecodability, span).map_err(|error| {

@@ -542,11 +542,13 @@ coverage-rounded Audio at the final Video timestamp; artifact verification
 checks the exact resulting frame and sample counts instead. Artifact
 verification, locking, and rollback-capable publication remain separate deep
 modules. One private process-lifecycle module owns bounded pipe retention,
-temporary executable-busy retries, and kill-and-reap cleanup. Unix children run
-in dedicated process groups; after the direct process exits, remaining group
-members are terminated so descendants cannot outlive a completed invocation or
-keep inherited pipes open. Command recipes, protocols, and diagnostics remain in
-their phase adapters. There is no generic
+temporary executable-busy retries, and kill-and-reap cleanup. Media tools receive
+a closed standard input instead of inheriting the caller's terminal. Unix
+children run in dedicated process groups and Windows children run in Job
+Objects; after the direct process exits, remaining members are terminated so
+descendants cannot outlive a completed invocation or keep inherited pipes open.
+Command recipes, protocols, and diagnostics remain in their phase adapters.
+There is no generic
 command runner, operation trait hierarchy, or renderer backend interface.
 
 ### Browser rendering
@@ -555,22 +557,25 @@ The browser adapter materializes the same recipes against a private virtual
 filesystem and executes them sequentially in a dedicated worker. It verifies
 the exact stream shape, frame count, and Audio sample count after every step,
 deletes artifacts after their last use, and returns a verified MP4. Runtime and
-work limits are browser policy rather than semantic Video limits. The pinned
-single-threaded FFmpeg WebAssembly runtime loads only when rendering starts;
-cancellation terminates the worker. Browser rendering has no persistent cache.
+work limits are browser policy rather than semantic Video limits: they cover
+prepared-operation count, Video pixel-frames, and aggregate Audio samples. The
+pinned single-threaded FFmpeg WebAssembly runtime loads only when rendering
+starts; cancellation terminates the worker. Browser rendering has no persistent
+cache.
 
 ### Cache and publication
 
 Project renders keep the cache under `.clipasm/cache/` at the discovered
 manifest root. Explicit standalone sources use `.clipasm/cache/` beside the
-entrypoint source. Prepared nodes expose one canonical traversal of every
-resource path they own; publication collision checks, execution-frontier
-revalidation, and private cache-path protection all consume that traversal.
-Existing cache artifacts, sidecars, and lock paths are rejected when they alias
-an asset or external executable. Lock files also reject symlink paths before
-opening them. Per-artifact file locks serialize validation and replacement
-across ClipAsm processes without blocking unrelated fingerprints. Exact media
-verification happens once, before
+entrypoint source. The compiler retains the canonical path identity of every
+linked package source, including imported units outside the result-reachable
+graph. Native preflight and rendering protect those identities separately from
+the prepared-node resource traversal. Publication destinations and private
+cache artifacts, sidecars, and lock paths are rejected when they alias a source
+program, asset, or external executable. Lock files also reject symlink paths
+before opening them. Per-artifact file locks serialize validation and
+replacement across ClipAsm processes without blocking unrelated fingerprints.
+Exact media verification happens once, before
 the versioned sidecar for those bytes is committed. Later hits rehash the complete
 artifact and require the sidecar to identify the current execution namespace and
 node fingerprint. This detects accidental corruption and shape-compatible swaps

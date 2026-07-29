@@ -396,6 +396,7 @@ fn last_uses(nodes: &[PreparedNode], result: NodeId) -> BTreeMap<NodeId, usize> 
 
 fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
     const MAX_PIXEL_FRAMES: u128 = 1_000_000_000;
+    const MAX_AUDIO_SAMPLES: u128 = 50_000_000;
     const MAX_NODES: usize = 512;
 
     if plan.nodes().len() > MAX_NODES {
@@ -409,6 +410,7 @@ fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
         ));
     }
     let mut pixel_frames = 0_u128;
+    let mut audio_samples = 0_u128;
     for node in plan.nodes() {
         if let Some(domain) = node.video_domain() {
             pixel_frames = pixel_frames
@@ -425,12 +427,34 @@ fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
                     )
                 })?;
         }
+        let node_audio_samples = match node.artifact_contract() {
+            WorkingArtifactContract::Video { audio, .. }
+            | WorkingArtifactContract::Audio { audio } => audio.samples(),
+        };
+        audio_samples = audio_samples
+            .checked_add(u128::from(node_audio_samples))
+            .ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::BrowserRenderLimit,
+                    "browser render Audio work exceeds the supported size",
+                    node.origin().span.clone(),
+                )
+            })?;
     }
     if pixel_frames > MAX_PIXEL_FRAMES {
         return Err(Diagnostic::builtin(
             BuiltinDiagnostic::BrowserRenderLimit,
             format!(
                 "browser render work is {pixel_frames} pixel-frames, above the {MAX_PIXEL_FRAMES} pixel-frame limit"
+            ),
+            result_span(plan),
+        ));
+    }
+    if audio_samples > MAX_AUDIO_SAMPLES {
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::BrowserRenderLimit,
+            format!(
+                "browser render work is {audio_samples} audio-samples, above the {MAX_AUDIO_SAMPLES} audio-sample limit"
             ),
             result_span(plan),
         ));
@@ -458,6 +482,16 @@ mod tests {
             hash_byte.repeat(32),
             r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#,
         )
+    }
+
+    fn assert_literal_image_arguments(step: &serde_json::Value) {
+        let arguments = step["arguments"].as_array().expect("arguments");
+        let expected =
+            serde_json::json!(["-f", "image2", "-loop", "1", "-pattern_type", "none", "-i"]);
+        assert_eq!(
+            &arguments[3..10],
+            expected.as_array().expect("literal image arguments")
+        );
     }
 
     #[test]
@@ -523,6 +557,7 @@ mod tests {
         }
         assert_eq!(steps[0]["contract"]["frames"], 36);
         assert_eq!(steps[0]["contract"]["samples"], 72_000);
+        assert_literal_image_arguments(&steps[0]);
         assert_eq!(steps[3]["contract"]["frames"], 108);
         assert_eq!(steps[3]["contract"]["samples"], 216_000);
         assert_eq!(
@@ -563,5 +598,23 @@ mod tests {
             export["delete_after"],
             serde_json::json!(["/work/node-3.mkv"])
         );
+    }
+
+    #[test]
+    fn rejects_audio_artifacts_above_the_browser_work_budget() {
+        let compiled = compiled(
+            "clipasm 1\nvideo(\"scene.mkv\") as clip\ndrop<Video>\nextract_audio($clip) as sound\ndrop<Audio>\nrepeat<Audio>(value=$sound, count=1000) as huge\ndrop<Audio>\nset_audio(video=$clip, audio=$huge)\n",
+        );
+        let assets = [BrowserAsset::new(
+            "scene.mkv",
+            "44".repeat(32),
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+        )];
+        let plan = prepare(&compiled, &assets).expect("browser plan");
+
+        let error = render_json(&plan).expect_err("oversized Audio work");
+
+        assert_eq!(error.code, "E_BROWSER_RENDER_LIMIT");
+        assert!(error.message.contains("audio-samples"));
     }
 }

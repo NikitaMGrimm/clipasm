@@ -8,9 +8,14 @@
 
 use std::collections::VecDeque;
 use std::io::{self, Read};
-use std::process::{Child, Command, ExitStatus};
+use std::process::{Command, ExitStatus};
 use std::thread::JoinHandle;
 use std::time::Duration;
+
+#[cfg(windows)]
+pub(crate) type Child = command_group::GroupChild;
+#[cfg(not(windows))]
+pub(crate) type Child = std::process::Child;
 
 const START_ATTEMPTS: usize = 5;
 const START_RETRY_DELAY: Duration = Duration::from_millis(10);
@@ -35,7 +40,7 @@ pub(crate) fn spawn(mut command: Command) -> io::Result<Child> {
         command.process_group(0);
     }
     for attempt in 1..=START_ATTEMPTS {
-        match command.spawn() {
+        match spawn_once(&mut command) {
             Ok(child) => return Ok(child),
             Err(error) if executable_is_temporarily_busy(&error) && attempt < START_ATTEMPTS => {
                 std::thread::sleep(START_RETRY_DELAY);
@@ -47,30 +52,88 @@ pub(crate) fn spawn(mut command: Command) -> io::Result<Child> {
 }
 
 pub(crate) fn wait(child: &mut Child) -> io::Result<ExitStatus> {
-    let status = wait_with(child, Child::wait)?;
+    let status = wait_with(child, wait_direct)?;
     terminate_group(child);
     Ok(status)
 }
 
 pub(crate) fn terminate(child: &mut Child) {
     terminate_group(child);
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = kill_direct(child);
+    let _ = wait_direct(child);
     // The direct child can create another group member after the first signal
     // was sent but before it is reaped. Sweep the now-orphaned group again.
     terminate_group(child);
 }
 
-fn terminate_group(child: &Child) {
+fn terminate_group(child: &mut Child) {
     #[cfg(unix)]
     {
         let group = rustix::process::Pid::from_child(child);
         let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = child.kill();
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = child;
     }
+}
+
+#[cfg(windows)]
+fn spawn_once(command: &mut Command) -> io::Result<Child> {
+    use command_group::CommandGroup as _;
+
+    command.group().kill_on_drop(true).spawn()
+}
+
+#[cfg(not(windows))]
+fn spawn_once(command: &mut Command) -> io::Result<Child> {
+    command.spawn()
+}
+
+#[cfg(windows)]
+fn wait_direct(child: &mut Child) -> io::Result<ExitStatus> {
+    child.inner().wait()
+}
+
+#[cfg(not(windows))]
+fn wait_direct(child: &mut Child) -> io::Result<ExitStatus> {
+    child.wait()
+}
+
+#[cfg(windows)]
+fn kill_direct(child: &mut Child) -> io::Result<()> {
+    child.inner().kill()
+}
+
+#[cfg(not(windows))]
+fn kill_direct(child: &mut Child) -> io::Result<()> {
+    child.kill()
+}
+
+pub(crate) fn take_stdin(child: &mut Child) -> Option<std::process::ChildStdin> {
+    child_inner(child).stdin.take()
+}
+
+pub(crate) fn take_stdout(child: &mut Child) -> Option<std::process::ChildStdout> {
+    child_inner(child).stdout.take()
+}
+
+pub(crate) fn take_stderr(child: &mut Child) -> Option<std::process::ChildStderr> {
+    child_inner(child).stderr.take()
+}
+
+#[cfg(windows)]
+fn child_inner(child: &mut Child) -> &mut std::process::Child {
+    child.inner()
+}
+
+#[cfg(not(windows))]
+fn child_inner(child: &mut Child) -> &mut std::process::Child {
+    child
 }
 
 pub(crate) fn join_reader(
@@ -226,7 +289,7 @@ mod tests {
             .args(["-c", "sleep 5 & exit 0"])
             .stderr(Stdio::piped());
         let mut child = spawn(command).expect("shell child");
-        let stderr = child.stderr.take().expect("stderr pipe");
+        let stderr = take_stderr(&mut child).expect("stderr pipe");
         let reader = std::thread::spawn(move || read_tail(stderr, 1024));
         let started = Instant::now();
 
@@ -244,10 +307,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn wait_failure_kills_and_reaps_the_child() {
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 60"])
-            .spawn()
-            .expect("sleeping child");
+        let mut child = spawn({
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 60"]);
+            command
+        })
+        .expect("sleeping child");
 
         let error = wait_with(&mut child, |_| {
             Err(io::Error::other("injected wait failure"))
@@ -256,8 +321,42 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert!(
-            child.try_wait().expect("reaped child status").is_some(),
+            child_inner(&mut child)
+                .try_wait()
+                .expect("reaped child status")
+                .is_some(),
             "child must be reaped before returning"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn successful_wait_terminates_descendants_holding_pipes() {
+        use std::process::Stdio;
+        use std::time::{Duration, Instant};
+
+        let mut command = Command::new("cmd.exe");
+        command
+            .args([
+                "/D",
+                "/S",
+                "/C",
+                "start \"\" /B ping.exe -n 60 127.0.0.1 >NUL & exit /B 0",
+            ])
+            .stderr(Stdio::piped());
+        let mut child = spawn(command).expect("command child");
+        let stderr = take_stderr(&mut child).expect("stderr pipe");
+        let reader = std::thread::spawn(move || read_tail(stderr, 1024));
+        let started = Instant::now();
+
+        let status = wait(&mut child).expect("successful wait");
+        let retained = join_reader(reader).expect("closed descendant pipe");
+
+        assert!(status.success());
+        assert!(retained.bytes.is_empty());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "successful parent left a descendant holding stderr open"
         );
     }
 }

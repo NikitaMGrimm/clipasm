@@ -73,7 +73,10 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         "manifest",
         BuiltinDiagnostic::InvalidManifestDestination,
     )?;
-    if let Some(source_path) = compiled.entrypoint_source().filesystem_path() {
+    for source in compiled.source_files() {
+        let Some(source_path) = source.filesystem_path() else {
+            continue;
+        };
         reject_path_collision(
             &output,
             "output",
@@ -151,5 +154,6 @@ pub fn preflight(compiled: &CompiledProgram) -> Result<PreparedPlan> {
         ffprobe,
         execution_namespace,
         compiled.entrypoint_source().clone(),
+        compiled.source_files().to_vec(),
     ))
 }

@@ -1,9 +1,9 @@
 use std::io::{self, BufRead, BufReader};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread::JoinHandle;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::process::{self as child_process, ReaderError, RetainedOutput};
+use crate::process::{self as child_process, Child, ReaderError, RetainedOutput};
 use crate::source::SourceSpan;
 
 const CAPTURE_LIMIT: usize = 8 * 1024 * 1024;
@@ -20,10 +20,13 @@ pub(crate) fn capture(
     span: &SourceSpan,
 ) -> Result<CapturedOutput> {
     let debug = format!("{command:?}");
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = spawn(command, diagnostic, span, &debug)?;
-    let stdout = child.stdout.take().expect("piped media-tool stdout");
-    let stderr = child.stderr.take().expect("piped media-tool stderr");
+    let stdout = child_process::take_stdout(&mut child).expect("piped media-tool stdout");
+    let stderr = child_process::take_stderr(&mut child).expect("piped media-tool stderr");
     let stdout_reader =
         std::thread::spawn(move || child_process::read_prefix(stdout, CAPTURE_LIMIT));
     let stderr_reader = std::thread::spawn(move || child_process::read_tail(stderr, CAPTURE_LIMIT));
@@ -76,9 +79,12 @@ pub(crate) fn run(
     span: &SourceSpan,
 ) -> Result<()> {
     let debug = format!("{command:?}");
-    command.stdout(Stdio::null()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
     let mut child = spawn(command, diagnostic, span, &debug)?;
-    let stderr = child.stderr.take().expect("piped media-tool stderr");
+    let stderr = child_process::take_stderr(&mut child).expect("piped media-tool stderr");
     let stderr_reader =
         std::thread::spawn(move || child_process::read_tail(stderr, STDERR_TAIL_LIMIT));
     let status = wait(&mut child, diagnostic, span, &debug);
@@ -107,10 +113,13 @@ pub(crate) fn stream_stdout_lines(
     mut visitor: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<()> {
     let debug = format!("{command:?}");
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = spawn(command, diagnostic, span, &debug)?;
-    let stdout = child.stdout.take().expect("piped media-tool stdout");
-    let stderr = child.stderr.take().expect("piped media-tool stderr");
+    let stdout = child_process::take_stdout(&mut child).expect("piped media-tool stdout");
+    let stderr = child_process::take_stderr(&mut child).expect("piped media-tool stderr");
     let stderr_reader =
         std::thread::spawn(move || child_process::read_tail(stderr, STDERR_TAIL_LIMIT));
 

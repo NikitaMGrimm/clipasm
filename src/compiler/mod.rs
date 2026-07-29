@@ -53,6 +53,7 @@ pub struct CompiledProgram {
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     entrypoint_source: SourceFile,
+    source_files: Vec<SourceFile>,
 }
 
 impl CompiledProgram {
@@ -179,6 +180,10 @@ impl CompiledProgram {
     pub(crate) const fn entrypoint_source(&self) -> &SourceFile {
         &self.entrypoint_source
     }
+
+    pub(crate) fn source_files(&self) -> &[SourceFile] {
+        &self.source_files
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -298,6 +303,11 @@ fn compile_checked(
     validate_publication_output(entrypoint, output, &evaluation)?;
     finalize::finalize(
         entrypoint,
+        package
+            .units()
+            .iter()
+            .map(|unit| unit.source().clone())
+            .collect(),
         output.cloned(),
         video,
         audio,

@@ -15,7 +15,9 @@ pub(super) fn image(
 ) -> Result<FfmpegRecipe> {
     let samples = samples_for_video(frames, context.video(), context.audio(), context.span())?;
     let mut recipe = FfmpegRecipe::new();
-    recipe.args(["-loop", "1", "-i"]).asset(asset.source_path());
+    recipe
+        .args(["-f", "image2", "-loop", "1", "-pattern_type", "none", "-i"])
+        .asset(asset.source_path());
     recipe.args(["-f", "lavfi", "-i"]).arg(silence_source(
         context.audio(),
         context.policy().working_channel_layout(),

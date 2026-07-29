@@ -59,6 +59,7 @@ pub struct PreparedPlan {
     ffprobe: ToolIdentity,
     execution_namespace: String,
     entrypoint_source: SourceFile,
+    source_files: Vec<SourceFile>,
 }
 
 impl PreparedPlan {
@@ -82,6 +83,7 @@ impl PreparedPlan {
         ffprobe: ToolIdentity,
         execution_namespace: String,
         entrypoint_source: SourceFile,
+        source_files: Vec<SourceFile>,
     ) -> Self {
         Self {
             format_version,
@@ -99,6 +101,7 @@ impl PreparedPlan {
             ffprobe,
             execution_namespace,
             entrypoint_source,
+            source_files,
         }
     }
 
@@ -198,6 +201,10 @@ impl PreparedPlan {
 
     pub(crate) const fn entrypoint_source(&self) -> &SourceFile {
         &self.entrypoint_source
+    }
+
+    pub(crate) fn source_files(&self) -> &[SourceFile] {
+        &self.source_files
     }
 }
 

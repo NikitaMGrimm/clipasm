@@ -122,6 +122,71 @@ fn cache_paths_cannot_alias_prepared_resources() {
     assert_eq!(fs::read(asset).expect("preserved asset"), original);
 }
 
+#[cfg(unix)]
+#[test]
+fn cache_and_publication_lock_paths_cannot_alias_imported_sources() {
+    use std::os::unix::fs::symlink;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping source collision test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let imported = directory.path().join("effect.clipasm");
+    let imported_source = "clipasm 1\ninput video: Video\nzoom_in($video, 10%)\n";
+    fs::write(&imported, imported_source).expect("imported source");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s, stretch)\neffect\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let document: serde_json::Value =
+        serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
+    let namespace = document["execution_namespace"]
+        .as_str()
+        .expect("execution namespace");
+    let cache_root = directory.path().join("custom-cache");
+    let cache_directory = cache_root.join(namespace);
+    fs::create_dir_all(&cache_directory).expect("cache directory");
+    let artifact = cache_directory.join(format!("{}.mkv", plan.nodes()[0].fingerprint()));
+    symlink(&imported, &artifact).expect("cache artifact alias");
+
+    let cache_error = render::render_with_cache_root(&plan, &cache_root)
+        .expect_err("cache path must not alias an imported source");
+
+    assert_eq!(cache_error.code, "E_CACHE_IO");
+    assert!(cache_error.message.contains("source program"));
+    assert_eq!(
+        fs::read_to_string(&imported).expect("preserved imported source"),
+        imported_source
+    );
+
+    fs::remove_file(&artifact).expect("remove cache alias");
+    render::render_with_cache_root(&plan, &cache_root).expect("initial render");
+    let publication_lock = directory.path().join(".final.mp4.publication.lock");
+    fs::remove_file(&publication_lock).expect("remove regular publication lock");
+    symlink(&imported, &publication_lock).expect("publication lock alias");
+
+    let lock_error = render::render_with_cache_root(&plan, &cache_root)
+        .expect_err("publication lock must not alias an imported source");
+
+    assert_eq!(lock_error.code, "E_PUBLICATION_LOCK");
+    assert!(lock_error.message.contains("source program"));
+    assert_eq!(
+        fs::read_to_string(imported).expect("preserved imported source"),
+        imported_source
+    );
+}
+
 #[test]
 fn invalid_downstream_cache_expands_to_its_valid_input() {
     if !common::media_tools_available() {
@@ -187,6 +252,75 @@ fn shape_compatible_cache_substitution_is_rejected() {
     assert!(decoded.status.success());
     assert!(decoded.stdout[0] > 200, "expected red output");
     assert!(decoded.stdout[2] < 50, "unexpected blue substitution");
+}
+
+#[test]
+fn image_paths_are_literal_for_rendering_and_cache_identity() {
+    if !common::media_tools_available() {
+        eprintln!("skipping literal image path test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("frame-%d.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("literal image");
+    fs::write(
+        directory.path().join("frame-0.ppm"),
+        b"P3\n1 1\n255\n0 0 255\n",
+    )
+    .expect("pattern neighbor");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"frame-%d.ppm\", 1s, stretch)\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight literal image");
+    let first = render::render(&plan).expect("render literal image");
+    assert_eq!(first.cache_hits(), 0);
+    assert_eq!(first.cache_misses(), 1);
+    let decode = |path: &Path| {
+        let output = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(path)
+            .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .output()
+            .expect("decode output");
+        assert!(
+            output.status.success(),
+            "decode failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output.stdout
+    };
+    let first_frame = decode(first.output());
+    assert!(first_frame[0] > 200, "literal red image was not decoded");
+    assert!(
+        first_frame[2] < 50,
+        "pattern-expanded blue image was decoded"
+    );
+
+    fs::write(
+        directory.path().join("frame-0.ppm"),
+        b"P3\n1 1\n255\n0 255 0\n",
+    )
+    .expect("change pattern neighbor");
+    let second = render::render(&plan).expect("reuse literal image cache");
+    assert_eq!(second.cache_hits(), 1);
+    assert_eq!(second.cache_misses(), 0);
+    let second_frame = decode(second.output());
+    assert!(
+        second_frame[0] > 200,
+        "cached output stopped using literal image"
+    );
+    assert!(
+        second_frame[1] < 50,
+        "pattern neighbor changed cached output"
+    );
 }
 
 #[test]
