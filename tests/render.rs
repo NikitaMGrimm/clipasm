@@ -89,6 +89,39 @@ fn renders_and_reuses_verified_cache() {
     assert_eq!(manifest["cache"]["misses"], 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn cache_paths_cannot_alias_prepared_resources() {
+    use std::os::unix::fs::symlink;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping cache collision test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let (directory, compiled) = color_project("255 0 0");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let document: serde_json::Value =
+        serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
+    let namespace = document["execution_namespace"]
+        .as_str()
+        .expect("execution namespace");
+    let cache_root = directory.path().join("custom-cache");
+    let cache_directory = cache_root.join(namespace);
+    fs::create_dir_all(&cache_directory).expect("cache directory");
+    let artifact = cache_directory.join(format!("{}.mkv", plan.nodes()[0].fingerprint()));
+    let asset = directory.path().join("card.ppm");
+    let original = fs::read(&asset).expect("asset bytes");
+    symlink(&asset, &artifact).expect("cache path alias");
+
+    let error = render::render_with_cache_root(&plan, &cache_root)
+        .expect_err("cache path must not alias an asset");
+
+    assert_eq!(error.code, "E_CACHE_IO");
+    assert!(error.message.contains("collides with image asset"));
+    assert_eq!(fs::read(asset).expect("preserved asset"), original);
+}
+
 #[test]
 fn invalid_downstream_cache_expands_to_its_valid_input() {
     if !common::media_tools_available() {
@@ -809,6 +842,66 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     assert!(document.get("plan").is_none());
     output_name.push(".manifest.json");
     assert_eq!(report.manifest(), directory.path().join(output_name));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn renders_a_native_video_input_with_a_non_utf8_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt as _;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping non-UTF input test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory
+        .path()
+        .join(OsString::from_vec(b"source-\xFF.mkv".to_vec()));
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=64x64:r=10:d=0.2",
+            "-c:v",
+            "ffv1",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create non-UTF source video");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\ninput source: Video\n$source\n",
+    )
+    .expect("workflow");
+    let package = clipasm::language::parse_file(&workflow).expect("parse");
+    let mut bindings = compiler::EntrypointBindings::new();
+    bindings
+        .bind_video_input(
+            "source",
+            source,
+            clipasm::source::SourceSpan::file_start("<test>"),
+        )
+        .expect("video binding");
+
+    let compiled = compiler::compile_with_bindings(&package, &bindings).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(
+        plan.prepared_json()
+            .expect_err("prepared inspection requires Unicode paths")
+            .code,
+        "E_PREPARED_JSON"
+    );
+    let report = render::render(&plan).expect("render non-UTF input");
+
+    assert!(report.output().is_file());
+    assert_eq!(report.cache_misses(), plan.nodes().len());
 }
 
 #[cfg(unix)]

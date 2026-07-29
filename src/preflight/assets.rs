@@ -1,8 +1,5 @@
 use std::fs;
-use std::io::{BufReader, Read};
 use std::path::{Component, Path, PathBuf};
-
-use sha2::{Digest, Sha256};
 
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
@@ -13,10 +10,7 @@ use crate::source::{SourceFile, SourceSpan};
 use super::tools::{
     ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
 };
-use super::{
-    PreparedAsset, PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind,
-    RenderPolicy,
-};
+use super::{PreparedAsset, PreparedNode, RenderPolicy};
 
 pub(super) fn prepare_output_path(
     compiled: &CompiledProgram,
@@ -95,100 +89,22 @@ pub(super) fn reject_asset_collisions(
     nodes: &[PreparedNode],
 ) -> Result<()> {
     for node in nodes {
-        if let PreparedNodeMedia::Video {
-            kind:
-                PreparedVideoKind::ExternalVideo {
-                    executable,
-                    arguments,
-                    parameters,
-                    ..
-                },
-            ..
-        } = node.media()
-        {
+        node.try_visit_resources(|resource| {
             reject_path_collision(
                 output,
                 "output",
-                executable.executable(),
-                "external executable",
+                resource.path(),
+                resource.role(),
                 BuiltinDiagnostic::OutputCollision,
             )?;
             reject_path_collision(
                 manifest,
                 "manifest",
-                executable.executable(),
-                "external executable",
+                resource.path(),
+                resource.role(),
                 BuiltinDiagnostic::ManifestCollision,
-            )?;
-            for asset in arguments.iter().filter_map(|argument| match argument {
-                super::PreparedExternalArgument::File(asset) => Some(asset),
-                super::PreparedExternalArgument::Text(_) => None,
-            }) {
-                reject_path_collision(
-                    output,
-                    "output",
-                    asset.source_path(),
-                    "external file argument",
-                    BuiltinDiagnostic::OutputCollision,
-                )?;
-                reject_path_collision(
-                    manifest,
-                    "manifest",
-                    asset.source_path(),
-                    "external file argument",
-                    BuiltinDiagnostic::ManifestCollision,
-                )?;
-            }
-            for asset in parameters.values().filter_map(|value| match value {
-                super::PreparedExternalParameterValue::File(asset) => Some(asset),
-                super::PreparedExternalParameterValue::Integer(_)
-                | super::PreparedExternalParameterValue::Keyword(_) => None,
-            }) {
-                reject_path_collision(
-                    output,
-                    "output",
-                    asset.source_path(),
-                    "external file parameter",
-                    BuiltinDiagnostic::OutputCollision,
-                )?;
-                reject_path_collision(
-                    manifest,
-                    "manifest",
-                    asset.source_path(),
-                    "external file parameter",
-                    BuiltinDiagnostic::ManifestCollision,
-                )?;
-            }
-        }
-        let (asset, role) = match node.media() {
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::ImageVideo { asset, .. },
-                ..
-            } => (asset, "image asset"),
-            PreparedNodeMedia::Video {
-                kind: PreparedVideoKind::VideoSource { asset, .. },
-                ..
-            } => (asset, "video asset"),
-            PreparedNodeMedia::Audio {
-                kind: PreparedAudioKind::AudioSource { asset },
-                ..
-            } => (asset, "audio asset"),
-            PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => continue,
-        };
-        reject_path_collision(
-            output,
-            "output",
-            asset.source_path(),
-            role,
-            BuiltinDiagnostic::OutputCollision,
-        )?;
-        reject_path_collision(
-            manifest,
-            "manifest",
-            asset.source_path(),
-            role,
-            BuiltinDiagnostic::ManifestCollision,
-        )?;
+            )
+        })?;
     }
     Ok(())
 }
@@ -326,7 +242,16 @@ fn prepare_file_asset(
             origin.span.clone(),
         ));
     }
-    let source_path = fs::canonicalize(&source_path).unwrap_or(source_path);
+    let source_path = fs::canonicalize(&source_path).map_err(|error| {
+        Diagnostic::builtin(
+            missing_code,
+            format!(
+                "could not resolve {role} file `{}` after inspection: {error}",
+                source_path.display()
+            ),
+            origin.span.clone(),
+        )
+    })?;
     let content_hash = hash_file(&source_path, &origin.span)?;
     Ok(PreparedAsset::new(source_path, content_hash))
 }
@@ -360,30 +285,13 @@ pub(crate) fn verify_prepared_asset(asset: &PreparedAsset, span: &SourceSpan) ->
 }
 
 fn hash_file(path: &Path, span: &SourceSpan) -> Result<String> {
-    let file = fs::File::open(path).map_err(|error| {
+    crate::identity::hash_file(path).map_err(|error| {
         Diagnostic::builtin(
             BuiltinDiagnostic::InputHash,
-            format!("could not read asset `{}`: {error}", path.display()),
+            format!("could not hash asset `{}`: {error}", path.display()),
             span.clone(),
         )
-    })?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
-    loop {
-        let read = reader.read(&mut buffer).map_err(|error| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::InputHash,
-                format!("could not hash asset `{}`: {error}", path.display()),
-                span.clone(),
-            )
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    })
 }
 
 pub(super) fn resolve_authored_path(value: &Path, span: &SourceSpan) -> Result<PathBuf> {
@@ -451,6 +359,29 @@ mod tests {
             .expect_err("missing base");
 
         assert_eq!(error.code, "E_RELATIVE_PATH_WITHOUT_BASE");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_file_assets_record_the_canonical_target() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let target = directory.path().join("target.bin");
+        let alias = directory.path().join("alias.bin");
+        fs::write(&target, b"content").expect("target");
+        symlink("target.bin", &alias).expect("alias");
+        let source =
+            SourceFile::with_base("effect.clipasm", Some(directory.path().to_path_buf()), "");
+        let span = SourceSpan::source_start(source);
+
+        let asset =
+            prepare_external_file_asset(Path::new("alias.bin"), &span).expect("prepared asset");
+
+        assert_eq!(
+            asset.source_path(),
+            fs::canonicalize(target).expect("canonical target")
+        );
     }
 
     #[cfg(unix)]

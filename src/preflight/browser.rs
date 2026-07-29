@@ -1,8 +1,8 @@
 //! Browser preparation for virtual, in-memory media projects.
 //!
 //! This module performs no filesystem or process I/O. A browser host supplies
-//! content hashes for requested virtual assets and `FFprobe` metadata for video
-//! blobs, then executes the returned render plan through its own `FFmpeg`
+//! content hashes and `FFprobe` metadata for requested virtual assets, then
+//! executes the returned render plan through its own `FFmpeg`
 //! runtime.
 
 use std::collections::{BTreeMap, HashMap};
@@ -19,13 +19,31 @@ use super::lower::{PreflightLowerer, PreparationHost};
 use super::tools::ExternalToolIdentity;
 use super::{PreparedAsset, PreparedNode, RenderPolicy};
 
+const MAX_PROBE_JSON_BYTES: usize = 256 * 1024;
+const MAX_TOTAL_PROBE_JSON_BYTES: usize = 1024 * 1024;
+
 /// The media role of one virtual asset required for browser rendering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrowserAssetKind {
     /// A still image used by the `image` program.
     Image,
-    /// A video file that must be probed before browser preparation.
+    /// A video file used by the `video` program.
     Video,
+    /// One path used through both still-image and video-file source contracts.
+    ImageAndVideo,
+}
+
+impl BrowserAssetKind {
+    const fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Image, Self::Image) => Self::Image,
+            (Self::Video, Self::Video) => Self::Video,
+            (Self::Image, Self::Video)
+            | (Self::Video, Self::Image)
+            | (Self::ImageAndVideo, _)
+            | (_, Self::ImageAndVideo) => Self::ImageAndVideo,
+        }
+    }
 }
 
 /// One virtual asset required by the result-reachable semantic graph.
@@ -49,30 +67,28 @@ impl BrowserAssetRequest {
     }
 }
 
-/// One browser file bound to a normalized virtual path and SHA-256 digest.
+/// One browser file bound to a normalized virtual path, SHA-256 digest, and
+/// bounded `FFprobe` stream document for the same bytes.
 #[derive(Clone, Debug)]
 pub struct BrowserAsset {
     path: String,
     content_hash: String,
-    video_probe: Option<String>,
+    probe: String,
 }
 
 impl BrowserAsset {
     /// Construct one virtual asset fact supplied by a browser host.
     #[must_use]
-    pub fn new(path: impl Into<String>, content_hash: impl Into<String>) -> Self {
+    pub fn new(
+        path: impl Into<String>,
+        content_hash: impl Into<String>,
+        probe: impl Into<String>,
+    ) -> Self {
         Self {
             path: path.into(),
             content_hash: content_hash.into(),
-            video_probe: None,
+            probe: probe.into(),
         }
-    }
-
-    /// Attach the raw `FFprobe` stream document produced from this video blob.
-    #[must_use]
-    pub fn with_video_probe(mut self, video_probe: impl Into<String>) -> Self {
-        self.video_probe = Some(video_probe.into());
-        self
     }
 
     /// Return the browser-visible project-relative path.
@@ -144,15 +160,17 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
         compiled.symbol_values(),
         [output],
     )?;
-    let mut paths = BTreeMap::new();
-    let mut requests = Vec::new();
+    let mut paths = BTreeMap::<String, usize>::new();
+    let mut requests = Vec::<BrowserAssetRequest>::new();
     for value in order {
         let node = &compiled.nodes()[value.id().get() as usize];
         match node.kind() {
             SemanticNodeKind::ImageVideo { path, .. }
             | SemanticNodeKind::DeferredImageVideo { path, .. } => {
                 let path = virtual_path(path, &node.origin().span)?;
-                if !paths.contains_key(&path) {
+                if let Some(index) = paths.get(&path) {
+                    requests[*index].kind = requests[*index].kind.merge(BrowserAssetKind::Image);
+                } else {
                     paths.insert(path.clone(), requests.len());
                     requests.push(BrowserAssetRequest {
                         path,
@@ -163,7 +181,7 @@ pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetReq
             SemanticNodeKind::VideoSource { path, .. } => {
                 let path = virtual_path(path, &node.origin().span)?;
                 if let Some(index) = paths.get(&path) {
-                    requests[*index].kind = BrowserAssetKind::Video;
+                    requests[*index].kind = requests[*index].kind.merge(BrowserAssetKind::Video);
                 } else {
                     paths.insert(path.clone(), requests.len());
                     requests.push(BrowserAssetRequest {
@@ -230,7 +248,7 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
                     PathBuf::from(request.path()),
                     facts.content_hash.clone(),
                 ),
-                video_probe: facts.video_probe.clone(),
+                probe: facts.probe.clone(),
             },
         );
     }
@@ -285,14 +303,36 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
 #[derive(Clone)]
 struct BrowserAssetFacts {
     content_hash: String,
-    video_probe: Option<String>,
+    probe: String,
 }
 
 fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, BrowserAssetFacts>> {
     let mut supplied = BTreeMap::new();
+    let mut total_probe_bytes = 0_usize;
     for asset in assets {
         let span = SourceSpan::file_start(&asset.path);
         let path = normalize_relative(Path::new(&asset.path), &span)?;
+        if asset.probe.len() > MAX_PROBE_JSON_BYTES {
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserAssetFacts,
+                format!(
+                    "browser asset `{path}` probe metadata exceeds the {MAX_PROBE_JSON_BYTES}-byte limit"
+                ),
+                span,
+            ));
+        }
+        total_probe_bytes = total_probe_bytes
+            .checked_add(asset.probe.len())
+            .filter(|total| *total <= MAX_TOTAL_PROBE_JSON_BYTES)
+            .ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::BrowserAssetFacts,
+                    format!(
+                        "browser asset probe metadata exceeds the {MAX_TOTAL_PROBE_JSON_BYTES}-byte aggregate limit"
+                    ),
+                    span.clone(),
+                )
+            })?;
         if asset.content_hash.len() != 64
             || !asset
                 .content_hash
@@ -310,7 +350,7 @@ fn supplied_assets(assets: &[BrowserAsset]) -> Result<BTreeMap<String, BrowserAs
                 path.clone(),
                 BrowserAssetFacts {
                     content_hash: asset.content_hash.to_ascii_lowercase(),
-                    video_probe: asset.video_probe.clone(),
+                    probe: asset.probe.clone(),
                 },
             )
             .is_some()
@@ -394,22 +434,21 @@ struct BrowserPreparationHost {
 
 struct BrowserPreparedAsset {
     asset: PreparedAsset,
-    video_probe: Option<String>,
+    probe: String,
 }
 
 impl PreparationHost for BrowserPreparationHost {
     fn prepare_image(&mut self, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset> {
         let path = PathBuf::from(virtual_path(authored, &origin.span)?);
-        self.assets
-            .get(&path)
-            .map(|asset| asset.asset.clone())
-            .ok_or_else(|| {
-                Diagnostic::builtin(
-                    BuiltinDiagnostic::BrowserMissingAsset,
-                    format!("browser asset `{}` has not been supplied", path.display()),
-                    origin.span.clone(),
-                )
-            })
+        let prepared = self.assets.get(&path).ok_or_else(|| {
+            Diagnostic::builtin(
+                BuiltinDiagnostic::BrowserMissingAsset,
+                format!("browser asset `{}` has not been supplied", path.display()),
+                origin.span.clone(),
+            )
+        })?;
+        super::tools::validate_image_probe_json(&path, &origin.span, &prepared.probe)?;
+        Ok(prepared.asset.clone())
     }
 
     fn prepare_video(
@@ -426,15 +465,8 @@ impl PreparationHost for BrowserPreparationHost {
                 origin.span.clone(),
             )
         })?;
-        let probe = prepared.video_probe.as_deref().ok_or_else(|| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::BrowserAssetProbe,
-                format!("browser video `{}` has not been probed", path.display()),
-                origin.span.clone(),
-            )
-        })?;
         let (frames, has_audio) =
-            super::tools::validate_video_probe_json(&path, video, &origin.span, probe)?;
+            super::tools::validate_video_probe_json(&path, video, &origin.span, &prepared.probe)?;
         Ok((prepared.asset.clone(), frames, has_audio))
     }
 
@@ -481,10 +513,17 @@ mod tests {
     use crate::model::ValueType;
     use crate::preflight::{PreparedNodeMedia, PreparedVideoKind};
 
+    const IMAGE_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#;
+    const VIDEO_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#;
+
     fn compiled(source: &str) -> CompiledProgram {
         let package =
             crate::language::parse_str(Path::new("playground.clipasm"), source).expect("source");
         crate::compiler::compile(&package).expect("compiled")
+    }
+
+    fn asset(path: &str, hash: &str, probe: &str) -> BrowserAsset {
+        BrowserAsset::new(path, hash.repeat(32), probe)
     }
 
     #[test]
@@ -509,14 +548,23 @@ mod tests {
     }
 
     #[test]
+    fn one_path_can_require_both_source_contracts() {
+        let compiled =
+            compiled("clipasm 1\nimage(\"shared.mkv\", 1s)\nvideo(\"shared.mkv\")\nconcat\n");
+        let requests = required_assets(&compiled).expect("requests");
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path(), "shared.mkv");
+        assert_eq!(requests[0].kind(), BrowserAssetKind::ImageAndVideo);
+    }
+
+    #[test]
     fn prepares_video_sources_from_validated_browser_probe_metadata() {
         let compiled = compiled(
             "clipasm 1\nconfig {\nvideo {\nwidth = 320\nheight = 180\nfps = 24\n}\n}\nvideo(\"scene.mkv\")\n",
         );
-        let asset = BrowserAsset::new("scene.mkv", "ab".repeat(32)).with_video_probe(
-            r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
-        );
-        let plan = prepare(&compiled, &[asset]).expect("browser plan");
+        let plan =
+            prepare(&compiled, &[asset("scene.mkv", "ab", VIDEO_PROBE)]).expect("browser plan");
 
         match plan.nodes[plan.result.get() as usize].media() {
             PreparedNodeMedia::Video {
@@ -532,42 +580,54 @@ mod tests {
     }
 
     #[test]
-    fn video_sources_require_probe_metadata() {
-        let compiled = compiled("clipasm 1\nvideo(\"scene.mkv\")\n");
-        let error = prepare(
-            &compiled,
-            &[BrowserAsset::new("scene.mkv", "ab".repeat(32))],
-        )
-        .expect_err("missing video probe");
-
-        assert_eq!(error.code, "E_BROWSER_ASSET_PROBE");
-    }
-
-    #[test]
     fn rejects_invalid_browser_video_probe_metadata() {
         let compiled = compiled("clipasm 1\nvideo(\"scene.mkv\")\n");
-        let asset =
-            BrowserAsset::new("scene.mkv", "ab".repeat(32)).with_video_probe(r#"{"streams":[]}"#);
-        let error = prepare(&compiled, &[asset]).expect_err("invalid video probe");
+        let error = prepare(&compiled, &[asset("scene.mkv", "ab", r#"{"streams":[]}"#)])
+            .expect_err("invalid video probe");
 
         assert_eq!(error.code, "E_SOURCE_CONTRACT");
         assert!(error.message.contains("exactly one video stream"));
     }
 
     #[test]
-    fn prepares_image_graph_from_supplied_hashes() {
+    fn prepares_image_graph_from_validated_probe_metadata() {
         let compiled = compiled("clipasm 1\nimage(\"still.png\", 1s)\n");
-        let plan = prepare(
-            &compiled,
-            &[BrowserAsset::new("still.png", "ab".repeat(32))],
-        )
-        .expect("browser plan");
+        let plan =
+            prepare(&compiled, &[asset("still.png", "ab", IMAGE_PROBE)]).expect("browser plan");
         assert_eq!(plan.nodes.len(), 1);
         assert_eq!(
             plan.nodes[plan.result.get() as usize].value_type(),
             ValueType::Video
         );
         assert!(!plan.semantic_hash().is_empty());
+    }
+
+    #[test]
+    fn rejects_animated_or_audio_bearing_browser_images() {
+        let compiled = compiled("clipasm 1\nimage(\"still.png\", 1s)\n");
+        let animated = asset(
+            "still.png",
+            "ab",
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"2"}]}"#,
+        );
+        let error = prepare(&compiled, &[animated]).expect_err("animated image");
+
+        assert_eq!(error.code, "E_SOURCE_CONTRACT");
+        assert!(error.message.contains("one decoded frame"));
+    }
+
+    #[test]
+    fn rejects_excessive_browser_probe_metadata() {
+        let compiled = compiled("clipasm 1\nimage(\"still.png\", 1s)\n");
+        let oversized = BrowserAsset::new(
+            "still.png",
+            "ab".repeat(32),
+            "x".repeat(MAX_PROBE_JSON_BYTES + 1),
+        );
+        let error = prepare(&compiled, &[oversized]).expect_err("oversized probe");
+
+        assert_eq!(error.code, "E_BROWSER_ASSET_FACTS");
+        assert!(error.message.contains("exceeds"));
     }
 
     #[test]
@@ -578,8 +638,8 @@ mod tests {
             "E_BROWSER_MISSING_ASSET"
         );
         let duplicate = [
-            BrowserAsset::new("still.png", "ab".repeat(32)),
-            BrowserAsset::new("./still.png", "cd".repeat(32)),
+            asset("still.png", "ab", IMAGE_PROBE),
+            asset("./still.png", "cd", IMAGE_PROBE),
         ];
         assert_eq!(
             prepare(&program, &duplicate).expect_err("duplicate").code,

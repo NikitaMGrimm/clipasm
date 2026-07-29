@@ -26,6 +26,13 @@ building a shell command.
 A zero exit status is not enough: ClipAsm probes the produced artifact and
 checks it against the declared Video result before accepting it.
 
+The external invocation must finish or join every child process it starts before
+exiting. Detached background work is outside the protocol contract. On Unix,
+ClipAsm places the invocation in a dedicated process group and terminates any
+remaining members when the direct child finishes. On Windows, ClipAsm currently
+guarantees cleanup of the direct child only, so an external implementation must
+not leave descendants holding inherited pipes or resources.
+
 ## What ClipAsm cannot make safe
 
 ClipAsm does not sandbox the process, limit its runtime, or prevent access to the
@@ -38,9 +45,19 @@ inputs such as:
 - imported modules;
 - undeclared files.
 
-A hidden dependency can also make cached output stale. Authors must declare File
-dependencies where supported and update `semantic_version` whenever other
-output-affecting behavior changes.
+Persistent caching assumes an external implementation is deterministic with
+respect to everything ClipAsm identifies: executable and declared File bytes,
+`semantic_version`, arguments, parameters, project settings, and input artifact
+bytes. Repeating the same identified invocation must produce equivalent output.
+Clock time, randomness, network responses, mutable environment state, and
+undeclared files violate that contract and can make both the external node and
+cached descendants stale or mutually inconsistent.
+
+Authors must declare File dependencies where supported and update
+`semantic_version` whenever other output-affecting behavior changes. An
+implementation that cannot satisfy this deterministic contract should not rely
+on persistent reuse; remove the project's `.clipasm/` state before each render
+until ClipAsm exposes an explicit nonpersistent execution policy.
 
 Hashing reduces accidental drift but does not create an immutable snapshot. A
 file can still change between the final hash and the external process reading

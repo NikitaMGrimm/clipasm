@@ -16,6 +16,7 @@ REQUIRED_PATHS = frozenset(
         "examples/assets/morning.png",
         "examples/scenic-sequence.clipasm",
         "examples/starter/.gitignore",
+        "examples/starter/clipasm.toml",
         "examples/starter/README.md",
         "examples/programs/brighten/brighten.py",
     }

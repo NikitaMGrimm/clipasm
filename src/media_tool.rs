@@ -1,26 +1,17 @@
-use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread::JoinHandle;
-use std::time::Duration;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
+use crate::process::{self as child_process, ReaderError, RetainedOutput};
 use crate::source::SourceSpan;
 
 const CAPTURE_LIMIT: usize = 8 * 1024 * 1024;
 const STDERR_TAIL_LIMIT: usize = 64 * 1024;
-const START_ATTEMPTS: usize = 5;
-const START_RETRY_DELAY: Duration = Duration::from_millis(10);
 
 pub(crate) struct CapturedOutput {
     pub(crate) stdout: Vec<u8>,
     pub(crate) stderr: Vec<u8>,
-}
-
-#[derive(Debug)]
-pub(crate) struct RetainedOutput {
-    pub(crate) bytes: Vec<u8>,
-    pub(crate) truncated: bool,
 }
 
 pub(crate) fn capture(
@@ -33,8 +24,9 @@ pub(crate) fn capture(
     let mut child = spawn(command, diagnostic, span, &debug)?;
     let stdout = child.stdout.take().expect("piped media-tool stdout");
     let stderr = child.stderr.take().expect("piped media-tool stderr");
-    let stdout_reader = std::thread::spawn(move || read_prefix(stdout, CAPTURE_LIMIT));
-    let stderr_reader = std::thread::spawn(move || read_tail(stderr, CAPTURE_LIMIT));
+    let stdout_reader =
+        std::thread::spawn(move || child_process::read_prefix(stdout, CAPTURE_LIMIT));
+    let stderr_reader = std::thread::spawn(move || child_process::read_tail(stderr, CAPTURE_LIMIT));
     let status = wait(&mut child, diagnostic, span, &debug);
     let stdout = join_reader(stdout_reader, "stdout", diagnostic, span, &debug);
     let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
@@ -87,7 +79,8 @@ pub(crate) fn run(
     command.stdout(Stdio::null()).stderr(Stdio::piped());
     let mut child = spawn(command, diagnostic, span, &debug)?;
     let stderr = child.stderr.take().expect("piped media-tool stderr");
-    let stderr_reader = std::thread::spawn(move || read_tail(stderr, STDERR_TAIL_LIMIT));
+    let stderr_reader =
+        std::thread::spawn(move || child_process::read_tail(stderr, STDERR_TAIL_LIMIT));
     let status = wait(&mut child, diagnostic, span, &debug);
     let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
     let status = status?;
@@ -118,7 +111,8 @@ pub(crate) fn stream_stdout_lines(
     let mut child = spawn(command, diagnostic, span, &debug)?;
     let stdout = child.stdout.take().expect("piped media-tool stdout");
     let stderr = child.stderr.take().expect("piped media-tool stderr");
-    let stderr_reader = std::thread::spawn(move || read_tail(stderr, STDERR_TAIL_LIMIT));
+    let stderr_reader =
+        std::thread::spawn(move || child_process::read_tail(stderr, STDERR_TAIL_LIMIT));
 
     let lines = for_each_bounded_line(
         BufReader::new(stdout),
@@ -127,17 +121,13 @@ pub(crate) fn stream_stdout_lines(
         span,
         &mut visitor,
     );
-    if lines.is_err() {
-        let _ = child.kill();
-    }
-    let status = wait(&mut child, diagnostic, span, &debug);
-    let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
-    let status = status?;
-    let stderr = stderr?;
-
     if let Err(error) = lines {
+        child_process::terminate(&mut child);
+        let _ = join_reader(stderr_reader, "stderr", diagnostic, span, &debug);
         return Err(error.note(debug));
     }
+    let status = wait(&mut child, diagnostic, span, &debug)?;
+    let stderr = join_reader(stderr_reader, "stderr", diagnostic, span, &debug)?;
     if !status.success() {
         return Err(exit_diagnostic(
             diagnostic,
@@ -153,28 +143,19 @@ pub(crate) fn stream_stdout_lines(
 }
 
 fn spawn(
-    mut command: Command,
+    command: Command,
     diagnostic: BuiltinDiagnostic,
     span: &SourceSpan,
     debug: &str,
 ) -> Result<Child> {
-    for attempt in 1..=START_ATTEMPTS {
-        match command.spawn() {
-            Ok(child) => return Ok(child),
-            Err(error) if executable_is_temporarily_busy(&error) && attempt < START_ATTEMPTS => {
-                std::thread::sleep(START_RETRY_DELAY);
-            }
-            Err(error) => {
-                return Err(Diagnostic::builtin(
-                    diagnostic,
-                    format!("could not start external media tool: {error}"),
-                    span.clone(),
-                )
-                .note(debug));
-            }
-        }
-    }
-    unreachable!("the final media-tool start attempt always returns")
+    child_process::spawn(command).map_err(|error| {
+        Diagnostic::builtin(
+            diagnostic,
+            format!("could not start external media tool: {error}"),
+            span.clone(),
+        )
+        .note(debug)
+    })
 }
 
 fn wait(
@@ -183,19 +164,14 @@ fn wait(
     span: &SourceSpan,
     debug: &str,
 ) -> Result<ExitStatus> {
-    match child.wait() {
-        Ok(status) => Ok(status),
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(Diagnostic::builtin(
-                diagnostic,
-                format!("could not wait for external media tool: {error}"),
-                span.clone(),
-            )
-            .note(debug))
-        }
-    }
+    child_process::wait(child).map_err(|error| {
+        Diagnostic::builtin(
+            diagnostic,
+            format!("could not wait for external media tool: {error}"),
+            span.clone(),
+        )
+        .note(debug)
+    })
 }
 
 fn join_reader(
@@ -205,68 +181,14 @@ fn join_reader(
     span: &SourceSpan,
     debug: &str,
 ) -> Result<RetainedOutput> {
-    reader
-        .join()
-        .map_err(|_| {
-            Diagnostic::builtin(
-                diagnostic,
-                format!("external media-tool {stream} reader panicked"),
-                span.clone(),
-            )
-            .note(debug)
-        })?
-        .map_err(|error| {
-            Diagnostic::builtin(
-                diagnostic,
-                format!("could not read external media-tool {stream}: {error}"),
-                span.clone(),
-            )
-            .note(debug)
-        })
-}
-
-fn read_prefix(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput> {
-    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
-    let mut buffer = vec![0_u8; 16 * 1024].into_boxed_slice();
-    let mut truncated = false;
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        let remaining = limit.saturating_sub(bytes.len());
-        let retained = read.min(remaining);
-        bytes.extend_from_slice(&buffer[..retained]);
-        truncated |= retained < read;
-    }
-    Ok(RetainedOutput { bytes, truncated })
-}
-
-pub(crate) fn read_tail(mut reader: impl Read, limit: usize) -> io::Result<RetainedOutput> {
-    let mut bytes = VecDeque::with_capacity(limit.min(64 * 1024));
-    let mut buffer = vec![0_u8; 16 * 1024].into_boxed_slice();
-    let mut truncated = false;
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        if read >= limit {
-            bytes.clear();
-            bytes.extend(&buffer[read - limit..read]);
-            truncated = true;
-            continue;
-        }
-        let overflow = bytes.len().saturating_add(read).saturating_sub(limit);
-        if overflow > 0 {
-            bytes.drain(..overflow);
-            truncated = true;
-        }
-        bytes.extend(&buffer[..read]);
-    }
-    Ok(RetainedOutput {
-        bytes: bytes.into_iter().collect(),
-        truncated,
+    child_process::join_reader(reader).map_err(|error| {
+        let message = match error {
+            ReaderError::Panicked => format!("external media-tool {stream} reader panicked"),
+            ReaderError::Io(error) => {
+                format!("could not read external media-tool {stream}: {error}")
+            }
+        };
+        Diagnostic::builtin(diagnostic, message, span.clone()).note(debug)
     })
 }
 
@@ -368,20 +290,10 @@ fn output_limit_diagnostic(
     .note(debug)
 }
 
-fn executable_is_temporarily_busy(error: &io::Error) -> bool {
-    #[cfg(unix)]
-    {
-        error.raw_os_error() == Some(26)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = error;
-        false
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+
     use super::*;
 
     struct RepeatingReader {
@@ -412,36 +324,6 @@ mod tests {
     }
 
     #[test]
-    fn prefix_capture_drains_without_growing_past_the_limit() {
-        let output = read_prefix(
-            RepeatingReader {
-                pattern: b"0123456789",
-                repetitions: 10_000,
-                offset: 0,
-            },
-            128,
-        )
-        .expect("bounded prefix");
-        assert_eq!(output.bytes.len(), 128);
-        assert!(output.truncated);
-    }
-
-    #[test]
-    fn stderr_tail_keeps_only_the_final_bytes() {
-        let output = read_tail(
-            RepeatingReader {
-                pattern: b"0123456789",
-                repetitions: 10_000,
-                offset: 0,
-            },
-            11,
-        )
-        .expect("bounded tail");
-        assert_eq!(output.bytes, b"90123456789");
-        assert!(output.truncated);
-    }
-
-    #[test]
     fn streamed_lines_do_not_accumulate_the_complete_output() {
         let reader = BufReader::with_capacity(
             17,
@@ -466,6 +348,32 @@ mod tests {
         )
         .expect("streamed lines");
         assert_eq!(lines, 100_000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_visitor_errors_terminate_the_child_and_remain_primary() {
+        use std::time::{Duration, Instant};
+
+        let mut command = Command::new("sh");
+        command.args(["-c", "printf 'line\n'; sleep 5"]);
+        let span = SourceSpan::file_start("test");
+        let started = Instant::now();
+        let error = stream_stdout_lines(command, 256, BuiltinDiagnostic::Ffprobe, &span, |_| {
+            Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
+                "visitor stopped",
+                span.clone(),
+            ))
+        })
+        .expect_err("visitor failure");
+
+        assert_eq!(error.code, "E_INVALID_PLAN");
+        assert_eq!(error.message, "visitor stopped");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "descendant process kept the stderr pipe open"
+        );
     }
 
     #[test]

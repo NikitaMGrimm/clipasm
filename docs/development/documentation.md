@@ -127,8 +127,10 @@ add both attributes:
 ```
 
 The browser adapter accepts one source unit plus still-image and video-file
-sources. It probes videos in the browser, but does not resolve imports, accept
-standalone Audio-file sources, or run external programs.
+sources. It hashes, probes, and decode-checks every media source in the browser,
+then validates each blob against the same still-image or video-file contract as
+native preflight. It does not resolve imports, accept standalone Audio-file
+sources, or run external programs.
 
 Changes to compilation or preparation responses must update the response version
 in `playground/src/lib.rs` and `theme/clipasm-playground.js`. Changes to recipe or

@@ -43,7 +43,7 @@ fn compile_json(workflow: &Path) -> serde_json::Value {
 
 #[cfg(unix)]
 #[test]
-fn non_utf8_bound_media_path_returns_a_fingerprint_diagnostic() {
+fn non_utf8_bound_media_paths_have_distinct_semantic_identities() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt as _;
     use std::path::PathBuf;
@@ -53,20 +53,29 @@ fn non_utf8_bound_media_path_returns_a_fingerprint_diagnostic() {
         "clipasm 1\ninput source: Video\n$source\n",
     )
     .expect("source");
-    let mut bindings = clipasm::compiler::EntrypointBindings::new();
-    bindings
-        .bind_video_input(
-            "source",
-            PathBuf::from(OsString::from_vec(b"footage-\xff.mp4".to_vec())),
-            clipasm::source::SourceSpan::file_start("<test>"),
-        )
-        .expect("binding");
+    let compile = |bytes: &[u8]| {
+        let mut bindings = clipasm::compiler::EntrypointBindings::new();
+        bindings
+            .bind_video_input(
+                "source",
+                PathBuf::from(OsString::from_vec(bytes.to_vec())),
+                clipasm::source::SourceSpan::file_start("<test>"),
+            )
+            .expect("binding");
+        clipasm::compiler::compile_with_bindings(&package, &bindings).expect("native path identity")
+    };
 
-    let error = clipasm::compiler::compile_with_bindings(&package, &bindings)
-        .expect_err("non-UTF-8 identity must be diagnosed");
+    let first = compile(b"footage-\xff.mp4");
+    let second = compile(b"footage-\xfe.mp4");
 
-    assert_eq!(error.code, "E_FINGERPRINT");
-    assert!(error.message.contains("path contains invalid UTF-8"));
+    assert_ne!(first.structure_hash(), second.structure_hash());
+    assert_eq!(
+        first
+            .compiled_json()
+            .expect_err("inspection JSON still requires representable paths")
+            .code,
+        "E_COMPILED_JSON"
+    );
 }
 
 #[test]

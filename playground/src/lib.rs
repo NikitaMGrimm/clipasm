@@ -5,7 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-const RESPONSE_VERSION: u32 = 4;
+const RESPONSE_VERSION: u32 = 5;
 const SOURCE_NAME: &str = "playground.clipasm";
 
 #[derive(Serialize)]
@@ -43,17 +43,12 @@ struct BrowserAssetResponse {
 struct BrowserAssetInput {
     path: String,
     content_hash: String,
-    #[serde(default)]
-    video_probe: Option<String>,
+    probe: String,
 }
 
 impl BrowserAssetInput {
     fn into_asset(self) -> clipasm::preflight::browser::BrowserAsset {
-        let asset = clipasm::preflight::browser::BrowserAsset::new(self.path, self.content_hash);
-        match self.video_probe {
-            Some(probe) => asset.with_video_probe(probe),
-            None => asset,
-        }
+        clipasm::preflight::browser::BrowserAsset::new(self.path, self.content_hash, self.probe)
     }
 }
 
@@ -62,6 +57,7 @@ impl BrowserAssetInput {
 enum BrowserAssetKindResponse {
     Image,
     Video,
+    ImageAndVideo,
 }
 
 impl From<clipasm::preflight::browser::BrowserAssetRequest> for BrowserAssetResponse {
@@ -69,6 +65,9 @@ impl From<clipasm::preflight::browser::BrowserAssetRequest> for BrowserAssetResp
         let kind = match request.kind() {
             clipasm::preflight::browser::BrowserAssetKind::Image => BrowserAssetKindResponse::Image,
             clipasm::preflight::browser::BrowserAssetKind::Video => BrowserAssetKindResponse::Video,
+            clipasm::preflight::browser::BrowserAssetKind::ImageAndVideo => {
+                BrowserAssetKindResponse::ImageAndVideo
+            }
         };
         Self {
             path: request.path().to_owned(),
@@ -176,9 +175,9 @@ pub fn compile_source(source: &str) -> String {
 
 /// Prepare versioned browser render recipes for supplied virtual asset facts.
 ///
-/// `assets_json` must be an array of objects containing `path` and
-/// `content_hash`; video assets additionally carry the browser worker's bounded
-/// `video_probe` JSON. The function does not open media or invoke external code.
+/// `assets_json` must be an array of objects containing `path`, `content_hash`,
+/// and the browser worker's bounded `probe` JSON for the same bytes. The function
+/// does not open media or invoke external code.
 ///
 /// # Panics
 ///
@@ -256,6 +255,17 @@ mod tests {
     }
 
     #[test]
+    fn reports_assets_used_as_both_image_and_video() {
+        let response =
+            response("clipasm 1\nimage(\"shared.mkv\", 1s)\nvideo(\"shared.mkv\")\nconcat\n");
+
+        assert_eq!(
+            response["render"]["assets"],
+            serde_json::json!([{"path": "shared.mkv", "kind": "image_and_video"}])
+        );
+    }
+
+    #[test]
     fn returns_structured_source_diagnostics() {
         let response = response("clipasm 1\nunknown()\n");
 
@@ -283,9 +293,9 @@ mod tests {
     #[test]
     fn prepares_scenic_browser_recipes_from_virtual_asset_hashes() {
         let assets = serde_json::json!([
-            {"path": "assets/morning.png", "content_hash": "11".repeat(32)},
-            {"path": "assets/meadow.png", "content_hash": "22".repeat(32)},
-            {"path": "assets/evening.png", "content_hash": "33".repeat(32)},
+            {"path": "assets/morning.png", "content_hash": "11".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
+            {"path": "assets/meadow.png", "content_hash": "22".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
+            {"path": "assets/evening.png", "content_hash": "33".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
         ]);
         let response: serde_json::Value = serde_json::from_str(&prepare_render(
             include_str!("../../examples/scenic-sequence.clipasm"),
@@ -317,12 +327,28 @@ mod tests {
     }
 
     #[test]
+    fn browser_asset_facts_require_probe_metadata() {
+        let assets = serde_json::json!([{
+            "path": "still.png",
+            "content_hash": "11".repeat(32),
+        }]);
+        let response: serde_json::Value = serde_json::from_str(&prepare_render(
+            "clipasm 1\nimage(\"still.png\", 1s)\n",
+            &assets.to_string(),
+        ))
+        .expect("response JSON");
+
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["diagnostic"]["code"], "E_BROWSER_ASSET_FACTS");
+    }
+
+    #[test]
     fn prepares_browser_video_source_recipes_from_probe_metadata() {
         let source = "clipasm 1\nconfig {\nvideo {\nwidth = 320\nheight = 180\nfps = 24\n}\n}\nvideo(\"scene.mkv\")\n";
         let assets = serde_json::json!([{
             "path": "scene.mkv",
             "content_hash": "11".repeat(32),
-            "video_probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+            "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
         }]);
         let response: serde_json::Value =
             serde_json::from_str(&prepare_render(source, &assets.to_string()))

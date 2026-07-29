@@ -1,18 +1,98 @@
+use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{NodeId, ValueType};
 use crate::preflight::tools::verify_external_tool;
-use crate::preflight::{
-    PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue, PreparedNode,
-    PreparedNodeMedia, PreparedPlan, PreparedVideoKind, verify_prepared_asset,
-};
+use crate::preflight::{PreparedNode, PreparedPlan, PreparedResource, verify_prepared_asset};
 use crate::source::SourceSpan;
 
 use super::artifact::verify_prepared_artifact;
 use super::cache;
 use super::execute::Executor;
 use super::lock::{FileLock, sibling_lock_path};
+
+pub(super) struct ProtectedResources {
+    paths: HashMap<PathBuf, &'static str>,
+}
+
+impl ProtectedResources {
+    pub(super) fn new(plan: &PreparedPlan) -> Self {
+        let mut paths = HashMap::from([
+            (
+                plan.ffmpeg().executable().to_path_buf(),
+                "FFmpeg executable",
+            ),
+            (
+                plan.ffprobe().executable().to_path_buf(),
+                "FFprobe executable",
+            ),
+        ]);
+        for node in plan.nodes() {
+            let result: std::result::Result<(), std::convert::Infallible> = node
+                .try_visit_resources(|resource| {
+                    paths
+                        .entry(resource.path().to_path_buf())
+                        .or_insert(resource.role());
+                    Ok(())
+                });
+            match result {
+                Ok(()) => {}
+                Err(never) => match never {},
+            }
+        }
+        Self { paths }
+    }
+
+    pub(super) fn reject_existing_path(
+        &self,
+        path: &Path,
+        role: &str,
+        diagnostic: BuiltinDiagnostic,
+    ) -> Result<()> {
+        let identity = match fs::canonicalize(path) {
+            Ok(identity) => identity,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(Diagnostic::builtin(
+                    diagnostic,
+                    format!(
+                        "could not resolve {role} path `{}` before use: {error}",
+                        path.display()
+                    ),
+                    SourceSpan::file_start(path),
+                ));
+            }
+        };
+        let Some(resource_role) = self.paths.get(&identity) else {
+            return Ok(());
+        };
+        Err(Diagnostic::builtin(
+            diagnostic,
+            format!(
+                "{role} path `{}` collides with {resource_role} path `{}`",
+                path.display(),
+                identity.display()
+            ),
+            SourceSpan::file_start(path),
+        ))
+    }
+
+    fn reject_cache_entry(&self, artifact: &Path) -> Result<()> {
+        self.reject_existing_path(artifact, "cache artifact", BuiltinDiagnostic::CacheIo)?;
+        self.reject_existing_path(
+            &cache::metadata_path(artifact),
+            "cache metadata",
+            BuiltinDiagnostic::CacheIo,
+        )?;
+        self.reject_existing_path(
+            &sibling_lock_path(artifact, "cache"),
+            "cache lock",
+            BuiltinDiagnostic::CacheLock,
+        )
+    }
+}
 
 pub(super) struct ExecutionPlan {
     actions: Vec<ExecutionAction>,
@@ -38,7 +118,11 @@ pub(super) struct ExecutionResult {
 }
 
 impl ExecutionPlan {
-    pub(super) fn build(plan: &PreparedPlan, cache_directory: &Path) -> Result<Self> {
+    pub(super) fn build(
+        plan: &PreparedPlan,
+        cache_directory: &Path,
+        protected: &ProtectedResources,
+    ) -> Result<Self> {
         validate_prepared_order(plan)?;
         let mut seen = vec![false; plan.nodes().len()];
         let mut pending = vec![plan.result()];
@@ -52,6 +136,7 @@ impl ExecutionPlan {
             seen[index] = true;
             let node = &plan.nodes()[index];
             let artifact = cache_artifact_path(plan, cache_directory, node);
+            protected.reject_cache_entry(&artifact)?;
             let disposition = if probe_cache(plan, node, &artifact)? {
                 verify_node_resources(node)?;
                 CacheDisposition::ReuseVerified
@@ -73,7 +158,11 @@ impl ExecutionPlan {
         })
     }
 
-    pub(super) fn execute(self, plan: &PreparedPlan) -> Result<ExecutionResult> {
+    pub(super) fn execute(
+        self,
+        plan: &PreparedPlan,
+        protected: &ProtectedResources,
+    ) -> Result<ExecutionResult> {
         let executor = Executor::new(plan);
         let mut artifacts = vec![None; self.slot_count];
         let mut cache_hits = 0;
@@ -94,6 +183,7 @@ impl ExecutionPlan {
                         "cache artifact",
                         &node.origin().span,
                     )?;
+                    protected.reject_cache_entry(&action.artifact)?;
                     let cache_hit = cache_is_valid(plan, node, &action.artifact);
                     verify_node_resources(node)?;
                     if cache_hit {
@@ -231,43 +321,10 @@ fn cache_identity<'a>(
 }
 
 fn verify_node_resources(node: &PreparedNode) -> Result<()> {
-    match node.media() {
-        PreparedNodeMedia::Video {
-            kind:
-                PreparedVideoKind::ImageVideo { asset, .. }
-                | PreparedVideoKind::VideoSource { asset, .. },
-            ..
+    node.try_visit_resources(|resource| match resource {
+        PreparedResource::Asset { asset, .. } => verify_prepared_asset(asset, &node.origin().span),
+        PreparedResource::ExternalExecutable(executable) => {
+            verify_external_tool(executable, &node.origin().span)
         }
-        | PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioSource { asset },
-            ..
-        } => verify_prepared_asset(asset, &node.origin().span),
-        PreparedNodeMedia::Video {
-            kind:
-                PreparedVideoKind::ExternalVideo {
-                    executable,
-                    arguments,
-                    parameters,
-                    ..
-                },
-            ..
-        } => {
-            verify_external_tool(executable, &node.origin().span)?;
-            for asset in arguments.iter().filter_map(|argument| match argument {
-                PreparedExternalArgument::File(asset) => Some(asset),
-                PreparedExternalArgument::Text(_) => None,
-            }) {
-                verify_prepared_asset(asset, &node.origin().span)?;
-            }
-            for asset in parameters.values().filter_map(|value| match value {
-                PreparedExternalParameterValue::File(asset) => Some(asset),
-                PreparedExternalParameterValue::Integer(_)
-                | PreparedExternalParameterValue::Keyword(_) => None,
-            }) {
-                verify_prepared_asset(asset, &node.origin().span)?;
-            }
-            Ok(())
-        }
-        PreparedNodeMedia::Video { .. } | PreparedNodeMedia::Audio { .. } => Ok(()),
-    }
+    })
 }

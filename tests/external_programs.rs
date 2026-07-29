@@ -225,6 +225,65 @@ fn publication_paths_cannot_collide_with_external_executables() {
 
 #[cfg(unix)]
 #[test]
+fn publication_paths_cannot_collide_with_external_files() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping external file collision test because FFmpeg is unavailable");
+        return;
+    }
+
+    for (dependency, declaration) in [
+        (
+            "argument.mp4",
+            "input video: Video\nexternal {\n  executable = \"./effect.sh\"\n  arguments = [file(\"argument.mp4\")]\n  semantic_version = 1\n  preserve = video\n}\n",
+        ),
+        (
+            "parameter.mp4",
+            "input video: Video\nparam lut: File = \"parameter.mp4\"\nexternal {\n  executable = \"./effect.sh\"\n  semantic_version = 1\n  preserve = video\n}\n",
+        ),
+    ] {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let executable = directory.path().join("effect.sh");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").expect("external executable");
+        let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("executable permissions");
+        fs::write(directory.path().join(dependency), b"external dependency")
+            .expect("external file");
+        fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/assets/morning.png"),
+            directory.path().join("card.png"),
+        )
+        .expect("image");
+        fs::write(
+            directory.path().join("effect.clipasm"),
+            format!("clipasm 1\n{declaration}"),
+        )
+        .expect("external source");
+        let workflow = directory.path().join("workflow.clipasm");
+        fs::write(
+            &workflow,
+            format!(
+                "clipasm 1\nconfig {{ output = {dependency:?} }}\nimport \"effect.clipasm\" as effect\nimage(\"card.png\", 1s)\neffect\n"
+            ),
+        )
+        .expect("workflow");
+
+        let package = language::parse_file(&workflow).expect("external package");
+        let compiled = compiler::compile(&package).expect("pure compilation");
+        let error = preflight::preflight(&compiled).expect_err("external file collision");
+
+        assert_eq!(error.code, "E_OUTPUT_COLLISION");
+        assert!(
+            directory.path().join(dependency).is_file(),
+            "preflight must preserve external file"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn external_file_parameters_are_resolved_and_hashed_during_preflight() {
     use std::os::unix::fs::PermissionsExt as _;
 

@@ -24,7 +24,7 @@ self.addEventListener("message", async ({ data }) => {
         const fileMap = validateFiles(files);
         if (operation === "probe") {
             await ensureRuntime(id);
-            const probes = await probeVideoAssets(data.requests, fileMap, id);
+            const probes = await probeAssets(data.requests, fileMap, id);
             self.postMessage({ id, status: "probed", probes });
             return;
         }
@@ -122,7 +122,7 @@ async function mountBlob(file, virtualPath, label) {
     return mountPoint;
 }
 
-async function probeVideoAssets(requests, files, id) {
+async function probeAssets(requests, files, id) {
     const validated = validateProbeRequests(requests);
     const probes = [];
     const mounts = [];
@@ -131,35 +131,59 @@ async function probeVideoAssets(requests, files, id) {
         for (const [index, request] of validated.entries()) {
             const file = files.get(request.path);
             if (!file) {
-                throw new Error(`The required browser video \`${request.path}\` is missing.`);
+                throw new Error(`The required browser asset \`${request.path}\` is missing.`);
             }
-            progress(id, `Inspecting browser video ${index + 1} of ${validated.length}…`);
+            progress(id, `Inspecting browser asset ${index + 1} of ${validated.length}…`);
             const virtualPath = `/inputs/probe-${index}/asset${safeExtension(request.path)}`;
-            mounts.push(await mountBlob(file, virtualPath, `browser video ${index + 1}`));
-            const videoProbe = await probeVideo(virtualPath);
-            probeBytes += videoProbe.length;
+            mounts.push(await mountBlob(file, virtualPath, `browser asset ${index + 1}`));
+            const probe = await probeAsset(virtualPath);
+            probeBytes += probe.length;
             if (probeBytes > MAX_TOTAL_PROBE_JSON_BYTES) {
-                throw new Error("FFprobe returned excessive source-video metadata.");
+                throw new Error("FFprobe returned excessive source-asset metadata.");
             }
-            await execute(
-                [
-                    "-v",
-                    "error",
-                    "-xerror",
-                    "-i",
-                    virtualPath,
-                    "-map",
-                    "0:v:0",
-                    "-frames:v",
-                    "1",
-                    "-an",
-                    "-f",
-                    "null",
-                    "-",
-                ],
-                `source video ${index + 1}`,
-            );
-            probes.push({ path: request.path, video_probe: videoProbe });
+            if (request.kind === "image" || request.kind === "image_and_video") {
+                await execute(
+                    [
+                        "-v",
+                        "error",
+                        "-xerror",
+                        "-loop",
+                        "1",
+                        "-i",
+                        virtualPath,
+                        "-map",
+                        "0:v:0",
+                        "-frames:v",
+                        "1",
+                        "-an",
+                        "-f",
+                        "null",
+                        "-",
+                    ],
+                    `still-image source ${index + 1}`,
+                );
+            }
+            if (request.kind === "video" || request.kind === "image_and_video") {
+                await execute(
+                    [
+                        "-v",
+                        "error",
+                        "-xerror",
+                        "-i",
+                        virtualPath,
+                        "-map",
+                        "0:v:0",
+                        "-frames:v",
+                        "1",
+                        "-an",
+                        "-f",
+                        "null",
+                        "-",
+                    ],
+                    `video-file source ${index + 1}`,
+                );
+            }
+            probes.push({ path: request.path, probe });
         }
         return probes;
     } finally {
@@ -167,7 +191,7 @@ async function probeVideoAssets(requests, files, id) {
     }
 }
 
-async function probeVideo(path) {
+async function probeAsset(path) {
     const output = `/work/source-probe-${probeSequence++}.json`;
     try {
         logTail = [];
@@ -188,7 +212,7 @@ async function probeVideo(path) {
         );
         const document = await ffmpeg.readFile(output, "utf8");
         if (typeof document !== "string" || document.length > MAX_PROBE_JSON_BYTES) {
-            throw new Error("FFprobe returned invalid or excessive source-video metadata.");
+            throw new Error("FFprobe returned invalid or excessive source-asset metadata.");
         }
         JSON.parse(document);
         return document;
@@ -199,17 +223,17 @@ async function probeVideo(path) {
 
 function validateProbeRequests(requests) {
     if (!Array.isArray(requests)) {
-        throw new Error("Browser video probe requests are malformed.");
+        throw new Error("Browser asset probe requests are malformed.");
     }
     const paths = new Set();
     for (const request of requests) {
         if (
             !request ||
-            request.kind !== "video" ||
+            !["image", "video", "image_and_video"].includes(request.kind) ||
             typeof request.path !== "string" ||
             paths.has(request.path)
         ) {
-            throw new Error("Browser video probe requests are malformed or duplicated.");
+            throw new Error("Browser asset probe requests are malformed or duplicated.");
         }
         paths.add(request.path);
     }

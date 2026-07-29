@@ -48,7 +48,22 @@ pub(crate) fn verify_image_decodable(
             )
         },
     )?;
-    let document: ImageProbeDocument = serde_json::from_slice(&output.stdout).map_err(|error| {
+    let document = parse_image_probe(path, span, &output.stdout)?;
+    validate_image_document(path, span, &document)?;
+    decode_image_frame(path, span, ffmpeg)
+}
+
+pub(crate) fn validate_image_probe_json(
+    path: &Path,
+    span: &SourceSpan,
+    probe_json: &str,
+) -> Result<()> {
+    let document = parse_image_probe(path, span, probe_json.as_bytes())?;
+    validate_image_document(path, span, &document)
+}
+
+fn parse_image_probe(path: &Path, span: &SourceSpan, bytes: &[u8]) -> Result<ImageProbeDocument> {
+    serde_json::from_slice(bytes).map_err(|error| {
         Diagnostic::builtin(
             BuiltinDiagnostic::SourceDecodability,
             format!(
@@ -57,7 +72,14 @@ pub(crate) fn verify_image_decodable(
             ),
             span.clone(),
         )
-    })?;
+    })
+}
+
+fn validate_image_document(
+    path: &Path,
+    span: &SourceSpan,
+    document: &ImageProbeDocument,
+) -> Result<()> {
     let videos = document
         .streams
         .iter()
@@ -72,17 +94,21 @@ pub(crate) fn verify_image_decodable(
         .first()
         .and_then(|stream| stream.nb_read_frames.as_deref())
         .and_then(|frames| frames.parse::<u64>().ok());
-    if videos.len() != 1 || audio_count != 0 || frame_count != Some(1) {
-        return Err(Diagnostic::builtin(
-            BuiltinDiagnostic::SourceContract,
-            format!(
-                "image `{}` must contain exactly one video stream, no audio, and one decoded frame; found {} video stream(s), {audio_count} audio stream(s), and {frame_count:?} decoded frame(s)",
-                path.display(),
-                videos.len()
-            ),
-            span.clone(),
-        ));
+    if videos.len() == 1 && audio_count == 0 && frame_count == Some(1) {
+        return Ok(());
     }
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::SourceContract,
+        format!(
+            "image `{}` must contain exactly one video stream, no audio, and one decoded frame; found {} video stream(s), {audio_count} audio stream(s), and {frame_count:?} decoded frame(s)",
+            path.display(),
+            videos.len()
+        ),
+        span.clone(),
+    ))
+}
+
+fn decode_image_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
     let mut decode = Command::new(ffmpeg.executable());
     decode
         .args(["-v", "error", "-loop", "1", "-i"])

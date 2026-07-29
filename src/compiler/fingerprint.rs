@@ -1,12 +1,11 @@
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
-use std::path::Path;
-
-use serde::Serialize;
 
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::Result;
 use crate::external::{ExternalArgumentValue, ExternalInvocation, ExternalParameterValue};
+use crate::identity::PathIdentity;
 use crate::model::{
     AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NativeRange, SampleRange,
     TimelineExpression, TimelineRangeExpression, ValueRef, ValueType, VideoDomain, VideoSpec,
@@ -37,21 +36,21 @@ struct ValueIdentity<'a> {
 #[serde(tag = "operation", rename_all = "snake_case")]
 enum SemanticOperationIdentity<'a> {
     ImageVideo {
-        path: &'a Path,
+        path: PathIdentity<'a>,
         frames: FrameCount,
         fit: ImageFit,
     },
     DeferredImageVideo {
-        path: &'a Path,
+        path: PathIdentity<'a>,
         extent: TimelineExpressionIdentity<'a>,
         fit: ImageFit,
     },
     VideoSource {
-        path: &'a Path,
+        path: PathIdentity<'a>,
         fit: ImageFit,
     },
     AudioSource {
-        path: &'a Path,
+        path: PathIdentity<'a>,
     },
     Repeat {
         count: NonZeroU64,
@@ -86,7 +85,7 @@ enum SemanticOperationIdentity<'a> {
     SetAudio,
     AudioOnBlack,
     ExternalVideo {
-        executable: &'a Path,
+        executable: PathIdentity<'a>,
         arguments: Vec<ExternalArgumentIdentity<'a>>,
         preserve_input: &'a str,
         input_names: Vec<&'a str>,
@@ -125,7 +124,7 @@ struct TimelineTermIdentity<'a> {
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum ExternalArgumentIdentity<'a> {
     Text { value: &'a str },
-    File { path: &'a Path },
+    File { path: PathIdentity<'a> },
 }
 
 #[derive(Serialize)]
@@ -133,7 +132,7 @@ enum ExternalArgumentIdentity<'a> {
 enum ExternalParameterIdentity<'a> {
     Integer { value: i64 },
     Keyword { value: &'a str },
-    File { path: &'a Path },
+    File { path: PathIdentity<'a> },
 }
 
 pub(super) fn compiled_structure_hash(
@@ -220,22 +219,25 @@ fn operation_identity<'a>(
     match kind {
         SemanticNodeKind::ImageVideo { path, frames, fit } => {
             SemanticOperationIdentity::ImageVideo {
-                path,
+                path: PathIdentity::new(path),
                 frames: *frames,
                 fit: *fit,
             }
         }
         SemanticNodeKind::DeferredImageVideo { path, extent, fit } => {
             SemanticOperationIdentity::DeferredImageVideo {
-                path,
+                path: PathIdentity::new(path),
                 extent: timeline_expression_identity(extent, hashes),
                 fit: *fit,
             }
         }
-        SemanticNodeKind::VideoSource { path, fit } => {
-            SemanticOperationIdentity::VideoSource { path, fit: *fit }
-        }
-        SemanticNodeKind::AudioSource { path } => SemanticOperationIdentity::AudioSource { path },
+        SemanticNodeKind::VideoSource { path, fit } => SemanticOperationIdentity::VideoSource {
+            path: PathIdentity::new(path),
+            fit: *fit,
+        },
+        SemanticNodeKind::AudioSource { path } => SemanticOperationIdentity::AudioSource {
+            path: PathIdentity::new(path),
+        },
         SemanticNodeKind::Reference { .. } => unreachable!("references are handled separately"),
         SemanticNodeKind::Repeat { input: _, count } => {
             SemanticOperationIdentity::Repeat { count: *count }
@@ -287,15 +289,15 @@ fn operation_identity<'a>(
 
 fn external_video_identity(invocation: &ExternalInvocation) -> SemanticOperationIdentity<'_> {
     SemanticOperationIdentity::ExternalVideo {
-        executable: &invocation.executable.value,
+        executable: PathIdentity::new(&invocation.executable.value),
         arguments: invocation
             .arguments
             .iter()
             .map(|argument| match argument {
                 ExternalArgumentValue::Text { value } => ExternalArgumentIdentity::Text { value },
-                ExternalArgumentValue::File { path } => {
-                    ExternalArgumentIdentity::File { path: &path.value }
-                }
+                ExternalArgumentValue::File { path } => ExternalArgumentIdentity::File {
+                    path: PathIdentity::new(&path.value),
+                },
             })
             .collect(),
         preserve_input: &invocation.preserve_input,
@@ -311,9 +313,9 @@ fn external_video_identity(invocation: &ExternalInvocation) -> SemanticOperation
                     ExternalParameterValue::Keyword(value) => {
                         ExternalParameterIdentity::Keyword { value }
                     }
-                    ExternalParameterValue::File(path) => {
-                        ExternalParameterIdentity::File { path: &path.value }
-                    }
+                    ExternalParameterValue::File(path) => ExternalParameterIdentity::File {
+                        path: PathIdentity::new(&path.value),
+                    },
                 };
                 (name.as_str(), value)
             })

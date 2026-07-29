@@ -452,13 +452,21 @@ mod tests {
         crate::compiler::compile(&package).expect("compiled")
     }
 
+    fn image_asset(path: &str, hash_byte: &str) -> BrowserAsset {
+        BrowserAsset::new(
+            path,
+            hash_byte.repeat(32),
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#,
+        )
+    }
+
     #[test]
     fn scenic_plan_serializes_runtime_artifacts_and_cleanup_contracts() {
         let compiled = compiled(include_str!("../../examples/scenic-sequence.clipasm"));
         let assets = [
-            BrowserAsset::new("assets/morning.png", "11".repeat(32)),
-            BrowserAsset::new("assets/meadow.png", "22".repeat(32)),
-            BrowserAsset::new("assets/evening.png", "33".repeat(32)),
+            image_asset("assets/morning.png", "11"),
+            image_asset("assets/meadow.png", "22"),
+            image_asset("assets/evening.png", "33"),
         ];
         let plan = prepare(&compiled, &assets).expect("browser plan");
         let document: serde_json::Value =

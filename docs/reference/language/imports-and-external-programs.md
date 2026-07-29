@@ -56,6 +56,14 @@ the executable, declared File arguments, and File-valued parameters during
 preflight and checks them again before execution. It passes the executable and
 argument vector separately rather than constructing a shell command.
 
+External implementations participate in persistent memoization. For the same
+executable and declared File bytes, `semantic_version`, arguments, parameters,
+project settings, and input artifact bytes, an implementation must produce
+equivalent output. Hidden state such as clocks, randomness, network responses,
+environment variables, or undeclared files violates this contract. Increment
+`semantic_version` whenever output meaning changes without changing an
+identified file.
+
 External programs currently support fixed Video or Audio inputs; Integer, File,
 or Keyword parameters; and exactly one Video output. Defaults are applied before
 execution.
@@ -65,6 +73,11 @@ imports. Put composition in a separate wrapper file and import the external
 program there.
 
 Validation remains media- and process-free. Rendering sends a versioned JSON
-request over standard input and verifies the produced media afterward. External
-programs are not sandboxed; read [External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
+request over standard input and verifies the produced media afterward. An
+implementation must finish or join every child process it starts before exiting;
+detached background work is outside the invocation contract. ClipAsm terminates
+remaining members of the managed process group on Unix. On Windows, the current
+implementation guarantees cleanup of the direct child only.
+
+External programs are not sandboxed; read [External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
 before running one.

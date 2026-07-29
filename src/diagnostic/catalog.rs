@@ -574,13 +574,6 @@ diagnostic_catalog! {
         retry: FixArguments,
         summary: "A browser asset path could not be normalized or matched to the prepared plan.",
     };
-    BrowserAssetProbe => {
-        code: "E_BROWSER_ASSET_PROBE",
-        title: "Missing browser probe data",
-        category: BrowserRuntime,
-        retry: FixEnvironment,
-        summary: "A browser video asset lacked the probe metadata required to prepare it.",
-    };
     BrowserDuplicateAsset => {
         code: "E_BROWSER_DUPLICATE_ASSET",
         title: "Duplicate browser asset",

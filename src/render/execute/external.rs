@@ -2,16 +2,16 @@ use std::collections::BTreeMap;
 use std::io;
 use std::io::Write as _;
 use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 
 use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::media_tool::{self, RetainedOutput};
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 use crate::preflight::tools::ExternalToolIdentity;
 use crate::preflight::{PreparedExternalArgument, PreparedExternalParameterValue};
+use crate::process::{self as child_process, ReaderError, RetainedOutput};
 use crate::source::SourceSpan;
 
 use super::context::RenderContext;
@@ -131,39 +131,37 @@ fn run_external(
     })?;
     let mut command = Command::new(executable);
     command.args(arguments);
-    let mut child = command
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::ExternalExecution,
-                format!(
-                    "could not start external program `{}`: {error}",
-                    executable.display()
-                ),
-                span.clone(),
-            )
-        })?;
+        .stderr(Stdio::piped());
+    let mut child = child_process::spawn(command).map_err(|error| {
+        Diagnostic::builtin(
+            BuiltinDiagnostic::ExternalExecution,
+            format!(
+                "could not start external program `{}`: {error}",
+                executable.display()
+            ),
+            span.clone(),
+        )
+    })?;
     let stderr = child.stderr.take().expect("piped external stderr");
-    let stderr_reader = std::thread::spawn(move || media_tool::read_tail(stderr, STDERR_LIMIT));
+    let stderr_reader = std::thread::spawn(move || child_process::read_tail(stderr, STDERR_LIMIT));
     if let Err(error) = child
         .stdin
         .take()
         .expect("piped external stdin")
         .write_all(&request)
     {
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = stderr_reader.join();
+        child_process::terminate(&mut child);
+        let _ = child_process::join_reader(stderr_reader);
         return Err(Diagnostic::builtin(
             BuiltinDiagnostic::ExternalExecution,
             format!("could not write external program request: {error}"),
             span.clone(),
         ));
     }
-    let status = wait_external_with(&mut child, Child::wait);
+    let status = child_process::wait(&mut child);
     let stderr = join_external_stderr(stderr_reader, span);
     let status = status.map_err(|error| {
         Diagnostic::builtin(
@@ -201,36 +199,15 @@ fn join_external_stderr(
     reader: JoinHandle<io::Result<RetainedOutput>>,
     span: &SourceSpan,
 ) -> Result<RetainedOutput> {
-    reader
-        .join()
-        .map_err(|_| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::ExternalExecution,
-                "external program stderr reader panicked",
-                span.clone(),
-            )
-        })?
-        .map_err(|error| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::ExternalExecution,
-                format!("could not read external program stderr: {error}"),
-                span.clone(),
-            )
-        })
-}
-
-fn wait_external_with(
-    child: &mut Child,
-    wait: impl FnOnce(&mut Child) -> io::Result<ExitStatus>,
-) -> io::Result<ExitStatus> {
-    match wait(child) {
-        Ok(status) => Ok(status),
-        Err(error) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(error)
-        }
-    }
+    child_process::join_reader(reader).map_err(|error| {
+        let message = match error {
+            ReaderError::Panicked => "external program stderr reader panicked".to_owned(),
+            ReaderError::Io(error) => {
+                format!("could not read external program stderr: {error}")
+            }
+        };
+        Diagnostic::builtin(BuiltinDiagnostic::ExternalExecution, message, span.clone())
+    })
 }
 
 #[cfg(test)]
@@ -258,26 +235,6 @@ mod tests {
         });
         let error = join_external_stderr(panic, &span).expect_err("stderr reader panic");
         assert!(error.message.contains("stderr reader panicked"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn wait_failure_kills_and_reaps_the_external_process() {
-        let mut child = Command::new("sh")
-            .args(["-c", "sleep 60"])
-            .spawn()
-            .expect("sleeping child");
-
-        let error = wait_external_with(&mut child, |_| {
-            Err(io::Error::other("injected wait failure"))
-        })
-        .expect_err("injected wait failure");
-
-        assert_eq!(error.kind(), io::ErrorKind::Other);
-        assert!(
-            child.try_wait().expect("reaped child status").is_some(),
-            "child must be reaped before returning"
-        );
     }
 
     #[test]

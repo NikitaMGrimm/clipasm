@@ -1,9 +1,7 @@
 use std::fs;
-use std::io::{BufReader, Read as _};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
@@ -223,21 +221,8 @@ fn remove_if_present(path: &Path) -> Result<()> {
 }
 
 fn hash_file(path: &Path) -> Result<String> {
-    let file = fs::File::open(path)
-        .map_err(|error| cache_error(path, format!("could not hash cache artifact: {error}")))?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
-    loop {
-        let read = reader.read(&mut buffer).map_err(|error| {
-            cache_error(path, format!("could not hash cache artifact: {error}"))
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    crate::identity::hash_file(path)
+        .map_err(|error| cache_error(path, format!("could not hash cache artifact: {error}")))
 }
 
 fn cache_error(path: &Path, message: impl Into<String>) -> Diagnostic {
@@ -250,6 +235,8 @@ fn cache_error(path: &Path, message: impl Into<String>) -> Diagnostic {
 
 #[cfg(test)]
 mod tests {
+    use sha2::Digest as _;
+
     use super::*;
 
     fn identity<'a>() -> CacheEntryIdentity<'a> {
@@ -334,7 +321,7 @@ mod tests {
             serde_json::to_vec(&serde_json::json!({
                 "format_version": 1,
                 "fingerprint": "fingerprint",
-                "content_hash": hex::encode(Sha256::digest(b"verified artifact")),
+                "content_hash": hex::encode(sha2::Sha256::digest(b"verified artifact")),
             }))
             .expect("legacy metadata"),
         )

@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::preflight::PreparedPlan;
 use crate::source::SourceSpan;
-use execution_plan::ExecutionPlan;
+use execution_plan::{ExecutionPlan, ProtectedResources};
 use lock::{FileLock, sibling_lock_path};
 use publication::PublicationTransaction;
 
@@ -106,6 +106,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
 /// Returns the same diagnostics as [`render`].
 pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
+    let protected = ProtectedResources::new(plan);
     let cache_directory = cache_root.join(plan.execution_namespace());
     fs::create_dir_all(&cache_directory).map_err(|error| {
         Diagnostic::builtin(
@@ -118,7 +119,8 @@ pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<
         )
     })?;
 
-    let execution = ExecutionPlan::build(plan, &cache_directory)?.execute(plan)?;
+    let execution =
+        ExecutionPlan::build(plan, &cache_directory, &protected)?.execute(plan, &protected)?;
     let result_node = &plan.nodes()[plan.result().get() as usize];
     let result_artifact = execution.artifact(plan.result(), &result_node.origin().span)?;
     if let Some(parent) = plan.output().parent() {
@@ -135,6 +137,11 @@ pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<
     }
 
     let publication_lock_path = sibling_lock_path(plan.output(), "publication");
+    protected.reject_existing_path(
+        &publication_lock_path,
+        "publication lock",
+        BuiltinDiagnostic::PublicationLock,
+    )?;
     let _publication_lock = FileLock::acquire(
         &publication_lock_path,
         BuiltinDiagnostic::PublicationLock,

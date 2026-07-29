@@ -1,7 +1,7 @@
 (async () => {
     "use strict";
 
-    const RESPONSE_VERSION = 4;
+    const RESPONSE_VERSION = 5;
     const MAX_SOURCE_BYTES = 256 * 1024;
     const MAX_ASSET_BYTES = 128 * 1024 * 1024;
     const MAX_TOTAL_ASSET_BYTES = 256 * 1024 * 1024;
@@ -329,11 +329,9 @@
                 if (!isActive(token)) {
                     return;
                 }
-                const videoRequests = compiled.render.assets.filter(
-                    (request) => request.kind === "video",
-                );
+                const assetRequests = compiled.render.assets;
                 let runtimeAvailable;
-                if (videoRequests.length > 0) {
+                if (assetRequests.length > 0) {
                     runtimeAvailable = await assetsAvailable([
                         renderWorkerUrl,
                         ffmpegWrapperUrl,
@@ -348,17 +346,17 @@
                             "The browser FFmpeg runtime is unavailable in this documentation build.",
                         );
                     }
-                    const probes = await probeVideos(videoRequests, resolvedFiles, token);
+                    const probes = await probeAssets(assetRequests, resolvedFiles, token);
                     if (!isActive(token)) {
                         return;
                     }
                     const probesByPath = new Map(
-                        probes.map((probe) => [probe.path, probe.video_probe]),
+                        probes.map((probe) => [probe.path, probe.probe]),
                     );
                     for (const fact of facts) {
-                        const videoProbe = probesByPath.get(fact.path);
-                        if (videoProbe) {
-                            fact.video_probe = videoProbe;
+                        const probe = probesByPath.get(fact.path);
+                        if (probe) {
+                            fact.probe = probe;
                         }
                     }
                 }
@@ -462,7 +460,7 @@
             ).then((response) => response.buffer);
         }
 
-        function probeVideos(requests, files, token) {
+        function probeAssets(requests, files, token) {
             return renderWorkerRequest(
                 {
                     operation: "probe",
@@ -470,7 +468,7 @@
                     files: files.map(({ path, file }) => ({ path, file })),
                 },
                 token,
-                "Browser video inspection exceeded the 15-minute safety limit.",
+                "Browser asset inspection exceeded the 15-minute safety limit.",
             ).then((response) => response.probes);
         }
 

@@ -222,6 +222,31 @@ pub(crate) enum WorkingArtifactContract<'a> {
     },
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PreparedResource<'a> {
+    Asset {
+        asset: &'a PreparedAsset,
+        role: &'static str,
+    },
+    ExternalExecutable(&'a ExternalToolIdentity),
+}
+
+impl<'a> PreparedResource<'a> {
+    pub(crate) fn path(self) -> &'a Path {
+        match self {
+            Self::Asset { asset, .. } => asset.source_path(),
+            Self::ExternalExecutable(executable) => executable.executable(),
+        }
+    }
+
+    pub(crate) const fn role(self) -> &'static str {
+        match self {
+            Self::Asset { role, .. } => role,
+            Self::ExternalExecutable(_) => "external executable",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum PreparedMedia {
     Video {
@@ -378,6 +403,68 @@ impl PreparedNode {
         match &self.media {
             PreparedMedia::Video { kind, .. } => kind.visit_inputs(visitor),
             PreparedMedia::Audio { kind, .. } => kind.visit_inputs(visitor),
+        }
+    }
+
+    pub(crate) fn try_visit_resources<E>(
+        &self,
+        mut visitor: impl FnMut(PreparedResource<'_>) -> std::result::Result<(), E>,
+    ) -> std::result::Result<(), E> {
+        match &self.media {
+            PreparedMedia::Video {
+                kind: PreparedVideoKind::ImageVideo { asset, .. },
+                ..
+            } => visitor(PreparedResource::Asset {
+                asset,
+                role: "image asset",
+            }),
+            PreparedMedia::Video {
+                kind: PreparedVideoKind::VideoSource { asset, .. },
+                ..
+            } => visitor(PreparedResource::Asset {
+                asset,
+                role: "video asset",
+            }),
+            PreparedMedia::Audio {
+                kind: PreparedAudioKind::AudioSource { asset },
+                ..
+            } => visitor(PreparedResource::Asset {
+                asset,
+                role: "audio asset",
+            }),
+            PreparedMedia::Video {
+                kind:
+                    PreparedVideoKind::ExternalVideo {
+                        executable,
+                        arguments,
+                        parameters,
+                        ..
+                    },
+                ..
+            } => {
+                visitor(PreparedResource::ExternalExecutable(executable))?;
+                for asset in arguments.iter().filter_map(|argument| match argument {
+                    PreparedExternalArgument::File(asset) => Some(asset),
+                    PreparedExternalArgument::Text(_) => None,
+                }) {
+                    visitor(PreparedResource::Asset {
+                        asset,
+                        role: "external file argument",
+                    })?;
+                }
+                for asset in parameters.values().filter_map(|value| match value {
+                    PreparedExternalParameterValue::File(asset) => Some(asset),
+                    PreparedExternalParameterValue::Integer(_)
+                    | PreparedExternalParameterValue::Keyword(_) => None,
+                }) {
+                    visitor(PreparedResource::Asset {
+                        asset,
+                        role: "external file parameter",
+                    })?;
+                }
+                Ok(())
+            }
+            PreparedMedia::Video { .. } | PreparedMedia::Audio { .. } => Ok(()),
         }
     }
 }

@@ -25,6 +25,11 @@ Source origins are inspection metadata, not semantic identity. In particular,
 moving or reformatting an external File parameter does not change the structure
 hash when its authored path and the rest of the resolved call are unchanged.
 
+Path-bearing inspection fields are JSON strings and therefore require valid
+Unicode. Pure compilation and semantic identity can still represent native
+non-Unicode paths; only requesting compiled inspection JSON for such a program
+fails.
+
 A consumer must support the exact `format_version`. A new version may add,
 remove, rename, or reinterpret fields.
 
@@ -60,8 +65,10 @@ The process does not return JSON. It creates the requested file and exits with
 status zero; ClipAsm then probes and verifies the artifact. An implementation
 must reject protocol versions it does not support.
 
-Paths are native host paths, and the executable runs with the user's
-permissions. This protocol is not a sandbox.
+Paths refer to native host paths but are carried as JSON strings, so every path
+in an external-program request must be valid Unicode. Native ClipAsm operations
+do not share this JSON limitation. The executable runs with the user's
+permissions; this protocol is not a sandbox.
 
 ## Internal formats
 

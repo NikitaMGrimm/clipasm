@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
@@ -15,6 +15,34 @@ impl FileLock {
         role: &str,
         span: &SourceSpan,
     ) -> Result<Self> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(Diagnostic::builtin(
+                    diagnostic,
+                    format!("{role} lock `{}` is a symlink", path.display()),
+                    span.clone(),
+                ));
+            }
+            Ok(metadata) if !metadata.is_file() => {
+                return Err(Diagnostic::builtin(
+                    diagnostic,
+                    format!("{role} lock `{}` is not a regular file", path.display()),
+                    span.clone(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(Diagnostic::builtin(
+                    diagnostic,
+                    format!(
+                        "could not inspect {role} lock `{}`: {error}",
+                        path.display()
+                    ),
+                    span.clone(),
+                ));
+            }
+        }
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -70,6 +98,30 @@ mod tests {
             .open(&path)
             .expect("second handle");
         assert!(second.try_lock().is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_files_reject_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let target = directory.path().join("target");
+        let lock = directory.path().join("lock");
+        fs::write(&target, b"owned").expect("target");
+        symlink(&target, &lock).expect("lock symlink");
+        let Err(error) = FileLock::acquire(
+            &lock,
+            BuiltinDiagnostic::CacheLock,
+            "cache artifact",
+            &SourceSpan::file_start(&lock),
+        ) else {
+            panic!("symlink lock was accepted");
+        };
+
+        assert_eq!(error.code, "E_CACHE_LOCK");
+        assert!(error.message.contains("symlink"));
+        assert_eq!(fs::read(target).expect("preserved target"), b"owned");
     }
 
     #[test]

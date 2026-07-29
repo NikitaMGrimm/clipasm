@@ -38,6 +38,7 @@ pub mod language;
 pub(crate) mod media_tool;
 pub mod model;
 pub mod preflight;
+mod process;
 pub(crate) mod program;
 pub mod reference;
 pub mod render;

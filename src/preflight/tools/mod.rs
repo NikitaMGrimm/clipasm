@@ -2,18 +2,16 @@ mod probe;
 
 pub(crate) use probe::decoded_audio_samples;
 pub(super) use probe::{
-    validate_video_probe_json, verify_audio_decodable, verify_image_decodable,
-    verify_video_decodable,
+    validate_image_probe_json, validate_video_probe_json, verify_audio_decodable,
+    verify_image_decodable, verify_video_decodable,
 };
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool::{self, CapturedOutput};
@@ -456,36 +454,16 @@ fn normalize_tool_output(bytes: &[u8]) -> String {
 }
 
 fn hash_tool_executable(tool: &Path, code: BuiltinDiagnostic) -> Result<String> {
-    let file = fs::File::open(tool).map_err(|error| {
+    crate::identity::hash_file(tool).map_err(|error| {
         Diagnostic::builtin(
             code,
             format!(
-                "could not read executable `{}` for identity: {error}",
+                "could not fingerprint executable `{}`: {error}",
                 tool.display()
             ),
             SourceSpan::file_start(tool),
         )
-    })?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
-    loop {
-        let read = reader.read(&mut buffer).map_err(|error| {
-            Diagnostic::builtin(
-                code,
-                format!(
-                    "could not fingerprint executable `{}`: {error}",
-                    tool.display()
-                ),
-                SourceSpan::file_start(tool),
-            )
-        })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    })
 }
 
 fn tool_output(tool: &Path, arguments: &[&str], code: BuiltinDiagnostic) -> Result<String> {

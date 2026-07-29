@@ -201,9 +201,13 @@ infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
 Private typed identity documents enumerate the semantic fields of every
 operation explicitly. They contain authored values and upstream hashes, never
-source locations or inspection-only metadata. Identity hashing is owned by one
-crate-private utility rather than by the compiler, so preflight and tool
-identity do not depend on compiler implementation details.
+source locations or inspection-only metadata. UTF-8 paths retain their ordinary
+string identity while non-UTF-8 native paths use an explicit platform-tagged
+byte or wide-unit encoding; private hashing therefore does not inherit JSON
+inspection's Unicode-path limitation. Identity hashing and streaming file
+content hashing are owned by one crate-private utility rather than by the
+compiler, so preflight, cache, and tool identity do not depend on compiler
+implementation details.
 Timeline marker arithmetic is normalized into exact linear expressions in
 seconds. Each extent term is scaled from its semantic value's native unit:
 project frames for Video and project samples for Audio. A trim whose marker
@@ -385,7 +389,11 @@ separately, sends the versioned JSON request, and verifies the artifact before
 cache commit.
 Executable and file-argument bytes belong to prepared identity; authored
 executable, arguments, parameters, and graph inputs belong to compiled semantic
-identity.
+identity. Persistent reuse assumes external implementations are deterministic
+for that complete identified input. Clock, random, network, environment, or
+undeclared-file dependencies are outside the cache contract and must be reflected
+by a changed declared file or `semantic_version`; the current renderer has no
+per-external cache opt-out.
 
 ## Preflight
 
@@ -437,14 +445,16 @@ artifacts because publication is always performed afresh.
 ### Native and browser hosts
 
 Native preflight supplies filesystem assets, media probes, and tool identities.
-Browser preflight accepts normalized virtual assets and their host-computed
-hashes without opening media or invoking tools. For video-file sources, the
-browser worker probes and checks the same immutable blob it will mount;
-browser preflight validates the returned stream document and derives the exact
-project-frame domain. It reuses the same prepared lowering for operations
-reachable from still images and video files. The browser renderer turns that
-plan into the versioned execution document. Audio-file sources, imports, and
-external programs are explicitly unsupported in the browser.
+Browser preflight accepts normalized virtual assets plus host-computed hashes and
+bounded probe documents without opening media or invoking tools itself. The
+browser worker probes and decode-checks the same immutable blob it will mount,
+using the authored still-image, video-file, or combined source roles. Browser
+preflight validates the returned document against the same source contracts as
+native preflight and derives exact project-frame domains for video files. It
+reuses the same prepared lowering for operations reachable from still images
+and video files. The browser renderer turns that plan into the versioned
+execution document. Audio-file sources, imports, and external programs are
+explicitly unsupported in the browser.
 
 ### Exact media domains
 
@@ -531,8 +541,13 @@ final encoders do not impose a second `-frames:v` cutoff, which could terminate
 coverage-rounded Audio at the final Video timestamp; artifact verification
 checks the exact resulting frame and sample counts instead. Artifact
 verification, locking, and rollback-capable publication remain separate deep
-modules; there is no generic process runner, operation trait hierarchy, or
-renderer backend interface.
+modules. One private process-lifecycle module owns bounded pipe retention,
+temporary executable-busy retries, and kill-and-reap cleanup. Unix children run
+in dedicated process groups; after the direct process exits, remaining group
+members are terminated so descendants cannot outlive a completed invocation or
+keep inherited pipes open. Command recipes, protocols, and diagnostics remain in
+their phase adapters. There is no generic
+command runner, operation trait hierarchy, or renderer backend interface.
 
 ### Browser rendering
 
@@ -548,7 +563,12 @@ cancellation terminates the worker. Browser rendering has no persistent cache.
 
 Project renders keep the cache under `.clipasm/cache/` at the discovered
 manifest root. Explicit standalone sources use `.clipasm/cache/` beside the
-entrypoint source. Per-artifact file locks serialize validation and replacement
+entrypoint source. Prepared nodes expose one canonical traversal of every
+resource path they own; publication collision checks, execution-frontier
+revalidation, and private cache-path protection all consume that traversal.
+Existing cache artifacts, sidecars, and lock paths are rejected when they alias
+an asset or external executable. Lock files also reject symlink paths before
+opening them. Per-artifact file locks serialize validation and replacement
 across ClipAsm processes without blocking unrelated fingerprints. Exact media
 verification happens once, before
 the versioned sidecar for those bytes is committed. Later hits rehash the complete
