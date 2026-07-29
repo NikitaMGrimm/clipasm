@@ -1643,6 +1643,39 @@ fn inspect_binds_root_video_inputs_and_typed_parameters() {
 }
 
 #[test]
+fn inspect_binds_project_frame_duration_parameters() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let workflow = directory.path().join("frames.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nparam duration: Duration\nimage(\"card.ppm\", $duration)\n",
+    )
+    .expect("workflow");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .args(["inspect", "frames.clipasm", "--arg", "duration=15f"])
+        .output()
+        .expect("run clipasm");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("inspection JSON");
+    assert_eq!(document["nodes"][0]["kind"]["frames"], 15);
+
+    let invalid = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .args(["validate", "frames.clipasm", "--arg", "duration=-1f"])
+        .output()
+        .expect("run clipasm");
+    assert!(!invalid.status.success());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("cannot be negative"));
+}
+
+#[test]
 fn inspect_binds_root_audio_inputs() {
     let directory = tempfile::tempdir().expect("temporary directory");
     let workflow = directory.path().join("audio.clipasm");

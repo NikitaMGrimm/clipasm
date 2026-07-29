@@ -4,7 +4,7 @@
 //! [`crate::reference`] view exposes only descriptive, read-only metadata.
 
 /// Current compiled inspection JSON format version.
-pub(crate) const COMPILED_INSPECTION_FORMAT_VERSION: u32 = 20;
+pub(crate) const COMPILED_INSPECTION_FORMAT_VERSION: u32 = 21;
 /// Current prepared inspection JSON format version.
 pub(crate) const PREPARED_INSPECTION_FORMAT_VERSION: u32 = 11;
 /// Current render manifest format version.

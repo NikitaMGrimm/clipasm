@@ -145,6 +145,7 @@ pub(crate) enum PostfixOperator {
     Percent,
     Milliseconds,
     Seconds,
+    Frames,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

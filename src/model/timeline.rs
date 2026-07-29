@@ -116,6 +116,17 @@ impl TimelineRate {
         self.sample_boundary(frames.0, span)
     }
 
+    /// Map a signed project-frame displacement onto the sample grid.
+    ///
+    /// The magnitude uses the same covering boundary policy as positive frame
+    /// coordinates. Applying the sign afterwards keeps opposite frame offsets
+    /// symmetric and lets normalized expressions cancel before conversion.
+    pub(crate) fn signed_sample_displacement(self, frames: i64, span: &SourceSpan) -> Result<i128> {
+        let magnitude = self.sample_boundary(frames.unsigned_abs(), span)?;
+        let magnitude = i128::from(magnitude);
+        Ok(if frames < 0 { -magnitude } else { magnitude })
+    }
+
     /// Return the smallest frame count whose boundary covers every supplied
     /// sample.
     pub(crate) fn frames_for_samples(self, samples: u64, span: &SourceSpan) -> Result<FrameCount> {

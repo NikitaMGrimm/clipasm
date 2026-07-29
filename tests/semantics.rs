@@ -1384,7 +1384,7 @@ fn duration_unit_and_mixed_arithmetic_errors_follow_types_and_precedence() {
     let (_directory, mixed_division) = project("clipasm 1\nimage(\"a.ppm\", 5 / 2ms)\n");
     let error = compiler::compile(&mixed_division).expect_err("Number / Duration is undefined");
     assert_eq!(error.code, "E_INVALID_SCALAR_OPERATION");
-    assert!(error.message.contains("got Number and Duration"));
+    assert!(error.message.contains("got Number and wall-clock Duration"));
 }
 
 #[test]
@@ -2354,6 +2354,170 @@ fn trim_uses_audio_natively_without_implicit_adaptation() {
     );
     assert!(!operations.contains(&"audio_on_black"));
     assert!(!operations.contains(&"extract_audio"));
+}
+
+#[test]
+fn project_frame_literals_drive_video_durations_transitions_and_ranges_exactly() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 30 } }\nimage(\"a.ppm\", 17f)\nimage(\"b.ppm\", 13f)\nflash_cut(3f)\ntrim(2f..27f)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("project-frame-authored edit");
+
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        25
+    );
+    assert_last_slice_range(&compiled, 2, 27);
+    let document = compiled_json(&compiled);
+    let flash = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "flash_cut")
+        .expect("flash cut");
+    assert_eq!(flash["kind"]["frames"], 3);
+}
+
+#[test]
+fn project_frame_ranges_map_to_the_project_audio_sample_grid() {
+    for (rate, numerator, denominator) in [
+        ("23", 23_u64, 1_u64),
+        ("24", 24, 1),
+        ("25", 25, 1),
+        ("29", 29, 1),
+        ("30", 30, 1),
+        ("50", 50, 1),
+        ("59", 59, 1),
+        ("60", 60, 1),
+        ("30000/1001", 30_000, 1_001),
+    ] {
+        let source = format!(
+            "clipasm 1\nconfig {{\n  video {{ fps = {rate} }}\n  audio {{ sample_rate = 48000 }}\n}}\naudio(\"missing.wav\")\ntrim(3f..8f)\n"
+        );
+        let (_directory, workflow) = project(&source);
+        let compiled = compiler::compile(&workflow).expect("frame-addressed Audio trim");
+        let boundary = |frame: u64| {
+            let scaled = frame * 48_000 * denominator;
+            scaled.div_ceil(numerator)
+        };
+
+        assert_last_audio_slice_range(&compiled, boundary(3), boundary(8));
+    }
+}
+
+#[test]
+fn project_frame_duration_arithmetic_preserves_signed_intermediates() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { fps = 30 } }\noffset = -5f\nduration = $offset + 20f\nimage(\"a.ppm\", $duration)\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("signed frame arithmetic");
+    assert_eq!(
+        compiled.result_domain().expect("known domain").frames().0,
+        15
+    );
+
+    let (_directory, fractional) = project("clipasm 1\nimage(\"a.ppm\", (5 / 2)f)\n");
+    let error = compiler::compile(&fractional).expect_err("fractional frame duration");
+    assert_eq!(error.code, "E_INVALID_ARGUMENT_TYPE");
+    assert!(error.message.contains("requires Integer"));
+    assert!(error.message.contains("2.5"));
+}
+
+#[test]
+fn duration_unit_families_reject_mixing_explicitly() {
+    for expression in ["1f + 1s", "1f..1s"] {
+        let (_directory, workflow) =
+            project(&format!("clipasm 1\nimage(\"a.ppm\", {expression})\n"));
+        let error = compiler::compile(&workflow).expect_err("mixed duration families");
+        assert_eq!(error.code, "E_INVALID_SCALAR_OPERATION");
+        assert!(error.message.contains("matching Duration families"));
+        assert!(error.message.contains("project-frame Duration"));
+        assert!(error.message.contains("wall-clock Duration"));
+    }
+
+    let (_directory, parameter) =
+        project("clipasm 1\nparam duration: Duration = 15f\nimage(\"a.ppm\", $duration + 1s)\n");
+    let error = compiler::compile(&parameter).expect_err("runtime parameter family mismatch");
+    assert!(error.message.contains("matching Duration families"));
+    assert!(
+        error
+            .notes
+            .iter()
+            .any(|note| note.contains("scalar parameter `$duration` evaluated to 15f"))
+    );
+}
+
+#[test]
+fn project_frame_offsets_integrate_with_video_and_audio_markers() {
+    let (_directory, video) = project(
+        "clipasm 1\nconfig { video { fps = 30 } }\nimage(\"a.ppm\", 30f) as edit\ntrim(value=$edit, range=($edit::start + 3f)..($edit::end - 3f))\n",
+    );
+    let compiled = compiler::compile(&video).expect("frame-offset Video marker");
+    assert_last_slice_range(&compiled, 3, 27);
+
+    let (_directory, audio) = project(
+        "clipasm 1\nconfig {\n  video { fps = 30 }\n  audio { sample_rate = 48000 }\n}\naudio(\"a.wav\")\ntrim(0s..2s) as track\ntrim(value=$track, range=($track::start + 3f)..($track::end - 3f))\n",
+    );
+    let compiled = compiler::compile(&audio).expect("frame-offset Audio marker");
+    assert_last_audio_slice_range(&compiled, 4_800, 91_200);
+}
+
+#[test]
+fn deferred_marker_inspection_preserves_project_frame_offsets() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { fps = 30000/1001 } }\nvideo(\"missing.mkv\") as source\ntrim(value=$source, range=($source::start + 3f)..($source::end - 3f))\n",
+    );
+    let compiled = compiler::compile(&workflow).expect("deferred frame-offset marker");
+    let document = compiled_json(&compiled);
+    let slice = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .rev()
+        .find(|node| node["kind"]["operation"] == "slice")
+        .expect("deferred slice");
+    assert_eq!(slice["kind"]["range"]["start"]["project_frames"], "3");
+    assert_eq!(slice["kind"]["range"]["end"]["project_frames"], "-3");
+}
+
+#[test]
+fn cancelled_project_frame_offsets_preserve_semantic_identity() {
+    let source = |offset: &str| {
+        format!(
+            "clipasm 1\nconfig {{ video {{ fps = 30 }} }}\nimage(\"a.ppm\", 30f) as edit\ntrim(value=$edit, range=($edit::start{offset})..$edit::end)\n"
+        )
+    };
+    let (_plain_directory, plain) = project(&source(""));
+    let (_cancelled_directory, cancelled) = project(&source(" + 5f - 5f"));
+    assert_eq!(
+        compiler::compile(&plain)
+            .expect("plain marker")
+            .structure_hash(),
+        compiler::compile(&cancelled)
+            .expect("cancelled frame offset")
+            .structure_hash()
+    );
+}
+
+#[test]
+fn frame_and_aligned_wall_clock_durations_have_equal_semantic_identity() {
+    let source = |duration: &str| {
+        format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 30 }} }}\nimage(\"a.ppm\", {duration})\n"
+        )
+    };
+    let (_frame_directory, frame_authored) = project(&source("15f"));
+    let (_time_directory, time_authored) = project(&source("500ms"));
+
+    assert_eq!(
+        compiler::compile(&frame_authored)
+            .expect("frame-authored image")
+            .structure_hash(),
+        compiler::compile(&time_authored)
+            .expect("time-authored image")
+            .structure_hash()
+    );
 }
 
 #[test]

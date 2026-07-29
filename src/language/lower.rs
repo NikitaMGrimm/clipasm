@@ -437,6 +437,7 @@ fn lower_scalar_expression(expression: &ScalarExpression) -> SourceScalarExpress
                 PostfixOperator::Percent => ScalarPostfixOperator::Percent,
                 PostfixOperator::Milliseconds => ScalarPostfixOperator::Milliseconds,
                 PostfixOperator::Seconds => ScalarPostfixOperator::Seconds,
+                PostfixOperator::Frames => ScalarPostfixOperator::Frames,
             },
             operand: Box::new(lower_scalar_expression(operand)),
             span: span.clone(),

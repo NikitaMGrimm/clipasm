@@ -23,7 +23,7 @@ Operators use this precedence from loosest to tightest:
 2. addition and subtraction
 3. multiplication and division
 4. unary `+` and `-`
-5. postfix `%`, `ms`, and `s`
+5. postfix `%`, `ms`, `s`, and `f`
 6. primary values and parenthesized expressions
 
 Postfix operators may repeat. `%` divides a Number by 100, so `800%%`, `8%`,
@@ -40,25 +40,62 @@ repeat(5 / 2) # error: evaluates to 2.5, exactly 5/2
 
 ## Durations
 
-`ms` and `s` require an Integer result and construct Duration. They bind to the
-immediately preceding expression:
+`ms`, `s`, and `f` require an Integer result and construct Duration. They bind
+to the immediately preceding expression:
 
 ```clipasm
 image("short.png", (6 / 2)ms) # 3ms
+image("card.png", 15f)         # exactly 15 project video frames
 image("bad.png", (5 / 2)ms)   # error: ms requires Integer
 image("bad.png", 5 / 2ms)     # error: Number / Duration is undefined
 ```
 
-Duration is distinct from Number. It supports unary signs, addition with
-Duration, and subtraction of Duration:
+`f` is resolved on the configured project video frame grid. It is useful for
+machine-generated edits because boundaries remain exact even when one frame
+cannot be represented on the nanosecond authoring grid:
+
+```clipasm
+config { video { fps = 30 } }
+
+image("card.png", 15f)
+trim(3f..15f)
+flash_cut(3f)
+```
+
+For Video, a project-frame range is used directly. For Audio, each frame
+boundary maps to the corresponding boundary on the configured project sample
+grid. At 30 fps and 48 kHz, `3f..8f` therefore maps exactly to samples
+`4800..12800`; cumulative boundaries do not drift.
+
+Duration is distinct from Number. Both unit families support unary signs,
+addition, and subtraction, but one expression cannot mix wall-clock and
+project-frame values:
 
 ```clipasm
 image("long.png", 100s - 100ms)
+offset = -5f
+image("exact.png", $offset + 20f)
 during((1s + 500ms)..3s) { repeat(2) }
+image("bad.png", 1s + 3f) # error: Duration families differ
 ```
 
-Duration parameters must ultimately be nonnegative and exactly representable
-on ClipAsm's nanosecond authoring grid. See the
+Negative values are allowed as intermediate scalar results. At a program
+parameter boundary, wall-clock Duration must be nonnegative and exactly
+representable on ClipAsm's nanosecond authoring grid, while project-frame
+Duration must be a nonnegative integer within the supported frame count. Both
+endpoints of a range must use the same unit family.
+
+Either family may offset a timeline coordinate. Project-frame offsets remain
+on the frame grid until the final Video frame or Audio sample boundary is
+resolved:
+
+```clipasm
+trim(
+    range=($edit::start + 3f)..($edit::end - 3f),
+)
+```
+
+See the
 [normative grammar](../../language-grammar.md#scalar-expressions) for the
 complete syntax.
 

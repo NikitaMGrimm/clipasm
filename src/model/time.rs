@@ -4,51 +4,6 @@ use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{ExactNumber, FrameRate, ValueType};
 use crate::source::SourceSpan;
 
-pub(crate) fn exact_seconds_to_frames(
-    seconds: &ExactNumber,
-    fps: FrameRate,
-    span: &SourceSpan,
-) -> Result<u64> {
-    let frames = seconds
-        .multiply(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.numerator(),
-        )))
-        .divide(&ExactNumber::from_unsigned_integer(u64::from(
-            fps.denominator(),
-        )))
-        .expect("frame-rate denominator is nonzero");
-    frames.to_u64().ok_or_else(|| {
-        Diagnostic::builtin(
-            BuiltinDiagnostic::TimeNotFrameAligned,
-            format!(
-                "timeline coordinate {}s is not an exact nonnegative boundary at {}/{} fps",
-                seconds.authored_display(),
-                fps.numerator(),
-                fps.denominator()
-            ),
-            span.clone(),
-        )
-    })
-}
-
-pub(crate) fn exact_seconds_to_samples(
-    seconds: &ExactNumber,
-    sample_rate: u32,
-    span: &SourceSpan,
-) -> Result<u64> {
-    let samples = seconds.multiply(&ExactNumber::from_unsigned_integer(u64::from(sample_rate)));
-    samples.to_u64().ok_or_else(|| {
-        Diagnostic::builtin(
-            BuiltinDiagnostic::TimeNotSampleAligned,
-            format!(
-                "timeline coordinate {}s is not an exact nonnegative boundary at {sample_rate} Hz",
-                seconds.authored_display()
-            ),
-            span.clone(),
-        )
-    })
-}
-
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize,
 )]
@@ -226,6 +181,32 @@ impl NativeRange {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DurationValue {
+    WallClock(SourceTime),
+    ProjectFrames(FrameCount),
+}
+
+impl DurationValue {
+    pub(crate) fn to_frames(self, fps: FrameRate, span: &SourceSpan) -> Result<FrameCount> {
+        match self {
+            Self::WallClock(duration) => duration.to_frames(fps, span).map(FrameCount),
+            Self::ProjectFrames(frames) => Ok(frames),
+        }
+    }
+
+    pub(crate) fn to_covering_frames(
+        self,
+        fps: FrameRate,
+        span: &SourceSpan,
+    ) -> Result<FrameCount> {
+        match self {
+            Self::WallClock(duration) => duration.to_covering_frames(fps, span),
+            Self::ProjectFrames(frames) => Ok(frames),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SourceTime {
     nanoseconds: u64,
 }
@@ -264,54 +245,6 @@ impl SourceTime {
                 span.clone(),
             ));
         };
-        Ok(Self { nanoseconds })
-    }
-
-    /// Parse an integer seconds or milliseconds duration.
-    ///
-    /// # Errors
-    ///
-    /// Returns a diagnostic for negative, malformed, or overflowing durations.
-    pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
-        if text.starts_with('-') {
-            return Err(Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidDuration,
-                "durations cannot be negative",
-                span.clone(),
-            ));
-        }
-        let (number, scale) = if let Some(number) = text.strip_suffix("ms") {
-            (number, 1_000_000_u64)
-        } else if let Some(number) = text.strip_suffix('s') {
-            (number, 1_000_000_000_u64)
-        } else {
-            return Err(Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidDuration,
-                format!("`{text}` is not a duration; use forms such as `3s` or `500ms`"),
-                span.clone(),
-            ));
-        };
-        if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidDuration,
-                format!("`{text}` is not a supported integer duration"),
-                span.clone(),
-            ));
-        }
-        let value = number.parse::<u64>().map_err(|_| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidDuration,
-                format!("`{text}` is too large"),
-                span.clone(),
-            )
-        })?;
-        let nanoseconds = value.checked_mul(scale).ok_or_else(|| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidDuration,
-                format!("`{text}` is too large"),
-                span.clone(),
-            )
-        })?;
         Ok(Self { nanoseconds })
     }
 
@@ -393,38 +326,14 @@ impl SourceTimeRange {
         }
     }
 
-    /// Parse a closed-open duration range such as `2s..4s`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a diagnostic for missing, malformed, negative, or reversed
-    /// endpoints.
-    pub(crate) fn parse(text: &str, span: &SourceSpan) -> Result<Self> {
-        let Some((start, end)) = text.split_once("..") else {
-            return Err(Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidTimeRange,
-                "a time range requires both endpoints, for example `2s..4s`",
-                span.clone(),
-            ));
-        };
-        if start.is_empty() || end.is_empty() || end.contains("..") {
-            return Err(Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidTimeRange,
-                "a time range requires exactly two endpoints",
-                span.clone(),
-            ));
-        }
-        Self::new(
-            SourceTime::parse(start, span)?,
-            SourceTime::parse(end, span)?,
-        )
-        .ok_or_else(|| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidTimeRange,
-                "time-range start must be earlier than its end",
-                span.clone(),
-            )
-        })
+    #[must_use]
+    pub(crate) const fn start(self) -> SourceTime {
+        self.start
+    }
+
+    #[must_use]
+    pub(crate) const fn end(self) -> SourceTime {
+        self.end
     }
 
     /// Convert both endpoints to exact frame indexes.
@@ -470,21 +379,20 @@ mod tests {
         SourceSpan::file_start(PathBuf::from("test.clipasm"))
     }
 
+    fn source_time(numerator: i64, denominator: i64) -> SourceTime {
+        SourceTime::from_exact_seconds(&ExactNumber::from_ratio(numerator, denominator), &span())
+            .expect("source time")
+    }
+
     #[test]
-    fn parses_exact_seconds_and_milliseconds() {
+    fn converts_exact_seconds_to_frame_boundaries() {
         let fps = FrameRate::new(30, 1).expect("valid fps");
         assert_eq!(
-            SourceTime::parse("3s", &span())
-                .expect("duration")
-                .to_frames(fps, &span())
-                .expect("frames"),
+            source_time(3, 1).to_frames(fps, &span()).expect("frames"),
             90
         );
         assert_eq!(
-            SourceTime::parse("500ms", &span())
-                .expect("duration")
-                .to_frames(fps, &span())
-                .expect("frames"),
+            source_time(1, 2).to_frames(fps, &span()).expect("frames"),
             15
         );
     }
@@ -492,8 +400,7 @@ mod tests {
     #[test]
     fn rejects_non_aligned_duration() {
         let fps = FrameRate::new(30, 1).expect("valid fps");
-        let error = SourceTime::parse("1ms", &span())
-            .expect("duration syntax")
+        let error = source_time(1, 1_000)
             .to_frames(fps, &span())
             .expect_err("not frame aligned");
         assert_eq!(error.code, "E_TIME_NOT_FRAME_ALIGNED");
@@ -501,7 +408,7 @@ mod tests {
 
     #[test]
     fn source_duration_can_be_quantized_by_frame_coverage() {
-        let duration = SourceTime::parse("500ms", &span()).expect("duration");
+        let duration = source_time(1, 2);
         assert_eq!(
             duration
                 .to_covering_frames(FrameRate::new(29, 1).expect("valid fps"), &span())
@@ -509,8 +416,7 @@ mod tests {
             FrameCount(15)
         );
         assert_eq!(
-            SourceTime::parse("0ms", &span())
-                .expect("zero duration")
+            source_time(0, 1)
                 .to_covering_frames(FrameRate::new(29, 1).expect("valid fps"), &span())
                 .expect("zero frames"),
             FrameCount(0)
@@ -553,9 +459,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_reversed_range() {
-        let error = SourceTimeRange::parse("4s..2s", &span()).expect_err("reversed");
-        assert_eq!(error.code, "E_INVALID_TIME_RANGE");
+    fn source_time_ranges_require_increasing_endpoints() {
+        assert!(SourceTimeRange::new(source_time(4, 1), source_time(2, 1)).is_none());
     }
 
     #[test]

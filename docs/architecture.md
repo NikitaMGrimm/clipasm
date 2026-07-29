@@ -104,6 +104,14 @@ therefore knows expression structure but not rational arithmetic or parameter
 constraints. Inputs, parameters, stack plans, and body-port
 identities remain aligned to typed descriptor slots throughout checked source.
 
+Authored durations retain their wall-clock or project-frame unit family through
+parameter binding. The invariant-protected time model owns textual parsing for
+both families. Built-ins convert wall-clock durations through the configured
+rate, while project-frame durations lower directly to the existing semantic
+frame counts and ranges. Audio consumers map those cumulative project-frame
+boundaries onto the project sample grid. The authored spelling therefore does
+not introduce a second semantic range representation or alter compiled identity.
+
 Immutable scalar aliases are canonical zero-output items. Every draft body has
 one scalar scope identified independently from graph-value scope. The compiler
 predeclares all aliases in that body, links the scope to its parent, and assigns

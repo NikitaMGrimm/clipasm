@@ -554,6 +554,12 @@ impl Evaluator {
                 expression.constant_part().authored_display()
             ));
         }
+        if !expression.project_frame_part().is_zero() {
+            parts.push(format!(
+                "{}f",
+                expression.project_frame_part().authored_display()
+            ));
+        }
         parts.extend(expression.terms().iter().map(|term| {
             let (units, prefix) = match term.value.value_type() {
                 ValueType::Video => ("frames", 'v'),

@@ -194,7 +194,7 @@ product-expression = unary-expression,
 unary-expression   = { "+" | "-" }, postfix-expression ;
 
 postfix-expression = primary-expression,
-                     { "%" | "ms" | "s" } ;
+                     { "%" | "ms" | "s" | "f" } ;
 
 primary-expression = number
                    | string
@@ -212,11 +212,14 @@ Postfix operators associate from left to right and may repeat. Thus `800%%`
 means `(800 / 100) / 100`. The grammar deliberately does not reject unusual
 compositions; checked scalar types determine whether each operation exists.
 
-`%` requires Number and divides it by 100. `ms` and `s` require an expression
-whose exact result satisfies Integer and construct Duration. Number supports
-`+`, `-`, `*`, and `/`; Duration supports unary signs and
-`Duration + Duration` or `Duration - Duration`. `..` requires two Duration
-expressions and constructs TimeRange. A timeline selector ending in `start`,
+`%` requires Number and divides it by 100. `ms`, `s`, and `f` require an
+expression whose exact result satisfies Integer and construct Duration. `f`
+denotes an exact count on the configured project video frame grid. Number
+supports `+`, `-`, `*`, and `/`. Both Duration unit families support unary
+signs, addition, and subtraction, but binary Duration arithmetic requires
+matching families. `..` likewise requires two compatible Duration expressions
+and constructs TimeRange; project-frame endpoints cannot be mixed with
+wall-clock endpoints. A timeline selector ending in `start`,
 `middle`, or `end` denotes a coordinate; a selector ending in a placement name
 denotes that placement's complete closed-open range. Two coordinates with the
 same timeline root may also be joined with `..` to construct a frame-native

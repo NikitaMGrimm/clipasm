@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{ExactNumber, SourceTime, ValueRef};
+use crate::model::{ExactNumber, ValueRef};
 use crate::semantic::SourceOrigin;
 use crate::source::{SourceSpan, Spanned};
 
@@ -216,7 +216,7 @@ impl<'a> ResolvedCall<'a> {
     pub(crate) fn optional_duration_parameter(
         &self,
         name: &str,
-    ) -> Result<Option<(SourceTime, &SourceSpan)>> {
+    ) -> Result<Option<(crate::model::DurationValue, &SourceSpan)>> {
         let Some(parameter) = self.optional_parameter(name)? else {
             return Ok(None);
         };

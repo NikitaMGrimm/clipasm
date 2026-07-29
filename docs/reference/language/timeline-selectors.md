@@ -132,13 +132,13 @@ boundaries, including `::middle`, apply to these regions.
 ## Coordinate arithmetic
 
 Timeline coordinates use exact rational arithmetic. Coordinates with the same
-root may be added or subtracted, Number may scale them, and Duration may offset
-them:
+root may be added or subtracted, Number may scale them, and either Duration
+unit family may offset them:
 
 ```clipasm
 during(
     50% * ($edit::intro::start + $edit::credits::start)
-        ..($edit::credits::end - 500ms)
+        ..($edit::credits::end - 3f)
 ) {
     zoom_in(2%)
 }

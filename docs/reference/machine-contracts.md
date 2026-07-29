@@ -7,7 +7,7 @@ consumers. Always read the version field before decoding a document.
 
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
-| Compiled inspection JSON | `format_version: 20` | `clipasm inspect` | source-analysis and diagnostic tooling |
+| Compiled inspection JSON | `format_version: 21` | `clipasm inspect` | source-analysis and diagnostic tooling |
 | Render manifest | `format_version: 1` | successful native render | automation and render provenance |
 | External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
 

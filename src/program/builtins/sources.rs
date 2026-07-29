@@ -1,5 +1,5 @@
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{FrameCount, ImageFit, ValueType};
+use crate::model::{ImageFit, ValueType};
 use crate::program::{
     ParameterType, ProgramDefinition, ProgramOutputs, RequestedVideoExtent, ResolvedCall,
 };
@@ -70,7 +70,7 @@ fn fit_parameter() -> crate::program::ParameterDescriptor {
 fn lower_image(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<ProgramOutputs> {
     let (path, path_span) = call.file_parameter("path")?;
     let frames = if let Some((duration, span)) = call.optional_duration_parameter("duration")? {
-        FrameCount(duration.to_frames(builder.video_spec().fps(), span)?)
+        duration.to_frames(builder.video_spec().fps(), span)?
     } else {
         match call.requested_extent() {
             Some(RequestedVideoExtent::Concrete(frames)) => *frames,

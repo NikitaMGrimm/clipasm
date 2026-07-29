@@ -364,6 +364,7 @@ pub(crate) enum ScalarPostfixOperator {
     Percent,
     Milliseconds,
     Seconds,
+    Frames,
 }
 
 #[derive(Clone, Debug)]

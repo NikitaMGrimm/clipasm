@@ -6,9 +6,8 @@ use std::path::PathBuf;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
-    ExactNumber, FrameCount, FrameRange, NativeRange, SampleRange, SourceTime, SourceTimeRange,
-    TimelineRangeExpression, TimelineViewId, ValueRef, ValueType, exact_seconds_to_frames,
-    exact_seconds_to_samples,
+    DurationValue, ExactNumber, FrameCount, FrameRange, NativeRange, SampleRange, SourceTimeRange,
+    TimelineRangeExpression, TimelineViewId, ValueRef, ValueType,
 };
 use crate::semantic::GraphBuilder;
 use crate::source::{SourceSpan, SourceUnitId};
@@ -153,17 +152,18 @@ pub(crate) enum ParameterValue {
     Number(ExactNumber),
     Integer(i64),
     File(PathBuf),
-    Duration(SourceTime),
+    Duration(DurationValue),
     TimeRange(TimeRangeValue),
     Keyword(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TimeRangeValue {
-    Absolute(SourceTimeRange),
+    WallClock(SourceTimeRange),
+    ProjectFrames(FrameRange),
     Marker {
         owner: TimelineViewId,
-        range: TimelineRangeExpression,
+        range: Box<TimelineRangeExpression>,
     },
 }
 
@@ -171,13 +171,13 @@ impl TimeRangeValue {
     pub(crate) fn to_native_range(
         &self,
         value_type: ValueType,
-        fps: crate::model::FrameRate,
-        sample_rate: u32,
+        video: crate::model::VideoSpec,
+        audio: crate::model::AudioSpec,
         span: &SourceSpan,
     ) -> Result<NativeTimeRange> {
         match value_type {
-            ValueType::Video => self.to_frame_range(fps, span),
-            ValueType::Audio => self.to_sample_range(sample_rate, span),
+            ValueType::Video => self.to_frame_range(video.fps(), span),
+            ValueType::Audio => self.to_sample_range(video, audio, span),
         }
     }
 
@@ -187,17 +187,26 @@ impl TimeRangeValue {
         span: &SourceSpan,
     ) -> Result<NativeTimeRange> {
         match self {
-            Self::Absolute(range) => range
+            Self::WallClock(range) => range
                 .to_frames(fps, span)
                 .map(|range| NativeTimeRange::Concrete(NativeRange::Frames(range))),
+            Self::ProjectFrames(range) => {
+                Ok(NativeTimeRange::Concrete(NativeRange::Frames(*range)))
+            }
             Self::Marker { range, .. } => {
-                let (Some(start), Some(end)) =
-                    (range.start.constant_value(), range.end.constant_value())
-                else {
+                if !range.start.terms().is_empty() || !range.end.terms().is_empty() {
                     return Ok(NativeTimeRange::Deferred(range.clone()));
-                };
-                let start = exact_seconds_to_frames(start, fps, span)?;
-                let end = exact_seconds_to_frames(end, fps, span)?;
+                }
+                let start = range.start.resolve_frame_boundary(
+                    fps,
+                    |_| unreachable!("constant range has no terms"),
+                    span,
+                )?;
+                let end = range.end.resolve_frame_boundary(
+                    fps,
+                    |_| unreachable!("constant range has no terms"),
+                    span,
+                )?;
                 FrameRange::new(start, end)
                     .map(|range| NativeTimeRange::Concrete(NativeRange::Frames(range)))
                     .ok_or_else(|| invalid_timeline_range(span))
@@ -205,19 +214,40 @@ impl TimeRangeValue {
         }
     }
 
-    fn to_sample_range(&self, sample_rate: u32, span: &SourceSpan) -> Result<NativeTimeRange> {
+    fn to_sample_range(
+        &self,
+        video: crate::model::VideoSpec,
+        audio: crate::model::AudioSpec,
+        span: &SourceSpan,
+    ) -> Result<NativeTimeRange> {
         match self {
-            Self::Absolute(range) => range
-                .to_samples(sample_rate, span)
+            Self::WallClock(range) => range
+                .to_samples(audio.sample_rate(), span)
                 .map(|range| NativeTimeRange::Concrete(NativeRange::Samples(range))),
+            Self::ProjectFrames(range) => {
+                let timeline = crate::model::TimelineRate::new(video, audio);
+                let start = timeline.sample_boundary(range.start(), span)?;
+                let end = timeline.sample_boundary(range.end(), span)?;
+                SampleRange::new(start, end)
+                    .map(|range| NativeTimeRange::Concrete(NativeRange::Samples(range)))
+                    .ok_or_else(|| invalid_timeline_range(span))
+            }
             Self::Marker { range, .. } => {
-                let (Some(start), Some(end)) =
-                    (range.start.constant_value(), range.end.constant_value())
-                else {
+                if !range.start.terms().is_empty() || !range.end.terms().is_empty() {
                     return Ok(NativeTimeRange::Deferred(range.clone()));
-                };
-                let start = exact_seconds_to_samples(start, sample_rate, span)?;
-                let end = exact_seconds_to_samples(end, sample_rate, span)?;
+                }
+                let start = range.start.resolve_sample_boundary(
+                    video,
+                    audio,
+                    |_| unreachable!("constant range has no terms"),
+                    span,
+                )?;
+                let end = range.end.resolve_sample_boundary(
+                    video,
+                    audio,
+                    |_| unreachable!("constant range has no terms"),
+                    span,
+                )?;
                 SampleRange::new(start, end)
                     .map(|range| NativeTimeRange::Concrete(NativeRange::Samples(range)))
                     .ok_or_else(|| invalid_timeline_range(span))
@@ -227,7 +257,7 @@ impl TimeRangeValue {
 
     pub(crate) const fn marker_owner(&self) -> Option<TimelineViewId> {
         match self {
-            Self::Absolute(_) => None,
+            Self::WallClock(_) | Self::ProjectFrames(_) => None,
             Self::Marker { owner, .. } => Some(*owner),
         }
     }
@@ -244,7 +274,7 @@ fn invalid_timeline_range(span: &SourceSpan) -> Diagnostic {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum NativeTimeRange {
     Concrete(NativeRange),
-    Deferred(TimelineRangeExpression),
+    Deferred(Box<TimelineRangeExpression>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

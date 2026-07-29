@@ -114,8 +114,8 @@ fn prepare_during(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result
     let (authored_range, span) = call.time_range_parameter("range")?;
     let range = authored_range.to_native_range(
         base.value_type(),
-        builder.video_spec().fps(),
-        builder.audio_spec().sample_rate(),
+        *builder.video_spec(),
+        *builder.audio_spec(),
         span,
     )?;
     let selected = select_range(&range, base, builder, span)?;
@@ -143,7 +143,7 @@ fn select_range(
     let mut builder = builder.at_span(span.clone());
     match range {
         NativeTimeRange::Concrete(range) => builder.slice(base, *range),
-        NativeTimeRange::Deferred(range) => builder.deferred_slice(base, range.clone()),
+        NativeTimeRange::Deferred(range) => builder.deferred_slice(base, *range.clone()),
     }
 }
 
@@ -210,7 +210,7 @@ impl BodyFinalizer for FinalizeDuring {
                 builder.replace_range(self.base, range, replacement)?
             }
             NativeTimeRange::Deferred(range) => {
-                builder.deferred_replace_range(self.base, range, replacement)?
+                builder.deferred_replace_range(self.base, *range, replacement)?
             }
         }])
     }

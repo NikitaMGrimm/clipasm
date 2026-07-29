@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{ExactNumber, SourceTime, SourceTimeRange, TimelineExpression, TimelineViewId};
+use crate::model::{
+    DurationValue, ExactNumber, FrameCount, FrameRange, SourceTime, SourceTimeRange,
+    TimelineExpression, TimelineViewId,
+};
 use crate::program::{ParameterType, ParameterValue, TimeRangeValue};
 use crate::source::{
     Literal, ScalarBinaryOperator, ScalarExpression, ScalarPostfixOperator, ScalarUnaryOperator,
@@ -34,11 +37,92 @@ pub(super) enum TimelineSelectorValue {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum DurationFamily {
+    WallClock,
+    ProjectFrames,
+    Either,
+}
+
+impl DurationFamily {
+    const fn compatible(self, other: Self) -> Option<Self> {
+        match (self, other) {
+            (Self::WallClock, Self::WallClock) => Some(Self::WallClock),
+            (Self::ProjectFrames, Self::ProjectFrames) => Some(Self::ProjectFrames),
+            (Self::Either, family) | (family, Self::Either) => Some(family),
+            (Self::WallClock, Self::ProjectFrames) | (Self::ProjectFrames, Self::WallClock) => None,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::WallClock => "wall-clock Duration",
+            Self::ProjectFrames => "project-frame Duration",
+            Self::Either => "Duration",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum DurationScalar {
+    WallClock(ExactNumber),
+    ProjectFrames(ExactNumber),
+}
+
+impl DurationScalar {
+    const fn family(&self) -> DurationFamily {
+        match self {
+            Self::WallClock(_) => DurationFamily::WallClock,
+            Self::ProjectFrames(_) => DurationFamily::ProjectFrames,
+        }
+    }
+
+    fn value(&self) -> &ExactNumber {
+        match self {
+            Self::WallClock(value) | Self::ProjectFrames(value) => value,
+        }
+    }
+
+    fn negated(self) -> Self {
+        match self {
+            Self::WallClock(value) => Self::WallClock(value.negated()),
+            Self::ProjectFrames(value) => Self::ProjectFrames(value.negated()),
+        }
+    }
+
+    fn combine(self, other: &Self, subtract: bool, span: &SourceSpan) -> Result<Self> {
+        if self.family() != other.family() {
+            return Err(duration_family_mismatch(
+                if subtract { "-" } else { "+" },
+                self.family(),
+                other.family(),
+                span,
+            ));
+        }
+        let value = if subtract {
+            self.value().subtract(other.value())
+        } else {
+            self.value().add(other.value())
+        };
+        Ok(match self.family() {
+            DurationFamily::WallClock => Self::WallClock(value),
+            DurationFamily::ProjectFrames => Self::ProjectFrames(value),
+            DurationFamily::Either => unreachable!("evaluated durations have a concrete family"),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DurationRangeScalar {
+    start: DurationScalar,
+    end: DurationScalar,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ScalarKind {
     Number,
-    Duration,
+    Duration(DurationFamily),
     File,
-    TimeRange,
+    TimeRange(DurationFamily),
     TimelineCoordinate,
     TimelineRange,
     Keyword,
@@ -49,9 +133,9 @@ impl ScalarKind {
     const fn label(self) -> &'static str {
         match self {
             Self::Number => "Number",
-            Self::Duration => "Duration",
+            Self::Duration(family) => family.label(),
             Self::File => "File",
-            Self::TimeRange => "TimeRange",
+            Self::TimeRange(_) => "TimeRange",
             Self::TimelineCoordinate => "TimelineCoordinate",
             Self::TimelineRange => "TimelineRange",
             Self::Keyword => "Keyword",
@@ -63,9 +147,9 @@ impl ScalarKind {
 #[derive(Clone, Debug)]
 enum ScalarValue {
     Number(ExactNumber),
-    Duration(ExactNumber),
+    Duration(DurationScalar),
     File(PathBuf),
-    TimeRange(SourceTimeRange),
+    TimeRange(DurationRangeScalar),
     TimelineCoordinate {
         owner: TimelineViewId,
         expression: TimelineExpression,
@@ -84,9 +168,9 @@ impl ScalarValue {
     const fn kind(&self) -> ScalarKind {
         match self {
             Self::Number(_) => ScalarKind::Number,
-            Self::Duration(_) => ScalarKind::Duration,
+            Self::Duration(value) => ScalarKind::Duration(value.family()),
             Self::File(_) => ScalarKind::File,
-            Self::TimeRange(_) => ScalarKind::TimeRange,
+            Self::TimeRange(value) => ScalarKind::TimeRange(value.start.family()),
             Self::TimelineCoordinate { .. } => ScalarKind::TimelineCoordinate,
             Self::TimelineRange { .. } => ScalarKind::TimelineRange,
             Self::Keyword(_) => ScalarKind::Keyword,
@@ -153,7 +237,7 @@ fn check(
                 resolve_timeline,
                 contextual_selectors,
             )?;
-            if !matches!(kind, ScalarKind::Number | ScalarKind::Duration) {
+            if !matches!(kind, ScalarKind::Number | ScalarKind::Duration(_)) {
                 return Err(operator_type_error(
                     unary_label(*operator),
                     &[kind],
@@ -200,7 +284,10 @@ fn check(
                 ScalarPostfixOperator::Milliseconds | ScalarPostfixOperator::Seconds
                     if kind == ScalarKind::Number =>
                 {
-                    ScalarKind::Duration
+                    ScalarKind::Duration(DurationFamily::WallClock)
+                }
+                ScalarPostfixOperator::Frames if kind == ScalarKind::Number => {
+                    ScalarKind::Duration(DurationFamily::ProjectFrames)
                 }
                 ScalarPostfixOperator::Percent => {
                     return Err(operator_type_error("%", &[kind], span, "Number"));
@@ -212,6 +299,9 @@ fn check(
                         span,
                         "Integer",
                     ));
+                }
+                ScalarPostfixOperator::Frames => {
+                    return Err(operator_type_error("f", &[kind], span, "Integer"));
                 }
             };
             Ok((
@@ -300,89 +390,7 @@ fn check_binary(
         resolve_timeline,
         contextual_selectors,
     )?;
-    let kind = match operator {
-        ScalarBinaryOperator::Range
-            if left_kind == ScalarKind::Duration && right_kind == ScalarKind::Duration =>
-        {
-            ScalarKind::TimeRange
-        }
-        ScalarBinaryOperator::Range
-            if left_kind == ScalarKind::TimelineCoordinate
-                && right_kind == ScalarKind::TimelineCoordinate =>
-        {
-            ScalarKind::TimelineRange
-        }
-        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract
-            if left_kind == right_kind
-                && matches!(left_kind, ScalarKind::Number | ScalarKind::Duration) =>
-        {
-            left_kind
-        }
-        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract
-            if left_kind == ScalarKind::TimelineCoordinate
-                && right_kind == ScalarKind::TimelineCoordinate =>
-        {
-            ScalarKind::TimelineCoordinate
-        }
-        ScalarBinaryOperator::Add
-            if matches!(
-                (left_kind, right_kind),
-                (ScalarKind::TimelineCoordinate, ScalarKind::Duration)
-                    | (ScalarKind::Duration, ScalarKind::TimelineCoordinate)
-            ) =>
-        {
-            ScalarKind::TimelineCoordinate
-        }
-        ScalarBinaryOperator::Subtract
-            if left_kind == ScalarKind::TimelineCoordinate
-                && right_kind == ScalarKind::Duration =>
-        {
-            ScalarKind::TimelineCoordinate
-        }
-        ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide
-            if left_kind == ScalarKind::Number && right_kind == ScalarKind::Number =>
-        {
-            ScalarKind::Number
-        }
-        ScalarBinaryOperator::Multiply
-            if matches!(
-                (left_kind, right_kind),
-                (ScalarKind::Number, ScalarKind::TimelineCoordinate)
-                    | (ScalarKind::TimelineCoordinate, ScalarKind::Number)
-            ) =>
-        {
-            ScalarKind::TimelineCoordinate
-        }
-        ScalarBinaryOperator::Divide
-            if left_kind == ScalarKind::TimelineCoordinate && right_kind == ScalarKind::Number =>
-        {
-            ScalarKind::TimelineCoordinate
-        }
-        ScalarBinaryOperator::Range => {
-            return Err(operator_type_error(
-                "..",
-                &[left_kind, right_kind],
-                span,
-                "matching Duration operands or matching timeline coordinates",
-            ));
-        }
-        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract => {
-            return Err(operator_type_error(
-                binary_label(operator),
-                &[left_kind, right_kind],
-                span,
-                "compatible Number, Duration, or timeline-coordinate operands",
-            ));
-        }
-        ScalarBinaryOperator::Multiply | ScalarBinaryOperator::Divide => {
-            return Err(operator_type_error(
-                binary_label(operator),
-                &[left_kind, right_kind],
-                span,
-                "Number operands, or a timeline coordinate scaled by Number",
-            ));
-        }
-    };
+    let kind = check_binary_kind(operator, left_kind, right_kind, span)?;
     Ok((
         CheckedScalarExpression::Binary {
             operator,
@@ -392,6 +400,78 @@ fn check_binary(
         },
         kind,
     ))
+}
+
+fn check_binary_kind(
+    operator: ScalarBinaryOperator,
+    left: ScalarKind,
+    right: ScalarKind,
+    span: &SourceSpan,
+) -> Result<ScalarKind> {
+    if left == ScalarKind::Number && right == ScalarKind::Number {
+        return Ok(ScalarKind::Number);
+    }
+    match operator {
+        ScalarBinaryOperator::Range => match (left, right) {
+            (ScalarKind::Duration(left), ScalarKind::Duration(right)) => left
+                .compatible(right)
+                .map(ScalarKind::TimeRange)
+                .ok_or_else(|| duration_family_mismatch("..", left, right, span)),
+            (ScalarKind::TimelineCoordinate, ScalarKind::TimelineCoordinate) => {
+                Ok(ScalarKind::TimelineRange)
+            }
+            _ => Err(operator_type_error(
+                "..",
+                &[left, right],
+                span,
+                "matching Duration operands or matching timeline coordinates",
+            )),
+        },
+        ScalarBinaryOperator::Add | ScalarBinaryOperator::Subtract => match (left, right) {
+            (ScalarKind::Duration(left), ScalarKind::Duration(right)) => left
+                .compatible(right)
+                .map(ScalarKind::Duration)
+                .ok_or_else(|| duration_family_mismatch(binary_label(operator), left, right, span)),
+            (
+                ScalarKind::TimelineCoordinate,
+                ScalarKind::TimelineCoordinate | ScalarKind::Duration(_),
+            ) => Ok(ScalarKind::TimelineCoordinate),
+            (ScalarKind::Duration(_), ScalarKind::TimelineCoordinate)
+                if operator == ScalarBinaryOperator::Add =>
+            {
+                Ok(ScalarKind::TimelineCoordinate)
+            }
+            _ => Err(operator_type_error(
+                binary_label(operator),
+                &[left, right],
+                span,
+                "compatible Number, Duration, or timeline-coordinate operands",
+            )),
+        },
+        ScalarBinaryOperator::Multiply => match (left, right) {
+            (ScalarKind::Number, ScalarKind::TimelineCoordinate)
+            | (ScalarKind::TimelineCoordinate, ScalarKind::Number) => {
+                Ok(ScalarKind::TimelineCoordinate)
+            }
+            _ => Err(operator_type_error(
+                "*",
+                &[left, right],
+                span,
+                "Number operands, or a timeline coordinate scaled by Number",
+            )),
+        },
+        ScalarBinaryOperator::Divide => match (left, right) {
+            (ScalarKind::TimelineCoordinate, ScalarKind::Number) => {
+                Ok(ScalarKind::TimelineCoordinate)
+            }
+            _ => Err(operator_type_error(
+                "/",
+                &[left, right],
+                span,
+                "Number operands, or a timeline coordinate scaled by Number",
+            )),
+        },
+    }
 }
 
 pub(super) fn evaluate_expression(
@@ -596,9 +676,25 @@ fn parameter_scalar_value(parameter: &ParameterValue) -> ScalarValue {
         ParameterValue::Number(value) => ScalarValue::Number(value.clone()),
         ParameterValue::Integer(value) => ScalarValue::Number(ExactNumber::from_integer(*value)),
         ParameterValue::File(value) => ScalarValue::File(value.clone()),
-        ParameterValue::Duration(value) => ScalarValue::Duration(value.exact_seconds()),
-        ParameterValue::TimeRange(TimeRangeValue::Absolute(value)) => {
-            ScalarValue::TimeRange(*value)
+        ParameterValue::Duration(DurationValue::WallClock(value)) => {
+            ScalarValue::Duration(DurationScalar::WallClock(value.exact_seconds()))
+        }
+        ParameterValue::Duration(DurationValue::ProjectFrames(value)) => ScalarValue::Duration(
+            DurationScalar::ProjectFrames(ExactNumber::from_unsigned_integer(value.0)),
+        ),
+        ParameterValue::TimeRange(TimeRangeValue::WallClock(value)) => {
+            ScalarValue::TimeRange(DurationRangeScalar {
+                start: DurationScalar::WallClock(value.start().exact_seconds()),
+                end: DurationScalar::WallClock(value.end().exact_seconds()),
+            })
+        }
+        ParameterValue::TimeRange(TimeRangeValue::ProjectFrames(value)) => {
+            ScalarValue::TimeRange(DurationRangeScalar {
+                start: DurationScalar::ProjectFrames(ExactNumber::from_unsigned_integer(
+                    value.start(),
+                )),
+                end: DurationScalar::ProjectFrames(ExactNumber::from_unsigned_integer(value.end())),
+            })
         }
         ParameterValue::TimeRange(TimeRangeValue::Marker { owner, range }) => {
             ScalarValue::TimelineRange {
@@ -635,9 +731,12 @@ fn evaluate_literal(literal: &Literal) -> Result<ScalarValue> {
         Literal::Atom(value, span) if is_number_text(value) => {
             Ok(ScalarValue::Number(ExactNumber::parse(value, span)?))
         }
-        Literal::Atom(value, span) if !value.contains("..") && looks_like_duration(value) => {
-            Ok(ScalarValue::Duration(parse_duration(value, span)?))
+        Literal::Atom(value, span) if !value.contains("..") && value.ends_with('f') => {
+            Ok(ScalarValue::Duration(parse_frame_duration(value, span)?))
         }
+        Literal::Atom(value, span) if !value.contains("..") && looks_like_duration(value) => Ok(
+            ScalarValue::Duration(DurationScalar::WallClock(parse_duration(value, span)?)),
+        ),
         Literal::String(value, _) | Literal::Atom(value, _) => Ok(ScalarValue::Text(value.clone())),
     }
 }
@@ -655,17 +754,15 @@ fn evaluate_binary(
     }
     match (operator, left, right) {
         (ScalarBinaryOperator::Range, ScalarValue::Duration(start), ScalarValue::Duration(end)) => {
-            let start = SourceTime::from_exact_seconds(&start, span)?;
-            let end = SourceTime::from_exact_seconds(&end, span)?;
-            SourceTimeRange::new(start, end)
-                .map(ScalarValue::TimeRange)
-                .ok_or_else(|| {
-                    Diagnostic::builtin(
-                        BuiltinDiagnostic::InvalidTimeRange,
-                        "time-range start must be earlier than its end",
-                        span.clone(),
-                    )
-                })
+            if start.family() != end.family() {
+                return Err(duration_family_mismatch(
+                    "..",
+                    start.family(),
+                    end.family(),
+                    span,
+                ));
+            }
+            Ok(ScalarValue::TimeRange(DurationRangeScalar { start, end }))
         }
         (ScalarBinaryOperator::Add, ScalarValue::Number(left), ScalarValue::Number(right)) => {
             Ok(ScalarValue::Number(left.add(&right)))
@@ -686,13 +783,13 @@ fn evaluate_binary(
             })
         }
         (ScalarBinaryOperator::Add, ScalarValue::Duration(left), ScalarValue::Duration(right)) => {
-            Ok(ScalarValue::Duration(left.add(&right)))
+            left.combine(&right, false, span).map(ScalarValue::Duration)
         }
         (
             ScalarBinaryOperator::Subtract,
             ScalarValue::Duration(left),
             ScalarValue::Duration(right),
-        ) => Ok(ScalarValue::Duration(left.subtract(&right))),
+        ) => left.combine(&right, true, span).map(ScalarValue::Duration),
         (operator, left, right) => Err(operator_type_error(
             binary_label(operator),
             &[left.kind(), right.kind()],
@@ -805,9 +902,9 @@ fn evaluate_timeline_binary(
         ) => Ok(ScalarValue::TimelineCoordinate {
             owner,
             expression: if operator == ScalarBinaryOperator::Add {
-                expression.add(&TimelineExpression::constant(duration))
+                expression.add(&duration_timeline_expression(duration))
             } else {
-                expression.subtract(&TimelineExpression::constant(duration))
+                expression.subtract(&duration_timeline_expression(duration))
             },
             layout,
         }),
@@ -821,7 +918,7 @@ fn evaluate_timeline_binary(
             },
         ) => Ok(ScalarValue::TimelineCoordinate {
             owner,
-            expression: TimelineExpression::constant(duration).add(&expression),
+            expression: duration_timeline_expression(duration).add(&expression),
             layout,
         }),
         (
@@ -902,7 +999,13 @@ fn evaluate_postfix(
             } else {
                 value
             };
-            Ok(ScalarValue::Duration(seconds))
+            Ok(ScalarValue::Duration(DurationScalar::WallClock(seconds)))
+        }
+        (ScalarPostfixOperator::Frames, ScalarValue::Number(value)) => {
+            if !value.is_integer() {
+                return Err(integer_refinement_error("f", &value, span));
+            }
+            Ok(ScalarValue::Duration(DurationScalar::ProjectFrames(value)))
         }
         (operator, value) => Err(operator_type_error(
             postfix_label(operator),
@@ -946,26 +1049,26 @@ fn coerce(
             };
             Ok(ParameterValue::Integer(integer))
         }
-        (ParameterType::Duration, ScalarValue::Duration(value)) => Ok(ParameterValue::Duration(
-            SourceTime::from_exact_seconds(&value, span)?,
-        )),
-        (ParameterType::Duration, ScalarValue::Text(value)) => {
-            Ok(ParameterValue::Duration(SourceTime::parse(&value, span)?))
+        (ParameterType::Duration, ScalarValue::Duration(value)) => {
+            Ok(ParameterValue::Duration(refine_duration(value, span)?))
         }
+        (ParameterType::Duration, ScalarValue::Text(value)) => Ok(ParameterValue::Duration(
+            refine_duration(parse_duration_text(&value, span)?, span)?,
+        )),
         (ParameterType::File, ScalarValue::Text(value)) => {
             Ok(ParameterValue::File(PathBuf::from(value)))
         }
         (ParameterType::File, ScalarValue::File(value)) => Ok(ParameterValue::File(value)),
         (ParameterType::TimeRange, ScalarValue::Text(value)) => Ok(ParameterValue::TimeRange(
-            TimeRangeValue::Absolute(SourceTimeRange::parse(&value, span)?),
+            refine_duration_range(parse_duration_range_text(&value, span)?, span)?,
         )),
-        (ParameterType::TimeRange, ScalarValue::TimeRange(value)) => {
-            Ok(ParameterValue::TimeRange(TimeRangeValue::Absolute(value)))
-        }
+        (ParameterType::TimeRange, ScalarValue::TimeRange(value)) => Ok(ParameterValue::TimeRange(
+            refine_duration_range(value, span)?,
+        )),
         (ParameterType::TimeRange, ScalarValue::TimelineRange { owner, start, end }) => {
             Ok(ParameterValue::TimeRange(TimeRangeValue::Marker {
                 owner,
-                range: crate::model::TimelineRangeExpression { start, end },
+                range: Box::new(crate::model::TimelineRangeExpression { start, end }),
             }))
         }
         (
@@ -992,12 +1095,16 @@ fn literal_kind(literal: &Literal) -> Result<ScalarKind> {
             Ok(ScalarKind::Number)
         }
         Literal::Atom(value, span) if value.contains("..") => {
-            SourceTimeRange::parse(value, span)?;
-            Ok(ScalarKind::TimeRange)
+            let range = parse_duration_range_text(value, span)?;
+            Ok(ScalarKind::TimeRange(range.start.family()))
+        }
+        Literal::Atom(value, span) if value.ends_with('f') => {
+            parse_frame_duration(value, span)?;
+            Ok(ScalarKind::Duration(DurationFamily::ProjectFrames))
         }
         Literal::Atom(value, span) if looks_like_duration(value) => {
             parse_duration(value, span)?;
-            Ok(ScalarKind::Duration)
+            Ok(ScalarKind::Duration(DurationFamily::WallClock))
         }
         Literal::String(_, _) | Literal::Atom(_, _) => Ok(ScalarKind::Text),
     }
@@ -1007,8 +1114,8 @@ fn parameter_kind(parameter_type: &ParameterType) -> ScalarKind {
     match parameter_type {
         ParameterType::Number | ParameterType::Integer => ScalarKind::Number,
         ParameterType::File => ScalarKind::File,
-        ParameterType::Duration => ScalarKind::Duration,
-        ParameterType::TimeRange => ScalarKind::TimeRange,
+        ParameterType::Duration => ScalarKind::Duration(DurationFamily::Either),
+        ParameterType::TimeRange => ScalarKind::TimeRange(DurationFamily::Either),
         ParameterType::Keyword(_) => ScalarKind::Keyword,
     }
 }
@@ -1017,10 +1124,10 @@ fn kind_matches_parameter(kind: ScalarKind, parameter_type: &ParameterType) -> b
     match parameter_type {
         ParameterType::Number | ParameterType::Integer => kind == ScalarKind::Number,
         ParameterType::File => matches!(kind, ScalarKind::File | ScalarKind::Text),
-        ParameterType::Duration => matches!(kind, ScalarKind::Duration | ScalarKind::Text),
+        ParameterType::Duration => matches!(kind, ScalarKind::Duration(_) | ScalarKind::Text),
         ParameterType::TimeRange => matches!(
             kind,
-            ScalarKind::TimeRange | ScalarKind::TimelineRange | ScalarKind::Text
+            ScalarKind::TimeRange(_) | ScalarKind::TimelineRange | ScalarKind::Text
         ),
         ParameterType::Keyword(_) => matches!(kind, ScalarKind::Keyword | ScalarKind::Text),
     }
@@ -1050,6 +1157,157 @@ fn parse_duration(value: &str, span: &SourceSpan) -> Result<ExactNumber> {
 
 fn looks_like_duration(value: &str) -> bool {
     value.ends_with("ms") || value.ends_with('s')
+}
+
+fn parse_frame_duration(value: &str, span: &SourceSpan) -> Result<DurationScalar> {
+    let Some(number) = value.strip_suffix('f') else {
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidDuration,
+            format!("`{value}` is not a project-frame duration"),
+            span.clone(),
+        ));
+    };
+    if number.is_empty() {
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidDuration,
+            "project-frame duration requires a number before `f`",
+            span.clone(),
+        ));
+    }
+    Ok(DurationScalar::ProjectFrames(parse_signed_number(
+        number, span,
+    )?))
+}
+
+fn parse_signed_number(value: &str, span: &SourceSpan) -> Result<ExactNumber> {
+    if let Some(value) = value.strip_prefix('-') {
+        return ExactNumber::parse(value, span).map(|value| value.negated());
+    }
+    ExactNumber::parse(value.strip_prefix('+').unwrap_or(value), span)
+}
+
+fn parse_duration_text(value: &str, span: &SourceSpan) -> Result<DurationScalar> {
+    if value.ends_with('f') {
+        parse_frame_duration(value, span)
+    } else {
+        parse_duration(value, span).map(DurationScalar::WallClock)
+    }
+}
+
+fn parse_duration_range_text(value: &str, span: &SourceSpan) -> Result<DurationRangeScalar> {
+    let Some((start, end)) = value.split_once("..") else {
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
+            "a time range requires both endpoints, for example `2s..4s` or `12f..24f`",
+            span.clone(),
+        ));
+    };
+    if start.is_empty() || end.is_empty() || end.contains("..") {
+        return Err(Diagnostic::builtin(
+            BuiltinDiagnostic::InvalidTimeRange,
+            "a time range requires exactly two endpoints",
+            span.clone(),
+        ));
+    }
+    let start = parse_duration_text(start, span)?;
+    let end = parse_duration_text(end, span)?;
+    if start.family() != end.family() {
+        return Err(duration_family_mismatch(
+            "..",
+            start.family(),
+            end.family(),
+            span,
+        ));
+    }
+    Ok(DurationRangeScalar { start, end })
+}
+
+fn refine_duration(value: DurationScalar, span: &SourceSpan) -> Result<DurationValue> {
+    match value {
+        DurationScalar::WallClock(value) => {
+            SourceTime::from_exact_seconds(&value, span).map(DurationValue::WallClock)
+        }
+        DurationScalar::ProjectFrames(value) => {
+            if !value.is_integer() {
+                return Err(integer_refinement_error(
+                    "project-frame duration",
+                    &value,
+                    span,
+                ));
+            }
+            let Some(frames) = value.to_u64() else {
+                let (code, message) = if value.is_positive() || value.is_zero() {
+                    (
+                        BuiltinDiagnostic::FrameOverflow,
+                        "project-frame duration exceeds the supported frame count",
+                    )
+                } else {
+                    (
+                        BuiltinDiagnostic::InvalidDuration,
+                        "project-frame duration cannot be negative",
+                    )
+                };
+                return Err(Diagnostic::builtin(code, message, span.clone())
+                    .note(format!("exact value: {}f", value.canonical())));
+            };
+            Ok(DurationValue::ProjectFrames(FrameCount(frames)))
+        }
+    }
+}
+
+fn refine_duration_range(value: DurationRangeScalar, span: &SourceSpan) -> Result<TimeRangeValue> {
+    match (
+        refine_duration(value.start, span)?,
+        refine_duration(value.end, span)?,
+    ) {
+        (DurationValue::WallClock(start), DurationValue::WallClock(end)) => {
+            SourceTimeRange::new(start, end)
+                .map(TimeRangeValue::WallClock)
+                .ok_or_else(|| {
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidTimeRange,
+                        "time-range start must be earlier than its end",
+                        span.clone(),
+                    )
+                })
+        }
+        (DurationValue::ProjectFrames(start), DurationValue::ProjectFrames(end)) => {
+            FrameRange::new(start.0, end.0)
+                .map(TimeRangeValue::ProjectFrames)
+                .ok_or_else(|| {
+                    Diagnostic::builtin(
+                        BuiltinDiagnostic::InvalidTimeRange,
+                        "frame-range start must be earlier than its end",
+                        span.clone(),
+                    )
+                })
+        }
+        _ => unreachable!("duration range parser preserves one family"),
+    }
+}
+
+fn duration_family_mismatch(
+    operator: &str,
+    left: DurationFamily,
+    right: DurationFamily,
+    span: &SourceSpan,
+) -> Diagnostic {
+    Diagnostic::builtin(
+        BuiltinDiagnostic::InvalidScalarOperation,
+        format!(
+            "operator `{operator}` requires matching Duration families, but got {} and {}",
+            left.label(),
+            right.label()
+        ),
+        span.clone(),
+    )
+}
+
+fn duration_timeline_expression(duration: DurationScalar) -> TimelineExpression {
+    match duration {
+        DurationScalar::WallClock(seconds) => TimelineExpression::constant(seconds),
+        DurationScalar::ProjectFrames(frames) => TimelineExpression::project_frames(frames),
+    }
 }
 
 fn is_number_text(value: &str) -> bool {
@@ -1120,8 +1378,11 @@ fn add_parameter_trace(
                 }
             }
             ParameterValue::Integer(value) => value.to_string(),
-            ParameterValue::Duration(value) => {
+            ParameterValue::Duration(DurationValue::WallClock(value)) => {
                 format!("{}s", value.exact_seconds().authored_display())
+            }
+            ParameterValue::Duration(DurationValue::ProjectFrames(value)) => {
+                format!("{}f", value.0)
             }
             ParameterValue::File(_) | ParameterValue::TimeRange(_) | ParameterValue::Keyword(_) => {
                 continue;
@@ -1189,6 +1450,7 @@ fn postfix_label(operator: ScalarPostfixOperator) -> &'static str {
         ScalarPostfixOperator::Percent => "%",
         ScalarPostfixOperator::Milliseconds => "ms",
         ScalarPostfixOperator::Seconds => "s",
+        ScalarPostfixOperator::Frames => "f",
     }
 }
 

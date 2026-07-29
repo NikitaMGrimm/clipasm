@@ -91,14 +91,14 @@ fn lower_trim(call: &ResolvedCall, builder: &mut GraphBuilder<'_>) -> Result<Pro
     let (range, span) = call.time_range_parameter("range")?;
     let range = range.to_native_range(
         value.value_type(),
-        builder.video_spec().fps(),
-        builder.audio_spec().sample_rate(),
+        *builder.video_spec(),
+        *builder.audio_spec(),
         span,
     )?;
     let mut builder = builder.at_span(span.clone());
     one_output(match range {
         NativeTimeRange::Concrete(range) => builder.slice(value, range),
-        NativeTimeRange::Deferred(range) => builder.deferred_slice(value, range),
+        NativeTimeRange::Deferred(range) => builder.deferred_slice(value, *range),
     })
 }
 

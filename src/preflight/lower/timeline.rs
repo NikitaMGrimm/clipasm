@@ -291,12 +291,14 @@ fn resolve_audio_range(
     node: &CompiledNode,
     range: &TimelineRangeExpression,
 ) -> Result<SampleRange> {
-    let sample_rate = lowerer.compiled.audio().sample_rate();
+    let video = *lowerer.compiled.video();
+    let audio = *lowerer.compiled.audio();
     let (start, end) = resolve_timeline_range(
         range,
         |expression: &crate::model::TimelineExpression| {
             expression.resolve_sample_boundary(
-                sample_rate,
+                video,
+                audio,
                 |value| {
                     let prepared = lowerer.prepared_dependency(value, node.origin())?;
                     lowerer

@@ -250,17 +250,34 @@ fn timeline_expression_identity(
     expression: &crate::model::TimelineExpression,
     hashes: &[Option<String>],
 ) -> serde_json::Value {
-    serde_json::json!({
-        "constant": expression.constant_part(),
-        "terms": expression
-            .terms()
-            .iter()
-            .map(|term| serde_json::json!({
-                "value": node_hash(term.value, hashes),
-                "coefficient": term.coefficient,
-            }))
-            .collect::<Vec<_>>(),
-    })
+    let mut identity = serde_json::Map::from_iter([
+        (
+            "constant".to_owned(),
+            serde_json::to_value(expression.constant_part()).expect("exact number serializes"),
+        ),
+        (
+            "terms".to_owned(),
+            serde_json::Value::Array(
+                expression
+                    .terms()
+                    .iter()
+                    .map(|term| {
+                        serde_json::json!({
+                            "value": node_hash(term.value, hashes),
+                            "coefficient": term.coefficient,
+                        })
+                    })
+                    .collect(),
+            ),
+        ),
+    ]);
+    if !expression.project_frame_part().is_zero() {
+        identity.insert(
+            "project_frames".to_owned(),
+            serde_json::to_value(expression.project_frame_part()).expect("exact number serializes"),
+        );
+    }
+    serde_json::Value::Object(identity)
 }
 
 fn identity_value(value: &impl Serialize) -> Result<serde_json::Value> {

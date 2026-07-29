@@ -652,6 +652,7 @@ impl Parser {
                 let operator = match self.current_identifier() {
                     Some("ms") => Some(PostfixOperator::Milliseconds),
                     Some("s") => Some(PostfixOperator::Seconds),
+                    Some("f") => Some(PostfixOperator::Frames),
                     _ => None,
                 };
                 if operator.is_some() {
@@ -1284,6 +1285,37 @@ mod tests {
             operand.as_ref(),
             ScalarExpression::Postfix {
                 operator: PostfixOperator::Percent,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parses_project_frame_durations_and_ranges() {
+        let syntax = parse_text("clipasm 1\ntrim(3f..18f)\n");
+        let Expression::Invocation(invocation) = &syntax.statements[0].expression else {
+            panic!("invocation");
+        };
+        let Argument::Positional(Expression::Scalar(ScalarExpression::Binary {
+            operator: BinaryOperator::Range,
+            left,
+            right,
+            ..
+        })) = &invocation.arguments[0]
+        else {
+            panic!("frame range");
+        };
+        assert!(matches!(
+            left.as_ref(),
+            ScalarExpression::Postfix {
+                operator: PostfixOperator::Frames,
+                ..
+            }
+        ));
+        assert!(matches!(
+            right.as_ref(),
+            ScalarExpression::Postfix {
+                operator: PostfixOperator::Frames,
                 ..
             }
         ));
