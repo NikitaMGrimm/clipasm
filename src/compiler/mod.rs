@@ -21,7 +21,7 @@ pub(crate) mod traversal;
 mod typecheck;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
@@ -53,7 +53,7 @@ pub struct CompiledProgram {
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     entrypoint_source: SourceFile,
-    source_files: Vec<SourceFile>,
+    source_paths: Vec<PathBuf>,
 }
 
 impl CompiledProgram {
@@ -181,8 +181,8 @@ impl CompiledProgram {
         &self.entrypoint_source
     }
 
-    pub(crate) fn source_files(&self) -> &[SourceFile] {
-        &self.source_files
+    pub(crate) fn source_paths(&self) -> &[PathBuf] {
+        &self.source_paths
     }
 }
 
@@ -306,7 +306,7 @@ fn compile_checked(
         package
             .units()
             .iter()
-            .map(|unit| unit.source().clone())
+            .filter_map(|unit| unit.source().filesystem_path().map(Path::to_path_buf))
             .collect(),
         output.cloned(),
         video,

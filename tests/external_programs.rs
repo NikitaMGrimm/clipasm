@@ -5,8 +5,10 @@ mod common;
 use std::fs;
 
 use clipasm::compiler::EntrypointBindings;
+#[cfg(unix)]
+use clipasm::render;
 use clipasm::source::SourceSpan;
-use clipasm::{compiler, language, preflight, render};
+use clipasm::{compiler, language, preflight};
 
 fn write_external_program(directory: &std::path::Path, command: &str) {
     fs::write(

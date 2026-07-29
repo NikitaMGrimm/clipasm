@@ -489,11 +489,10 @@ fn parse_positive_ratio(value: &str) -> Option<(u128, u128)> {
     (numerator > 0 && denominator > 0).then_some((numerator, denominator))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn exact_sample_count_streams_many_frame_records() {
         use std::fs;

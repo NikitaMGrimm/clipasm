@@ -29,10 +29,8 @@ impl ProtectedResources {
                 "FFprobe executable",
             ),
         ]);
-        for source in plan.source_files() {
-            if let Some(path) = source.filesystem_path() {
-                paths.entry(path.to_path_buf()).or_insert("source program");
-            }
+        for path in plan.source_paths() {
+            paths.entry(path.clone()).or_insert("source program");
         }
         for node in plan.nodes() {
             let result: std::result::Result<(), std::convert::Infallible> = node

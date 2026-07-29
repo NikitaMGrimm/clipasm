@@ -484,10 +484,12 @@ fn tool_command_output(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::sync::{Mutex, MutexGuard};
 
     use super::*;
 
+    #[cfg(unix)]
     static FAKE_TOOL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
@@ -514,6 +516,7 @@ mod tests {
         assert_eq!(resolved, extensionless);
     }
 
+    #[cfg(unix)]
     fn fake_tool_test_lock() -> MutexGuard<'static, ()> {
         FAKE_TOOL_TEST_LOCK
             .lock()

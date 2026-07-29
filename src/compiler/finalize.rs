@@ -15,7 +15,7 @@ struct SymbolFrame {
 
 pub(super) fn finalize(
     entrypoint: &SourceUnit,
-    source_files: Vec<crate::source::SourceFile>,
+    source_paths: Vec<PathBuf>,
     output: Option<Spanned<PathBuf>>,
     video: VideoSpec,
     audio: AudioSpec,
@@ -92,7 +92,7 @@ pub(super) fn finalize(
         explain,
         output,
         entrypoint_source: entrypoint.source().clone(),
-        source_files,
+        source_paths,
     })
 }
 

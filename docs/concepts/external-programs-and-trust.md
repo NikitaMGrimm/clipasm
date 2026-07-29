@@ -26,12 +26,11 @@ building a shell command.
 A zero exit status is not enough: ClipAsm probes the produced artifact and
 checks it against the declared Video result before accepting it.
 
-The external invocation must finish or join every child process it starts before
-exiting. Detached background work is outside the protocol contract. On Unix,
-ClipAsm places the invocation in a dedicated process group and terminates any
-remaining members when the direct child finishes. On Windows, ClipAsm currently
-guarantees cleanup of the direct child only, so an external implementation must
-not leave descendants holding inherited pipes or resources.
+An external implementation must complete the work needed for its declared output
+before the direct process exits. ClipAsm contains the invocation in a dedicated
+process group on Unix and a Job Object on Windows, then terminates remaining
+managed descendants when the direct process finishes. Work that deliberately
+escapes that managed group or job is outside the protocol contract.
 
 ## What ClipAsm cannot make safe
 

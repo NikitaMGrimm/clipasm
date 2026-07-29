@@ -74,10 +74,10 @@ program there.
 
 Validation remains media- and process-free. Rendering sends a versioned JSON
 request over standard input and verifies the produced media afterward. An
-implementation must finish or join every child process it starts before exiting;
-detached background work is outside the invocation contract. ClipAsm terminates
-remaining members of the managed process group on Unix. On Windows, the current
-implementation guarantees cleanup of the direct child only.
+implementation must complete the work needed for its declared output before the
+direct process exits. ClipAsm terminates remaining descendants in the managed
+process group on Unix or Job Object on Windows. Work that deliberately escapes
+that managed group or job is outside the invocation contract.
 
 External programs are not sandboxed; read [External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
 before running one.
