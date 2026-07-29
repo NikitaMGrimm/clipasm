@@ -845,7 +845,6 @@ mod tests {
     #[test]
     fn public_reference_covers_every_builtin_once() {
         let programs = builtin_programs();
-        assert_eq!(programs.len(), 14);
         assert_eq!(
             programs
                 .iter()

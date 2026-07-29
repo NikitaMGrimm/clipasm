@@ -1,10 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::de::Deserializer;
-use serde::ser::{SerializeStruct, Serializer};
-use serde::{Deserialize, Serialize};
-
 /// One authored or generated source unit.
 ///
 /// The display path is used in diagnostics, while the optional base directory
@@ -86,7 +82,7 @@ pub struct SourceSpan {
     pub column: usize,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Spanned<T> {
     pub(crate) value: T,
     pub(crate) span: SourceSpan,
@@ -138,36 +134,6 @@ impl SourceSpan {
     #[must_use]
     pub fn file(&self) -> &Path {
         self.source.display_path()
-    }
-}
-
-impl Serialize for SourceSpan {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer.serialize_struct("SourceSpan", 3)?;
-        state.serialize_field("file", self.file())?;
-        state.serialize_field("line", &self.line)?;
-        state.serialize_field("column", &self.column)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for SourceSpan {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct SerializedSpan {
-            file: PathBuf,
-            line: usize,
-            column: usize,
-        }
-
-        let span = SerializedSpan::deserialize(deserializer)?;
-        Ok(Self::new(span.file, span.line, span.column))
     }
 }
 

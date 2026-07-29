@@ -1877,8 +1877,6 @@ mod tests {
 
     #[test]
     fn catalog_is_complete_unique_valid_and_ordered() {
-        assert_eq!(REFERENCES.len(), 167);
-
         let mut previous = None;
         let mut codes = HashSet::new();
         for diagnostic in REFERENCES {

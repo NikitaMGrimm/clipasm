@@ -11,7 +11,7 @@ mod draft;
 mod entrypoint;
 mod evaluate;
 mod finalize;
-pub(crate) mod fingerprint;
+mod fingerprint;
 mod ids;
 mod link;
 mod parameter;

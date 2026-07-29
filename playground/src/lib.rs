@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 const RESPONSE_VERSION: u32 = 4;
@@ -29,12 +29,52 @@ enum CompileResponse {
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum RenderAvailability {
-    Ready {
-        assets: Vec<clipasm::preflight::browser::BrowserAssetRequest>,
-    },
-    Unsupported {
-        diagnostic: DiagnosticResponse,
-    },
+    Ready { assets: Vec<BrowserAssetResponse> },
+    Unsupported { diagnostic: DiagnosticResponse },
+}
+
+#[derive(Serialize)]
+struct BrowserAssetResponse {
+    path: String,
+    kind: BrowserAssetKindResponse,
+}
+
+#[derive(Deserialize)]
+struct BrowserAssetInput {
+    path: String,
+    content_hash: String,
+    #[serde(default)]
+    video_probe: Option<String>,
+}
+
+impl BrowserAssetInput {
+    fn into_asset(self) -> clipasm::preflight::browser::BrowserAsset {
+        let asset = clipasm::preflight::browser::BrowserAsset::new(self.path, self.content_hash);
+        match self.video_probe {
+            Some(probe) => asset.with_video_probe(probe),
+            None => asset,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BrowserAssetKindResponse {
+    Image,
+    Video,
+}
+
+impl From<clipasm::preflight::browser::BrowserAssetRequest> for BrowserAssetResponse {
+    fn from(request: clipasm::preflight::browser::BrowserAssetRequest) -> Self {
+        let kind = match request.kind() {
+            clipasm::preflight::browser::BrowserAssetKind::Image => BrowserAssetKindResponse::Image,
+            clipasm::preflight::browser::BrowserAssetKind::Video => BrowserAssetKindResponse::Video,
+        };
+        Self {
+            path: request.path().to_owned(),
+            kind,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -85,7 +125,9 @@ fn compile(source: &str) -> CompileResponse {
     match result {
         Ok((compiled, document)) => {
             let render = match clipasm::preflight::browser::required_assets(&compiled) {
-                Ok(assets) => RenderAvailability::Ready { assets },
+                Ok(assets) => RenderAvailability::Ready {
+                    assets: assets.into_iter().map(BrowserAssetResponse::from).collect(),
+                },
                 Err(diagnostic) => RenderAvailability::Unsupported {
                     diagnostic: diagnostic.into(),
                 },
@@ -145,15 +187,17 @@ pub fn compile_source(source: &str) -> String {
 #[must_use]
 pub fn prepare_render(source: &str, assets_json: &str) -> String {
     let result = (|| {
-        let assets =
-            serde_json::from_str::<Vec<clipasm::preflight::browser::BrowserAsset>>(assets_json)
-                .map_err(|error| {
-                    clipasm::diagnostic::Diagnostic::builtin(
-                        clipasm::diagnostic::BuiltinDiagnostic::BrowserAssetFacts,
-                        format!("invalid browser asset facts: {error}"),
-                        clipasm::source::SourceSpan::file_start(SOURCE_NAME),
-                    )
-                })?;
+        let assets = serde_json::from_str::<Vec<BrowserAssetInput>>(assets_json)
+            .map_err(|error| {
+                clipasm::diagnostic::Diagnostic::builtin(
+                    clipasm::diagnostic::BuiltinDiagnostic::BrowserAssetFacts,
+                    format!("invalid browser asset facts: {error}"),
+                    clipasm::source::SourceSpan::file_start(SOURCE_NAME),
+                )
+            })?
+            .into_iter()
+            .map(BrowserAssetInput::into_asset)
+            .collect::<Vec<_>>();
         let compiled = compile_program(source)?;
         let prepared = clipasm::preflight::browser::prepare(&compiled, &assets)?;
         clipasm::render::browser::render_json(&prepared)

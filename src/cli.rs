@@ -199,10 +199,10 @@ fn execute(cli: Cli) -> Result<()> {
             };
             println!(
                 "rendered {} (cache: {} hit(s), {} miss(es)); manifest: {}",
-                report.output.display(),
-                report.cache_hits,
-                report.cache_misses,
-                report.manifest.display()
+                report.output().display(),
+                report.cache_hits(),
+                report.cache_misses(),
+                report.manifest().display()
             );
         }
     }

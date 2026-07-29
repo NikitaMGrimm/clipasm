@@ -20,7 +20,7 @@
 //! let compiled = clipasm::compiler::compile(&program)?;
 //! let prepared = clipasm::preflight::preflight(&compiled)?;
 //! let report = clipasm::render::render(&prepared)?;
-//! println!("{}", report.output.display());
+//! println!("{}", report.output().display());
 //! # Ok::<(), clipasm::diagnostic::Diagnostic>(())
 //! ```
 //!
@@ -33,6 +33,7 @@ pub(crate) mod contracts;
 pub mod diagnostic;
 pub(crate) mod external;
 pub(crate) mod format;
+pub(crate) mod identity;
 pub mod language;
 pub(crate) mod media_tool;
 pub mod model;

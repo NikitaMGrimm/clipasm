@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde::Serialize;
-
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::program::{InputSlot, ParameterValue, ResolvedCall, ResolvedInput};
 use crate::source::Spanned;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct ExternalInvocation {
     pub(crate) executable: Spanned<PathBuf>,
     pub(crate) arguments: Vec<ExternalArgumentValue>,
@@ -98,15 +96,13 @@ impl ExternalRuntime {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ExternalArgumentValue {
     Text { value: String },
     File { path: Spanned<PathBuf> },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ExternalParameterValue {
     Integer(i64),
     Keyword(String),

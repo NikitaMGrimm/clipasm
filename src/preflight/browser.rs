@@ -8,8 +8,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use crate::compiler::CompiledProgram;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, AudioSpec, FrameCount, NodeId, VideoSpec};
@@ -22,8 +20,7 @@ use super::tools::ExternalToolIdentity;
 use super::{PreparedAsset, PreparedNode, RenderPolicy};
 
 /// The media role of one virtual asset required for browser rendering.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrowserAssetKind {
     /// A still image used by the `image` program.
     Image,
@@ -32,7 +29,7 @@ pub enum BrowserAssetKind {
 }
 
 /// One virtual asset required by the result-reachable semantic graph.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowserAssetRequest {
     path: String,
     kind: BrowserAssetKind,
@@ -53,11 +50,10 @@ impl BrowserAssetRequest {
 }
 
 /// One browser file bound to a normalized virtual path and SHA-256 digest.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct BrowserAsset {
     path: String,
     content_hash: String,
-    #[serde(default)]
     video_probe: Option<String>,
 }
 

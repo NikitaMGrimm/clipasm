@@ -1,8 +1,6 @@
 mod builder;
 mod operation;
 
-use serde::Serialize;
-
 use crate::model::{ValueId, ValueType, VideoDomain};
 use crate::source::SourceSpan;
 
@@ -54,7 +52,7 @@ impl CompiledNode {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 /// Authored construct and source location responsible for a semantic value.
 ///
 /// Program constructs are static registry names; compiler-generated labels

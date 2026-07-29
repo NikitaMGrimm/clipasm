@@ -199,6 +199,11 @@ operations into media-specific prepared Video or Audio primitives. Compilation
 retains references for dependency analysis,
 infers every domain knowable without media I/O, and produces a structure hash
 that identifies language and graph semantics rather than the package release.
+Private typed identity documents enumerate the semantic fields of every
+operation explicitly. They contain authored values and upstream hashes, never
+source locations or inspection-only metadata. Identity hashing is owned by one
+crate-private utility rather than by the compiler, so preflight and tool
+identity do not depend on compiler implementation details.
 Timeline marker arithmetic is normalized into exact linear expressions in
 seconds. Each extent term is scaled from its semantic value's native unit:
 project frames for Video and project samples for Audio. A trim whose marker
@@ -256,7 +261,9 @@ schemas.
 Compiled JSON is produced by an explicit downstream document adapter. It is a
 versioned inspection view of compiled semantics, not an authored source
 representation, and its schema is not derived implicitly from the internal
-`CompiledProgram` layout. Render manifests and external-program requests are
+`CompiledProgram` layout. Executable semantic values do not implement the
+inspection schema themselves; the adapter deliberately includes source origins
+that semantic identity excludes. Render manifests and external-program requests are
 also versioned integration contracts. Prepared inspection JSON and browser
 render plans remain host-internal; cache metadata remains private. Canonical
 versions and support levels live in `src/contracts.rs`.

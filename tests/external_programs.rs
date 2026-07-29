@@ -92,6 +92,44 @@ fn external_program_defaults_are_passed_to_the_runtime_invocation() {
 }
 
 #[test]
+fn external_file_parameter_identity_excludes_source_locations() {
+    fn compile(source: &str) -> compiler::CompiledProgram {
+        let package = language::parse_str(std::path::Path::new("effect.clipasm"), source)
+            .expect("external source");
+        let mut bindings = EntrypointBindings::new();
+        bindings
+            .bind_video_input(
+                "video",
+                "input.mp4",
+                SourceSpan::file_start("caller.clipasm"),
+            )
+            .expect("root video binding");
+        compiler::compile_with_bindings(&package, &bindings).expect("external compilation")
+    }
+
+    let compact = compile(
+        "clipasm 1\ninput video: Video\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+    );
+    let shifted = compile(
+        "# formatting is not semantic\nclipasm 1\ninput video: Video\n\nparam lut: File = \"lut.bin\"\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+    );
+    let changed = compile(
+        "clipasm 1\ninput video: Video\nparam lut: File = \"other.bin\"\nexternal {\n  executable = \"./effect\"\n  semantic_version = 1\n  preserve = video\n}\n",
+    );
+
+    assert_eq!(compact.structure_hash(), shifted.structure_hash());
+    assert_ne!(compact.structure_hash(), changed.structure_hash());
+
+    let document: serde_json::Value =
+        serde_json::from_str(&shifted.compiled_json().expect("compiled JSON"))
+            .expect("JSON document");
+    let file = &document["nodes"][1]["kind"]["parameters"]["lut"];
+    assert_eq!(file["value"], "lut.bin");
+    assert_eq!(file["span"]["file"], "effect.clipasm");
+    assert_eq!(file["span"]["line"], 5);
+}
+
+#[test]
 fn external_programs_reject_bodies_unknown_preserve_inputs_and_unsupported_parameters() {
     let body = language::parse_str(
         std::path::Path::new("effect.clipasm"),

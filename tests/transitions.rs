@@ -166,7 +166,7 @@ fn crossfade_renders_a_one_frame_full_overlap() {
     assert_eq!(compiled.result_domain().expect("domain").frames().0, 1);
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render crossfade");
-    let video = decode_video(&report.output);
+    let video = decode_video(report.output());
     assert_eq!(video.len(), WIDTH * HEIGHT * 3);
     let red = video
         .chunks_exact(3)
@@ -232,7 +232,7 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     assert!(transition.has_audio());
 
     let report = render::render(&plan).expect("render crossfade");
-    let video = decode_video(&report.output);
+    let video = decode_video(report.output());
     assert_eq!(
         video.len(),
         FRAME_BYTES * usize::try_from(OUTPUT_FRAMES).expect("frame count")

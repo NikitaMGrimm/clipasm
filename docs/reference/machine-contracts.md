@@ -7,7 +7,7 @@ consumers. Always read the version field before decoding a document.
 
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
-| Compiled inspection JSON | `format_version: 21` | `clipasm inspect` | source-analysis and diagnostic tooling |
+| Compiled inspection JSON | `format_version: 22` | `clipasm inspect` | source-analysis and diagnostic tooling |
 | Render manifest | `format_version: 1` | successful native render | automation and render provenance |
 | External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
 
@@ -20,6 +20,10 @@ these documents as source input.
 produce the same media-independent document. It includes project settings,
 compiled operations, known domains, ordered outputs, names, source origins, and
 the compiled structure hash.
+
+Source origins are inspection metadata, not semantic identity. In particular,
+moving or reformatting an external File parameter does not change the structure
+hash when its authored path and the rest of the resolved call are unchanged.
 
 A consumer must support the exact `format_version`. A new version may add,
 remove, rename, or reinterpret fields.
@@ -61,7 +65,7 @@ permissions. This protocol is not a sandbox.
 
 ## Internal formats
 
-**Prepared inspection JSON** (`format_version: 12`) and the **Browser render plan**
+**Prepared inspection JSON** (`format_version: 13`) and the **Browser render plan**
 (`version: 1`, `recipe_contract: 1`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
 persistence or interchange contracts.
 

@@ -14,8 +14,9 @@ use crate::preflight::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
     PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
 };
-use crate::semantic::SourceOrigin;
 use crate::source::SourceSpan;
+
+use super::{SourceOriginDocument, source_origin_document};
 
 #[derive(Serialize)]
 struct PreparedDocument<'a> {
@@ -42,7 +43,7 @@ struct PreparedNodeDocument<'a> {
     domain: Option<&'a VideoDomain>,
     audio_domain: Option<&'a AudioDomain>,
     has_audio: bool,
-    origin: &'a SourceOrigin,
+    origin: SourceOriginDocument<'a>,
     fingerprint: &'a str,
 }
 
@@ -190,7 +191,7 @@ fn node_document(node: &PreparedNode) -> PreparedNodeDocument<'_> {
             domain: Some(domain),
             audio_domain: None,
             has_audio,
-            origin: node.origin(),
+            origin: source_origin_document(node.origin()),
             fingerprint: node.fingerprint(),
         },
         PreparedNodeMedia::Audio { kind, domain } => PreparedNodeDocument {
@@ -200,7 +201,7 @@ fn node_document(node: &PreparedNode) -> PreparedNodeDocument<'_> {
             domain: None,
             audio_domain: Some(domain),
             has_audio: false,
-            origin: node.origin(),
+            origin: source_origin_document(node.origin()),
             fingerprint: node.fingerprint(),
         },
     }

@@ -55,13 +55,13 @@ fn renders_and_reuses_verified_cache() {
     fs::write(plan.output(), b"previous valid destination").expect("old output");
     fs::write(plan.manifest(), b"previous manifest").expect("old manifest");
     let first = render::render(&plan).expect("first render");
-    assert!(first.output.is_file());
+    assert!(first.output().is_file());
     assert_ne!(
-        fs::read(&first.output).expect("new output"),
+        fs::read(first.output()).expect("new output"),
         b"previous valid destination"
     );
     let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(&first.manifest).expect("new manifest"))
+        serde_json::from_slice(&fs::read(first.manifest()).expect("new manifest"))
             .expect("manifest JSON");
     assert_eq!(manifest["format_version"], 1);
     assert_eq!(manifest["project"]["video"]["fps"]["numerator"], 10);
@@ -70,20 +70,20 @@ fn renders_and_reuses_verified_cache() {
     assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
     assert!(manifest.get("plan").is_none());
     assert!(manifest.get("execution_namespace").is_none());
-    assert_eq!(first.cache_hits, 0);
-    assert_eq!(first.cache_misses, plan.nodes().len());
+    assert_eq!(first.cache_hits(), 0);
+    assert_eq!(first.cache_misses(), plan.nodes().len());
     let upstream = common::cache_artifact(directory.path(), plan.nodes()[0].fingerprint(), "mkv");
     fs::remove_file(&upstream).expect("remove upstream artifact");
     fs::remove_file(common::cache_metadata(&upstream)).expect("remove upstream metadata");
     fs::write(directory.path().join("card.ppm"), b"P3\n1 1\n255\n0 0 0\n")
         .expect("change authored image after preflight");
     let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits, 1);
-    assert_eq!(second.cache_misses, 0);
+    assert_eq!(second.cache_hits(), 1);
+    assert_eq!(second.cache_misses(), 0);
     assert!(!upstream.exists(), "pruned upstream cache was recreated");
-    assert!(second.manifest.is_file());
+    assert!(second.manifest().is_file());
     let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(&second.manifest).expect("cached manifest"))
+        serde_json::from_slice(&fs::read(second.manifest()).expect("cached manifest"))
             .expect("cached manifest JSON");
     assert_eq!(manifest["cache"]["hits"], 1);
     assert_eq!(manifest["cache"]["misses"], 0);
@@ -118,8 +118,8 @@ fn invalid_downstream_cache_expands_to_its_valid_input() {
     fs::write(&result, &substituted).expect("replace result with shorter input");
 
     let report = render::render(&plan).expect("repair invalid result cache");
-    assert_eq!(report.cache_hits, 1);
-    assert_eq!(report.cache_misses, 1);
+    assert_eq!(report.cache_hits(), 1);
+    assert_eq!(report.cache_misses(), 1);
 }
 
 #[test]
@@ -143,11 +143,11 @@ fn shape_compatible_cache_substitution_is_rejected() {
     fs::copy(&blue_artifact, &red_artifact).expect("substitute shape-compatible artifact");
 
     let report = render::render(&red_plan).expect("rerender substituted cache");
-    assert_eq!(report.cache_hits, 0);
-    assert_eq!(report.cache_misses, 1);
+    assert_eq!(report.cache_hits(), 0);
+    assert_eq!(report.cache_misses(), 1);
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
-        .arg(&report.output)
+        .arg(report.output())
         .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .output()
         .expect("decode output");
@@ -181,8 +181,8 @@ fn renders_during_with_an_exact_duration_change() {
     );
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render during");
-    assert!(report.output.is_file());
-    assert_eq!(report.cache_misses, plan.nodes().len());
+    assert!(report.output().is_file());
+    assert_eq!(report.cache_misses(), plan.nodes().len());
 }
 
 #[test]
@@ -256,9 +256,9 @@ fn renders_and_normalizes_a_video_source() {
         30
     );
     let first = render::render(&plan).expect("first render");
-    assert_eq!(first.cache_hits, 0);
-    assert_eq!(first.cache_misses, plan.nodes().len());
-    assert!(first.output.is_file());
+    assert_eq!(first.cache_hits(), 0);
+    assert_eq!(first.cache_misses(), plan.nodes().len());
+    assert!(first.output().is_file());
     let probe = Command::new("ffprobe")
         .args([
             "-v",
@@ -268,7 +268,7 @@ fn renders_and_normalizes_a_video_source() {
             "-of",
             "json",
         ])
-        .arg(&first.output)
+        .arg(first.output())
         .output()
         .expect("probe rendered source audio");
     let document: serde_json::Value = serde_json::from_slice(&probe.stdout).expect("probe JSON");
@@ -282,8 +282,8 @@ fn renders_and_normalizes_a_video_source() {
         1
     );
     let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits, 1);
-    assert_eq!(second.cache_misses, 0);
+    assert_eq!(second.cache_hits(), 1);
+    assert_eq!(second.cache_misses(), 0);
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn video_source_duration_is_quantized_by_coverage() {
         30
     );
     let report = render::render(&plan).expect("render");
-    assert!(report.output.is_file());
+    assert!(report.output().is_file());
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
             "-of",
             "default=nw=1:nk=1",
         ])
-        .arg(&report.output)
+        .arg(report.output())
         .output()
         .expect("probe output");
     assert!(probe.status.success());
@@ -430,7 +430,7 @@ fn zoom_renders_exact_frames_and_dimensions_including_one_frame() {
                 "-of",
                 "json",
             ])
-            .arg(&report.output)
+            .arg(report.output())
             .output()
             .expect("probe zoom_in");
         assert!(
@@ -482,7 +482,7 @@ fn zoom_remains_centered_instead_of_anchoring_to_the_top_left() {
     let report = render::render(&plan).expect("render zoom_in");
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
-        .arg(&report.output)
+        .arg(report.output())
         .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .output()
         .expect("decode zoom_in");
@@ -543,7 +543,7 @@ fn flash_cut_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     let report = render::render(&plan).expect("render flash_cut");
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
-        .arg(&report.output)
+        .arg(report.output())
         .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
         .output()
         .expect("decode flash_cut");
@@ -633,7 +633,7 @@ fn set_audio_trims_or_pads_to_the_video_duration() {
                 "-of",
                 "json",
             ])
-            .arg(&report.output)
+            .arg(report.output())
             .output()
             .expect("probe output");
         assert!(probe.status.success());
@@ -708,7 +708,7 @@ fn renders_native_audio_trim_repeat_and_concat() {
         Some(preflight::PreparedAudioKind::AudioConcat { .. })
     )));
     let report = render::render(&plan).expect("render native audio operations");
-    assert!(report.output.is_file());
+    assert!(report.output().is_file());
 }
 
 #[test]
@@ -763,7 +763,7 @@ fn renders_audio_during_through_existing_audio_primitives() {
         Some(preflight::PreparedAudioKind::AudioConcat { .. })
     )));
     let report = render::render(&plan).expect("render Audio during");
-    assert!(report.output.is_file());
+    assert!(report.output().is_file());
 }
 
 #[cfg(target_os = "linux")]
@@ -799,16 +799,16 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     assert_eq!(inspection_error.code, "E_PREPARED_JSON");
     let report = render::render(&plan).expect("render non-UTF output");
 
-    assert_eq!(report.output, output);
-    assert!(report.output.is_file());
-    assert!(report.manifest.is_file());
+    assert_eq!(report.output(), output);
+    assert!(report.output().is_file());
+    assert!(report.manifest().is_file());
     let document: serde_json::Value =
-        serde_json::from_slice(&fs::read(&report.manifest).expect("manifest"))
+        serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
     assert_eq!(document["format_version"], 1);
     assert!(document.get("plan").is_none());
     output_name.push(".manifest.json");
-    assert_eq!(report.manifest, directory.path().join(output_name));
+    assert_eq!(report.manifest(), directory.path().join(output_name));
 }
 
 #[cfg(unix)]
@@ -852,8 +852,8 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let compiled = compile_file(&workflow).expect("compile external program");
     let plan = preflight::preflight(&compiled).expect("preflight external program");
     let report = render::render(&plan).expect("render external program");
-    assert!(report.output.is_file());
-    assert_eq!(report.cache_misses, 2);
+    assert!(report.output().is_file());
+    assert_eq!(report.cache_misses(), 2);
 }
 
 #[cfg(unix)]
@@ -902,12 +902,12 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(plan.nodes().len(), 3);
     let first = render::render(&plan).expect("initial render");
-    assert_eq!(first.cache_misses, 3);
+    assert_eq!(first.cache_misses(), 3);
 
     fs::write(&executable, "#!/bin/sh\nexit 1\n").expect("change external executable");
     let cached = render::render(&plan).expect("cached downstream prunes external executable");
-    assert_eq!(cached.cache_hits, 1);
-    assert_eq!(cached.cache_misses, 0);
+    assert_eq!(cached.cache_hits(), 1);
+    assert_eq!(cached.cache_misses(), 0);
 
     let result = common::cache_artifact(
         directory.path(),

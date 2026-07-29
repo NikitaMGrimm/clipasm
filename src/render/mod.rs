@@ -19,8 +19,6 @@ mod staging;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
-
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::preflight::PreparedPlan;
 use crate::source::SourceSpan;
@@ -28,21 +26,48 @@ use execution_plan::ExecutionPlan;
 use lock::{FileLock, sibling_lock_path};
 use publication::PublicationTransaction;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
+#[non_exhaustive]
 /// Paths and cache statistics from a completed render.
 pub struct RenderReport {
     /// Published MP4 output path.
-    pub output: PathBuf,
+    output: PathBuf,
     /// Published JSON manifest path.
-    pub manifest: PathBuf,
+    manifest: PathBuf,
     /// Number of verified cache artifacts actually reused.
     ///
     /// Nodes pruned behind a downstream cache hit are not counted.
-    pub cache_hits: usize,
+    cache_hits: usize,
     /// Number of prepared-node artifacts actually rendered.
     ///
     /// Nodes pruned behind a downstream cache hit are not counted.
-    pub cache_misses: usize,
+    cache_misses: usize,
+}
+
+impl RenderReport {
+    /// Return the published MP4 output path.
+    #[must_use]
+    pub fn output(&self) -> &Path {
+        &self.output
+    }
+
+    /// Return the published JSON manifest path.
+    #[must_use]
+    pub fn manifest(&self) -> &Path {
+        &self.manifest
+    }
+
+    /// Return the number of verified working artifacts actually reused.
+    #[must_use]
+    pub const fn cache_hits(&self) -> usize {
+        self.cache_hits
+    }
+
+    /// Return the number of working artifacts rendered during this run.
+    #[must_use]
+    pub const fn cache_misses(&self) -> usize {
+        self.cache_misses
+    }
 }
 
 /// Render an invariant-protected prepared plan and publish its MP4 and manifest.

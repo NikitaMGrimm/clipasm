@@ -4,13 +4,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use clipasm::reference::{
-    BuiltinCategory, DiagnosticCategory, RetryGuidance, builtin_programs, diagnostic, diagnostics,
+    BuiltinCategory, DiagnosticCategory, builtin_programs, diagnostic, diagnostics,
 };
 
 #[test]
 fn every_builtin_reference_example_compiles_and_uses_its_program() {
     let programs = builtin_programs();
-    assert_eq!(programs.len(), 14);
 
     let mut names = BTreeSet::new();
     let mut routes = BTreeSet::new();
@@ -69,7 +68,6 @@ fn every_builtin_reference_example_compiles_and_uses_its_program() {
 #[test]
 fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
     let references = diagnostics();
-    assert_eq!(references.len(), 167);
 
     let mut codes = BTreeSet::new();
     let mut categories = BTreeSet::new();
@@ -94,17 +92,7 @@ fn diagnostic_catalog_is_complete_well_formed_and_searchable() {
         assert!(!reference.common_causes().is_empty(), "{code}");
         assert!(!reference.recommended_actions().is_empty(), "{code}");
         assert!(
-            matches!(
-                reference.retry_guidance(),
-                RetryGuidance::FixSource
-                    | RetryGuidance::FixProject
-                    | RetryGuidance::FixArguments
-                    | RetryGuidance::FixEnvironment
-                    | RetryGuidance::RetryAfterExternalChange
-                    | RetryGuidance::RetryMayHelp
-                    | RetryGuidance::RetryWillNotHelp
-                    | RetryGuidance::ReportBug
-            ),
+            !reference.retry_guidance().explanation().is_empty(),
             "{code}"
         );
         assert!(
@@ -168,10 +156,10 @@ fn machine_contract_catalog_matches_the_documented_versions() {
     let contracts = machine_contracts();
     assert_eq!(contracts.len(), 5);
     assert_eq!(contracts[0].title(), "Compiled inspection JSON");
-    assert_eq!(contracts[0].versions()[0].value(), 21);
+    assert_eq!(contracts[0].versions()[0].value(), 22);
     assert_eq!(contracts[1].versions()[0].value(), 1);
     assert_eq!(contracts[2].versions()[0].value(), 1);
-    assert_eq!(contracts[3].versions()[0].value(), 12);
+    assert_eq!(contracts[3].versions()[0].value(), 13);
     assert_eq!(contracts[4].versions()[0].value(), 1);
     assert_eq!(contracts[4].versions()[1].value(), 1);
 

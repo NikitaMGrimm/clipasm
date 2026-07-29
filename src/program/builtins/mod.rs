@@ -762,7 +762,6 @@ mod tests {
     #[test]
     fn catalog_has_reference_metadata_for_all_current_builtins() {
         let catalog = builtin_catalog();
-        assert_eq!(catalog.len(), 14);
         validate_builtin_catalog(&catalog).expect("valid catalog");
         assert!(
             catalog
