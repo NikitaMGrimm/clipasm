@@ -544,10 +544,11 @@ verification, locking, and rollback-capable publication remain separate deep
 modules. One private process-lifecycle module owns bounded pipe retention,
 temporary executable-busy retries, and kill-and-reap cleanup. Media tools receive
 a closed standard input instead of inheriting the caller's terminal. Unix
-children run in dedicated process groups and Windows children run in Job
-Objects; after the direct process exits, remaining members are terminated so
-descendants cannot outlive a completed invocation or keep inherited pipes open.
-Command recipes, protocols, and diagnostics remain in their phase adapters.
+children run in dedicated process groups. Authored external programs run in Job
+Objects on Windows, while trusted FFmpeg and FFprobe invocations retain direct
+child handling there to avoid Job Object setup on every media probe and render
+step. Remaining managed descendants are terminated after the direct process
+exits. Command recipes, protocols, and diagnostics remain in their phase adapters.
 There is no generic
 command runner, operation trait hierarchy, or renderer backend interface.
 

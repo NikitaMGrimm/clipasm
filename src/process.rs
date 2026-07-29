@@ -13,7 +13,10 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 #[cfg(windows)]
-pub(crate) type Child = command_group::GroupChild;
+pub(crate) enum Child {
+    Direct(std::process::Child),
+    Managed(command_group::GroupChild),
+}
 #[cfg(not(windows))]
 pub(crate) type Child = std::process::Child;
 
@@ -32,7 +35,21 @@ pub(crate) enum ReaderError {
     Io(io::Error),
 }
 
-pub(crate) fn spawn(mut command: Command) -> io::Result<Child> {
+#[derive(Clone, Copy)]
+enum ProcessScope {
+    Direct,
+    Managed,
+}
+
+pub(crate) fn spawn(command: Command) -> io::Result<Child> {
+    spawn_with_scope(command, ProcessScope::Direct)
+}
+
+pub(crate) fn spawn_managed(command: Command) -> io::Result<Child> {
+    spawn_with_scope(command, ProcessScope::Managed)
+}
+
+fn spawn_with_scope(mut command: Command, scope: ProcessScope) -> io::Result<Child> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -40,7 +57,7 @@ pub(crate) fn spawn(mut command: Command) -> io::Result<Child> {
         command.process_group(0);
     }
     for attempt in 1..=START_ATTEMPTS {
-        match spawn_once(&mut command) {
+        match spawn_once(&mut command, scope) {
             Ok(child) => return Ok(child),
             Err(error) if executable_is_temporarily_busy(&error) && attempt < START_ATTEMPTS => {
                 std::thread::sleep(START_RETRY_DELAY);
@@ -73,7 +90,7 @@ fn terminate_group(child: &mut Child) {
         let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
     }
     #[cfg(windows)]
-    {
+    if let Child::Managed(child) = child {
         let _ = child.kill();
     }
     #[cfg(not(any(unix, windows)))]
@@ -83,20 +100,32 @@ fn terminate_group(child: &mut Child) {
 }
 
 #[cfg(windows)]
-fn spawn_once(command: &mut Command) -> io::Result<Child> {
-    use command_group::CommandGroup as _;
+fn spawn_once(command: &mut Command, scope: ProcessScope) -> io::Result<Child> {
+    if matches!(scope, ProcessScope::Managed) {
+        use command_group::CommandGroup as _;
 
-    command.group().kill_on_drop(true).spawn()
+        command
+            .group()
+            .kill_on_drop(true)
+            .spawn()
+            .map(Child::Managed)
+    } else {
+        command.spawn().map(Child::Direct)
+    }
 }
 
 #[cfg(not(windows))]
-fn spawn_once(command: &mut Command) -> io::Result<Child> {
+fn spawn_once(command: &mut Command, scope: ProcessScope) -> io::Result<Child> {
+    let _ = scope;
     command.spawn()
 }
 
 #[cfg(windows)]
 fn wait_direct(child: &mut Child) -> io::Result<ExitStatus> {
-    child.inner().wait()
+    match child {
+        Child::Direct(child) => child.wait(),
+        Child::Managed(child) => child.inner().wait(),
+    }
 }
 
 #[cfg(not(windows))]
@@ -106,7 +135,10 @@ fn wait_direct(child: &mut Child) -> io::Result<ExitStatus> {
 
 #[cfg(windows)]
 fn kill_direct(child: &mut Child) -> io::Result<()> {
-    child.inner().kill()
+    match child {
+        Child::Direct(child) => child.kill(),
+        Child::Managed(child) => child.inner().kill(),
+    }
 }
 
 #[cfg(not(windows))]
@@ -128,7 +160,10 @@ pub(crate) fn take_stderr(child: &mut Child) -> Option<std::process::ChildStderr
 
 #[cfg(windows)]
 fn child_inner(child: &mut Child) -> &mut std::process::Child {
-    child.inner()
+    match child {
+        Child::Direct(child) => child,
+        Child::Managed(child) => child.inner(),
+    }
 }
 
 #[cfg(not(windows))]
@@ -344,7 +379,7 @@ mod tests {
                 "start \"\" /B ping.exe -n 60 127.0.0.1 >NUL & exit /B 0",
             ])
             .stderr(Stdio::piped());
-        let mut child = spawn(command).expect("command child");
+        let mut child = spawn_managed(command).expect("command child");
         let stderr = take_stderr(&mut child).expect("stderr pipe");
         let reader = std::thread::spawn(move || read_tail(stderr, 1024));
         let started = Instant::now();

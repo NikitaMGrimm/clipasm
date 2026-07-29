@@ -135,7 +135,7 @@ fn run_external(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    let mut child = child_process::spawn(command).map_err(|error| {
+    let mut child = child_process::spawn_managed(command).map_err(|error| {
         Diagnostic::builtin(
             BuiltinDiagnostic::ExternalExecution,
             format!(
