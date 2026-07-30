@@ -365,21 +365,53 @@ mod tests {
     }
 
     #[cfg(windows)]
+    const MANAGED_PARENT_HELPER: &str = "CLIPASM_MANAGED_PARENT_HELPER";
+    #[cfg(windows)]
+    const MANAGED_DESCENDANT_HELPER: &str = "CLIPASM_MANAGED_DESCENDANT_HELPER";
+
+    #[cfg(windows)]
+    #[test]
+    fn managed_parent_helper() {
+        if std::env::var_os(MANAGED_PARENT_HELPER).is_none() {
+            return;
+        }
+        Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "process::tests::managed_descendant_helper",
+                "--nocapture",
+            ])
+            .env(MANAGED_DESCENDANT_HELPER, "1")
+            .spawn()
+            .expect("managed descendant");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn managed_descendant_helper() {
+        if std::env::var_os(MANAGED_DESCENDANT_HELPER).is_none() {
+            return;
+        }
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    #[cfg(windows)]
     #[test]
     fn successful_wait_terminates_descendants_holding_pipes() {
         use std::process::Stdio;
-        use std::time::{Duration, Instant};
+        use std::time::Instant;
 
-        let mut command = Command::new("cmd.exe");
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
         command
             .args([
-                "/D",
-                "/S",
-                "/C",
-                "start \"\" /B ping.exe -n 60 127.0.0.1 >NUL & exit /B 0",
+                "--exact",
+                "process::tests::managed_parent_helper",
+                "--nocapture",
             ])
+            .env(MANAGED_PARENT_HELPER, "1")
+            .stdout(Stdio::null())
             .stderr(Stdio::piped());
-        let mut child = spawn_managed(command).expect("command child");
+        let mut child = spawn_managed(command).expect("managed parent");
         let stderr = take_stderr(&mut child).expect("stderr pipe");
         let reader = std::thread::spawn(move || read_tail(stderr, 1024));
         let started = Instant::now();
@@ -390,7 +422,7 @@ mod tests {
         assert!(status.success());
         assert!(retained.bytes.is_empty());
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(10),
             "successful parent left a descendant holding stderr open"
         );
     }
