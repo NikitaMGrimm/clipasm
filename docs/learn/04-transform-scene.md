@@ -21,26 +21,34 @@ clip {
 $pictures
 ```
 
-`zoom_in` needs one Video. Because no Video was supplied explicitly, it consumes
-the nearest Video on the stack—the meadow—and leaves the transformed Video in
-its place:
+`zoom_in` needs one Video. This call has no explicit Video input. It consumes
+the nearest Video on the stack, which is the meadow. The call leaves the
+transformed Video in its place:
 
 ```text
 [morning, meadow] -> zoom_in -> [morning, zoomed meadow]
 ```
 
-The evening image is created afterward, so the clip still combines three scenes
-in the original order.
+The following `image` call creates the evening scene. The clip therefore still
+combines three scenes in the original order.
 
-## 2. Validate and render
+## 2. Validate the source
 
 ```console,ignore
 clipasm validate learning.clipasm
+```
+
+## 3. Render the video
+
+```console,ignore
 clipasm render learning.clipasm
 ```
 
-Validation still reports 108 frames because `zoom_in` preserves duration. Open
-`generated/learning.mp4` and check that only the meadow moves.
+Validation still reports 108 frames because `zoom_in` preserves duration.
+
+## 4. Check the result
+
+Open `generated/learning.mp4`. Confirm that only the meadow moves.
 
 Calls that omit Video or Audio inputs bind matching Video or Audio values from
 the stack. Their position is therefore part of the program's meaning.

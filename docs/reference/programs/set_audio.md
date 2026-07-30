@@ -31,7 +31,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Keeps the duration and addressable markers from `video`.
+The program keeps the duration and addressable markers from `video`.
 
 ## Example
 
@@ -46,11 +46,11 @@ set_audio(
 
 Expected validation result: `Video` with a source-dependent frame domain resolved during preflight.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- The output preserves the Video timeline and is marked as carrying meaningful Audio.
+- The output preserves the Video timeline. ClipAsm marks the output as carrying meaningful Audio.
 - The supplied standalone Audio replaces any Audio already attached to the Video.
 
 ## See also

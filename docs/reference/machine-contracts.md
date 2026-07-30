@@ -1,7 +1,7 @@
 # Machine-readable contracts
 
-ClipAsm emits several JSON documents, but only three are intended for external
-consumers. Always read the version field before decoding a document.
+ClipAsm emits several JSON documents. It supports only three as external
+contracts. Always read the version field before decoding a document.
 
 ## Supported integrations
 
@@ -23,11 +23,11 @@ the compiled structure hash.
 
 Source origins are inspection metadata, not semantic identity. In particular,
 moving or reformatting an external File parameter does not change the structure
-hash when its authored path and the rest of the resolved call are unchanged.
+hash. This requires an unchanged authored path and unchanged resolved call.
 
 Path-bearing inspection fields are JSON strings and therefore require valid
 Unicode. Pure compilation and semantic identity can still represent native
-non-Unicode paths; only requesting compiled inspection JSON for such a program
+non-Unicode paths. Only a compiled inspection JSON request for such a program
 fails.
 
 A consumer must support the exact `format_version`. A new version may add,
@@ -38,13 +38,13 @@ remove, rename, or reinterpret fields.
 A successful native render writes `<output>.manifest.json` beside the MP4. It
 records:
 
-- manifest and engine versions;
-- the compiled semantic hash;
-- project Video and Audio settings;
-- the result fingerprint and exact Video domain;
-- whether the Video carries meaningful Audio;
-- FFmpeg and FFprobe version summaries;
-- cache hit and miss counts.
+- Manifest and engine versions.
+- The compiled semantic hash.
+- Project Video and Audio settings.
+- The result fingerprint and exact Video domain.
+- Whether the Video carries meaningful Audio.
+- FFmpeg and FFprobe version summaries.
+- Cache hit and miss counts.
 
 It deliberately excludes local source paths, executable recipes, and cache
 locations.
@@ -54,27 +54,28 @@ locations.
 A reachable external implementation receives one JSON object on standard input.
 Protocol version 1 contains:
 
-- named prepared inputs with artifact paths, types, exact domains, and audio
-  state;
-- resolved Integer, Keyword, and File parameters;
-- the output path the process must create;
-- project Video and Audio settings;
-- resolved FFmpeg and FFprobe executable paths.
+- Named prepared inputs with artifact paths, types, exact domains, and audio
+  state.
+- Resolved Integer, Keyword, and File parameters.
+- The output path the process must create.
+- Project Video and Audio settings.
+- Resolved FFmpeg and FFprobe executable paths.
 
 The process does not return JSON. It creates the requested file and exits with
-status zero; ClipAsm then probes and verifies the artifact. An implementation
+status zero. ClipAsm then probes and verifies the artifact. An implementation
 must reject protocol versions it does not support.
 
-Paths refer to native host paths but are carried as JSON strings, so every path
-in an external-program request must be valid Unicode. Native ClipAsm operations
-do not share this JSON limitation. The executable runs with the user's
-permissions; this protocol is not a sandbox.
+Paths refer to native host paths, but JSON strings carry them. Every path in an
+external-program request must therefore be valid Unicode. Native ClipAsm
+operations do not share this JSON limitation. The executable runs with the
+user's permissions. This protocol is not a sandbox.
 
 ## Internal formats
 
 **Prepared inspection JSON** (`format_version: 13`) and the **Browser render plan**
-(`version: 1`, `recipe_contract: 2`) are internal to matching ClipAsm components. They may be useful while debugging ClipAsm, but they are not
-persistence or interchange contracts.
+(`version: 1`, `recipe_contract: 2`) are internal to matching ClipAsm components.
+They may help when you debug ClipAsm. They are not persistence or interchange
+contracts.
 
 **Cache entry metadata** is a **Private implementation detail**. Do not read,
 edit, copy, or construct cache sidecars as an integration mechanism.

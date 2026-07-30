@@ -18,11 +18,11 @@ source program. It resolves calls, arguments, types, stack inputs, names, and
 ordered outputs.
 
 This stage does not open authored media. Durations written directly in source
-can already be exact; durations that depend on a video or audio file remain
-unknown until rendering.
+can already be exact. Durations that depend on a media file remain unknown
+until rendering.
 
-An unused imported program must still be valid source because the complete
-linked package is checked.
+An unused imported program must still be valid source because the compiler
+checks the complete linked package.
 
 ## 2. Prepare reachable media and tools
 
@@ -40,17 +40,17 @@ ClipAsm reuses verified cached artifacts when possible and executes the missing
 operations in dependency order. External programs reached here run as trusted
 native code.
 
-Produced media is checked before it enters the cache or replaces the published
+The renderer checks produced media before it enters the cache or replaces the published
 output. A successful render writes the MP4 and a sibling manifest.
 
 Rendering requires exactly one Video output. Additional Audio outputs may exist,
-but they are not published separately.
+but ClipAsm does not publish them separately.
 
 ## Terms used in reference pages
 
-- **compiled program**: the checked media-independent result used by `inspect`;
-- **preflight**: media and tool resolution performed by `render`;
-- **prepared plan**: the exact reachable work after preflight;
-- **publication**: verification and final replacement of the MP4 and manifest.
+- **compiled program**: the checked media-independent result used by `inspect`
+- **preflight**: the media and tool resolution that `render` performs
+- **prepared plan**: the exact reachable work after preflight
+- **publication**: verification and final replacement of the MP4 and manifest
 
 See the [command-line reference](../reference/cli.md) for exact command behavior.

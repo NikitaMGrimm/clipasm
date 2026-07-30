@@ -5,41 +5,44 @@ Give each page one job and keep exact rules in one place.
 ## Page types
 
 - **Tutorial:** teach through one complete, successful project. State the
-  outcome and prerequisites, use numbered steps with observable results, and
-  finish with a short recap and one next step.
-- **How-to guide:** complete one concrete task. State the starting conditions,
-  use numbered actions, verify success, and link to reference for alternatives
-  and exact rules.
+  outcome and prerequisites. Use numbered steps with observable results. Finish
+  with a short recap and one next step.
+- **How-to guide:** complete one concrete task. State the starting conditions.
+  Use numbered actions and verify success. Link to reference pages for
+  alternatives and exact rules.
 - **Reference:** state exact behavior for lookup. Organize around stable names,
   signatures, options, tables, and constraints rather than a learning sequence.
 - **Explanation:** build a mental model or explain trade-offs. Link to reference
   when a precise rule matters instead of restating every edge case.
 - **Development documentation:** help contributors change and verify the project.
 
-Learning chapters may explain why each step matters. How-to guides assume a
-reader who already has a goal and should not detour into a full lesson. Keep one
-reader journey per page; link to a different page type when the reader's need
+Learning chapters may explain why each step matters. How-to guides assume that
+the reader already has a goal. They should not include a full lesson. Keep one
+reader journey per page. Link to a different page type when the reader's need
 changes.
 
 ## Learning chapters
 
-The user-facing tutorial sequence is presented as **Learn ClipAsm**, one ordered
+The book presents the user-facing tutorial sequence as **Learn ClipAsm**, one ordered
 set of chapters rather than a collection of independent tutorials.
 
 - Continue the same project, source filename, assets, durations, and output path
   unless a chapter explicitly motivates a change.
-- Begin from the preceding checkpoint and end in a valid, unambiguous edit
-  state. Do not repeat a complete source listing when precise incremental edits
-  are clearer.
+- Start from the preceding checkpoint.
+- End in a valid, unambiguous edit state.
+- Do not repeat a complete source listing when precise incremental edits are
+  clearer.
 - Introduce a construct only when the current edit needs it.
-- Deliberately show an error only when it exposes an important invariant. Warn
-  that failure is expected, identify the mismatch, repair it immediately, and
-  validate the repaired source.
+- Show an error only when it exposes an important invariant.
+- Warn that failure is expected.
+- Identify the mismatch and repair it immediately.
+- Validate the repaired source.
 - Prefer normal stack binding in linear compositions. Do not introduce named
   graph inputs, stack blocks, `join`, or explicit access modes merely to cover
   syntax.
-- End with an observable validation or render result, a short statement of what
-  changed in the reader's model, and exactly one next chapter.
+- End with an observable validation or render result.
+- State what changed in the reader's model.
+- Link to exactly one next chapter.
 - Keep a runnable final checkpoint under `examples/` and validate it with the
   rest of the repository.
 
@@ -62,13 +65,14 @@ task-oriented and may assume the language concepts taught by the ordered path.
 | Starter README and ignore rules | `examples/starter/` |
 | Contribution workflow | `CONTRIBUTING.md` |
 
-Reader-oriented pages may summarize these sources for their audience, but should
-link to the owner for exact rules. Do not infer public guarantees from incidental
-implementation details or turn compiled JSON into another authoring format.
+Reader-oriented pages may summarize these sources for their audience. Link to
+the owner for exact rules. Do not infer public guarantees from incidental
+implementation details. Do not present compiled JSON as another authoring
+format.
 
 Use established spelling and capitalization, including ClipAsm, Video, Audio,
-FFmpeg, and FFprobe. Change terminology in its canonical owner first, then review
-diagnostics, concepts, examples, and code names that use it.
+FFmpeg, and FFprobe. Change terminology in its canonical owner first. Then,
+review diagnostics, concepts, examples, and code names that use it.
 
 ## Examples and commands
 
@@ -81,7 +85,7 @@ Prefer committed examples. For every documented command:
 
 Use `clipasm` fences for ClipAsm source and `console` fences for terminal
 sessions. Mark commands that change state or have nondeterministic output as
-`console,ignore`; this includes installation, initialization, rendering, and
+`console,ignore`. This includes installation, initialization, rendering, and
 tool-version checks. Keep generated media, render output, manifests, and caches
 untracked.
 
@@ -98,7 +102,8 @@ Regenerate intentional transcript changes with:
 TRYCMD=overwrite cargo test --locked --test documented_cli
 ```
 
-Review the Markdown diff. Register only deterministic, side-effect-free commands.
+Review the Markdown diff. Register only deterministic commands that have no
+side effects.
 
 ## Links and navigation
 
@@ -127,35 +132,55 @@ add both attributes:
 ```
 
 The browser adapter accepts one source unit plus still-image and video-file
-sources. It hashes, probes, and decode-checks every media source in the browser,
-then validates each blob against the same still-image or video-file contract as
-native preflight. It does not resolve imports, accept standalone Audio-file
-sources, or run external programs.
+sources. It hashes, probes, and decode-checks every browser media source. Then,
+it validates each blob against the native still-image or video-file contract.
+It does not resolve imports. It does not accept standalone Audio-file sources
+or run external programs.
 
 Changes to compilation or preparation responses must update the response version
 in `playground/src/lib.rs` and `theme/clipasm-playground.js`. Changes to recipe or
 runtime compatibility must update browser plan metadata and the render worker
 together.
 
-Build the browser assets with the pinned tools:
+Build the browser assets with the pinned tools.
 
-```console
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.126 --locked
-mdbook build
-./scripts/build_playground.sh
-```
+1. Add the WebAssembly target:
 
-Serve `target/book` over HTTP. Render the scenic example, cancel and restart it,
-and test an uploaded replacement after changing the runtime lifecycle.
+   ```console,ignore
+   rustup target add wasm32-unknown-unknown
+   ```
+
+2. Install the pinned `wasm-bindgen` CLI:
+
+   ```console,ignore
+   cargo install wasm-bindgen-cli --version 0.2.126 --locked
+   ```
+
+3. Build the book:
+
+   ```console
+   mdbook build
+   ```
+
+4. Build the playground:
+
+   ```console
+   ./scripts/build_playground.sh
+   ```
+
+After you change the runtime lifecycle, serve `target/book` over HTTP. Render
+the scenic example. Cancel and restart the render. Test an uploaded replacement.
 
 ## Generated references
 
 The non-published `clipasm-reference-docs` workspace tool renders the built-in
-program index, one page per built-in, the diagnostic index, diagnostic category
-pages, and their delimited navigation blocks in `docs/SUMMARY.md` from
-`clipasm::reference`. Generated program pages and the standalone diagnostics page state their
-ownership; do not edit them or either delimited navigation block directly.
+program reference from `clipasm::reference`. It renders the program index and
+one page for each built-in. It also renders the diagnostic index and diagnostic
+category pages. The tool renders their delimited navigation blocks in
+`docs/SUMMARY.md`.
+
+Generated program pages and the standalone diagnostics page state their
+ownership. Do not edit them or either delimited navigation block directly.
 
 After an intentional program or diagnostic catalog change, update the checked-in
 reference output:
@@ -192,14 +217,16 @@ its catalog entry or documentation.
 
 ## Machine-readable contracts
 
-Keep version values in `src/contracts.rs`; serialization owners must consume
-those constants rather than declaring local copies. Update the machine-contract
+Keep version values in `src/contracts.rs`. Serialization owners must consume
+those constants instead of declaring local copies. Update the machine-contract
 reference whenever a supported document changes shape or meaning.
 
 Compiled inspection JSON, render manifests, and external-program requests are
 versioned integration contracts. Prepared inspection JSON and browser render
-plans are host-internal. Cache metadata remains private. A version bump requires
-focused serialization tests and a review of every consumer.
+plans are host-internal. Cache metadata remains private.
+
+A version bump requires focused serialization tests. It also requires a review
+of every consumer.
 
 ## Checks
 

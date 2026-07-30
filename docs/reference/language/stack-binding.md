@@ -33,11 +33,11 @@ image("after.png", 2s)
 flash_cut(160ms)
 ```
 
-The expressions are evaluated in source order.
+ClipAsm evaluates the expressions in source order.
 
 ## Implicit stack inputs
 
-When graph inputs are omitted, ClipAsm selects accessible values by exact type.
+If a call omits graph inputs, ClipAsm selects accessible values by exact type.
 For fixed inputs, it works from the program's last input to its first and takes
 the nearest matching occurrence for each.
 
@@ -49,7 +49,7 @@ Use `<Video>` or `<Audio>` when both generic choices are possible.
 
 ## Named graph inputs
 
-A named graph input is evaluated in an isolated input body:
+ClipAsm evaluates a named graph input in an isolated input body:
 
 ```clipasm
 set_audio(

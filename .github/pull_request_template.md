@@ -4,22 +4,22 @@
 
 ## Verification
 
-<!-- List the tests and checks run. Report exact limitations or skipped checks. -->
+<!-- List the tests and checks that you ran. Report exact limitations or skipped checks. -->
 
-- [ ] Relevant tests and checks passed, including `./scripts/check.sh` when
-      applicable.
-- [ ] Canonical documentation and affected examples were updated, or no update
-      is needed.
-- [ ] Semantic, format, protocol, and cache identity-version changes were
-      considered.
+- [ ] Relevant tests and checks passed.
+- [ ] `./scripts/check.sh` passed when applicable.
+- [ ] I updated the canonical documentation and affected examples, or no update
+      is necessary.
+- [ ] I considered semantic, format, protocol, and cache identity-version
+      changes.
 - [ ] This pull request contains no unrelated changes.
 
 ## AI assistance
 
-- [ ] Material AI assistance is disclosed below when required.
+- [ ] I disclosed material AI assistance below when required.
 
 <!--
-Describe which tools were used and what they materially contributed, as required
+Describe the tools that you used and what they materially contributed, as required
 by AI_POLICY.md. Trivial autocomplete does not need disclosure. Write "None" when
 there was no material AI assistance.
 -->

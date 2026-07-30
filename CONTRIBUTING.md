@@ -1,9 +1,9 @@
 # Contributing
 
 Use the [language reference](docs/reference/language/index.md) for public syntax
-and behavior, [architecture](docs/architecture.md) for phase responsibilities,
-and the [change guide](docs/development/change-guide.md) to find affected code,
-tests, documentation, and identity versions.
+and behavior. Use [architecture](docs/architecture.md) for phase
+responsibilities. Use the [change guide](docs/development/change-guide.md) to
+find affected code, tests, documentation, and identity versions.
 
 AI-assisted contributions are welcome under [AI_POLICY.md](AI_POLICY.md). The
 human contributor remains accountable for the submitted work.
@@ -22,20 +22,22 @@ mdBook, and Node.js on `PATH`.
 5. Update the canonical documentation and affected examples in the same change.
 6. Review the final diff and run the complete repository check.
 
-When adding or changing a built-in diagnostic, update its typed catalog entry
-and production construction sites together, define its title, category, retry
-guidance and explanation, add focused coverage, and regenerate the
-diagnostic reference. See the [documentation maintenance guide](docs/development/documentation.md)
-for the required generator commands and consistency review.
+When you add or change a built-in diagnostic, update its typed catalog entry and
+production construction sites together. Define its title, category, retry
+guidance, and explanation. Add focused coverage and regenerate the diagnostic
+reference.
+
+The [documentation maintenance guide](docs/development/documentation.md)
+contains the required generator commands and consistency review.
 
 Use Conventional Commits, for example `feat: add trim program`. Pull request
 titles must use the same format so squash merges preserve a semantic history.
 
 ## Tests
 
-Run focused tests while iterating. Prefer integration tests under `tests/` for
-observable behavior and unit tests for private invariants. Follow nearby test
-style rather than introducing a parallel pattern.
+Run focused tests while you edit. Prefer integration tests under `tests/` for
+observable behavior. Use unit tests for private invariants. Follow nearby test
+style instead of adding a different pattern.
 
 Before review or handoff, run:
 
@@ -49,13 +51,19 @@ Report the exact limitation when a required check cannot run.
 
 - Prefer correctness and clarity over compactness.
 - Prefer narrow visibility and exhaustive matches.
-- Handle user-controlled and runtime fallibility explicitly.
+- Handle fallible user input and runtime operations explicitly.
 - Reserve `expect`, `unreachable!`, and assertions for established internal invariants.
-- Avoid unchecked `unwrap()` and unsafe code on runtime-fallible paths; document every unsafe block with a `SAFETY` comment.
-- Explain non-obvious reasons and invariants; do not narrate visible code.
-- Verify whether Clippy findings are new before treating them as pre-existing. Fix them when practical; prefer `#[expect(..., reason = "...")]` over `#[allow(...)]` for justified exceptions.
-- Avoid speculative traits, context objects, and generic machinery without demonstrated reuse.
-- Prefer an existing abstraction over a parallel implementation, but fix the owning abstraction rather than adding a local workaround.
+- Avoid unchecked `unwrap()` and unsafe code on paths that can fail at runtime.
+- Document every unsafe block with a `SAFETY` comment.
+- Explain non-obvious reasons and invariants.
+- Do not narrate visible code.
+- Verify that Clippy findings are new before you treat them as pre-existing.
+- Fix Clippy findings when practical.
+- For justified exceptions, prefer `#[expect(..., reason = "...")]` over
+  `#[allow(...)]`.
+- Avoid speculative traits, context objects, and generic machinery without shown reuse.
+- Prefer an existing abstraction over a parallel implementation.
+- Fix the owning abstraction instead of adding a local workaround.
 
 Breaking changes are acceptable before 1.0 when they make the language or
 architecture substantially simpler.
@@ -74,50 +82,107 @@ Before requesting review, confirm that:
 - the change excludes unrelated work
 - tests cover changed behavior
 - public behavior, architecture, examples, and diagnostics agree
-- semantic, format, protocol, and cache versions were considered where relevant
+- you considered semantic, format, protocol, and cache versions where relevant
 - generated files and lockfile changes are intentional
-- `./scripts/check.sh` passes or the exact limitation is reported
-- material AI assistance is disclosed under `AI_POLICY.md`
+- `./scripts/check.sh` passes or you report the exact limitation
+- you disclosed material AI assistance under `AI_POLICY.md`
 
 ## Releases
 
 Prepare the version from a new branch based on a clean, synchronized `main`
-branch:
+branch.
 
-```console
-git switch main
-git pull --ff-only
-git switch -c feat/release-X-Y-Z
-python scripts/prepare_release.py X.Y.Z
-./scripts/check.sh
-git commit -am "release: X.Y.Z"
-git push -u origin feat/release-X-Y-Z
-```
+1. Switch to `main`:
 
-The preparation script updates the root package, playground package, and lockfile
-as one checked operation. It never commits, tags, pushes, or publishes. Open and
-merge a pull request titled `release: X.Y.Z`, then update the local `main`
-branch. Wait for all `main` CI checks to succeed before creating an annotated
-tag that exactly matches `v` followed by the version in `Cargo.toml`:
+   ```console
+   git switch main
+   ```
 
-```console
-git switch main
-git pull --ff-only
-python scripts/package_release.py verify --tag vX.Y.Z
-git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
-git push origin vX.Y.Z
-```
+2. Update `main` with a fast-forward:
 
-The tag starts the Release workflow. Before crates.io publication, that workflow
-repeats repository verification, checks the default and dependency-light Rust API
-surfaces against crates.io, and runs the portable Rust suite on Linux, macOS, and
-Windows before building native archives. It publishes through crates.io trusted
-publishing and creates the GitHub release only after every required job succeeds.
-Do not move or reuse a pushed release tag; use a new patch version after an
-aborted tagged release.
+   ```console,ignore
+   git pull --ff-only
+   ```
+
+3. Create the release branch:
+
+   ```console
+   git switch -c feat/release-X-Y-Z
+   ```
+
+4. Prepare the release:
+
+   ```console
+   python scripts/prepare_release.py X.Y.Z
+   ```
+
+5. Check the repository:
+
+   ```console
+   ./scripts/check.sh
+   ```
+
+6. Commit the release:
+
+   ```console,ignore
+   git commit -am "release: X.Y.Z"
+   ```
+
+7. Push the release branch:
+
+   ```console,ignore
+   git push -u origin feat/release-X-Y-Z
+   ```
+
+The preparation script updates the root package, the playground package, and the
+lockfile as one checked operation. It never commits, tags, pushes, or publishes.
+
+8. Open a pull request titled `release: X.Y.Z`.
+9. Merge the pull request.
+10. Switch to `main`:
+
+    ```console
+    git switch main
+    ```
+
+11. Update `main` with a fast-forward:
+
+    ```console,ignore
+    git pull --ff-only
+    ```
+
+12. Wait for all `main` CI checks to succeed.
+13. Verify that the tag matches `v` followed by the version in `Cargo.toml`:
+
+    ```console
+    python scripts/package_release.py verify --tag vX.Y.Z
+    ```
+
+14. Create the annotated tag:
+
+    ```console,ignore
+    git tag -a vX.Y.Z -m "ClipAsm X.Y.Z"
+    ```
+
+15. Push the tag:
+
+    ```console,ignore
+    git push origin vX.Y.Z
+    ```
+
+The tag starts the Release workflow. Before crates.io publication, the workflow
+repeats repository verification. It checks the default and dependency-light
+Rust API surfaces against crates.io. It runs the portable Rust suite on Linux,
+macOS, and Windows. It then builds the native archives.
+
+The workflow uses crates.io trusted publishing. It creates the GitHub release
+only after every required job succeeds.
+
+Do not move or reuse a pushed release tag. After an aborted tagged release, use
+a new patch version.
 
 ## Examples and fixtures
 
 Keep examples small, readable, and runnable. Prefer deterministic text fixtures
 such as PPM images. Keep generated media, render outputs, manifests, and caches
-untracked; use `local/` for personal experiments.
+untracked. Use `local/` for personal experiments.

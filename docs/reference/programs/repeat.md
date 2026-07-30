@@ -34,7 +34,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-`repeat(1)` keeps `value` unchanged. Larger counts repeat its media, but the individual repeated occurrences are not addressable by marker.
+`repeat(1)` keeps `value` unchanged. Larger counts repeat its media. A marker cannot address an individual repeated occurrence.
 
 ## Example
 
@@ -53,12 +53,12 @@ repeat(3)
 
 Expected validation result: `Video` with exactly 90 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
 - repeat(1) is a true identity and preserves nested timeline placements.
-- Larger counts create a fresh repeated timeline; child placements are unavailable until occurrence indexing exists.
+- Larger counts create a new repeated timeline. Child placements are unavailable until ClipAsm supports occurrence indexing.
 
 ## Requirements
 

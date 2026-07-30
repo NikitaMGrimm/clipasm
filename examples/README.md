@@ -10,12 +10,13 @@ for the starter's compatibility and lifecycle.
 The [examples chapter](../docs/examples.md) catalogs each source program,
 expected result, extra requirements, and related guide.
 
-All source assets are committed and intentionally small:
+The repository contains these small source assets:
 
-- three 320x180 lossless PNG illustrations;
-- one two-second 320x180 H.264/Matroska video with gentle continuous motion;
-- one external `.clipasm` program and a minimal executable Python/FFmpeg script.
+- three 320x180 lossless PNG illustrations
+- one two-second 320x180 H.264/Matroska video with gentle continuous motion
+- one external `.clipasm` program
+- one small executable Python and FFmpeg script
 
-No asset-generation step is required.
+You do not need to generate assets.
 
-Generated media, outputs, manifests, and cache files are ignored by Git.
+Git ignores generated media, outputs, manifests, and cache files.

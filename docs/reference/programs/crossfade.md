@@ -33,7 +33,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Overlaps the end of `before` with the start of `after` and exposes `before`, `overlap`, and `after` regions.
+The program overlaps the end of `before` with the start of `after`. It exposes `before`, `overlap`, and `after` regions.
 
 ## Example
 
@@ -53,7 +53,7 @@ crossfade
 
 Expected validation result: `Video` with exactly 105 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 

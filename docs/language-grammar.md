@@ -1,10 +1,10 @@
 # ClipAsm language grammar
 
-This page is the normative EBNF grammar for ClipAsm language version 1. The
-[language reference](reference/language/index.md) defines semantic constraints
-that cannot be expressed by context-free grammar, including declaration
-uniqueness, program signatures, scalar types, stack behavior, and required
-arguments.
+This page is the normative EBNF grammar for ClipAsm language version 1.
+The [language reference](reference/language/index.md) defines semantic
+constraints that context-free grammar cannot express. These constraints
+include declaration uniqueness, program signatures, scalar types, stack
+behavior, and required arguments.
 
 The notation uses `[...]` for an optional form, `{...}` for zero or more
 repetitions, and `|` for alternatives. Literal source characters appear in
@@ -32,10 +32,10 @@ horizontal-space = " " | "\t" | "\r" ;
 comment          = "#", { source-character - newline }, [ newline ] ;
 ```
 
-Horizontal space and comments are ignored. Newlines remain tokens because they
-separate declarations, statements, and configuration fields. Keywords such as
-`config`, `param`, and `as` use the `identifier` lexical form and acquire their
-meaning from their grammar position.
+The lexer ignores horizontal space and comments. Newlines remain tokens because
+they separate declarations, statements, and configuration fields. Keywords
+such as `config`, `param`, and `as` use the `identifier` lexical form. Their
+grammar position determines their meaning.
 
 ## File and declarations
 
@@ -156,26 +156,28 @@ output-binding      = "as", identifier
                       { newline }, ")" ;
 ```
 
-Whether an identifier-led argument expression is an invocation is determined
-syntactically by a following `(`, `<`, or `{`. Program lookup and the
+An identifier-led argument expression is an invocation when `(`, `<`, or `{`
+follows it. Program lookup and the
 classification of graph versus scalar arguments happen after parsing.
 
 At statement position, absent and empty `arguments` are semantically
 equivalent. After program resolution, an absent `block` becomes an empty body
-for a body program and remains absent for a program that does not accept a
+for a body program. It remains absent for a program that does not accept a
 caller body. Sugar applies the same rule when it defines a body-capable
-construct. Consequently `join`, `join()`, `join {}`, and `join() {}` are
+construct. Consequently, `join`, `join()`, `join {}`, and `join() {}` are
 equivalent before normal binding and body-contract validation.
 
 A scalar binding is immutable, has no stack effect, and infers its scalar type
 from the right-hand expression. Each program body defines one scalar scope.
-Bindings in that body are predeclared for forward references, inherit visible
-bindings from enclosing bodies, and do not escape to a parent or sibling body.
-Sibling bodies may reuse a binding name, but a declaration may not shadow a
-visible scalar binding or collide with a program input, parameter, or graph
-output name. A timeline selector inside a scalar binding resolves only from its
-explicit root, may capture a lexical body input, and never borrows a later
-invocation's contextual timeline root.
+The compiler predeclares bindings in that body for forward references. The
+bindings inherit visible bindings from enclosing bodies. They do not escape to
+a parent or sibling body.
+
+Sibling bodies may reuse a binding name. A declaration may not shadow a visible
+scalar binding. It also may not collide with a program input, parameter, or
+graph output name. A timeline selector inside a scalar binding resolves only
+from its explicit root. It may capture a lexical body input. It never borrows a
+later invocation's contextual timeline root.
 
 ## Scalar expressions
 
@@ -209,21 +211,25 @@ timeline-selector  = "$", identifier,
 ```
 
 Postfix operators associate from left to right and may repeat. Thus `800%%`
-means `(800 / 100) / 100`. The grammar deliberately does not reject unusual
-compositions; checked scalar types determine whether each operation exists.
+means `(800 / 100) / 100`. The grammar deliberately accepts unusual
+compositions. Checked scalar types determine whether each operation exists.
 
 `%` requires Number and divides it by 100. `ms`, `s`, and `f` require an
-expression whose exact result satisfies Integer and construct Duration. `f`
+expression whose exact result satisfies Integer. They construct Duration. `f`
 denotes an exact count on the configured project video frame grid. Number
-supports `+`, `-`, `*`, and `/`. Both Duration unit families support unary
-signs, addition, and subtraction, but binary Duration arithmetic requires
-matching families. `..` likewise requires two compatible Duration expressions
-and constructs TimeRange; project-frame endpoints cannot be mixed with
-wall-clock endpoints. A timeline selector ending in `start`,
-`middle`, or `end` denotes a coordinate; a selector ending in a placement name
-denotes that placement's complete closed-open range. Two coordinates with the
-same timeline root may also be joined with `..` to construct a frame-native
-TimeRange. Timeline coordinates with the same root support `+` and `-`; Number
-may scale a coordinate with `*`, and a coordinate may be divided by Number.
-Duration may offset a coordinate with `+` or `-`. These expressions are checked
-for exact frame alignment and bounds only when consumed as a TimeRange.
+supports `+`, `-`, `*`, and `/`.
+
+Both Duration unit families support unary signs, addition, and subtraction.
+Binary Duration arithmetic requires matching families. `..` likewise requires
+two compatible Duration expressions and constructs TimeRange. You cannot mix
+project-frame endpoints with wall-clock endpoints.
+
+A timeline selector ending in `start`, `middle`, or `end` denotes a coordinate.
+A selector ending in a placement name denotes that placement's complete
+closed-open range. Two coordinates with the same timeline root may also use
+`..` to construct a frame-native TimeRange.
+
+Timeline coordinates with the same root support `+` and `-`. Number may scale a
+coordinate with `*`. A coordinate supports division by Number. Duration may
+offset a coordinate with `+` or `-`. The compiler checks exact frame alignment
+and bounds when an expression becomes a TimeRange.

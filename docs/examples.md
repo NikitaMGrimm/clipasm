@@ -2,14 +2,14 @@
 
 The repository's `examples/` directory contains small programs for development
 and experimentation. Run the commands below from the repository root.
-`validate` checks source only; `render` also requires FFmpeg and FFprobe.
+`validate` checks source only. `render` also requires FFmpeg and FFprobe.
 
 For a standalone project without a repository checkout, use `clipasm init` and
 follow [Get ClipAsm running](learn/01-get-clipasm-running.md).
 
 ## Example catalog
 
-| Example | Demonstrates | Expected render | Extra requirement | Related page |
+| Example | Shows | Expected render | Extra requirement | Related page |
 | --- | --- | --- | --- | --- |
 | `examples/scenic-sequence.clipasm` | `clip`, image sources, a name, and a reference | 4.5 seconds | — | [Chapter 3: Name and reference a clip](learn/03-name-and-reference-clip.md) |
 | `examples/learning-journey.clipasm` | the completed learning path | 4.5 seconds | — | [Learn ClipAsm](index.md#learn-clipasm-in-order) |
@@ -29,7 +29,7 @@ clipasm validate examples/scenic-sequence.clipasm
 clipasm render examples/scenic-sequence.clipasm
 ```
 
-Generated outputs, manifests, and caches are ignored by Git.
+Git ignores generated outputs, manifests, and caches.
 
 ## Root bindings
 

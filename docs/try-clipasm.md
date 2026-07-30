@@ -19,14 +19,21 @@ passes with 108 frames: three 1.5-second scenes at 24 frames per second.
 
 ## 2. Change one scene
 
-Change the meadow duration from `1500ms` to `1s`, then validate again. The
-timeline is now four seconds, or 96 frames.
+Change the meadow duration from `1500ms` to `1s`.
 
-## 3. Render and play the video
+## 3. Validate the change
 
-Select **Render video**. When rendering finishes, play the preview and check
-that the middle scene is shorter. Use **Reset** whenever you want to restore the
-original source and project files.
+Select **Validate**, or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>. The timeline is
+now four seconds, or 96 frames.
+
+## 4. Render the video
+
+Select **Render video**.
+
+## 5. Check the video
+
+When rendering finishes, play the preview. Confirm that the middle scene is
+shorter. **Reset** restores the original source and project files.
 
 ## Project files
 
@@ -39,14 +46,14 @@ The playground supports still-image and video-file sources together with the
 native operations reachable from them. It does not support imports, standalone
 Audio-file sources, or external programs.
 
-It accepts one source file up to 256 KiB, individual assets up to 128 MiB, and
-256 MiB of assets in total. Browser rendering uses a single-threaded WebAssembly
-FFmpeg runtime and applies a bounded work budget, so larger projects belong in
-the installed CLI.
+It accepts one source file up to 256 KiB. Each asset can be up to 128 MiB, with
+a 256 MiB total limit. Browser rendering uses a single-threaded WebAssembly
+FFmpeg runtime with a bounded work budget. Use the installed CLI for larger
+projects.
 
 Continue with [Get ClipAsm running](learn/01-get-clipasm-running.md) to
 create a local project and use the complete native feature set.
 
-The renderer is downloaded only when you select **Render video**. It is separate
-GPL-licensed software; see the
+The browser downloads the renderer only when you select **Render video**. The
+renderer is separate GPL-licensed software. See the
 [browser runtime notices](https://github.com/NikitaMGrimm/clipasm/blob/main/playground/web/THIRD_PARTY.md).

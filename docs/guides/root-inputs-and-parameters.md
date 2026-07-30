@@ -7,9 +7,9 @@ a two-second MP4.
 
 ## Before you start
 
-Use a ClipAsm source checkout and run the commands from its repository root.
-The committed `examples/assets/gentle-motion.mkv` supplies the Video. Rendering
-also requires FFmpeg and FFprobe.
+Use a ClipAsm source checkout. Run the commands from its repository root. The
+committed `examples/assets/gentle-motion.mkv` supplies the Video. Rendering also
+requires FFmpeg and FFprobe.
 
 ## 1. Read the declarations
 
@@ -22,8 +22,8 @@ trim($video, $range)
 repeat($count)
 ```
 
-Because none of the declarations has a default, every compiling command must
-supply all three values.
+None of the declarations has a default. Every compiling command must supply all
+three values.
 
 ## 2. Bind every required value
 
@@ -38,15 +38,15 @@ valid: 4 semantic value(s), 48 frame(s)
 
 Use:
 
-- `--video-input NAME=PATH` for a declared Video;
-- `--audio-input NAME=PATH` for a declared Audio;
-- `--arg NAME=VALUE` for a scalar parameter.
+- `--video-input NAME=PATH` for a declared Video
+- `--audio-input NAME=PATH` for a declared Audio
+- `--arg NAME=VALUE` for a scalar parameter
 
 Names are case-sensitive and must match the source declarations. Repeat an
 option when a program declares several values of that kind.
 
-If a binding is missing or misspelled, use the reported diagnostic code with
-`clipasm explain <CODE>`, correct the command, and validate again.
+If a binding is missing or misspelled, note the reported diagnostic code. Run
+`clipasm explain <CODE>`. Then correct the command and validate again.
 
 ## 3. Render to an explicit output
 
@@ -60,13 +60,15 @@ clipasm render examples/root-bindings.clipasm \
   --output root-bindings.mp4
 ```
 
-The selected one-second range is repeated twice, producing a two-second Video.
+`repeat` repeats the selected one-second range twice. The result is a two-second
+Video.
 CLI-supplied paths resolve from the current working directory. Paths written in
 a `.clipasm` file resolve from the directory containing that file.
 
-Open `root-bindings.mp4` in the repository root and confirm that it lasts two
-seconds. The explicit `--output` is required because the example does not set
-`config.output`.
+## 4. Check the output
+
+Open `root-bindings.mp4` in the repository root. Confirm that it lasts two
+seconds. Use explicit `--output` because the example does not set `config.output`.
 
 See [Root bindings](../reference/cli.md#root-bindings) for all accepted options
 and [Source programs and imports](../concepts/source-programs-and-imports.md) for

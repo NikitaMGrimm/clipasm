@@ -7,7 +7,7 @@ happens when bodies and nested compositions create more than one stack frame.
 ## Values and occurrences are different
 
 A Video or Audio value is an immutable graph result. A statement places an
-occurrence of that value on a stack; a program consumes occurrences and returns
+occurrence of that value on a stack. A program consumes occurrences and returns
 new values.
 
 Referencing a name creates another usable occurrence without copying or moving
@@ -20,7 +20,7 @@ $title
 concat
 ```
 
-The two references can both be consumed by `concat`. The original named value
+`concat` can consume both references. The original named value
 continues to identify the same immutable result.
 
 ## Bodies create ownership boundaries
@@ -47,8 +47,8 @@ boundary:
 ```
 
 The owned block stops the visible `concat` from reaching Videos outside the
-block. Access annotations apply only to the form they prefix; they do not
-silently change every nested operation.
+block. Access annotations apply only to the form that they prefix. They do not
+change every nested operation.
 
 Use explicit access only when a nested composition genuinely needs different
 visibility. Ordinary linear compositions should rely on each program's
@@ -61,10 +61,11 @@ nested body remains available throughout the containing source-program
 invocation. Temporary body-input names such as `$before`, `$after`, and
 `$timeline` exist only while that body is active.
 
-A bare `{ ... }` stack block groups work and returns every child-stack value
-left inside it; it is not a lexical name scope. `clip { ... }` instead combines
-one timeline type and removes its temporary outer occurrence, leaving an
-optional name available for later references.
+A bare `{ ... }` stack block groups work. It returns every child-stack value
+left inside it. The block is not a lexical name scope.
+
+`clip { ... }` combines one timeline type and removes its temporary outer
+occurrence. An optional name remains available for later references.
 
 See [Stack binding](../reference/language/stack-binding.md) for exact selection
 rules and [Composition forms](../reference/language/composition-forms.md) for

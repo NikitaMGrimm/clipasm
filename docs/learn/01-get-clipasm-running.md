@@ -18,13 +18,21 @@ ffprobe -version
 
 The exact output differs by system. `rustc` must report version 1.95 or newer.
 
-## 1. Create a project
-
-Install the CLI and create a directory named `hello-video`:
+## 1. Install the CLI
 
 ```console,ignore
 cargo install clipasm --locked
+```
+
+## 2. Create a project
+
+```console,ignore
 clipasm init hello-video
+```
+
+## 3. Enter the project
+
+```console,ignore
 cd hello-video
 ```
 
@@ -44,7 +52,7 @@ assets/
 These are ordinary files you control. `init` does not run Git, inspect media,
 render, or contact the network, and ClipAsm does not rewrite the project later.
 
-## 2. Render the starter
+## 4. Render the starter
 
 ```console,ignore
 clipasm render
@@ -58,11 +66,13 @@ generated/scenic-sequence.mp4
 generated/scenic-sequence.mp4.manifest.json
 ```
 
+## 5. Check the video
+
 Open the MP4 with your usual file manager or media player. You should see the
 morning, meadow, and evening scenes in that order.
 
 You have confirmed that the CLI and media tools work. Leave `main.clipasm`
-unchanged; it remains a useful finished example while the learning path builds
-the same idea from an empty file.
+unchanged. It remains a useful finished example while you build the same idea
+from an empty file.
 
 Next, [go from one image to a sequence](02-first-sequence.md).

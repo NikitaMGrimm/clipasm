@@ -299,7 +299,7 @@ Inputs:
 
 Parameters:
   path: File (required)
-  duration: Duration (optional; when omitted: uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required)
+  duration: Duration (optional; when omitted: uses a requested Video extent from the surrounding body. Without one, the call reports a missing image duration)
   fit: Keyword(cover | contain | stretch) (optional; default: cover)
 
 Outputs:
@@ -318,8 +318,9 @@ Timeline:
   creates a fresh timeline
 
 Behavior:
-  - The image is fitted to the project Video dimensions; cover fills the frame and crops overflow, contain pads, and stretch may distort.
-  - A surrounding Video body may supply the requested duration when duration is omitted.
+  - ClipAsm fits the image to the project Video dimensions.
+  - The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.
+  - A surrounding Video body may supply the requested duration when the author omits `duration`.
 
 Constraints:
   - The resolved duration must contain at least one project frame.
@@ -368,7 +369,8 @@ Timeline:
   concatenates the layouts bound to `values`
 
 Behavior:
-  - Every bound value must use the same inferred Video or Audio type and is concatenated in stack order.
+  - Every bound value must use the same inferred Video or Audio type.
+  - The program concatenates the bound values in stack order.
   - Use `concat<Video>` or `concat<Audio>` when both homogeneous bindings are possible.
 
 Example:
@@ -471,10 +473,12 @@ Timeline:
   splices the body result into the selected range of `timeline`
 
 Behavior:
-  - The body starts with the selected range and exposes the complete bound input as lexical $timeline.
-  - The body must return exactly one matching value, which is spliced into the original timeline.
-  - Placements before and after the range are preserved or shifted; intersecting or uncertain placements are omitted, and the inserted body is available as replacement.
-  - A Video selection supplies its requested extent to an image call whose duration is omitted.
+  - The body starts with the selected range.
+  - The body exposes the complete bound input as the lexical `$timeline` reference.
+  - The body must return exactly one matching value. ClipAsm inserts that value into the original timeline.
+  - ClipAsm preserves or shifts placements before and after the range.
+  - ClipAsm omits intersecting or uncertain placements. The `replacement` name identifies the inserted body.
+  - A Video selection supplies its requested extent when the author omits the image call's `duration`.
 
 Constraints:
   - The range must be native-grid aligned, within the bound timeline, and owned by that timeline.

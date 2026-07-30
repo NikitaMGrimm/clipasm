@@ -1,7 +1,7 @@
 # Imports and external programs
 
 Imports make another `.clipasm` file callable under a local name. The imported
-file may be implemented in ClipAsm or may declare a trusted external executable.
+file can use ClipAsm statements or declare a trusted external executable.
 
 ## Imports
 
@@ -10,9 +10,9 @@ import "programs/polish.clipasm" as polish
 import "programs/brighten.clipasm" as brighten
 ```
 
-An alias is required. The path resolves from the file containing the import.
-Aliases are local, are not re-exported, and cannot shadow built-in programs.
-Import cycles are errors.
+An import declaration requires an alias. The path resolves from the file
+containing the import. Aliases are local. Imports do not export them again.
+Aliases cannot shadow built-in programs. Import cycles are errors.
 
 Each imported source file defines one callable program with its own local stack,
 inputs, parameters, and names. Callers use the same syntax regardless of its
@@ -64,9 +64,9 @@ environment variables, or undeclared files violates this contract. Increment
 `semantic_version` whenever output meaning changes without changing an
 identified file.
 
-External programs currently support fixed Video or Audio inputs; Integer, File,
-or Keyword parameters; and exactly one Video output. Defaults are applied before
-execution.
+External programs currently support fixed Video or Audio inputs. They support
+Integer, File, or Keyword parameters and exactly one Video output. ClipAsm
+applies defaults before execution.
 
 An external implementation file cannot also contain executable statements or
 imports. Put composition in a separate wrapper file and import the external
@@ -79,5 +79,6 @@ direct process exits. ClipAsm terminates remaining descendants in the managed
 process group on Unix or Job Object on Windows. Work that deliberately escapes
 that managed group or job is outside the invocation contract.
 
-External programs are not sandboxed; read [External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
-before running one.
+ClipAsm does not sandbox external programs. Read
+[External programs and the trust boundary](../../concepts/external-programs-and-trust.md)
+before you run one.

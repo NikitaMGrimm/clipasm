@@ -32,7 +32,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Places the values bound to `values` one after another in their existing order.
+The program places the values bound to `values` one after another in their existing order.
 
 ## Example
 
@@ -52,11 +52,12 @@ concat
 
 Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- Every bound value must use the same inferred Video or Audio type and is concatenated in stack order.
+- Every bound value must use the same inferred Video or Audio type.
+- The program concatenates the bound values in stack order.
 - Use `concat<Video>` or `concat<Audio>` when both homogeneous bindings are possible.
 
 ## See also

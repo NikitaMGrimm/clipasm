@@ -38,11 +38,11 @@ The body begins with:
 - `T` from the complete `before` input
 - `T` from the complete `after` input
 
-The body must leave at least 1 homogeneous `T` value(s).
+The body must leave at least 1 homogeneous `T` value.
 
 ## Timeline and markers
 
-Starts the body with `before` and `after` and joins the matching values left by the body.
+The program starts the body with `before` and `after`. It joins the matching values left by the body.
 
 ## Example
 
@@ -64,12 +64,13 @@ join {
 
 Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- The body starts with before followed by after and exposes them as lexical $before and $after references.
-- Every homogeneous value left by the body is concatenated in stack order into one output timeline.
+- The body starts with `before` followed by `after`.
+- The body exposes the inputs as the lexical `$before` and `$after` references.
+- ClipAsm concatenates each homogeneous value from the body into one output timeline.
 - Named values created by the body remain addressable as placements in the result.
 
 ## Requirements

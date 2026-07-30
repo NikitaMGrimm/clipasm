@@ -21,7 +21,7 @@ This program does not take a Video or Audio input from the stack.
 | Name | Type | Requirement | Default or omission behavior |
 | --- | --- | --- | --- |
 | `path` | `File` | required | — |
-| `duration` | `Duration` | optional | uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required |
+| `duration` | `Duration` | optional | uses a requested Video extent from the surrounding body. Without one, the call reports a missing image duration |
 | `fit` | `Keyword(cover \| contain \| stretch)` | optional | cover |
 
 ## Result and stack behavior
@@ -32,7 +32,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Creates a new timeline when it returns Video or Audio.
+The program creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -50,12 +50,13 @@ image("assets/title.png", 2s, contain)
 
 Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- The image is fitted to the project Video dimensions; cover fills the frame and crops overflow, contain pads, and stretch may distort.
-- A surrounding Video body may supply the requested duration when duration is omitted.
+- ClipAsm fits the image to the project Video dimensions.
+- The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.
+- A surrounding Video body may supply the requested duration when the author omits `duration`.
 
 ## Requirements
 

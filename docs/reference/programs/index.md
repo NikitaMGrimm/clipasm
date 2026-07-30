@@ -2,9 +2,9 @@
 
 # Built-in programs
 
-Look up the callable programs that create or transform Video and Audio values.
+Find the callable programs that create or transform Video and Audio values.
 
-These programs are registered in ClipAsm and use normal call syntax. Imported source programs use the same call model. Language forms such as [`clip` and stack blocks](../language/composition-forms.md) are documented separately and do not appear in `clipasm programs`.
+ClipAsm registers these programs and uses normal call syntax for them. Imported source programs use the same call model. Separate documentation describes language forms such as [`clip` and stack blocks](../language/composition-forms.md). These forms do not appear in `clipasm programs`.
 
 The type shapes below are lookup notation, not ClipAsm declaration syntax. See [statements and calls](../language/statements-and-calls.md) for authored syntax.
 
@@ -51,5 +51,5 @@ The type shapes below are lookup notation, not ClipAsm declaration syntax. See [
 
 | Program | Summary | Type shape | Properties |
 | --- | --- | --- | --- |
-| [`join`](join.md) | Transform and concatenate two Video or Audio timelines in a body. | `(T, T) -> T` | generic; accepts a body |
-| [`during`](during.md) | Replace a selected timeline range with the result of a body. | `(T) -> T` | generic; accepts a body |
+| [`join`](join.md) | Transform and concatenate two Video or Audio timelines in a body. | `(T, T) -> T` | generic, accepts a body |
+| [`during`](during.md) | Replace a selected timeline range with the result of a body. | `(T) -> T` | generic, accepts a body |

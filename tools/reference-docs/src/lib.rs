@@ -387,10 +387,10 @@ fn example_source(program: &BuiltinProgram) -> String {
 fn render_index(programs: &[BuiltinProgram]) -> String {
     let mut output = generated_header(
         "Built-in programs",
-        "Look up the callable programs that create or transform Video and Audio values.",
+        "Find the callable programs that create or transform Video and Audio values.",
     );
     output.push_str(
-        "These programs are registered in ClipAsm and use normal call syntax. Imported source programs use the same call model. Language forms such as [`clip` and stack blocks](../language/composition-forms.md) are documented separately and do not appear in `clipasm programs`.\n\n\
+        "ClipAsm registers these programs and uses normal call syntax for them. Imported source programs use the same call model. Separate documentation describes language forms such as [`clip` and stack blocks](../language/composition-forms.md). These forms do not appear in `clipasm programs`.\n\n\
          The type shapes below are lookup notation, not ClipAsm declaration syntax. See [statements and calls](../language/statements-and-calls.md) for authored syntax.\n\n\
          ## Program catalog\n\n",
     );
@@ -406,7 +406,7 @@ fn render_index(programs: &[BuiltinProgram]) -> String {
             .filter(|program| program.category() == category)
         {
             let properties = match (program.is_generic(), program.body().is_some()) {
-                (true, true) => "generic; accepts a body",
+                (true, true) => "generic, accepts a body",
                 (true, false) => "generic",
                 (false, true) => "accepts a body",
                 (false, false) => "—",
@@ -553,9 +553,10 @@ fn render_program(program: &BuiltinProgram) -> String {
                 value_type,
                 minimum,
             } => {
+                let noun = if *minimum == 1 { "value" } else { "values" };
                 write!(
                     output,
-                    "at least {minimum} homogeneous `{value_type}` value(s)"
+                    "at least {minimum} homogeneous `{value_type}` {noun}"
                 )
                 .expect("write String");
             }
@@ -597,10 +598,8 @@ fn render_program(program: &BuiltinProgram) -> String {
         }
     }
     output.push_str(".\n\n");
-    output.push_str(
-        "This exact example is parsed and compiled by the reference checks; compilation \
-         does not inspect the named media files.\n\n",
-    );
+    output.push_str("The reference checks parse and compile this exact example. ");
+    output.push_str("Compilation does not inspect the named media files.\n\n");
 
     output.push_str("## Behavior\n\n");
     for paragraph in program.behavior_notes() {
@@ -927,22 +926,22 @@ fn type_shape(program: &BuiltinProgram) -> String {
 fn timeline_description(behavior: &TimelineBehavior) -> String {
     match behavior {
         TimelineBehavior::Fresh => {
-            "Creates a new timeline when it returns Video or Audio.".to_owned()
+            "The program creates a new timeline when it returns Video or Audio.".to_owned()
         }
         TimelineBehavior::Identity { input } => {
-            format!("Keeps the duration and addressable markers from `{input}`.")
+            format!("The program keeps the duration and addressable markers from `{input}`.")
         }
         TimelineBehavior::Repeat { input } => format!(
-            "`repeat(1)` keeps `{input}` unchanged. Larger counts repeat its media, but the \
-             individual repeated occurrences are not addressable by marker."
+            "`repeat(1)` keeps `{input}` unchanged. Larger counts repeat its media. \
+             A marker cannot address an individual repeated occurrence."
         ),
         TimelineBehavior::Concat { input } => {
             format!(
-                "Places the values bound to `{input}` one after another in their existing order."
+                "The program places the values bound to `{input}` one after another in their existing order."
             )
         }
         TimelineBehavior::BodyConcat { inputs } => format!(
-            "Starts the body with {} and joins the matching values left by the body.",
+            "The program starts the body with {}. It joins the matching values left by the body.",
             inputs
                 .iter()
                 .map(|input| format!("`{input}`"))
@@ -950,18 +949,19 @@ fn timeline_description(behavior: &TimelineBehavior) -> String {
                 .join(" and ")
         ),
         TimelineBehavior::Crop { input } => format!(
-            "Keeps the selected range from `{input}` and preserves only markers fully inside it."
+            "The program keeps the selected range from `{input}`. It preserves only markers that are fully inside the range."
         ),
         TimelineBehavior::Replace { base } => format!(
-            "Replaces the selected range in `{base}`, shifts later markers, and names the inserted result `replacement`."
+            "The program replaces the selected range in `{base}` and shifts later markers. \
+             It names the inserted result `replacement`."
         ),
         TimelineBehavior::FlashCut { before, after } => format!(
-            "Places `{before}` and `{after}` sequentially and exposes corresponding transition \
-             regions."
+            "The program places `{before}` and `{after}` in sequence. It exposes the corresponding \
+             transition regions."
         ),
         TimelineBehavior::Crossfade { before, after } => format!(
-            "Overlaps the end of `{before}` with the start of `{after}` and exposes `before`, \
-             `overlap`, and `after` regions."
+            "The program overlaps the end of `{before}` with the start of `{after}`. \
+             It exposes `before`, `overlap`, and `after` regions."
         ),
         _ => "Uses the catalog-defined timeline behavior.".to_owned(),
     }

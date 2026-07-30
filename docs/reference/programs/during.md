@@ -42,7 +42,7 @@ The body must leave exactly `T`.
 
 ## Timeline and markers
 
-Replaces the selected range in `timeline`, shifts later markers, and names the inserted result `replacement`.
+The program replaces the selected range in `timeline` and shifts later markers. It names the inserted result `replacement`.
 
 ## Example
 
@@ -63,14 +63,16 @@ during(1s..2s) {
 
 Expected validation result: `Video` with exactly 90 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- The body starts with the selected range and exposes the complete bound input as lexical $timeline.
-- The body must return exactly one matching value, which is spliced into the original timeline.
-- Placements before and after the range are preserved or shifted; intersecting or uncertain placements are omitted, and the inserted body is available as replacement.
-- A Video selection supplies its requested extent to an image call whose duration is omitted.
+- The body starts with the selected range.
+- The body exposes the complete bound input as the lexical `$timeline` reference.
+- The body must return exactly one matching value. ClipAsm inserts that value into the original timeline.
+- ClipAsm preserves or shifts placements before and after the range.
+- ClipAsm omits intersecting or uncertain placements. The `replacement` name identifies the inserted body.
+- A Video selection supplies its requested extent when the author omits the image call's `duration`.
 
 ## Requirements
 

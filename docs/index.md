@@ -4,13 +4,13 @@ ClipAsm turns a small text program into a video. You describe sources and edits,
 check the program without opening media, and render an MP4 with FFmpeg.
 
 > ClipAsm is pre-release software. The language and command line may change as
-> the project is simplified.
+> maintainers simplify the project.
 
 ## Learn ClipAsm in order
 
-After setup, the learning chapters follow one project centered on one evolving
-composition. Each chapter starts from the previous checkpoint, introduces an
-idea only when the edit needs it, and ends with a valid result you can inspect.
+After setup, the learning chapters follow one evolving project. Each chapter
+starts from the previous checkpoint. It introduces an idea only when the edit
+needs it. Each chapter ends with a valid result that you can inspect.
 This path teaches ClipAsm's core video-composition workflow.
 
 1. [Get ClipAsm running](learn/01-get-clipasm-running.md) and render the included
@@ -27,7 +27,7 @@ The playground contains a complete project and uploads nothing.
 
 ## How-to guides
 
-Use these when you already have a concrete task:
+Use these guides when you have a concrete task:
 
 - [Check a program before rendering](guides/validate-and-inspect.md)
 - [Inspect compiled JSON](guides/inspect-compiled-json.md)
@@ -39,8 +39,7 @@ Use these when you already have a concrete task:
 
 ## Understand ClipAsm
 
-These pages develop the underlying model without walking through the learning
-project:
+These pages explain the underlying model without using the learning project:
 
 - [From source to published video](concepts/pipeline.md)
 - [Stack ownership and visibility](concepts/stack-values.md)
@@ -50,7 +49,7 @@ project:
 ## Examples and reference
 
 Use the [example catalog](examples.md) for small runnable programs. For exact
-lookup, use:
+information, use:
 
 - [Language reference](reference/language/index.md) for `.clipasm` syntax and behavior
 - [Built-in programs](reference/programs/index.md) for call signatures and constraints
@@ -66,8 +65,8 @@ clipasm explain E_UNKNOWN_PROGRAM
 
 ## Contributing
 
-Contributor architecture and maintenance documents live in the repository but
-are intentionally outside this user guide. Start with the repository's
+The repository contains contributor architecture and maintenance documents.
+They are outside this user guide. Start with the repository's
 [contribution workflow](https://github.com/NikitaMGrimm/clipasm/blob/main/CONTRIBUTING.md).
 Report possible vulnerabilities through the
 [security policy](https://github.com/NikitaMGrimm/clipasm/blob/main/SECURITY.md).

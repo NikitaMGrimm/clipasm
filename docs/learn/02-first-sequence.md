@@ -1,8 +1,8 @@
 # 2. From one image to a sequence
 
 In this chapter you will start with one image, then grow it into a 4.5-second
-sequence. When three images cannot be published as one video, the diagnostic
-will reveal ClipAsm's stack model and motivate `concat`.
+sequence. ClipAsm cannot publish three images as one Video. The diagnostic will
+reveal ClipAsm's stack model and motivate `concat`.
 
 ## Continue your project
 
@@ -10,10 +10,10 @@ Complete [Get ClipAsm running](01-get-clipasm-running.md) first. Stay
 in the `hello-video` directory so the starter images remain available.
 
 Create `learning.clipasm`. This is the file you will develop through the rest
-of the learning chapters; leave the generated `main.clipasm` starter unchanged
+of the learning chapters. Leave the generated `main.clipasm` starter unchanged
 for comparison.
 
-## 1. Turn one image into a video
+## 1. Create a one-image video source
 
 Start with:
 
@@ -36,17 +36,26 @@ image("assets/morning.png", 1500ms, contain)
 the frame dimensions and frame rate. `contain` keeps the whole image visible
 inside that frame. `image` creates one Video value lasting 1.5 seconds.
 
-Validate and render it:
+## 2. Validate the one-image source
 
 ```console,ignore
 clipasm validate learning.clipasm
+```
+
+Validation reports 36 frames.
+
+## 3. Render the one-image Video
+
+```console,ignore
 clipasm render learning.clipasm
 ```
 
-Validation reports 36 frames. Open `generated/learning.mp4` and confirm that the
-morning image appears for 1.5 seconds.
+## 4. Check the one-image Video
 
-## 2. Add two more images
+Open `generated/learning.mp4`. Confirm that the morning image appears for 1.5
+seconds.
+
+## 5. Add two more images
 
 Replace the final image call with these three calls:
 
@@ -56,7 +65,7 @@ image("assets/meadow.png", 1500ms, contain)
 image("assets/evening.png", 1500ms, contain)
 ```
 
-Validate again:
+## 6. Validate the three-image source
 
 ```console,ignore
 clipasm validate learning.clipasm
@@ -65,13 +74,15 @@ clipasm validate learning.clipasm
 ClipAsm reports `E_ENTRYPOINT_OUTPUT_COUNT`: three Video values remain, but a
 source file with `output` must leave exactly one Video to publish.
 
+## 7. Explain the diagnostic
+
 When an unfamiliar diagnostic includes a code, ask ClipAsm for its explanation:
 
 ```console,ignore
 clipasm explain E_ENTRYPOINT_OUTPUT_COUNT
 ```
 
-## 3. Follow the stack
+## 8. Examine the stack
 
 Each call leaves its result after the values produced earlier:
 
@@ -81,8 +92,10 @@ image meadow   -> [morning, meadow]
 image evening  -> [morning, meadow, evening]
 ```
 
-This ordered collection is the stack. Nothing is wrong with any image; the
-program needs an operation that consumes three Videos and returns one.
+This ordered collection is the stack. Each image is valid. The program needs an
+operation that consumes three Videos and returns one.
+
+## 9. Add `concat`
 
 Add `concat`:
 
@@ -100,17 +113,26 @@ combined result:
 [morning, meadow, evening] -> concat -> [sequence]
 ```
 
-## 4. Render the sequence
+## 10. Validate the sequence
 
 ```console,ignore
 clipasm validate learning.clipasm
+```
+
+Validation now reports 108 frames.
+
+## 11. Render the sequence
+
+```console,ignore
 clipasm render learning.clipasm
 ```
 
-Validation now reports 108 frames. Reopen `generated/learning.mp4`; the three
-1.5-second scenes play in morning, meadow, evening order.
+## 12. Check the sequence
 
-You now know why statement order matters and how a call can consume values from
-the stack without receiving them as explicit arguments.
+Reopen `generated/learning.mp4`. The three 1.5-second scenes play in morning,
+meadow, evening order.
+
+You now know why statement order matters. A call can consume stack values
+without receiving them as explicit arguments.
 
 Next, [name and reference a clip](03-name-and-reference-clip.md).

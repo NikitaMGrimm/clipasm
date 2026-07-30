@@ -32,7 +32,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Creates a new timeline when it returns Video or Audio.
+The program creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -45,11 +45,11 @@ drop
 
 Expected validation result: no output values.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- The bound value is consumed from the stack and the call produces no output value.
+- The program consumes the bound value from the stack and produces no output value.
 
 ## See also
 

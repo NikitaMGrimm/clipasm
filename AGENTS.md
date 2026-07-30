@@ -4,13 +4,17 @@
 - Use `docs/development/change-guide.md` for public, cross-phase, or identity-affecting changes.
 - Read only the relevant language reference and architecture section.
 - Preserve unrelated worktree changes.
-- Treat handoffs as unverified working notes; verify consequential claims from code or tests.
+- Treat handoffs as unverified working notes.
+- Verify consequential claims from code or tests.
 - Review semantic, format, protocol, and cache identities when behavior crosses their boundaries.
 - ALWAYS attempt to add or update a test for changed behavior.
 - PREFER integration tests under `tests/` over unit tests when behavior is observable.
 - ALWAYS read and copy the style of nearby tests before adding new cases.
-- PREFER running specific tests while iterating; run `./scripts/check.sh` before handoff.
-- NEVER update all dependencies in the lockfile; use `cargo update -p <package> --precise <version>`.
-- Keep compilation media-pure; asset and tool inspection belongs to preflight.
+- PREFER running specific tests while iterating.
+- Run `./scripts/check.sh` before handoff.
+- NEVER update all dependencies in the lockfile.
+- Use `cargo update -p <package> --precise <version>`.
+- Keep compilation media-pure.
+- Keep asset and tool inspection in preflight.
 - Do not branch on registered program names in parser, type-checker, or evaluator logic.
 - Add agent rules only for non-obvious, repeated, actionable repository traps.

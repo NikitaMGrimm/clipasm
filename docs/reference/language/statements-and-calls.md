@@ -72,6 +72,6 @@ concat<Video>
 drop<Audio>
 ```
 
-See [Stack binding](stack-binding.md) for arguments and access modifiers,
-[Composition forms](composition-forms.md) for `clip`, blocks, and names, and
+See [Stack binding](stack-binding.md) for arguments and access modifiers. See
+[Composition forms](composition-forms.md) for `clip`, blocks, and names. See
 [Built-in programs](../programs/index.md) for exact call shapes.

@@ -1,9 +1,10 @@
 # Change guide
 
-Use this guide when a change affects public behavior, crosses phase boundaries,
-or may change an identity contract. The language reference owns public syntax
-and behavior, while architecture owns phase responsibilities. Run
-`./scripts/check.sh` before handoff.
+Use this guide when a change affects public behavior or crosses phase
+boundaries. Also use it when a change can affect an identity contract.
+
+The language reference owns public syntax and behavior. The architecture
+document owns phase responsibilities. Run `./scripts/check.sh` before handoff.
 
 ## Source map
 
@@ -33,7 +34,7 @@ and behavior, while architecture owns phase responsibilities. Run
 | Change package loading | `src/language/loader.rs`, `src/source` | path bases, deduplication, cycles, aliases, external implementations, imported-program tests |
 | Change canonical source | `src/source`, compiler | draft/checked IR, every traversal, semantic identity |
 | Change checked-source construction | `src/compiler/draft.rs`, `typecheck.rs`, `typecheck/arena.rs`, `check.rs`, `check/materialize.rs`, `checked.rs` | dependencies, signatures, stack plans, evaluator interface |
-| Change scalar expressions or parameter conversion | `src/compiler/parameter.rs`, `parameter/check.rs`, `parameter/duration.rs` | exact arithmetic, type refinement, selectors, aliases, and diagnostics |
+| Change scalar expressions or parameter conversion | `src/compiler/parameter.rs`, `parameter/check.rs`, `parameter/duration.rs` | exact arithmetic, type refinement, selectors, aliases, diagnostics |
 | Add or change a direct program | matching `src/program/builtins` module | catalog reference facts, descriptor order, semantic version, domains, prepared lowering, rendering, identities, generated program reference |
 | Add or change a body program | `src/program/builtins/body.rs` | catalog reference facts, body contract, access default, finalizer, lexical aliases, tests, generated program reference |
 | Change call or stack binding | `src/program/call.rs`, compiler stack/typecheck/evaluate | descriptor slots, cardinality, root and authored calls, diagnostics |
@@ -54,7 +55,7 @@ and behavior, while architecture owns phase responsibilities. Run
 ## Final review
 
 - Does the language reference still describe the parser exactly?
-- Are authored names, spans, and sugar diagnostics preserved?
+- Did the change preserve authored names, spans, and sugar diagnostics?
 - Did program signatures or stack behavior change?
 - Does a semantic or machine-contract version need incrementing?
 - Did every exhaustive semantic/prepared/render owner change together?

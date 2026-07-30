@@ -33,7 +33,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Places `before` and `after` sequentially and exposes corresponding transition regions.
+The program places `before` and `after` in sequence. It exposes the corresponding transition regions.
 
 ## Example
 
@@ -53,7 +53,7 @@ flash_cut
 
 Expected validation result: `Video` with exactly 120 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 

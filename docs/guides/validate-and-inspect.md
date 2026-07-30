@@ -15,35 +15,45 @@ repository checkout, substitute `examples/scenic-sequence.clipasm`.
 clipasm validate
 ```
 
-A successful validation confirms that ClipAsm can parse the package, resolve
-imports and calls, bind stack inputs, check types, and calculate every duration
-available from authored data.
+A successful validation confirms that ClipAsm can parse the package and resolve
+imports and calls. ClipAsm also binds stack inputs, checks types, and calculates
+durations from authored data.
 
 It does not confirm that media files exist or that rendering tools are
 installed. A video-file source may therefore validate with a duration that will
 resolve later during rendering.
 
-## 2. Resolve a diagnostic
+## 2. Explain the first diagnostic
 
 When validation fails, start at the first reported source location. If the
-diagnostic includes a code, ask for its longer explanation:
+diagnostic includes a code, get its longer explanation:
 
 ```console,ignore
 clipasm explain E_ENTRYPOINT_OUTPUT_COUNT
 ```
 
-Edit the source and validate again. Continue when validation reports a
-successful frame count or a duration that will resolve during preflight.
+## 3. Correct the source
 
-## 3. Render the checked program
+Edit the source at the first reported location.
+
+## 4. Validate the corrected source
+
+```console,ignore
+clipasm validate
+```
+
+Continue when validation reports a successful frame count or a duration that
+will resolve during preflight.
+
+## 5. Render the checked program
 
 ```console,ignore
 clipasm render
 ```
 
-Rendering repeats the source checks, then opens reachable media, verifies the
-required tools, and creates the output. Running `validate` first is useful while
-editing but never required before `render`.
+Rendering repeats the source checks. It then opens reachable media, verifies
+the required tools, and creates the output. `validate` is useful while you edit,
+but `render` does not require it.
 
 See [From source to published video](../concepts/pipeline.md) for the phase
 model, [Inspect compiled JSON](inspect-compiled-json.md) for tooling data, and

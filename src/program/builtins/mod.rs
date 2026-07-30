@@ -202,7 +202,7 @@ const FIT_DEFAULT: [BuiltinParameterDefault; 1] = [BuiltinParameterDefault {
 }];
 const IMAGE_PARAMETER_OMISSIONS: [BuiltinParameterOmission; 1] = [BuiltinParameterOmission {
     parameter: "duration",
-    behavior: "uses a requested Video extent supplied by the surrounding body; without one, the call reports that an image duration is required",
+    behavior: "uses a requested Video extent from the surrounding body. Without one, the call reports a missing image duration",
 }];
 const ZOOM_DEFAULT: [BuiltinParameterDefault; 1] = [BuiltinParameterDefault {
     parameter: "by",
@@ -251,8 +251,9 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
                 BuiltinDiagnostic::InvalidDuration,
             ])
             .with_behavior_notes(&[
-                "The image is fitted to the project Video dimensions; cover fills the frame and crops overflow, contain pads, and stretch may distort.",
-                "A surrounding Video body may supply the requested duration when duration is omitted.",
+                "ClipAsm fits the image to the project Video dimensions.",
+                "The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.",
+                "A surrounding Video body may supply the requested duration when the author omits `duration`.",
             ])
             .with_constraints(&["The resolved duration must contain at least one project frame."])
             .with_related_programs(&["video", "during"]),
@@ -267,8 +268,8 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_defaults(&FIT_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_behavior_notes(&[
-                "Compilation remains media-pure; preflight probes the source and resolves its exact project-frame domain.",
-                "The source is fitted to the project Video dimensions while preserving its resolved duration.",
+                "Compilation remains media-pure. Preflight probes the source and resolves its exact project-frame domain.",
+                "Preflight fits the source to the project Video dimensions and preserves its resolved duration.",
             ])
             .with_related_programs(&["image", "extract_audio", "set_audio"]),
         ),
@@ -281,7 +282,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             )
             .with_example_expected_outputs(&AUDIO_EXAMPLE_OUTPUT)
             .with_behavior_notes(&[
-                "Compilation remains media-pure; preflight probes and normalizes the source to the project Audio domain.",
+                "Compilation remains media-pure. Preflight probes and normalizes the source to the project Audio domain.",
             ])
             .with_related_programs(&["set_audio"]),
         ),
@@ -297,7 +298,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
                 "The standalone Audio output covers the complete Video duration on the project sample grid.",
             ])
             .with_constraints(&[
-                "The Video must carry meaningful attached Audio; extracting from a silent Video cannot create Audio content.",
+                "The Video must carry meaningful attached Audio. A silent Video cannot produce Audio content.",
             ])
             .with_related_programs(&["video", "set_audio"]),
         ),
@@ -310,7 +311,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             )
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_behavior_notes(&[
-                "The output preserves the Video timeline and is marked as carrying meaningful Audio.",
+                "The output preserves the Video timeline. ClipAsm marks the output as carrying meaningful Audio.",
                 "The supplied standalone Audio replaces any Audio already attached to the Video.",
             ])
             .with_related_programs(&["audio", "extract_audio"]),
@@ -325,7 +326,8 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
             .with_behavior_notes(&[
-                "Every bound value must use the same inferred Video or Audio type and is concatenated in stack order.",
+                "Every bound value must use the same inferred Video or Audio type.",
+                "The program concatenates the bound values in stack order.",
                 "Use `concat<Video>` or `concat<Audio>` when both homogeneous bindings are possible.",
             ])
             .with_related_programs(&["join"]),
@@ -342,7 +344,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_diagnostics(&[BuiltinDiagnostic::InvalidRepeatCount])
             .with_behavior_notes(&[
                 "repeat(1) is a true identity and preserves nested timeline placements.",
-                "Larger counts create a fresh repeated timeline; child placements are unavailable until occurrence indexing exists.",
+                "Larger counts create a new repeated timeline. Child placements are unavailable until ClipAsm supports occurrence indexing.",
             ])
             .with_constraints(&["count must be an Integer greater than or equal to one."])
             .with_related_programs(&["concat"]),
@@ -358,8 +360,9 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_frames(60)
             .with_diagnostics(&[BuiltinDiagnostic::InvalidTimeRange])
             .with_behavior_notes(&[
-                "Absolute ranges and rooted timeline-marker ranges are accepted for both Video and Audio.",
-                "Complete child placements inside the selected range are preserved and rebased; partial or uncertain placements are omitted.",
+                "ClipAsm accepts absolute ranges and rooted timeline-marker ranges for both Video and Audio.",
+                "ClipAsm preserves and rebases complete child placements inside the selected range.",
+                "ClipAsm omits partial or uncertain placements.",
                 "Media-dependent marker boundaries remain deferred until preflight resolves the source domain.",
             ])
             .with_constraints(&[
@@ -376,7 +379,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             )
             .with_example_expected_outputs(&NO_EXAMPLE_OUTPUTS)
             .with_behavior_notes(&[
-                "The bound value is consumed from the stack and the call produces no output value.",
+                "The program consumes the bound value from the stack and produces no output value.",
             ]),
         ),
         BuiltinProgram::new(
@@ -392,7 +395,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_diagnostics(&[BuiltinDiagnostic::InvalidZoomAmount])
             .with_behavior_notes(&[
                 "For a multi-frame Video, scale increases linearly from 100% on the first frame to exactly 100% + by on the last frame.",
-                "The Video timeline and attached meaningful-Audio state are preserved.",
+                "The program preserves the Video timeline and the attached meaningful-Audio state.",
             ])
             .with_constraints(&["by must be positive."]),
         ),
@@ -446,8 +449,9 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_frames(60)
             .with_diagnostics(&[BuiltinDiagnostic::EmptyJoin])
             .with_behavior_notes(&[
-                "The body starts with before followed by after and exposes them as lexical $before and $after references.",
-                "Every homogeneous value left by the body is concatenated in stack order into one output timeline.",
+                "The body starts with `before` followed by `after`.",
+                "The body exposes the inputs as the lexical `$before` and `$after` references.",
+                "ClipAsm concatenates each homogeneous value from the body into one output timeline.",
                 "Named values created by the body remain addressable as placements in the result.",
             ])
             .with_constraints(&[
@@ -467,10 +471,12 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_frames(90)
             .with_diagnostics(&[BuiltinDiagnostic::BodyOutputCount])
             .with_behavior_notes(&[
-                "The body starts with the selected range and exposes the complete bound input as lexical $timeline.",
-                "The body must return exactly one matching value, which is spliced into the original timeline.",
-                "Placements before and after the range are preserved or shifted; intersecting or uncertain placements are omitted, and the inserted body is available as replacement.",
-                "A Video selection supplies its requested extent to an image call whose duration is omitted.",
+                "The body starts with the selected range.",
+                "The body exposes the complete bound input as the lexical `$timeline` reference.",
+                "The body must return exactly one matching value. ClipAsm inserts that value into the original timeline.",
+                "ClipAsm preserves or shifts placements before and after the range.",
+                "ClipAsm omits intersecting or uncertain placements. The `replacement` name identifies the inserted body.",
+                "A Video selection supplies its requested extent when the author omits the image call's `duration`.",
             ])
             .with_constraints(&[
                 "The range must be native-grid aligned, within the bound timeline, and owned by that timeline.",

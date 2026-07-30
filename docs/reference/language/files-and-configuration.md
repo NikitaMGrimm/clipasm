@@ -6,12 +6,12 @@ A source file uses the `.clipasm` extension and begins with:
 clipasm 1
 ```
 
-Declarations come next. Executable statements begin after the declarations;
-declarations cannot appear later in the file.
+Declarations come next. Executable statements start after the declarations.
+Declarations cannot appear later in the file.
 
 ## Layout
 
-Spaces, tabs, and indentation are ignored. Newlines separate statements and
+The lexer ignores spaces, tabs, and indentation. Newlines separate statements and
 configuration fields. There is no semicolon syntax.
 
 A block containing one statement may fit on one line:
@@ -35,7 +35,7 @@ This is invalid because the two statements have no separator:
 clip { image("title.png", 2s) zoom_in(8%) }
 ```
 
-Newlines are allowed inside parentheses around comma-separated arguments.
+The parser accepts newlines inside parentheses around comma-separated arguments.
 Comments begin with `#` and continue to the end of the line.
 
 ## Configuration and declarations
@@ -66,14 +66,13 @@ param fit: Keyword(cover, contain, stretch) = contain
 
 Graph input types are `Video` and `Audio`. Scalar parameter types are `Number`,
 `Integer`, `File`, `Duration`, `TimeRange`, and a declared `Keyword(...)` set.
-Parameters without defaults are required when another program or the CLI calls
-the source program.
+Another program or the CLI must supply parameters that have no defaults.
 
 Only the root file may set project media configuration or an output path.
 Omitted fields use `width = 1280`, `height = 720`, `fps = 30`, and
 `sample_rate = 48000`. Project audio is stereo, and publication is MP4 only.
 
 Frame rate is an exact positive rational. `fps = 30` means exactly 30 frames per
-second. `fps = 30000/1001` is approximately 29.97 frames per second and produces
-different frame counts for many durations; it is an example of an explicit
-non-integer rate, not the default.
+second. `fps = 30000/1001` is approximately 29.97 frames per second. This
+explicit non-integer rate produces different frame counts for many durations.
+It is not the default.

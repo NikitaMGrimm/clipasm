@@ -5,7 +5,7 @@ already carries.
 
 ## Before you start
 
-Create an initialized project and add these media files:
+Create an initialized project. Add these media files:
 
 ```text
 assets/scene.mp4
@@ -13,8 +13,8 @@ assets/soundtrack.wav
 ```
 
 The Video and Audio may have different durations. The resulting Video keeps the
-Video timeline: longer Audio is trimmed, and shorter Audio is padded to its
-duration.
+Video timeline. `set_audio` trims longer Audio and pads shorter Audio to match
+the Video duration.
 
 ## 1. Create the source file
 
@@ -38,7 +38,7 @@ set_audio
 ```
 
 The first two calls leave one Video and one Audio value. `set_audio` binds each
-input by its exact type, replaces the Video's Audio, and leaves one Video.
+input by its exact type. It replaces the Video's Audio and leaves one Video.
 
 ## 2. Validate the structure
 
@@ -49,11 +49,13 @@ clipasm validate soundtrack.clipasm
 Validation checks the source without opening either media file. File-backed
 durations may remain deferred until rendering.
 
-## 3. Render and listen
+## 3. Render the video
 
 ```console,ignore
 clipasm render soundtrack.clipasm
 ```
+
+## 4. Check the soundtrack
 
 Open `generated/with-soundtrack.mp4`. Confirm that its picture comes from
 `scene.mp4` and its sound comes from `soundtrack.wav`.

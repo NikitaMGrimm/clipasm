@@ -38,9 +38,9 @@ Examples:
 
 Unrelated paths in an existing compatible directory are left alone.
 Initialization never prompts for permission.
-It follows ordinary local filesystem directory links, and assumes the caller
-controls the target tree while it runs; concurrent external path changes are
-outside its guarantee.
+It follows ordinary local filesystem directory links. ClipAsm assumes that the
+caller controls the target tree during initialization. It does not guarantee
+behavior when another process changes target paths concurrently.
 
 The two forms are:
 
@@ -81,12 +81,13 @@ Optional source check:
   clipasm validate
 ```
 
-When the target is the current directory, the `cd` line is omitted. For a path
-that cannot be represented as a portable shell command, the output instead
-tells you to enter the created directory before running the render command. The
-source-only validation command remains optional. The generated files are
-ordinary, unmanaged project files: ClipAsm
-does not update, rewrite, or take ownership of them later. Future releases may
+When the target is the current directory, ClipAsm omits the `cd` line. For a path
+that a portable shell command cannot represent, the output tells you to
+enter the created directory. You can then run the render command. The
+source-only validation command remains optional.
+
+The generated files are ordinary, unmanaged project files. ClipAsm does not
+update, rewrite, or take ownership of them later. Future releases may
 ship different starter files, but they do not alter existing projects. The
 development examples in a source checkout are not the installed binary's
 starter contract and may differ from it.
@@ -99,9 +100,9 @@ clipasm programs [NAME]
 
 With no `NAME`, this command lists every built-in program in deterministic
 categories. With `NAME`, it prints the terminal reference for that exact
-built-in, including its call shape, inputs, parameters, defaults, outputs,
-binding behavior, body contract, example, and full guide URL. An unknown name
-fails with `E_UNKNOWN_BUILTIN_PROGRAM`.
+built-in. The reference includes its call shape, inputs, parameters, defaults,
+outputs, and binding behavior. It also includes the body contract, example, and
+full guide URL. An unknown name fails with `E_UNKNOWN_BUILTIN_PROGRAM`.
 
 `programs` always describes programs built into the installed ClipAsm binary.
 It never inspects a project, source file, imported program, media asset, FFmpeg,
@@ -115,9 +116,9 @@ clipasm explain <CODE>
 ```
 
 `explain` looks up one built-in ClipAsm diagnostic code, such as
-`E_UNKNOWN_PROGRAM`, and prints its title, category, explanation, common
-causes, recommended actions, retry guidance, and a link to the relevant
-reference page. The code identifies the diagnostic class; its original error
+`E_UNKNOWN_PROGRAM`. It prints the title, category, explanation, common causes,
+recommended actions, and retry guidance. It also prints a link to the relevant
+reference page. The code identifies the diagnostic class. Its original error
 message and source location provide the instance-specific context.
 
 This command reads only the diagnostic catalog compiled into the installed
@@ -138,7 +139,7 @@ The `validate`, `inspect`, and `render` commands accept an optional native
 clipasm <COMMAND> [OPTIONS] [SOURCE]
 ```
 
-When `SOURCE` is omitted, ClipAsm searches the current directory and then each
+When you omit `SOURCE`, ClipAsm searches the current directory and then each
 parent directory for the nearest `clipasm.toml`. The manifest is strict and
 currently contains exactly:
 
@@ -150,9 +151,9 @@ entrypoint = "main.clipasm"
 `project.entrypoint` is a forward-slash relative `.clipasm` path
 resolved from the manifest directory. Unknown fields, absolute paths,
 backslashes, drive-style prefixes, and paths containing `.` or `..` are
-rejected. A discovered manifest symlink must resolve to a regular file; a
-broken nearer manifest path is an error rather than permission to fall through
-to a parent project. An explicit `SOURCE` remains a
+rejected. A discovered manifest symlink must resolve to a regular file. A
+broken nearer manifest path causes an error. ClipAsm does not continue the
+search in a parent project. An explicit `SOURCE` remains a
 standalone invocation and does not read an ambient project manifest.
 
 Project renders keep persistent state under `.clipasm/` at the manifest root,
@@ -212,9 +213,8 @@ Use it as the first check while editing:
 clipasm validate
 ```
 
-Successful output reports the semantic value count and either an exact frame
-count, a deferred Video duration, one non-Video output type, or the number of
-root outputs:
+Successful output reports the semantic value count. It also reports one of
+these root result summaries:
 
 | Root result | Success summary |
 | --- | --- |
@@ -238,8 +238,10 @@ clipasm inspect
 
 Use `-o` or `--output` to write a new file. Create the parent directory first
 when it does not already exist. The destination must not already exist.
-Inspection JSON is a versioned downstream view of compiled semantics, not canonical
-source or an authoring format. Consumers must check `format_version`; see
+
+Inspection JSON is a versioned downstream view of compiled semantics. It is not
+canonical source or an authoring format. Consumers must check `format_version`.
+See
 [Machine-readable contracts](machine-contracts.md#compiled-inspection-json).
 
 ## `render`
@@ -258,7 +260,7 @@ clipasm render
 ```
 
 The root source may declare `config.output`. Override it with `-o` or
-`--output`; an override resolves from the caller's working directory. Rendering
+`--output`. An override resolves from the caller's working directory. Rendering
 requires an output path from one of those sources and exactly one publishable
 `Video` output. It may inspect media, invoke FFmpeg and FFprobe, and execute
 reachable external programs as trusted native code.

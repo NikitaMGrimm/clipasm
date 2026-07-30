@@ -1,22 +1,24 @@
 # Troubleshooting
 
-Every ordinary ClipAsm error includes a diagnostic code. Look up the code with
-`clipasm explain <CODE>` for a concise explanation, or use the searchable
-[diagnostic reference](../diagnostics/index.html) for the complete
-catalog. This guide is organized by symptom. The diagnostic reference contains the full
-per-code advice and retry guidance.
+Every ordinary ClipAsm error includes a diagnostic code. Explain the code with
+`clipasm explain <CODE>` for a concise explanation. You can also search the
+[diagnostic reference](../diagnostics/index.html) for the complete catalog.
+The sections below follow common symptoms. The diagnostic reference contains
+the full advice and retry guidance for each code.
 
 ## Diagnostic workflow
 
 1. Run `clipasm validate SOURCE` to separate source and binding problems from
    media, tool, and execution problems.
-2. If validation fails, fix the first reported source location. Run
-   `clipasm explain <CODE>` when you need the diagnostic's causes and actions.
-3. When validation succeeds, run `render`. Rendering repeats source checks and
+2. If validation fails, inspect the first reported source location.
+3. If the diagnostic has a code, run `clipasm explain <CODE>`.
+4. Correct the source or binding problem.
+5. Run `clipasm validate SOURCE` again.
+6. When validation succeeds, run `render`. Rendering repeats source checks and
    then reports reachable media, tool, external-process, cache, or publication
    problems.
-4. Use `inspect` only when the compiled graph or JSON integration is itself the
-   question; it is not a required step before rendering.
+7. Use `inspect` only when the compiled graph or JSON integration is itself the
+   question. Rendering does not require `inspect`.
 
 ## The source does not validate
 
@@ -26,10 +28,10 @@ Run:
 clipasm validate path/to/program.clipasm
 ```
 
-Use the first reported source location as the starting point. Common causes
-include invalid declaration order, an unknown program or argument, a missing
-stack input, a type mismatch, an invalid import, or an output-name dependency
-cycle.
+Start at the first reported source location. Common causes include invalid
+declaration order, an unknown program or argument, and a missing stack input.
+Other causes include a type mismatch, an invalid import, or an output-name
+dependency cycle.
 
 Validation checks the complete linked package, including imported programs that
 the root does not call. An unused import can therefore make validation fail.
@@ -45,8 +47,8 @@ sections group the corresponding failures.
 
 ## A root input or parameter is missing
 
-Root `input` and `param` declarations without defaults must be supplied to every
-command that compiles the root source:
+Every command that compiles the root source requires root declarations without
+defaults. Supply the required `input` and `param` values:
 
 ```console
 clipasm validate path/to/program.clipasm \
@@ -60,7 +62,7 @@ and `File` paths resolve from the current working directory.
 
 See [Supply root inputs and parameters](root-inputs-and-parameters.md).
 
-## Validation succeeds but duration is deferred
+## Validation defers a duration
 
 A message that duration resolves during preflight is not an error. Compilation
 does not open authored media, so a file-backed source may not yet have an exact
@@ -77,14 +79,14 @@ clipasm render path/to/program.clipasm
 
 Check which component authored the path:
 
-- paths written in a `.clipasm` file resolve from that source file's directory;
-- import paths resolve from the importing source file;
-- CLI media and `File` bindings resolve from the working directory;
-- an output override resolves from the working directory.
+- Paths in a `.clipasm` file resolve from that source file's directory.
+- Import paths resolve from the importing source file.
+- CLI media and `File` bindings resolve from the working directory.
+- An output override resolves from the working directory.
 
 Imported programs keep their own path base. Moving only the root source or
-running the command from another directory does not rebase paths authored in an
-imported source file.
+changing the working directory does not rebase paths in an imported source
+file.
 
 See [preflight and media diagnostics](../diagnostics/index.html#preflight-and-media)
 when the reported code concerns an unreadable or unsuitable asset.
@@ -99,8 +101,8 @@ ffmpeg -version
 ffprobe -version
 ```
 
-If the commands are installed but ClipAsm cannot find them, run ClipAsm from an
-environment whose `PATH` includes the corresponding executables.
+If ClipAsm cannot find installed commands, check your environment. Make sure
+that `PATH` includes the corresponding executables.
 
 See [preflight and media diagnostics](../diagnostics/index.html#preflight-and-media)
 for tool discovery and capability failures.
@@ -108,8 +110,8 @@ for tool discovery and capability failures.
 ## FFmpeg lacks a required capability
 
 ClipAsm checks the encoders, muxers, and filters required by the reachable
-work needed for the output. Install a build of FFmpeg that provides the named capability,
-or change the reachable program so it does not require that operation.
+work needed for the output. Install an FFmpeg build that provides the named
+capability. Alternatively, remove the operation that requires that capability.
 
 Capabilities needed only by unreachable operations do not reject the render.
 External programs are responsible for any additional FFmpeg features they
@@ -128,12 +130,13 @@ clipasm render path/to/program.clipasm \
 The destination must use the `.mp4` extension. ClipAsm also requires exactly one
 publishable `Video` among the root program's ordered outputs.
 
-## The output or manifest destination is rejected
+## ClipAsm rejects the output or manifest destination
 
 ClipAsm transactionally replaces existing regular MP4 and manifest files while
 preserving them if publication fails. It rejects unsafe destination collisions.
-Choose a different output path when a reachable input asset, an external
-executable, or an incompatible filesystem object occupies either destination.
+Choose a different output path if a reachable input asset occupies either
+destination. Do the same for an external executable or an incompatible
+filesystem object.
 
 Do not point output at a source asset. Publication writes both the MP4 and
 `<output>.manifest.json`.
@@ -143,25 +146,26 @@ for the reported destination or publication code.
 
 ## An external program fails or hangs
 
-External programs are trusted native code and are not sandboxed or given a
-ClipAsm execution timeout. Review the external declaration, executable, scripts,
-and declared file arguments before rendering.
+External programs are trusted native code. ClipAsm does not sandbox them or set
+an execution timeout. Review the external declaration, executable, scripts, and
+declared file arguments before rendering.
 
-Run `validate` and `inspect` first; they do not execute the external process. If
-rendering fails, reproduce the problem with the smallest trusted project and
-inspect the process's reported failure. A hung process may need to be terminated
-using the operating system's normal process controls.
+Run `validate` and `inspect` first. These commands do not execute the external
+process. If rendering fails, reproduce the problem with the smallest trusted
+project. Then inspect the process's reported failure. Use the operating system's
+normal controls to stop a process that hangs.
 
 See [Review and run an external program](external-programs.md) and
 [External programs and the trust boundary](../concepts/external-programs-and-trust.md).
 The [external-program diagnostics](../diagnostics/index.html#external-programs)
 section explains protocol and process failures.
 
-## A cached artifact is not reused
+## ClipAsm does not reuse a cached artifact
 
 Cache reuse requires matching semantic, prepared, tool, and artifact identities.
-Changes to source meaning, media bytes, declared external files, relevant
-project settings, or FFmpeg and FFprobe builds can produce a cache miss.
+Changes to source meaning or media bytes can produce a cache miss. Changes to
+declared external files or project settings can also produce a miss. FFmpeg and
+FFprobe build changes can have the same result.
 
 A cache miss is not a correctness failure. ClipAsm renders the missing artifact
 and stores a verified replacement. Do not edit cache artifacts or sidecars by
@@ -171,16 +175,17 @@ For a cache lock or filesystem error, use the
 [cache and filesystem diagnostics](../diagnostics/index.html#cache-and-filesystem)
 section to determine whether retrying is appropriate.
 
-## Inspection output is surprising
+## Inspection output differs from your expectations
 
-`inspect` prints compiled JSON, not source code, a render plan, or a rendered preview. Focus on graph relationships such as `nodes`, `outputs`,
-and `named_values`; source metadata, hashes, and format details may change as the
-internal serialization evolves.
+`inspect` prints compiled JSON. It does not print source code, a render plan, or
+a rendered preview. Focus on graph relationships such as `nodes`, `outputs`,
+and `named_values`. Source metadata, hashes, and format details can change with
+the internal serialization.
 
 Use the [pipeline explanation](../concepts/pipeline.md) to distinguish compiled
 semantics from preflight and rendering.
 
-## An internal diagnostic is reported
+## ClipAsm reports an internal diagnostic
 
 An [internal-contract diagnostic](../diagnostics/index.html#internal) usually
 means user input exposed a ClipAsm defect rather than a source mistake. Preserve

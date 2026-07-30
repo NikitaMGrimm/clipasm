@@ -2,14 +2,14 @@
 
 ClipAsm lets you compose work in three related ways:
 
-- callable programs create or transform values;
-- a stack block groups statements and returns the values left by that group;
+- Callable programs create or transform values.
+- A stack block groups statements and returns the values left by that group.
 - `clip` is shorthand for building one reusable timeline value.
 
 From an author's perspective, all three are composition tools. Only callable
-programs have registered names and call signatures, so `clipasm programs` lists
-built-ins such as `image`, `concat`, and `during`, but not `clip` or a bare
-`{ ... }` block.
+programs have registered names and call signatures. The `clipasm programs`
+command lists built-ins such as `image`, `concat`, and `during`. It does not
+list `clip` or a bare `{ ... }` block.
 
 ## `clip`
 
@@ -42,8 +42,8 @@ The equivalent explicit form is:
 The compiler performs that expansion in memory. Diagnostics still refer to the
 authored `clip`, not the generated `concat` or `drop`.
 
-`clip` accepts no scalar arguments. A type argument such as `clip<Audio>` may be
-used when the result type cannot be inferred.
+`clip` accepts no scalar arguments. Use a type argument such as `clip<Audio>`
+when the compiler cannot infer the result type.
 
 ## Stack blocks
 
@@ -79,12 +79,12 @@ ordered multi-output result. Naming does not consume or move a value.
 
 Graph names are immutable and unique within one source-program invocation.
 Names created in nested bodies or blocks remain available in the containing
-source program. Forward references are allowed when their dependencies can be
-resolved; cycles are errors.
+source program. The compiler permits forward references when it can resolve
+their dependencies. Cycles are errors.
 
 Body-input names such as `$before`, `$after`, and `$timeline` exist only while
-that body is active and temporarily shadow an outer graph name of the same name.
-Scalar aliases follow separate lexical-scope rules.
+that body is active. They temporarily shadow an outer graph name with the same
+name. Scalar aliases follow separate lexical-scope rules.
 
 ## Choosing a form
 

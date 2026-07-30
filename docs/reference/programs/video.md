@@ -31,7 +31,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Creates a new timeline when it returns Video or Audio.
+The program creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -43,12 +43,12 @@ video("assets/scene.mp4", contain)
 
 Expected validation result: `Video` with a source-dependent frame domain resolved during preflight.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- Compilation remains media-pure; preflight probes the source and resolves its exact project-frame domain.
-- The source is fitted to the project Video dimensions while preserving its resolved duration.
+- Compilation remains media-pure. Preflight probes the source and resolves its exact project-frame domain.
+- Preflight fits the source to the project Video dimensions and preserves its resolved duration.
 
 ## See also
 

@@ -34,7 +34,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Keeps the selected range from `value` and preserves only markers fully inside it.
+The program keeps the selected range from `value`. It preserves only markers that are fully inside the range.
 
 ## Example
 
@@ -53,12 +53,13 @@ trim(1s..3s)
 
 Expected validation result: `Video` with exactly 60 project frames at the example's explicit `fps = 30`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
-- Absolute ranges and rooted timeline-marker ranges are accepted for both Video and Audio.
-- Complete child placements inside the selected range are preserved and rebased; partial or uncertain placements are omitted.
+- ClipAsm accepts absolute ranges and rooted timeline-marker ranges for both Video and Audio.
+- ClipAsm preserves and rebases complete child placements inside the selected range.
+- ClipAsm omits partial or uncertain placements.
 - Media-dependent marker boundaries remain deferred until preflight resolves the source domain.
 
 ## Requirements

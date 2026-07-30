@@ -30,7 +30,7 @@ Default stack access is **owned**. See [stack binding](../language/stack-binding
 
 ## Timeline and markers
 
-Creates a new timeline when it returns Video or Audio.
+The program creates a new timeline when it returns Video or Audio.
 
 ## Example
 
@@ -43,7 +43,7 @@ extract_audio
 
 Expected validation result: `Audio`.
 
-This exact example is parsed and compiled by the reference checks; compilation does not inspect the named media files.
+The reference checks parse and compile this exact example. Compilation does not inspect the named media files.
 
 ## Behavior
 
@@ -51,7 +51,7 @@ This exact example is parsed and compiled by the reference checks; compilation d
 
 ## Requirements
 
-- The Video must carry meaningful attached Audio; extracting from a silent Video cannot create Audio content.
+- The Video must carry meaningful attached Audio. A silent Video cannot produce Audio content.
 
 ## See also
 

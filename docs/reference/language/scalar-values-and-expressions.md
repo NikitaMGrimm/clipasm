@@ -5,7 +5,7 @@ floating point.
 
 ## Numbers and integers
 
-Number values are reduced rational values. Integer literals, decimals,
+ClipAsm represents Number values as reduced rational values. Integer literals, decimals,
 percentages, arithmetic, and scalar references remain exact:
 
 ```clipasm
@@ -50,9 +50,9 @@ image("bad.png", (5 / 2)ms)   # error: ms requires Integer
 image("bad.png", 5 / 2ms)     # error: Number / Duration is undefined
 ```
 
-`f` is resolved on the configured project video frame grid. It is useful for
-machine-generated edits because boundaries remain exact even when one frame
-cannot be represented on the nanosecond authoring grid:
+ClipAsm resolves `f` on the configured project video frame grid. It is useful
+for machine-generated edits. Boundaries remain exact even when the nanosecond
+authoring grid cannot represent one frame:
 
 ```clipasm
 config { video { fps = 30 } }
@@ -62,10 +62,10 @@ trim(3f..15f)
 flash_cut(3f)
 ```
 
-For Video, a project-frame range is used directly. For Audio, each frame
+ClipAsm uses a project-frame range directly for Video. For Audio, each frame
 boundary maps to the corresponding boundary on the configured project sample
-grid. At 30 fps and 48 kHz, `3f..8f` therefore maps exactly to samples
-`4800..12800`; cumulative boundaries do not drift.
+grid. At 30 fps and 48 kHz, `3f..8f` maps exactly to samples `4800..12800`.
+Cumulative boundaries do not drift.
 
 Duration is distinct from Number. Both unit families support unary signs,
 addition, and subtraction, but one expression cannot mix wall-clock and
@@ -79,11 +79,11 @@ during((1s + 500ms)..3s) { repeat(2) }
 image("bad.png", 1s + 3f) # error: Duration families differ
 ```
 
-Negative values are allowed as intermediate scalar results. At a program
-parameter boundary, wall-clock Duration must be nonnegative and exactly
-representable on ClipAsm's nanosecond authoring grid, while project-frame
-Duration must be a nonnegative integer within the supported frame count. Both
-endpoints of a range must use the same unit family.
+Intermediate scalar results can be negative. At a program parameter boundary,
+wall-clock Duration must be nonnegative. It must also have an exact
+representation on ClipAsm's nanosecond authoring grid. Project-frame Duration
+must be a nonnegative integer within the supported frame count. Both endpoints
+of a range must use the same unit family.
 
 Either family may offset a timeline coordinate. Project-frame offsets remain
 on the frame grid until the final Video frame or Audio sample boundary is
@@ -113,20 +113,23 @@ repeat($count)
 ```
 
 Each program body is a scalar scope. Aliases in that body may refer forward to
-one another, and aliases from enclosing bodies remain visible. A nested alias
-does not escape its body; sibling bodies may reuse the same name. Declaring an
-alias that shadows a visible alias, or collides with a program input, parameter,
-or named graph value, is an error.
+one another. Aliases from enclosing bodies remain visible. A nested alias does
+not escape its body. Sibling bodies may reuse the same name.
 
-### When aliases are checked
+An alias cannot shadow a visible alias. It also cannot collide with a program
+input, parameter, or named graph value.
 
-Every alias is structurally checked when its body is compiled: references must
-resolve, operators must type-check, and dependency cycles are rejected even when
-the alias is unused. Exact evaluation still happens only when an actual scalar
-use reaches the alias. Unused division by zero, mixed timeline roots,
-out-of-bounds coordinates, and destination parameter failures therefore remain
-inert until use. Timeline selectors in aliases may capture lexical body inputs,
-but do not borrow a contextual timeline root from a later invocation.
+### When the compiler checks aliases
+
+The compiler checks the structure of every alias in a body. References must
+resolve, operators must type-check, and the compiler rejects dependency cycles.
+These checks also apply to unused aliases. Exact evaluation occurs only when a
+scalar use reaches the alias. Errors such as unused division by zero do not
+occur until use. The same rule applies to mixed timeline roots, out-of-bounds
+coordinates, and destination parameter failures.
+
+Timeline selectors in aliases may capture lexical body inputs. They do not
+borrow a contextual timeline root from a later invocation.
 
 See [Timeline selectors and ranges](timeline-selectors.md) for placement
 selectors, timeline coordinates, and marker arithmetic.
