@@ -7,7 +7,7 @@ use super::lexer::{Token, TokenKind, lex};
 use super::syntax::{
     Argument, AudioConfigDeclaration, BinaryOperator, Block, ConfigDeclaration, Declaration,
     Expression, ExternalArgumentDeclaration, ExternalDeclaration, InputDeclaration, Invocation,
-    OutputBindings, ParameterDeclaration, PathDeclaration, PostfixOperator, Scalar,
+    OutputBinding, OutputBindings, ParameterDeclaration, PathDeclaration, PostfixOperator, Scalar,
     ScalarExpression, SourceFileSyntax, Statement, UnaryOperator, VideoConfigDeclaration,
 };
 
@@ -876,30 +876,39 @@ impl Parser {
         }
         if !self.consume(&TokenKind::LeftParen) {
             return Ok(OutputBindings::One(
-                self.expect_identifier("an output name after `as`")?,
+                self.parse_output_binding("an output binding after `as`")?,
             ));
         }
 
         let span = self.previous().span.clone();
         self.skip_newlines();
-        let mut names = Vec::new();
+        let mut bindings = Vec::new();
         loop {
-            names.push(self.expect_identifier("an output name")?);
+            bindings.push(self.parse_output_binding("an output binding")?);
             self.skip_newlines();
             if self.consume(&TokenKind::RightParen) {
                 break;
             }
-            self.expect(&TokenKind::Comma, "`,` between output names")?;
+            self.expect(&TokenKind::Comma, "`,` between output bindings")?;
             self.skip_newlines();
         }
-        if names.len() < 2 {
+        if bindings.len() < 2 {
             return Err(Diagnostic::builtin(
                 BuiltinDiagnostic::InvalidOutputBinding,
-                "parenthesized output binding must contain at least two names",
+                "parenthesized output binding must contain at least two bindings",
                 span,
             ));
         }
-        Ok(OutputBindings::Many(names, span))
+        Ok(OutputBindings::Many(bindings, span))
+    }
+
+    fn parse_output_binding(&mut self, expected: &str) -> Result<OutputBinding> {
+        let binding = self.expect_identifier(expected)?;
+        if binding.value == "_" {
+            Ok(OutputBinding::Discard(binding.span))
+        } else {
+            Ok(OutputBinding::Name(binding))
+        }
     }
 
     fn parse_access(&mut self) -> Result<Option<Spanned<StackAccess>>> {
@@ -1143,22 +1152,22 @@ mod tests {
             Some(StackAccess::Visible)
         );
         assert_eq!(block.statements.len(), 2);
-        let OutputBindings::Many(names, _) = &syntax.statements[0].output_bindings else {
+        let OutputBindings::Many(bindings, _) = &syntax.statements[0].output_bindings else {
             panic!("multiple bindings");
         };
-        assert_eq!(
-            names
-                .iter()
-                .map(|name| name.value.as_str())
-                .collect::<Vec<_>>(),
-            vec!["picture", "sound"]
-        );
+        let [OutputBinding::Name(picture), OutputBinding::Name(sound)] = bindings.as_slice() else {
+            panic!("named bindings");
+        };
+        assert_eq!(picture.value, "picture");
+        assert_eq!(sound.value, "sound");
     }
 
     #[test]
     fn parses_hyphenated_output_bindings_and_references() {
         let syntax = parse_text("clipasm 1\nimage(\"card.png\", 1s) as test-name\n$test-name\n");
-        let OutputBindings::One(binding) = &syntax.statements[0].output_bindings else {
+        let OutputBindings::One(OutputBinding::Name(binding)) =
+            &syntax.statements[0].output_bindings
+        else {
             panic!("single output binding");
         };
         assert_eq!(binding.value, "test-name");
@@ -1166,6 +1175,31 @@ mod tests {
             panic!("reference");
         };
         assert_eq!(reference.value, "test-name");
+    }
+
+    #[test]
+    fn parses_discard_output_bindings_as_slots() {
+        let syntax = parse_text("clipasm 1\noperation as (first, _, _)\noperation as _\n");
+        let OutputBindings::Many(bindings, _) = &syntax.statements[0].output_bindings else {
+            panic!("multiple output bindings");
+        };
+        let [
+            OutputBinding::Name(first),
+            OutputBinding::Discard(first_discard),
+            OutputBinding::Discard(second_discard),
+        ] = bindings.as_slice()
+        else {
+            panic!("named and discarded output slots");
+        };
+        assert_eq!(first.value, "first");
+        assert_eq!((first_discard.line, first_discard.column), (2, 22));
+        assert_eq!((second_discard.line, second_discard.column), (2, 25));
+        let OutputBindings::One(OutputBinding::Discard(single)) =
+            &syntax.statements[1].output_bindings
+        else {
+            panic!("single discarded output");
+        };
+        assert_eq!((single.line, single.column), (3, 14));
     }
 
     #[test]
@@ -1239,16 +1273,14 @@ mod tests {
                sound\n\
              )\n",
         );
-        let OutputBindings::Many(names, _) = &syntax.statements[0].output_bindings else {
+        let OutputBindings::Many(bindings, _) = &syntax.statements[0].output_bindings else {
             panic!("multi-output binding");
         };
-        assert_eq!(
-            names
-                .iter()
-                .map(|name| name.value.as_str())
-                .collect::<Vec<_>>(),
-            ["picture", "sound"]
-        );
+        let [OutputBinding::Name(picture), OutputBinding::Name(sound)] = bindings.as_slice() else {
+            panic!("named bindings");
+        };
+        assert_eq!(picture.value, "picture");
+        assert_eq!(sound.value, "sound");
     }
 
     #[test]

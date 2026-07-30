@@ -418,9 +418,9 @@ mod tests {
     use super::*;
     use crate::program::StackAccess;
     use crate::source::{
-        ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
-        ProgramBody, ProjectSettings, ScalarExpression, SourcePackage, SourceProgram,
-        SourceProgramImplementation, SourceUnit, SourceUnitId, StackBlock,
+        ArgumentValue, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBinding,
+        OutputBindings, ProgramBody, ProjectSettings, ScalarExpression, SourcePackage,
+        SourceProgram, SourceProgramImplementation, SourceUnit, SourceUnitId, StackBlock,
     };
     use crate::source::{SourceFile, SourceSpan, Spanned};
 
@@ -537,8 +537,14 @@ mod tests {
                             }),
                             output_bindings: OutputBindings::Many(
                                 vec![
-                                    Spanned::new("picture".to_owned(), span.clone()),
-                                    Spanned::new("sound".to_owned(), span.clone()),
+                                    OutputBinding::Name(Spanned::new(
+                                        "picture".to_owned(),
+                                        span.clone(),
+                                    )),
+                                    OutputBinding::Name(Spanned::new(
+                                        "sound".to_owned(),
+                                        span.clone(),
+                                    )),
                                 ],
                                 span.clone(),
                             ),

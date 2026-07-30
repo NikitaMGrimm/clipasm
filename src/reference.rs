@@ -730,9 +730,9 @@ pub enum TimelineBehavior {
     },
     /// Create before, overlap, and after transition regions.
     Crossfade {
-        /// First Video input.
+        /// First Video or Audio input.
         before: String,
-        /// Second Video input.
+        /// Second matching input.
         after: String,
     },
 }

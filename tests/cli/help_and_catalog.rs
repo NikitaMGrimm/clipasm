@@ -255,7 +255,7 @@ Effects
 
 Transitions
   flash_cut — Join two Videos with a brief white-flash transition.
-  crossfade — Overlap two Videos with a crossfade transition.
+  crossfade — Overlap two Videos or Audio values with a crossfade transition.
 
 Body programs
   join — Transform and concatenate two Video or Audio timelines in a body.
@@ -389,23 +389,23 @@ Related built-in programs:
             "crossfade",
             "\
 Built-in program: crossfade
-Overlap two Videos with a crossfade transition.
+Overlap two Videos or Audio values with a crossfade transition.
 
 Call shape (reference notation; not declaration syntax):
-  crossfade(before: Video, after: Video, duration?: Duration) -> Video
+  crossfade<T: Video | Audio>(before: T, after: T, duration?: Duration) -> T
 
 Inputs:
-  before: Video
-  after: Video
+  before: T
+  after: T
 
 Parameters:
   duration: Duration (optional; default: 500ms)
 
 Outputs:
-  Video
+  T
 
 Generic type:
-  not generic
+  one homogeneous Video or Audio type; use <Video> or <Audio> when ambiguous
 
 Stack access:
   owned
@@ -417,14 +417,16 @@ Timeline:
   creates overlapping regions from `before` and `after`
 
 Behavior:
-  - duration becomes the smallest whole project-frame count that covers the authored duration.
+  - For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.
+  - Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.
   - The output exposes before, overlap, and after timeline regions.
 
 Constraints:
-  - duration must cover at least one project frame and cannot exceed either input Video.
+  - before and after must have the same Video or Audio type.
+  - duration must cover at least one native frame or sample and cannot exceed either input.
 
 Important diagnostics:
-  E_INVALID_CROSSFADE_DURATION
+  E_INVALID_CROSSFADE_DURATION, E_CROSSFADE_AUDIO_DURATION
 
 Example:
   image(\"assets/before.png\", 2s)

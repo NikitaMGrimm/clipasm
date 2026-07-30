@@ -7,7 +7,7 @@ contracts. Always read the version field before decoding a document.
 
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
-| Compiled inspection JSON | `format_version: 22` | `clipasm inspect` | source-analysis and diagnostic tooling |
+| Compiled inspection JSON | `format_version: 23` | `clipasm inspect` | source-analysis and diagnostic tooling |
 | Render manifest | `format_version: 1` | successful native render | automation and render provenance |
 | External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
 
@@ -72,7 +72,7 @@ user's permissions. This protocol is not a sandbox.
 
 ## Internal formats
 
-**Prepared inspection JSON** (`format_version: 13`) and the **Browser render plan**
+**Prepared inspection JSON** (`format_version: 14`) and the **Browser render plan**
 (`version: 1`, `recipe_contract: 2`) are internal to matching ClipAsm components.
 They may help when you debug ClipAsm. They are not persistence or interchange
 contracts.

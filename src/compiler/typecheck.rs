@@ -958,26 +958,30 @@ fn constrain_bindings(
     item.validate_output_binding_count(outputs.len())?;
     match &item.output_bindings {
         OutputBindings::None => {}
-        OutputBindings::One(name) => {
+        OutputBindings::One(binding) => {
             let [output] = outputs else {
                 unreachable!("validated single output binding")
             };
-            equate(
-                arena,
-                value_slot(globals, &name.value, &name.span)?,
-                *output,
-                &item.origin.span,
-            )?;
-        }
-        OutputBindings::Many(names, _) => {
-            debug_assert_eq!(names.len(), outputs.len());
-            for (name, output) in names.iter().zip(outputs) {
+            if let Some(name) = binding.name() {
                 equate(
                     arena,
                     value_slot(globals, &name.value, &name.span)?,
                     *output,
                     &item.origin.span,
                 )?;
+            }
+        }
+        OutputBindings::Many(bindings, _) => {
+            debug_assert_eq!(bindings.len(), outputs.len());
+            for (binding, output) in bindings.iter().zip(outputs) {
+                if let Some(name) = binding.name() {
+                    equate(
+                        arena,
+                        value_slot(globals, &name.value, &name.span)?,
+                        *output,
+                        &item.origin.span,
+                    )?;
+                }
             }
         }
     }

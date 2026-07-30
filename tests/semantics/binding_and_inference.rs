@@ -84,6 +84,47 @@ fn parenthesized_output_names_follow_reordered_reference_occurrences() {
 }
 
 #[test]
+fn discarded_output_binding_keeps_its_unnamed_stack_occurrence() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n@owned {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 2s)\n  image(\"c.ppm\", 3s)\n} as (first, _, third)\nconcat as edit\ntrim(value=$edit, range=$edit::third)\n",
+    );
+
+    let compiled = compiler::compile(&workflow).expect("discarded output binding");
+    assert_last_slice_range(&compiled, 30, 60);
+    let block = compiled
+        .explain()
+        .iter()
+        .find(|entry| entry.construct() == "stack block")
+        .expect("stack-block explain entry");
+    assert_eq!(
+        block
+            .outputs()
+            .iter()
+            .map(clipasm::compiler::ExplainOutput::id)
+            .collect::<Vec<_>>(),
+        vec![Some("first"), None, Some("third")]
+    );
+}
+
+#[test]
+fn repeated_discard_bindings_create_no_timeline_placement() {
+    let (_directory, workflow) = project(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\n@owned {\n  image(\"a.ppm\", 1s)\n  image(\"b.ppm\", 2s)\n  image(\"c.ppm\", 3s)\n} as (_, _, third)\nconcat as edit\ntrim(value=$edit, range=$edit::_)\n",
+    );
+
+    let error = compiler::compile(&workflow).expect_err("discard is not a placement name");
+    assert_eq!(error.code, "E_UNKNOWN_TIMELINE_PLACEMENT");
+    let layout = error.notes.join("\n");
+    assert_eq!(
+        layout
+            .matches("<unnamed> (not directly addressable)")
+            .count(),
+        2
+    );
+    assert!(layout.contains("third"));
+}
+
+#[test]
 fn body_input_ids_preserve_same_typed_descriptor_slots() {
     let (_directory, workflow) = project(
         "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 } }\nimage(\"a.ppm\", 1s)\nimage(\"b.ppm\", 2s)\njoin {\n  drop\n  drop\n  $before\n  repeat(2)\n  $after\n  repeat(3)\n  concat\n}\n",

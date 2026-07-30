@@ -2,12 +2,12 @@
 
 # crossfade
 
-Overlap two Videos with a crossfade transition.
+Overlap two Videos or Audio values with a crossfade transition.
 
 ## Call shape
 
 ```text
-crossfade(before: Video, after: Video, duration?: Duration) -> Video
+crossfade<T: Video | Audio>(before: T, after: T, duration?: Duration) -> T
 ```
 
 This is call-shape notation for lookup, not ClipAsm declaration syntax.
@@ -16,8 +16,8 @@ This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
 | Name | Type | Cardinality |
 | --- | --- | --- |
-| `before` | `Video` | exactly one |
-| `after` | `Video` | exactly one |
+| `before` | `T` | exactly one |
+| `after` | `T` | exactly one |
 
 ## Parameters and defaults
 
@@ -27,7 +27,9 @@ This is call-shape notation for lookup, not ClipAsm declaration syntax.
 
 ## Result and stack behavior
 
-Outputs: `Video`.
+Outputs: `T`.
+
+All `T` inputs and outputs use one homogeneous type: Video or Audio. Use an explicit `<Video>` or `<Audio>` argument when the accessible stack makes inference ambiguous.
 
 Default stack access is **owned**. See [stack binding](../language/stack-binding.md) for ownership and visibility rules.
 
@@ -57,18 +59,21 @@ The reference checks parse and compile this exact example. Compilation does not 
 
 ## Behavior
 
-- duration becomes the smallest whole project-frame count that covers the authored duration.
+- For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.
+- Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.
 - The output exposes before, overlap, and after timeline regions.
 
 ## Requirements
 
-- duration must cover at least one project frame and cannot exceed either input Video.
+- before and after must have the same Video or Audio type.
+- duration must cover at least one native frame or sample and cannot exceed either input.
 
 ## Common diagnostics
 
 These are the diagnostics most specific to this program.
 
 - [`E_INVALID_CROSSFADE_DURATION`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_invalid_crossfade_duration) — Invalid crossfade duration
+- [`E_CROSSFADE_AUDIO_DURATION`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_crossfade_audio_duration) — Invalid crossfade audio duration
 
 ## See also
 

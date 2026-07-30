@@ -45,7 +45,7 @@ The type shapes below are lookup notation, not ClipAsm declaration syntax. See [
 | Program | Summary | Type shape | Properties |
 | --- | --- | --- | --- |
 | [`flash_cut`](flash_cut.md) | Join two Videos with a brief white-flash transition. | `(Video, Video) -> Video` | — |
-| [`crossfade`](crossfade.md) | Overlap two Videos with a crossfade transition. | `(Video, Video) -> Video` | — |
+| [`crossfade`](crossfade.md) | Overlap two Videos or Audio values with a crossfade transition. | `(T, T) -> T` | generic |
 
 ### Body programs
 

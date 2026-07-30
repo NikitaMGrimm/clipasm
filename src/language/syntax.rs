@@ -212,6 +212,12 @@ pub(crate) struct Block {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum OutputBindings {
     None,
-    One(Spanned<String>),
-    Many(Vec<Spanned<String>>, SourceSpan),
+    One(OutputBinding),
+    Many(Vec<OutputBinding>, SourceSpan),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum OutputBinding {
+    Name(Spanned<String>),
+    Discard(SourceSpan),
 }

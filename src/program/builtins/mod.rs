@@ -421,19 +421,24 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             transitions::crossfade(),
             BuiltinMetadata::new(
                 BuiltinCategory::Transitions,
-                "Overlap two Videos with a crossfade transition.",
+                "Overlap two Videos or Audio values with a crossfade transition.",
                 "image(\"assets/before.png\", 2s)\nimage(\"assets/after.png\", 2s)\ncrossfade",
             )
             .with_defaults(&CROSSFADE_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(105)
-            .with_diagnostics(&[BuiltinDiagnostic::InvalidCrossfadeDuration])
+            .with_diagnostics(&[
+                BuiltinDiagnostic::InvalidCrossfadeDuration,
+                BuiltinDiagnostic::CrossfadeAudioDuration,
+            ])
             .with_behavior_notes(&[
-                "duration becomes the smallest whole project-frame count that covers the authored duration.",
+                "For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.",
+                "Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.",
                 "The output exposes before, overlap, and after timeline regions.",
             ])
             .with_constraints(&[
-                "duration must cover at least one project frame and cannot exceed either input Video.",
+                "before and after must have the same Video or Audio type.",
+                "duration must cover at least one native frame or sample and cannot exceed either input.",
             ])
             .with_related_programs(&["flash_cut"]),
         ),

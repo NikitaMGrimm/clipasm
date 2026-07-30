@@ -193,14 +193,25 @@ impl<'a> GraphBuilder<'a> {
         &mut self,
         before: ValueRef,
         after: ValueRef,
-        frames: FrameCount,
+        duration: crate::model::NativeDuration,
     ) -> Result<ValueRef> {
-        self.require_type(before, ValueType::Video, "before")?;
-        self.require_type(after, ValueType::Video, "after")?;
+        if before.value_type() != after.value_type() || before.value_type() != duration.value_type()
+        {
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::TypeMismatch,
+                format!(
+                    "`crossfade` requires matching Video or Audio inputs and duration, got {}, {}, and {} duration",
+                    before.value_type(),
+                    after.value_type(),
+                    duration.value_type()
+                ),
+                self.origin.span.clone(),
+            ));
+        }
         self.push(SemanticNodeKind::Crossfade {
             before,
             after,
-            frames,
+            duration,
         })
     }
 

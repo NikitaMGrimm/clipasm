@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::external::ExternalInvocation;
 use crate::model::{
-    ExactNumber, FrameCount, ImageFit, NativeRange, TimelineRangeExpression, ValueRef, ValueType,
+    ExactNumber, FrameCount, ImageFit, NativeDuration, NativeRange, TimelineRangeExpression,
+    ValueRef, ValueType,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -63,7 +64,7 @@ pub(crate) enum SemanticNodeKind {
     Crossfade {
         before: ValueRef,
         after: ValueRef,
-        frames: FrameCount,
+        duration: NativeDuration,
     },
     Concat {
         inputs: Vec<ValueRef>,
@@ -115,7 +116,8 @@ impl SemanticNodeKind {
             Self::Reference { value_type, .. } => *value_type,
             Self::Repeat { input, .. }
             | Self::Slice { input, .. }
-            | Self::DeferredSlice { input, .. } => input.value_type(),
+            | Self::DeferredSlice { input, .. }
+            | Self::Crossfade { before: input, .. } => input.value_type(),
             Self::Concat { inputs } => inputs
                 .first()
                 .expect("semantic concat inputs are nonempty")
@@ -128,7 +130,6 @@ impl SemanticNodeKind {
             | Self::VideoSource { .. }
             | Self::ZoomIn { .. }
             | Self::FlashCut { .. }
-            | Self::Crossfade { .. }
             | Self::SetAudio { .. }
             | Self::AudioOnBlack { .. }
             | Self::ExternalVideo { .. } => ValueType::Video,

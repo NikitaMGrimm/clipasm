@@ -15,6 +15,7 @@ mod transitions;
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
+use crate::model::AudioDomain;
 #[cfg(feature = "native")]
 use crate::preflight::PreparedPlan;
 use crate::preflight::{PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind};
@@ -118,22 +119,7 @@ pub(crate) fn ffmpeg_recipe(
             has_audio,
             ..
         } => media::video_source(context, asset, *fit, *frames, has_audio),
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioSource { asset },
-            domain,
-        } => Ok(audio::source(context, asset, domain)),
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioSlice { input, range },
-            ..
-        } => Ok(audio::slice(context, *input, range.start(), range.end())),
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioRepeat { input, count },
-            domain,
-        } => Ok(audio::repeat(context, *input, count.get(), domain)),
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioConcat { inputs },
-            domain,
-        } => Ok(audio::concat(context, inputs, domain)),
+        PreparedNodeMedia::Audio { kind, domain } => audio_recipe(context, kind, domain),
         PreparedNodeMedia::Video {
             kind: PreparedVideoKind::Slice { input, range },
             ..
@@ -177,10 +163,6 @@ pub(crate) fn ffmpeg_recipe(
             domain,
             ..
         } => timeline::concat(context, inputs, domain),
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::ExtractAudio { video },
-            domain,
-        } => Ok(audio::extract(context, *video, domain)),
         PreparedNodeMedia::Video {
             kind: PreparedVideoKind::SetAudio { audio, video },
             domain,
@@ -199,5 +181,28 @@ pub(crate) fn ffmpeg_recipe(
             "external programs do not have an FFmpeg recipe",
             node.origin().span.clone(),
         )),
+    }
+}
+
+fn audio_recipe(
+    context: &RecipeContext<'_>,
+    kind: &PreparedAudioKind,
+    domain: &AudioDomain,
+) -> Result<FfmpegRecipe> {
+    match kind {
+        PreparedAudioKind::AudioSource { asset } => Ok(audio::source(context, asset, domain)),
+        PreparedAudioKind::AudioSlice { input, range } => {
+            Ok(audio::slice(context, *input, range.start(), range.end()))
+        }
+        PreparedAudioKind::AudioRepeat { input, count } => {
+            Ok(audio::repeat(context, *input, count.get(), domain))
+        }
+        PreparedAudioKind::AudioConcat { inputs } => Ok(audio::concat(context, inputs, domain)),
+        PreparedAudioKind::Crossfade {
+            before,
+            after,
+            samples,
+        } => transitions::audio_crossfade(context, *before, *after, *samples, domain),
+        PreparedAudioKind::ExtractAudio { video } => Ok(audio::extract(context, *video, domain)),
     }
 }

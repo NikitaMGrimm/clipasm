@@ -7,8 +7,9 @@ use crate::diagnostic::Result;
 use crate::external::{ExternalArgumentValue, ExternalInvocation, ExternalParameterValue};
 use crate::identity::PathIdentity;
 use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NativeRange, SampleRange,
-    TimelineExpression, TimelineRangeExpression, ValueRef, ValueType, VideoDomain, VideoSpec,
+    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NativeDuration, NativeRange,
+    SampleRange, TimelineExpression, TimelineRangeExpression, ValueRef, ValueType, VideoDomain,
+    VideoSpec,
 };
 use crate::semantic::{SemanticDependency, SemanticNodeKind};
 
@@ -61,8 +62,13 @@ enum SemanticOperationIdentity<'a> {
     FlashCut {
         frames: FrameCount,
     },
-    Crossfade {
+    #[serde(rename = "crossfade")]
+    CrossfadeFrames {
         frames: FrameCount,
+    },
+    #[serde(rename = "crossfade")]
+    CrossfadeSamples {
+        samples: u64,
     },
     Concat,
     Slice {
@@ -251,8 +257,15 @@ fn operation_identity<'a>(
         SemanticNodeKind::Crossfade {
             before: _,
             after: _,
-            frames,
-        } => SemanticOperationIdentity::Crossfade { frames: *frames },
+            duration,
+        } => match duration {
+            NativeDuration::Frames(frames) => {
+                SemanticOperationIdentity::CrossfadeFrames { frames: *frames }
+            }
+            NativeDuration::Samples(samples) => {
+                SemanticOperationIdentity::CrossfadeSamples { samples: *samples }
+            }
+        },
         SemanticNodeKind::Concat { inputs: _ } => SemanticOperationIdentity::Concat,
         SemanticNodeKind::Slice { input: _, range } => {
             let (unit, range) = native_range_identity(*range);

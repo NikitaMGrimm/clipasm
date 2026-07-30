@@ -72,8 +72,13 @@ enum PreparedOperationIdentity<'a> {
     FlashCut {
         frames: FrameCount,
     },
-    Crossfade {
+    #[serde(rename = "crossfade")]
+    CrossfadeFrames {
         frames: FrameCount,
+    },
+    #[serde(rename = "crossfade")]
+    CrossfadeSamples {
+        samples: u64,
     },
     Concat,
     SetAudio,
@@ -185,7 +190,7 @@ fn video_identity(kind: &PreparedVideoKind) -> PreparedOperationIdentity<'_> {
             before: _,
             after: _,
             frames,
-        } => PreparedOperationIdentity::Crossfade { frames: *frames },
+        } => PreparedOperationIdentity::CrossfadeFrames { frames: *frames },
         PreparedVideoKind::Concat { inputs: _ } => PreparedOperationIdentity::Concat,
         PreparedVideoKind::SetAudio { audio: _, video: _ } => PreparedOperationIdentity::SetAudio,
         PreparedVideoKind::AudioOnBlack { audio: _ } => PreparedOperationIdentity::AudioOnBlack,
@@ -248,6 +253,11 @@ fn audio_identity(kind: &PreparedAudioKind) -> PreparedOperationIdentity<'_> {
             PreparedOperationIdentity::AudioRepeat { count: *count }
         }
         PreparedAudioKind::AudioConcat { inputs: _ } => PreparedOperationIdentity::AudioConcat,
+        PreparedAudioKind::Crossfade {
+            before: _,
+            after: _,
+            samples,
+        } => PreparedOperationIdentity::CrossfadeSamples { samples: *samples },
         PreparedAudioKind::ExtractAudio { video: _ } => PreparedOperationIdentity::ExtractAudio,
     }
 }

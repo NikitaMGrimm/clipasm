@@ -103,6 +103,12 @@ fn add_audio_requirements(
             requirements.require_filters(["concat"]);
             require_normalized_audio(requirements);
         }
+        PreparedAudioKind::Crossfade { .. } => {
+            requirements.require_filters([
+                "asplit", "atrim", "asetpts", "afade", "adelay", "apad", "amix",
+            ]);
+            require_normalized_audio(requirements);
+        }
     }
 }
 
@@ -178,6 +184,21 @@ mod tests {
         );
         for filter in ["blend", "afade", "adelay", "amix", "split", "asplit"] {
             assert!(requirements.requires_filter(filter), "missing {filter}");
+        }
+        add_audio_requirements(
+            RenderPolicy::CURRENT,
+            &PreparedAudioKind::Crossfade {
+                before: NodeId::new(0),
+                after: NodeId::new(1),
+                samples: 1,
+            },
+            &mut requirements,
+        );
+        for filter in ["afade", "adelay", "amix", "asplit"] {
+            assert!(
+                requirements.requires_filter(filter),
+                "missing Audio {filter}"
+            );
         }
         assert!(requirements.requires_encoder("aac"));
     }

@@ -515,8 +515,7 @@ fn validate_timeline_behavior(definition: &ProgramDefinition) -> Result<()> {
             }
             require_timeline_output_type(descriptor, base.value_type)
         }
-        TimelineBehavior::FlashCut { before, after }
-        | TimelineBehavior::Crossfade { before, after } => {
+        TimelineBehavior::FlashCut { before, after } => {
             let before = fixed_timeline_input(descriptor, before, "before")?;
             let after = fixed_timeline_input(descriptor, after, "after")?;
             let video = ValueTypeSpec::Exact(ValueType::Video);
@@ -527,6 +526,17 @@ fn validate_timeline_behavior(definition: &ProgramDefinition) -> Result<()> {
                 )));
             }
             require_timeline_output_type(descriptor, video)
+        }
+        TimelineBehavior::Crossfade { before, after } => {
+            let before = fixed_timeline_input(descriptor, before, "before")?;
+            let after = fixed_timeline_input(descriptor, after, "after")?;
+            if before.value_type != after.value_type {
+                return Err(definition_error(format!(
+                    "program `{}` crossfade inputs must have matching types",
+                    descriptor.name
+                )));
+            }
+            require_timeline_output_type(descriptor, before.value_type)
         }
     }
 }
@@ -850,7 +860,7 @@ mod tests {
         assert!(error.message.contains("output"));
     }
     #[test]
-    fn rejects_transition_timeline_behavior_for_audio() {
+    fn rejects_flash_cut_timeline_behavior_for_audio() {
         let mut definition = definition(
             "bad-audio-transition",
             vec![
@@ -878,5 +888,34 @@ mod tests {
             .expect_err("transition mapping is Video-only");
         assert_eq!(error.code, "E_INVALID_PROGRAM_DEFINITION");
         assert!(error.message.contains("Video"));
+    }
+
+    #[test]
+    fn accepts_crossfade_timeline_behavior_for_audio() {
+        let mut definition = definition(
+            "audio-crossfade",
+            vec![
+                InputPort {
+                    name: "before".to_owned(),
+                    value_type: ValueType::Audio.into(),
+                    cardinality: Cardinality::One,
+                },
+                InputPort {
+                    name: "after".to_owned(),
+                    value_type: ValueType::Audio.into(),
+                    cardinality: Cardinality::One,
+                },
+            ],
+            vec![],
+            ProgramImplementation::Direct(direct_stub),
+        );
+        definition.descriptor.outputs = vec![ValueType::Audio.into()];
+        definition.timeline_behavior = TimelineBehavior::Crossfade {
+            before: InputSlot::new(0),
+            after: InputSlot::new(1),
+        };
+
+        ProgramRegistry::from_definitions(vec![definition])
+            .expect("crossfade timeline behavior supports matching Audio");
     }
 }

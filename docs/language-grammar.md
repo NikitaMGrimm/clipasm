@@ -149,16 +149,26 @@ stack-block         = [ access ], block ;
 
 reference-expression = "$", identifier ;
 
-output-binding      = "as", identifier
+output-binding      = "as", output-binding-slot
                     | "as", "(", { newline },
-                      identifier, { newline }, ",", { newline }, identifier,
-                      { { newline }, ",", { newline }, identifier },
+                      output-binding-slot, { newline }, ",", { newline },
+                      output-binding-slot,
+                      { { newline }, ",", { newline }, output-binding-slot },
                       { newline }, ")" ;
+
+output-binding-slot = identifier ;
 ```
 
 An identifier-led argument expression is an invocation when `(`, `<`, or `{`
 follows it. Program lookup and the
 classification of graph versus scalar arguments happen after parsing.
+
+The identifier `_` is a discard wildcard in an output-binding slot. It occupies
+one output position but creates no graph name or timeline placement. The output
+value remains on the stack. Every other identifier names its corresponding
+output. Parenthesized bindings must contain at least two slots, may contain
+multiple `_` slots, and must contain exactly as many slots as the statement
+produces outputs.
 
 At statement position, absent and empty `arguments` are semantically
 equivalent. After program resolution, an absent `block` becomes an empty body

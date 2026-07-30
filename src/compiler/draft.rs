@@ -7,8 +7,8 @@ use crate::program::{
     Cardinality, ProgramDefinition, ProgramId, ProgramImplementation, StackAccess,
 };
 use crate::source::{
-    ArgumentValue, ItemKind, ItemOrigin, OutputBindings, ProgramBody, ScalarExpression,
-    SourceProgram, SourceSpan, Spanned, StackBlock,
+    ArgumentValue, ItemKind, ItemOrigin, OutputBinding, OutputBindings, ProgramBody,
+    ScalarExpression, SourceProgram, SourceSpan, Spanned, StackBlock,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -145,15 +145,19 @@ impl DraftItem {
     pub(super) fn validate_output_binding_count(&self, output_count: usize) -> Result<()> {
         let (binding, span, valid) = match &self.output_bindings {
             OutputBindings::None => return Ok(()),
-            OutputBindings::One(name) => (
-                "`as name` requires exactly one output".to_owned(),
-                &name.span,
+            OutputBindings::One(binding) => (
+                match binding {
+                    OutputBinding::Name(_) => "`as name` requires exactly one output",
+                    OutputBinding::Discard(_) => "`as _` requires exactly one output",
+                }
+                .to_owned(),
+                binding.span(),
                 output_count == 1,
             ),
-            OutputBindings::Many(names, span) => (
-                format!("`as (...)` contains {} name(s)", names.len()),
+            OutputBindings::Many(bindings, span) => (
+                format!("`as (...)` contains {} binding(s)", bindings.len()),
                 span,
-                names.len() > 1 && output_count == names.len(),
+                bindings.len() > 1 && output_count == bindings.len(),
             ),
         };
         if valid {

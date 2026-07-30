@@ -72,8 +72,8 @@ impl PreflightLowerer<'_> {
             SemanticNodeKind::Crossfade {
                 before,
                 after,
-                frames,
-            } => transitions::crossfade(self, compiled_node, *before, *after, *frames)?,
+                duration,
+            } => transitions::crossfade(self, compiled_node, *before, *after, *duration)?,
             SemanticNodeKind::Concat { inputs } => timeline::concat(self, compiled_node, inputs)?,
             SemanticNodeKind::Slice { input, range } => {
                 timeline::slice(self, compiled_node, *input, *range)?

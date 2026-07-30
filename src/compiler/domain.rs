@@ -1,6 +1,8 @@
 use crate::compiler::evaluate::Evaluation;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{FrameCount, NativeRange, ValueRef, ValueType, VideoDomain, VideoSpec};
+use crate::model::{
+    FrameCount, NativeDuration, NativeRange, ValueRef, ValueType, VideoDomain, VideoSpec,
+};
 use crate::semantic::SemanticNodeKind;
 
 #[derive(Clone)]
@@ -79,14 +81,19 @@ pub(super) fn infer_domains(
             SemanticNodeKind::Crossfade {
                 before,
                 after,
-                frames,
-            } => infer_crossfade_domain(
-                &knowledge[before.id().get() as usize],
-                &knowledge[after.id().get() as usize],
-                *frames,
-                video,
-                &node.origin().span,
-            )?,
+                duration,
+            } => {
+                let NativeDuration::Frames(frames) = duration else {
+                    unreachable!("Video crossfade has a frame duration")
+                };
+                infer_crossfade_domain(
+                    &knowledge[before.id().get() as usize],
+                    &knowledge[after.id().get() as usize],
+                    *frames,
+                    video,
+                    &node.origin().span,
+                )?
+            }
             SemanticNodeKind::Concat { inputs } => {
                 infer_concat_domain(inputs, &knowledge, video, &node.origin().span)?
             }

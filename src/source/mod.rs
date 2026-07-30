@@ -272,8 +272,30 @@ pub(crate) enum SurfaceVisibility {
 #[derive(Clone, Debug)]
 pub(crate) enum OutputBindings {
     None,
-    One(Spanned<String>),
-    Many(Vec<Spanned<String>>, SourceSpan),
+    One(OutputBinding),
+    Many(Vec<OutputBinding>, SourceSpan),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum OutputBinding {
+    Name(Spanned<String>),
+    Discard(SourceSpan),
+}
+
+impl OutputBinding {
+    pub(crate) const fn name(&self) -> Option<&Spanned<String>> {
+        match self {
+            Self::Name(name) => Some(name),
+            Self::Discard(_) => None,
+        }
+    }
+
+    pub(crate) const fn span(&self) -> &SourceSpan {
+        match self {
+            Self::Name(name) => &name.span,
+            Self::Discard(span) => span,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

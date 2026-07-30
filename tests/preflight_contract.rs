@@ -42,6 +42,85 @@ fn write_pcm_wav(directory: &Path, name: &str, sample_rate: u32, samples: u32) {
 }
 
 #[test]
+fn preflight_prepares_audio_crossfade_with_exact_sample_overlap_and_markers() {
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio crossfade preflight test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_pcm_wav(directory.path(), "before.wav", 44_100, 3_000);
+    write_pcm_wav(directory.path(), "after.wav", 44_100, 3_000);
+    let source = directory.path().join("program.clipasm");
+    fs::write(
+        &source,
+        "clipasm 1
+config {
+  video { width = 64
+height = 64
+fps = 29 }
+  audio { sample_rate = 44100 }
+  output = \"final.mp4\"
+}
+image(\"card.ppm\", 1s) as picture
+drop<Video>
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade<Audio>(1f) as transition
+drop<Audio>
+trim<Audio>(value=$transition, range=$transition::before)
+trim<Audio>(value=$transition, range=$transition::overlap)
+trim<Audio>(value=$transition, range=$transition::after)
+concat<Audio>
+set_audio(video=$picture)
+",
+    )
+    .expect("source program");
+
+    let compiled = compile_file(&source).expect("compile Audio crossfade");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight Audio crossfade");
+    let transition = plan
+        .nodes()
+        .iter()
+        .find(|node| matches!(node.audio_kind(), Some(PreparedAudioKind::Crossfade { .. })))
+        .expect("prepared Audio crossfade");
+    match transition.audio_kind().expect("Audio kind") {
+        PreparedAudioKind::Crossfade { samples, .. } => assert_eq!(*samples, 1_521),
+        _ => unreachable!("selected node is a crossfade"),
+    }
+    assert_eq!(
+        transition.audio_domain().expect("Audio domain").samples(),
+        4_479
+    );
+    let mut marker_ranges = plan
+        .nodes()
+        .iter()
+        .filter_map(|node| match node.audio_kind() {
+            Some(PreparedAudioKind::AudioSlice { range, .. }) => Some((range.start(), range.end())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    marker_ranges.sort_unstable();
+    assert_eq!(
+        marker_ranges,
+        vec![(0, 3_000), (1_479, 3_000), (1_479, 4_479)]
+    );
+
+    let document: serde_json::Value =
+        serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
+            .expect("prepared document");
+    assert_eq!(document["format_version"], 14);
+    let crossfade = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "crossfade")
+        .expect("prepared crossfade document");
+    assert_eq!(crossfade["kind"]["samples"], 1_521);
+    assert!(crossfade["kind"].get("frames").is_none());
+}
+
+#[test]
 fn prepared_json_serializes_one_distinguished_result() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");
@@ -59,7 +138,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 13);
+    assert_eq!(document["format_version"], 14);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());

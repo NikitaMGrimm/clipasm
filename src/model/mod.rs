@@ -13,7 +13,7 @@ mod video;
 pub use audio::{AudioDomain, AudioSpec};
 pub use number::Number;
 pub(crate) use number::Number as ExactNumber;
-pub(crate) use time::{DurationValue, NativeRange, SourceTime, SourceTimeRange};
+pub(crate) use time::{DurationValue, NativeDuration, NativeRange, SourceTime, SourceTimeRange};
 pub use time::{FrameCount, FrameRange, SampleRange};
 pub(crate) use timeline::FrameSampleStep;
 pub(crate) use timeline::TimelineRate;

@@ -8,9 +8,9 @@ use crate::compiler::{CompiledProgram, ExplainEntry};
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::external::{ExternalArgumentValue, ExternalInvocation, ExternalParameterValue};
 use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NativeRange, SampleRange,
-    TimelineExpression, TimelineRangeExpression, ValueId, ValueRef, ValueType, VideoDomain,
-    VideoSpec,
+    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NativeDuration, NativeRange,
+    SampleRange, TimelineExpression, TimelineRangeExpression, ValueId, ValueRef, ValueType,
+    VideoDomain, VideoSpec,
 };
 use crate::semantic::{CompiledNode, SemanticNodeKind, SymbolId};
 use crate::source::SourceSpan;
@@ -80,10 +80,17 @@ enum CompiledOperationDocument<'a> {
         after: ValueRef,
         frames: FrameCount,
     },
-    Crossfade {
+    #[serde(rename = "crossfade")]
+    CrossfadeFrames {
         before: ValueRef,
         after: ValueRef,
         frames: FrameCount,
+    },
+    #[serde(rename = "crossfade")]
+    CrossfadeSamples {
+        before: ValueRef,
+        after: ValueRef,
+        samples: u64,
     },
     Concat {
         inputs: &'a [ValueRef],
@@ -254,12 +261,8 @@ fn operation_document<'a>(
         SemanticNodeKind::Crossfade {
             before,
             after,
-            frames,
-        } => CompiledOperationDocument::Crossfade {
-            before: *before,
-            after: *after,
-            frames: *frames,
-        },
+            duration,
+        } => crossfade_document(*before, *after, *duration),
         SemanticNodeKind::Concat { inputs } => CompiledOperationDocument::Concat { inputs },
         SemanticNodeKind::Slice { input, range } => slice_document(*input, *range),
         SemanticNodeKind::DeferredSlice { input, range } => {
@@ -304,6 +307,25 @@ fn operation_document<'a>(
         }
         SemanticNodeKind::ExternalVideo { invocation } => external_video_document(invocation),
     })
+}
+
+fn crossfade_document<'a>(
+    before: ValueRef,
+    after: ValueRef,
+    duration: NativeDuration,
+) -> CompiledOperationDocument<'a> {
+    match duration {
+        NativeDuration::Frames(frames) => CompiledOperationDocument::CrossfadeFrames {
+            before,
+            after,
+            frames,
+        },
+        NativeDuration::Samples(samples) => CompiledOperationDocument::CrossfadeSamples {
+            before,
+            after,
+            samples,
+        },
+    }
 }
 
 fn slice_document<'a>(input: ValueRef, range: NativeRange) -> CompiledOperationDocument<'a> {

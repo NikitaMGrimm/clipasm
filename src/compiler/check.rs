@@ -665,10 +665,16 @@ fn declare_body_outputs(
     for item in &body.items {
         match &item.output_bindings {
             OutputBindings::None => {}
-            OutputBindings::One(name) => declare(&name.value, &name.span)?,
-            OutputBindings::Many(names, _) => {
-                for name in names {
+            OutputBindings::One(binding) => {
+                if let Some(name) = binding.name() {
                     declare(&name.value, &name.span)?;
+                }
+            }
+            OutputBindings::Many(bindings, _) => {
+                for binding in bindings {
+                    if let Some(name) = binding.name() {
+                        declare(&name.value, &name.span)?;
+                    }
                 }
             }
         }
@@ -711,18 +717,22 @@ fn collect_body_names(
     for item in &body.items {
         match &item.output_bindings {
             OutputBindings::None => {}
-            OutputBindings::One(name) => {
+            OutputBindings::One(binding) => {
                 let output_types = binding_output_types(item, definitions, 1)?;
                 let [output] = output_types.as_slice() else {
                     unreachable!("validated single output binding")
                 };
-                insert_local(locals, &name.value, output.clone(), &name.span)?;
+                if let Some(name) = binding.name() {
+                    insert_local(locals, &name.value, output.clone(), &name.span)?;
+                }
             }
-            OutputBindings::Many(names, _) => {
-                let output_types = binding_output_types(item, definitions, names.len())?;
-                debug_assert_eq!(output_types.len(), names.len());
-                for (name, output) in names.iter().zip(output_types) {
-                    insert_local(locals, &name.value, output, &name.span)?;
+            OutputBindings::Many(bindings, _) => {
+                let output_types = binding_output_types(item, definitions, bindings.len())?;
+                debug_assert_eq!(output_types.len(), bindings.len());
+                for (binding, output) in bindings.iter().zip(output_types) {
+                    if let Some(name) = binding.name() {
+                        insert_local(locals, &name.value, output, &name.span)?;
+                    }
                 }
             }
         }

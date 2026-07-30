@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::program::{Cardinality, ProgramDescriptor, ProgramRegistry, StackAccess};
 use crate::source::{
-    ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBindings,
-    ProgramBody, ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
+    ArgumentValue, AudioSettings, Invocation, Item, ItemKind, ItemOrigin, Literal, OutputBinding,
+    OutputBindings, ProgramBody, ProjectSettings, Reference, SOURCE_PROGRAM_DEFAULT_STACK_ACCESS,
     STACK_BLOCK_DEFAULT_STACK_ACCESS, ScalarBinaryOperator,
     ScalarExpression as SourceScalarExpression, ScalarPostfixOperator, ScalarUnaryOperator,
     SourceExternalArgument, SourceExternalImplementation, SourceFile, SourceImport, SourceInput,
@@ -15,8 +15,8 @@ use crate::source::{
 
 use super::syntax::{
     Argument, BinaryOperator, Block, Declaration, Expression, ExternalArgumentDeclaration,
-    OutputBindings as SyntaxOutputBindings, PostfixOperator, Scalar, ScalarExpression,
-    SourceFileSyntax, Statement, UnaryOperator,
+    OutputBinding as SyntaxOutputBinding, OutputBindings as SyntaxOutputBindings, PostfixOperator,
+    Scalar, ScalarExpression, SourceFileSyntax, Statement, UnaryOperator,
 };
 use super::{parser, sugar};
 
@@ -859,10 +859,18 @@ fn collect_body_scalar_alias_names(statements: &[Statement], names: &mut BTreeSe
 fn lower_output_bindings(bindings: &SyntaxOutputBindings) -> OutputBindings {
     match bindings {
         SyntaxOutputBindings::None => OutputBindings::None,
-        SyntaxOutputBindings::One(name) => OutputBindings::One(name.clone()),
-        SyntaxOutputBindings::Many(names, span) => {
-            OutputBindings::Many(names.clone(), span.clone())
-        }
+        SyntaxOutputBindings::One(binding) => OutputBindings::One(lower_output_binding(binding)),
+        SyntaxOutputBindings::Many(bindings, span) => OutputBindings::Many(
+            bindings.iter().map(lower_output_binding).collect(),
+            span.clone(),
+        ),
+    }
+}
+
+fn lower_output_binding(binding: &SyntaxOutputBinding) -> OutputBinding {
+    match binding {
+        SyntaxOutputBinding::Name(name) => OutputBinding::Name(name.clone()),
+        SyntaxOutputBinding::Discard(span) => OutputBinding::Discard(span.clone()),
     }
 }
 

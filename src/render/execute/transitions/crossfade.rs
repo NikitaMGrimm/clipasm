@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{FrameCount, NodeId, TimelineRate, VideoDomain};
+use crate::model::{AudioDomain, FrameCount, NodeId, TimelineRate, VideoDomain};
 use crate::preflight::PreparedNode;
 
 use super::super::filters::normalize_audio;
@@ -19,7 +19,7 @@ pub(super) fn render(
     append_crossfade_video_filter(&mut filter, &layout);
     append_crossfade_audio_filter(
         &mut filter,
-        &layout,
+        &layout.audio_layout(),
         context.audio(),
         context.policy().working_channel_layout(),
     );
@@ -29,6 +29,29 @@ pub(super) fn render(
     recipe.args(["-i"]).artifact(after);
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
     context.append_video_output(&mut recipe);
+    Ok(recipe)
+}
+
+pub(super) fn render_audio(
+    context: &RecipeContext<'_>,
+    before: NodeId,
+    after: NodeId,
+    samples: u64,
+    domain: &AudioDomain,
+) -> Result<FfmpegRecipe> {
+    let layout = AudioCrossfadeLayout::new(context, before, after, samples, domain)?;
+    let mut filter = String::new();
+    append_crossfade_audio_filter(
+        &mut filter,
+        &layout,
+        context.audio(),
+        context.policy().working_channel_layout(),
+    );
+    let mut recipe = FfmpegRecipe::new();
+    recipe.args(["-i"]).artifact(before);
+    recipe.args(["-i"]).artifact(after);
+    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
+    context.append_audio_output(&mut recipe);
     Ok(recipe)
 }
 
@@ -94,7 +117,7 @@ fn append_crossfade_video_filter(filter: &mut String, layout: &CrossfadeLayout) 
 
 fn append_crossfade_audio_filter(
     filter: &mut String,
-    layout: &CrossfadeLayout,
+    layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     channel_layout: &str,
 ) {
@@ -138,7 +161,10 @@ struct CrossfadeAudioSources {
     after_suffix: Option<&'static str>,
 }
 
-fn crossfade_audio_sources(filter: &mut String, layout: &CrossfadeLayout) -> CrossfadeAudioSources {
+fn crossfade_audio_sources(
+    filter: &mut String,
+    layout: &AudioCrossfadeLayout,
+) -> CrossfadeAudioSources {
     let before_branches =
         usize::from(layout.prefix_samples > 0) + usize::from(layout.overlap_samples > 0);
     let (before_prefix, before_overlap) = match before_branches {
@@ -176,7 +202,7 @@ fn crossfade_audio_sources(filter: &mut String, layout: &CrossfadeLayout) -> Cro
 
 fn append_prefix_audio_track(
     filter: &mut String,
-    layout: &CrossfadeLayout,
+    layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     channel_layout: &str,
     source: &str,
@@ -193,7 +219,7 @@ fn append_prefix_audio_track(
 
 fn append_overlap_audio_tracks(
     filter: &mut String,
-    layout: &CrossfadeLayout,
+    layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     channel_layout: &str,
     sources: &CrossfadeAudioSources,
@@ -206,7 +232,7 @@ fn append_overlap_audio_tracks(
         .expect("positive overlap has after Audio");
     let _ = write!(
         filter,
-        "{before}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},afade=t=out:start_sample=0:nb_samples={}:curve=tri,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_before_overlap_track];",
+        "{before}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},afade=t=out:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_before_overlap_track];",
         layout.prefix_samples,
         layout.before_total_samples,
         normalize_audio(layout.overlap_samples, audio, channel_layout),
@@ -217,7 +243,7 @@ fn append_overlap_audio_tracks(
     );
     let _ = write!(
         filter,
-        "{after}atrim=end_sample={},asetpts=PTS-STARTPTS,{},afade=t=in:start_sample=0:nb_samples={}:curve=tri,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_after_overlap_track];",
+        "{after}atrim=end_sample={},asetpts=PTS-STARTPTS,{},afade=t=in:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_after_overlap_track];",
         layout.after_overlap_end_samples,
         normalize_audio(layout.overlap_samples, audio, channel_layout),
         layout.overlap_samples,
@@ -229,7 +255,7 @@ fn append_overlap_audio_tracks(
 
 fn append_suffix_audio_track(
     filter: &mut String,
-    layout: &CrossfadeLayout,
+    layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     channel_layout: &str,
     source: &str,
@@ -263,6 +289,18 @@ struct CrossfadeLayout {
 }
 
 impl CrossfadeLayout {
+    fn audio_layout(&self) -> AudioCrossfadeLayout {
+        AudioCrossfadeLayout {
+            prefix_samples: self.prefix_samples,
+            overlap_samples: self.overlap_samples,
+            suffix_samples: self.suffix_samples,
+            before_total_samples: self.before_total_samples,
+            after_overlap_end_samples: self.after_overlap_end_samples,
+            after_total_samples: self.after_total_samples,
+            output_samples: self.output_samples,
+        }
+    }
+
     fn new(
         context: &RecipeContext<'_>,
         before: NodeId,
@@ -362,6 +400,95 @@ impl CrossfadeLayout {
             suffix_samples,
             before_total_samples,
             after_overlap_end_samples,
+            after_total_samples,
+            output_samples,
+        })
+    }
+}
+
+#[expect(
+    clippy::struct_field_names,
+    reason = "explicit sample units distinguish this layout from the adjacent frame layout"
+)]
+struct AudioCrossfadeLayout {
+    prefix_samples: u64,
+    overlap_samples: u64,
+    suffix_samples: u64,
+    before_total_samples: u64,
+    after_overlap_end_samples: u64,
+    after_total_samples: u64,
+    output_samples: u64,
+}
+
+impl AudioCrossfadeLayout {
+    fn new(
+        context: &RecipeContext<'_>,
+        before: NodeId,
+        after: NodeId,
+        overlap_samples: u64,
+        domain: &AudioDomain,
+    ) -> Result<Self> {
+        let before_total_samples = context
+            .nodes()
+            .get(before.get() as usize)
+            .and_then(PreparedNode::audio_domain)
+            .ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
+                    format!("crossfade input {} is not an available Audio", before.get()),
+                    context.span().clone(),
+                )
+            })?
+            .samples();
+        let after_total_samples = context
+            .nodes()
+            .get(after.get() as usize)
+            .and_then(PreparedNode::audio_domain)
+            .ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidPlan,
+                    format!("crossfade input {} is not an available Audio", after.get()),
+                    context.span().clone(),
+                )
+            })?
+            .samples();
+        if overlap_samples == 0
+            || overlap_samples > before_total_samples
+            || overlap_samples > after_total_samples
+            || overlap_samples > i64::MAX as u64
+        {
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
+                "prepared Audio crossfade overlap is outside its input domains",
+                context.span().clone(),
+            ));
+        }
+        let output_samples = before_total_samples
+            .checked_add(after_total_samples)
+            .and_then(|combined| combined.checked_sub(overlap_samples))
+            .ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::AudioDurationOverflow,
+                    "Audio crossfade duration exceeds the supported sample count",
+                    context.span().clone(),
+                )
+            })?;
+        if output_samples != domain.samples() {
+            return Err(Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
+                format!(
+                    "prepared Audio crossfade domain has {} samples, but its inputs and overlap require {output_samples}",
+                    domain.samples()
+                ),
+                context.span().clone(),
+            ));
+        }
+        Ok(Self {
+            prefix_samples: before_total_samples - overlap_samples,
+            overlap_samples,
+            suffix_samples: after_total_samples - overlap_samples,
+            before_total_samples,
+            after_overlap_end_samples: overlap_samples,
             after_total_samples,
             output_samples,
         })

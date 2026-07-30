@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{ExactNumber, FrameRate, ValueType};
+use crate::model::{AudioSpec, ExactNumber, FrameRate, TimelineRate, ValueType};
 use crate::source::SourceSpan;
 
 #[derive(
@@ -180,6 +180,22 @@ impl NativeRange {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum NativeDuration {
+    Frames(FrameCount),
+    Samples(u64),
+}
+
+impl NativeDuration {
+    #[must_use]
+    pub(crate) const fn value_type(self) -> ValueType {
+        match self {
+            Self::Frames(_) => ValueType::Video,
+            Self::Samples(_) => ValueType::Audio,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DurationValue {
     WallClock(SourceTime),
@@ -202,6 +218,20 @@ impl DurationValue {
         match self {
             Self::WallClock(duration) => duration.to_covering_frames(fps, span),
             Self::ProjectFrames(frames) => Ok(frames),
+        }
+    }
+
+    pub(crate) fn to_covering_samples(
+        self,
+        video: crate::model::VideoSpec,
+        audio: AudioSpec,
+        span: &SourceSpan,
+    ) -> Result<u64> {
+        match self {
+            Self::WallClock(duration) => duration.to_covering_samples(audio.sample_rate(), span),
+            Self::ProjectFrames(frames) => {
+                TimelineRate::new(video, audio).samples_for_frames(frames, span)
+            }
         }
     }
 }
@@ -301,6 +331,19 @@ impl SourceTime {
             ));
         }
         u64::try_from(numerator / denominator).map_err(|_| {
+            Diagnostic::builtin(
+                BuiltinDiagnostic::AudioDurationOverflow,
+                "duration exceeds the supported audio sample count",
+                span.clone(),
+            )
+        })
+    }
+
+    pub(crate) fn to_covering_samples(self, sample_rate: u32, span: &SourceSpan) -> Result<u64> {
+        let numerator = u128::from(self.nanoseconds) * u128::from(sample_rate);
+        let denominator = 1_000_000_000_u128;
+        let samples = numerator.div_ceil(denominator);
+        u64::try_from(samples).map_err(|_| {
             Diagnostic::builtin(
                 BuiltinDiagnostic::AudioDurationOverflow,
                 "duration exceeds the supported audio sample count",

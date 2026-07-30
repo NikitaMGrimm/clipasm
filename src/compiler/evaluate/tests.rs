@@ -393,6 +393,33 @@ fn multiple_output_bindings_reject_duplicate_names_within_one_tuple() {
 }
 
 #[test]
+fn discarded_output_bindings_keep_values_without_names() {
+    let (workflow, registry) =
+        parse_with_synthetic_outputs("clipasm 1\ntwo_output as (_, kept)\nconcat\n");
+    let compiled = crate::compiler::compile_with_registry(&workflow, &registry).expect("compile");
+
+    assert_eq!(compiled.outputs().len(), 1);
+    assert!(!compiled.named_values().contains_key("_"));
+    assert!(compiled.named_values().contains_key("kept"));
+    let entry = compiled
+        .explain()
+        .iter()
+        .find(|entry| entry.construct() == "two_output")
+        .expect("two-output explain entry");
+    assert_eq!(entry.outputs().len(), 2);
+    assert_eq!(entry.outputs()[0].id(), None);
+    assert_eq!(entry.outputs()[1].id(), Some("kept"));
+}
+
+#[test]
+fn discarded_output_bindings_do_not_participate_in_duplicate_name_checks() {
+    let (workflow, registry) =
+        parse_with_synthetic_outputs("clipasm 1\ntwo_output as (_, _)\nconcat\n");
+    crate::compiler::compile_with_registry(&workflow, &registry)
+        .expect("repeated discard bindings");
+}
+
+#[test]
 fn zero_output_items_leave_the_stack_unchanged() {
     let (workflow, registry) =
         parse_with_synthetic_outputs("clipasm 1\nimage(\"card.png\", 1s)\nzero_output\n");
@@ -421,11 +448,15 @@ fn output_bindings_require_the_exact_supported_cardinality() {
         ),
         (
             "clipasm 1\ntwo_output as (first, second, third)\n",
-            "3 name(s)",
+            "3 binding(s)",
         ),
         (
             "clipasm 1\nimage(\"card.png\", 1s) as (card, extra)\n",
-            "2 name(s)",
+            "2 binding(s)",
+        ),
+        (
+            "clipasm 1\ntwo_output as _\n",
+            "`as _` requires exactly one output",
         ),
         ("clipasm 1\nzero_output as none\n", "produces 0 value(s)"),
     ] {

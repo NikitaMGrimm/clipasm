@@ -112,10 +112,17 @@ enum PreparedOperationDocument<'a> {
         after: NodeId,
         frames: FrameCount,
     },
-    Crossfade {
+    #[serde(rename = "crossfade")]
+    CrossfadeFrames {
         before: NodeId,
         after: NodeId,
         frames: FrameCount,
+    },
+    #[serde(rename = "crossfade")]
+    CrossfadeSamples {
+        before: NodeId,
+        after: NodeId,
+        samples: u64,
     },
     Concat {
         inputs: &'a [NodeId],
@@ -252,7 +259,7 @@ fn video_operation_document(kind: &PreparedVideoKind) -> PreparedOperationDocume
             before,
             after,
             frames,
-        } => PreparedOperationDocument::Crossfade {
+        } => PreparedOperationDocument::CrossfadeFrames {
             before: *before,
             after: *after,
             frames: *frames,
@@ -307,6 +314,15 @@ fn audio_operation_document(kind: &PreparedAudioKind) -> PreparedOperationDocume
         PreparedAudioKind::AudioConcat { inputs } => {
             PreparedOperationDocument::AudioConcat { inputs }
         }
+        PreparedAudioKind::Crossfade {
+            before,
+            after,
+            samples,
+        } => PreparedOperationDocument::CrossfadeSamples {
+            before: *before,
+            after: *after,
+            samples: *samples,
+        },
         PreparedAudioKind::ExtractAudio { video } => {
             PreparedOperationDocument::ExtractAudio { video: *video }
         }

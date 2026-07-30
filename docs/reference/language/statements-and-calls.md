@@ -22,13 +22,36 @@ during(1s..3s) {
 }
 operation as result
 operation as (first, second)
+operation as (first, _, third)
 ```
 
 - `@owned` or `@visible` chooses stack access.
 - `<Video>` or `<Audio>` selects a generic type.
 - `(arguments)` supplies graph or scalar inputs.
 - `{ body }` supplies a body to a body program or language form.
-- `as output` names one or several outputs.
+- `as output` binds one or several output positions.
+
+## Output bindings
+
+An output name creates a graph reference and a timeline placement label for its
+position:
+
+```clipasm
+operation as result
+operation as (first, second)
+```
+
+Use `_` to leave a position unnamed:
+
+```clipasm
+operation as (first, _, third)
+```
+
+The wildcard still occupies an output position, so binding arity remains exact.
+It creates no `$_` reference and no `_` timeline placement. It also does not
+discard the value: the unnamed output remains on the stack for later calls.
+Multiple `_` slots are allowed. For a single-output statement, `as _` is the
+explicit wildcard form and has the same stack effect as omitting `as`.
 
 ## Omitting empty syntax
 

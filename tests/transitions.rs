@@ -105,6 +105,136 @@ fn crossfade_rejects_empty_or_excessive_overlap() {
 }
 
 #[test]
+fn crossfade_infers_audio_and_normalizes_overlap_to_project_samples() {
+    let source = "clipasm 1
+config {
+  video { width = 64
+height = 48
+fps = 29 }
+  audio { sample_rate = 44100 }
+}
+image(\"card.ppm\", 1s) as picture
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade(1f)
+set_audio(video=$picture)
+";
+    let compiled = compile_source(source).expect("generic Audio crossfade");
+    let document: serde_json::Value =
+        serde_json::from_str(&compiled.compiled_json().expect("compiled JSON"))
+            .expect("compiled document");
+    let transition = document["nodes"]
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .find(|node| node["kind"]["operation"] == "crossfade")
+        .expect("Audio crossfade node");
+    assert_eq!(transition["value_type"], "audio");
+    assert_eq!(transition["kind"]["samples"], 1_521);
+    assert!(transition["kind"].get("frames").is_none());
+
+    let source = |call: &str| {
+        format!(
+            "clipasm 1
+image(\"card.ppm\", 1s) as picture
+audio(\"before.wav\")
+audio(\"after.wav\")
+{call}
+set_audio(video=$picture)
+"
+        )
+    };
+    let default = compile_source(&source("crossfade<Audio>")).expect("default Audio crossfade");
+    let explicit =
+        compile_source(&source("crossfade<Audio>(500ms)")).expect("explicit Audio crossfade");
+    assert_eq!(default.structure_hash(), explicit.structure_hash());
+}
+
+#[test]
+fn crossfade_selectors_preserve_video_and_audio_types_and_reject_mixing() {
+    compile_source(
+        "clipasm 1
+config { video { fps = 10 } }
+image(\"before.ppm\", 1s)
+image(\"after.ppm\", 1s)
+crossfade<Video>(500ms)
+",
+    )
+    .expect("explicit Video crossfade");
+    compile_source(
+        "clipasm 1
+image(\"card.ppm\", 1s) as picture
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade<Audio>(500ms)
+set_audio(video=$picture)
+",
+    )
+    .expect("explicit Audio crossfade");
+
+    let error = compile_source(
+        "clipasm 1
+image(\"before.ppm\", 1s) as picture
+audio(\"after.wav\") as sound
+crossfade(before=$picture, after=$sound)
+",
+    )
+    .expect_err("mixed crossfade inputs");
+    assert_eq!(error.code, "E_GENERIC_TYPE_MISMATCH");
+    assert_eq!(
+        error.message,
+        "generic inputs and outputs must resolve to one value type"
+    );
+}
+
+#[test]
+fn audio_crossfade_rejects_empty_or_excessive_overlap() {
+    let error = compile_source(
+        "clipasm 1
+image(\"card.ppm\", 1s) as picture
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade<Audio>(0ms)
+set_audio(video=$picture)
+",
+    )
+    .expect_err("empty Audio overlap");
+    assert_eq!(error.code, "E_INVALID_CROSSFADE_DURATION");
+    assert!(error.message.contains("at least one project sample"));
+
+    if !common::media_tools_available() {
+        eprintln!("skipping excessive Audio overlap test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_constant_audio(&directory.path().join("before.wav"), "0.2");
+    write_constant_audio(&directory.path().join("after.wav"), "-0.2");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1
+config { output = \"result.mp4\" }
+image(\"card.ppm\", 1s) as picture
+drop<Video>
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade<Audio>(2s)
+set_audio(video=$picture)
+",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile deferred Audio overlap");
+    let error = preflight::preflight(&compiled).expect_err("excessive Audio overlap");
+    assert_eq!(error.code, "E_INVALID_CROSSFADE_DURATION");
+    assert!(
+        error
+            .message
+            .contains("`before` contains only 48000 samples")
+    );
+}
+
+#[test]
 fn preflight_checks_crossfade_against_deferred_video_duration() {
     if !common::media_tools_available() {
         eprintln!("skipping deferred crossfade test because FFmpeg/FFprobe are unavailable");
@@ -180,6 +310,76 @@ fn crossfade_renders_a_one_frame_full_overlap() {
         / u64::try_from(WIDTH * HEIGHT).expect("pixel count");
     assert!(red > 80 && blue > 80);
     assert!(red.abs_diff(blue) < 40);
+}
+
+#[test]
+fn standalone_audio_crossfade_renders_exact_equal_power_overlap() {
+    const SAMPLE_RATE: u64 = 48_000;
+    const OVERLAP_SAMPLES: u64 = SAMPLE_RATE / 2;
+    const OUTPUT_SAMPLES: u64 = SAMPLE_RATE * 3 / 2;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping Audio crossfade render test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    write_constant_audio(&directory.path().join("before.wav"), "0.2");
+    write_constant_audio(&directory.path().join("after.wav"), "-0.2");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1
+config {
+  video { width = 64
+height = 48
+fps = 10 }
+  output = \"result.mp4\"
+}
+image(\"card.ppm\", 1500ms, stretch) as picture
+drop<Video>
+audio(\"before.wav\")
+audio(\"after.wav\")
+crossfade<Audio>(500ms)
+set_audio(video=$picture)
+",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile Audio crossfade");
+    let plan = preflight::preflight(&compiled).expect("preflight Audio crossfade");
+    let transition = plan
+        .nodes()
+        .iter()
+        .find(|node| {
+            matches!(
+                node.audio_kind(),
+                Some(preflight::PreparedAudioKind::Crossfade { .. })
+            )
+        })
+        .expect("prepared Audio crossfade");
+    assert_eq!(
+        transition.audio_domain().expect("Audio domain").samples(),
+        OUTPUT_SAMPLES
+    );
+
+    render::render(&plan).expect("render Audio crossfade");
+    let artifact = common::cache_artifact(directory.path(), transition.fingerprint(), "mka");
+    let audio = decode_audio(&artifact);
+    assert_eq!(
+        audio.len(),
+        usize::try_from(OUTPUT_SAMPLES * 2 * 2).expect("Audio byte count")
+    );
+    let sample = |index: u64| {
+        let offset = usize::try_from(index * 4).expect("sample byte offset");
+        i16::from_le_bytes([audio[offset], audio[offset + 1]])
+    };
+    let overlap_start = SAMPLE_RATE - OVERLAP_SAMPLES;
+    assert!(sample(0) > 5_000);
+    assert!(sample(overlap_start) > 5_000);
+    assert!(sample(overlap_start + OVERLAP_SAMPLES / 2).unsigned_abs() < 300);
+    assert!(sample(SAMPLE_RATE - 1) < -5_000);
+    assert!(sample(OUTPUT_SAMPLES - 2) < -5_000);
 }
 
 #[test]

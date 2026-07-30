@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
-    ExactNumber, FrameCount, FrameRate, NativeRange, TimelineExpression, TimelineViewId, ValueRef,
-    ValueType,
+    ExactNumber, FrameRate, NativeDuration, NativeRange, TimelineExpression, TimelineViewId,
+    ValueRef, ValueType,
 };
 use crate::source::SourceSpan;
 
@@ -630,7 +630,7 @@ impl Evaluator {
         outputs: Vec<ValueRef>,
         before: EvaluatedValue,
         after: EvaluatedValue,
-        overlap: Option<FrameCount>,
+        overlap: Option<NativeDuration>,
     ) -> Vec<EvaluatedValue> {
         let zero = TimelineExpression::constant(ExactNumber::from_integer(0));
         let before_extent = self.timeline.views[before.timeline_view.index()]
@@ -639,8 +639,14 @@ impl Evaluator {
         let after_extent = self.timeline.views[after.timeline_view.index()]
             .extent
             .clone();
-        let overlap_extent = overlap
-            .map(|frames| TimelineExpression::constant(frame_seconds(frames.0, self.timeline.fps)));
+        let overlap_extent = overlap.map(|duration| {
+            TimelineExpression::constant(match duration {
+                NativeDuration::Frames(frames) => frame_seconds(frames.0, self.timeline.fps),
+                NativeDuration::Samples(samples) => {
+                    sample_seconds(samples, self.timeline.sample_rate)
+                }
+            })
+        });
         let after_start = overlap_extent.as_ref().map_or_else(
             || before_extent.clone(),
             |overlap| before_extent.subtract(overlap),
@@ -659,7 +665,8 @@ impl Evaluator {
             },
         ];
         if let Some(overlap_extent) = overlap_extent {
-            let overlap_view = self.add_timeline_view(ValueType::Video, overlap_extent, Vec::new());
+            let overlap_view =
+                self.add_timeline_view(before.value.value_type(), overlap_extent, Vec::new());
             children.push(TimelineChild {
                 label: Some("overlap".to_owned()),
                 view: overlap_view,
@@ -1085,8 +1092,8 @@ impl Evaluator {
                 let overlap = outputs
                     .first()
                     .and_then(|value| match self.nodes[value.id().get() as usize].kind() {
-                        crate::semantic::SemanticNodeKind::Crossfade { frames, .. } => {
-                            Some(*frames)
+                        crate::semantic::SemanticNodeKind::Crossfade { duration, .. } => {
+                            Some(*duration)
                         }
                         _ => None,
                     })

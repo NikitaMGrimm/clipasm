@@ -205,7 +205,7 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 22);
+    assert_eq!(document["format_version"], 23);
     assert_eq!(
         compiled.result_domain().expect("known result").frames().0,
         30
@@ -232,7 +232,7 @@ fn source_output_order_changes_compiled_identity() {
 }
 
 #[test]
-fn parenthesized_output_bindings_require_multiple_names() {
+fn parenthesized_output_bindings_require_multiple_slots() {
     for (source, code) in [
         (
             "clipasm 1\nimage(\"card.png\", 1s) as (card)\n",
@@ -275,7 +275,7 @@ fn structural_block_bindings_validate_the_actual_output_sequence() {
     .expect_err("tuple must name every block output");
     assert_eq!(tuple.code, "E_OUTPUT_BINDING_COUNT");
     assert!(tuple.message.contains("produces 3 value(s)"));
-    assert!(tuple.message.contains("contains 2 name(s)"));
+    assert!(tuple.message.contains("contains 2 binding(s)"));
 
     compile_source(
         Path::new("single-valid.clipasm"),
@@ -304,6 +304,27 @@ fn explain_entries_expose_authored_names_and_source_locations() {
     assert_eq!(entry.outputs()[0].id(), Some("card"));
     assert_eq!(entry.span().file(), Path::new("program.clipasm"));
     assert_eq!(entry.span().line, 2);
+}
+
+#[test]
+fn single_discard_binding_has_unnamed_semantics() {
+    let unnamed = compile_source(
+        Path::new("unnamed.clipasm"),
+        "clipasm 1\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("unnamed output");
+    let discarded = compile_source(
+        Path::new("discarded.clipasm"),
+        "clipasm 1\nimage(\"card.ppm\", 1s) as _\n",
+    )
+    .expect("discarded output binding");
+
+    assert_eq!(discarded.structure_hash(), unnamed.structure_hash());
+    assert_eq!(discarded.outputs().len(), 1);
+    assert_eq!(
+        discarded.explain().last().expect("image entry").outputs()[0].id(),
+        None
+    );
 }
 
 #[test]

@@ -312,8 +312,13 @@ fn checked_outputs(
 ) -> Result<Vec<CheckedOutput>> {
     let names = match bindings {
         OutputBindings::None => vec![None; types.len()],
-        OutputBindings::One(name) => vec![Some(name.value)],
-        OutputBindings::Many(names, _) => names.into_iter().map(|name| Some(name.value)).collect(),
+        OutputBindings::One(binding) => {
+            vec![binding.name().map(|name| name.value.clone())]
+        }
+        OutputBindings::Many(bindings, _) => bindings
+            .into_iter()
+            .map(|binding| binding.name().map(|name| name.value.clone()))
+            .collect(),
     };
     debug_assert_eq!(names.len(), types.len());
     names

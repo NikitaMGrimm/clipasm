@@ -1,5 +1,5 @@
 use crate::diagnostic::Result;
-use crate::model::{FrameCount, NodeId, VideoDomain};
+use crate::model::{AudioDomain, FrameCount, NodeId, VideoDomain};
 
 use super::filters::{normalize_audio, samples_for_video};
 use super::recipe::{FfmpegRecipe, RecipeContext};
@@ -62,4 +62,14 @@ pub(super) fn crossfade(
     domain: &VideoDomain,
 ) -> Result<FfmpegRecipe> {
     crossfade::render(context, before, after, frames, domain)
+}
+
+pub(super) fn audio_crossfade(
+    context: &RecipeContext<'_>,
+    before: NodeId,
+    after: NodeId,
+    samples: u64,
+    domain: &AudioDomain,
+) -> Result<FfmpegRecipe> {
+    crossfade::render_audio(context, before, after, samples, domain)
 }

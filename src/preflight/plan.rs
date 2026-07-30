@@ -650,6 +650,15 @@ pub enum PreparedAudioKind {
         /// Upstream Audio nodes in output order.
         inputs: Vec<NodeId>,
     },
+    /// Equal-power overlap between two standalone Audio nodes.
+    Crossfade {
+        /// Audio preceding the overlap.
+        before: NodeId,
+        /// Audio following the overlap.
+        after: NodeId,
+        /// Exact overlap length in project samples.
+        samples: u64,
+    },
     /// The synchronized audio timeline extracted from one Video.
     ExtractAudio {
         /// Upstream audiovisual Video node.
@@ -662,7 +671,11 @@ impl PreparedAudioKind {
         match self {
             Self::AudioSource { .. } => {}
             Self::AudioSlice { input, .. } | Self::AudioRepeat { input, .. } => visitor(*input),
-            Self::AudioConcat { inputs } => inputs.iter().copied().for_each(visitor),
+            Self::AudioConcat { inputs } => inputs.iter().copied().for_each(&mut visitor),
+            Self::Crossfade { before, after, .. } => {
+                visitor(*before);
+                visitor(*after);
+            }
             Self::ExtractAudio { video } => visitor(*video),
         }
     }
