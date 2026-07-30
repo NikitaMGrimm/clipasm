@@ -9,6 +9,7 @@ and behavior, while architecture owns phase responsibilities. Run
 
 | Path | Responsibility |
 | --- | --- |
+| `src/catalog.rs` | Neutral program-signature vocabulary shared by source, language, and executable programs |
 | `src/language` | Native lexer, parser, loader, lowering, and sugar |
 | `src/source` | Lowered authored packages and source locations |
 | `src/program` | Program descriptors, typed calls, and implementations |
@@ -31,7 +32,8 @@ and behavior, while architecture owns phase responsibilities. Run
 | Change lowering or sugar | `src/language/lower.rs`, `sugar.rs` | surface provenance, canonical source, semantic equivalence tests |
 | Change package loading | `src/language/loader.rs`, `src/source` | path bases, deduplication, cycles, aliases, external implementations, imported-program tests |
 | Change canonical source | `src/source`, compiler | draft/checked IR, every traversal, semantic identity |
-| Change checked-source construction | `src/compiler/draft.rs`, `typecheck.rs`, `check.rs`, `checked.rs` | dependencies, signatures, stack plans, evaluator interface |
+| Change checked-source construction | `src/compiler/draft.rs`, `typecheck.rs`, `typecheck/arena.rs`, `check.rs`, `check/materialize.rs`, `checked.rs` | dependencies, signatures, stack plans, evaluator interface |
+| Change scalar expressions or parameter conversion | `src/compiler/parameter.rs`, `parameter/check.rs`, `parameter/duration.rs` | exact arithmetic, type refinement, selectors, aliases, and diagnostics |
 | Add or change a direct program | matching `src/program/builtins` module | catalog reference facts, descriptor order, semantic version, domains, prepared lowering, rendering, identities, generated program reference |
 | Add or change a body program | `src/program/builtins/body.rs` | catalog reference facts, body contract, access default, finalizer, lexical aliases, tests, generated program reference |
 | Change call or stack binding | `src/program/call.rs`, compiler stack/typecheck/evaluate | descriptor slots, cardinality, root and authored calls, diagnostics |
@@ -44,6 +46,7 @@ and behavior, while architecture owns phase responsibilities. Run
 | Change Rust public API | `src/lib.rs`, exported types | Rustdoc, doctests, and downstream impact |
 | Change a machine-readable boundary | serialization owner and `src/contracts.rs` | support level, version bump, reference page, consumers, serialization tests |
 | Change browser compilation or rendering | `playground`, `src/preflight/browser.rs`, `src/render/browser.rs`, `src/render/execute`, `theme` | pure-compilation boundary, virtual paths and hashes, recipe/runtime versions, artifact contracts, work limits, licensing, WebAssembly and book builds |
+| Change a Cargo feature boundary | `Cargo.toml`, `src/lib.rs`, affected phase modules | dependency-light base, native library, playground, default CLI, and all-feature builds |
 | Change public terminology | `docs/reference/language/` or the built-in catalog | generated program reference, concepts, diagnostics, examples |
 | Change internal terminology | `docs/architecture.md` | code names and development docs |
 | Add a dependency | `Cargo.toml`, CI | requirements and execution identity where relevant |

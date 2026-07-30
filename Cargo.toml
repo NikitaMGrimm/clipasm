@@ -48,13 +48,50 @@ path = "src/lib.rs"
 [[bin]]
 name = "clipasm"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "compiler_contract"
+path = "tests/compiler_contract.rs"
+required-features = ["cli"]
 
 [[test]]
 name = "documented_cli"
 path = "tests/documented_cli.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "external_programs"
+path = "tests/external_programs.rs"
+required-features = ["native"]
+
+[[test]]
+name = "preflight_contract"
+path = "tests/preflight_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "render"
+path = "tests/render.rs"
+required-features = ["native"]
+
+[[test]]
+name = "transitions"
+path = "tests/transitions.rs"
+required-features = ["native"]
+
+[features]
+default = ["cli"]
+cli = ["native", "dep:clap", "dep:toml"]
+native = ["dep:command-group", "dep:rustix", "dep:tempfile"]
 
 [dependencies]
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"], optional = true }
 hex = "0.4"
 num-bigint = "0.4"
 num-rational = "0.4"
@@ -62,16 +99,17 @@ num-traits = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tempfile = "3"
-toml = { version = "1.1.3", default-features = false, features = ["parse", "serde", "std"] }
+tempfile = { version = "3", optional = true }
+toml = { version = "1.1.3", default-features = false, features = ["parse", "serde", "std"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", features = ["process"] }
+rustix = { version = "1.1.4", features = ["process"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-command-group = "5.0.1"
+command-group = { version = "5.0.1", optional = true }
 
 [dev-dependencies]
+tempfile = "3"
 trycmd = { version = "1.2.1", default-features = false, features = ["diff"] }
 
 [lints]

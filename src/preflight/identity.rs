@@ -9,7 +9,9 @@ use crate::model::{
 };
 
 use super::plan::{PreparedMedia, WorkingArtifactContract};
+#[cfg(feature = "native")]
 use super::policy::{ArtifactCachePolicy, RenderPolicy};
+#[cfg(feature = "native")]
 use super::tools::ToolIdentity;
 use super::{
     PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue, PreparedNode,
@@ -37,6 +39,7 @@ struct PreparedPlanIdentity<'a> {
 }
 
 #[derive(Serialize)]
+#[cfg(feature = "native")]
 struct CacheIdentity<'a> {
     artifact_cache_policy: ArtifactCachePolicy,
     ffmpeg_build_fingerprint: &'a str,
@@ -269,6 +272,7 @@ pub(super) fn prepared_semantic_hash(
     })
 }
 
+#[cfg(feature = "native")]
 pub(super) fn cache_execution_namespace(
     render_policy: RenderPolicy,
     ffmpeg: &ToolIdentity,
@@ -281,7 +285,7 @@ pub(super) fn cache_execution_namespace(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use std::path::PathBuf;
 

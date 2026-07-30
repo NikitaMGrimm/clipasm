@@ -4,16 +4,22 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+#[cfg(feature = "native")]
 use crate::diagnostic::Result;
 use crate::model::{
-    AudioDomain, AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, ValueType,
-    VideoDomain, VideoSpec,
+    AudioDomain, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, ValueType, VideoDomain,
 };
+#[cfg(feature = "native")]
+use crate::model::{AudioSpec, VideoSpec};
 use crate::semantic::SourceOrigin;
+#[cfg(feature = "native")]
 use crate::source::SourceFile;
 
+#[cfg(feature = "native")]
 use super::policy::RenderPolicy;
-use super::tools::{self, ExternalToolIdentity, ToolIdentity};
+use super::tools::ExternalToolIdentity;
+#[cfg(feature = "native")]
+use super::tools::{self, ToolIdentity};
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -43,6 +49,7 @@ pub enum PreparedExternalArgument {
 /// Every Video node has an exact [`VideoDomain`], every Audio node has an
 /// exact [`AudioDomain`], every source asset has a recorded content hash, and
 /// tool/media policy has been incorporated into the private execution namespace.
+#[cfg(feature = "native")]
 pub struct PreparedPlan {
     format_version: u32,
     engine_version: String,
@@ -62,6 +69,7 @@ pub struct PreparedPlan {
     source_paths: Vec<PathBuf>,
 }
 
+#[cfg(feature = "native")]
 impl PreparedPlan {
     #[expect(
         clippy::too_many_arguments,
@@ -209,7 +217,7 @@ impl PreparedPlan {
 }
 
 #[derive(Clone, Debug)]
-/// One exact renderer primitive in a [`PreparedPlan`].
+/// One exact renderer primitive in a prepared plan.
 pub struct PreparedNode {
     id: NodeId,
     media: PreparedMedia,
@@ -230,6 +238,7 @@ pub(crate) enum WorkingArtifactContract<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg(feature = "native")]
 pub(crate) enum PreparedResource<'a> {
     Asset {
         asset: &'a PreparedAsset,
@@ -238,6 +247,7 @@ pub(crate) enum PreparedResource<'a> {
     ExternalExecutable(&'a ExternalToolIdentity),
 }
 
+#[cfg(feature = "native")]
 impl<'a> PreparedResource<'a> {
     pub(crate) fn path(self) -> &'a Path {
         match self {
@@ -413,6 +423,7 @@ impl PreparedNode {
         }
     }
 
+    #[cfg(feature = "native")]
     pub(crate) fn try_visit_resources<E>(
         &self,
         mut visitor: impl FnMut(PreparedResource<'_>) -> std::result::Result<(), E>,

@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
+#[cfg(feature = "native")]
 use std::process::Command;
 
+#[cfg(feature = "native")]
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, RenderPolicy};
@@ -142,6 +144,7 @@ impl FfmpegRecipe {
         &self.arguments
     }
 
+    #[cfg(feature = "native")]
     pub(super) fn materialize<'a>(
         &self,
         ffmpeg: &Path,
@@ -175,7 +178,7 @@ impl FfmpegRecipe {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use std::ffi::OsStr;
 

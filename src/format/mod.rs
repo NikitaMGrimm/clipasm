@@ -6,6 +6,7 @@ use crate::semantic::SourceOrigin;
 use crate::source::{SourceSpan, Spanned};
 
 pub(crate) mod json;
+#[cfg(feature = "native")]
 pub(crate) mod prepared_json;
 
 #[derive(Serialize)]

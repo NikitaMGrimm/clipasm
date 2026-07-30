@@ -10,7 +10,7 @@ mod name;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::program::{Cardinality, InputPort, ParameterType, StackAccess, ValueTypeSpec};
+use crate::catalog::{Cardinality, InputPort, ParameterType, StackAccess, ValueTypeSpec};
 
 pub(crate) use location::Spanned;
 pub use location::{SourceFile, SourceSpan};

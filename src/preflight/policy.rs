@@ -1,3 +1,4 @@
+#[cfg(feature = "native")]
 use std::path::Path;
 
 use serde::Serialize;
@@ -60,6 +61,7 @@ impl RenderPolicy {
         },
     };
 
+    #[cfg(feature = "native")]
     pub(crate) const fn cache_contract(self) -> ArtifactCachePolicy {
         self.artifact_cache
     }
@@ -108,6 +110,7 @@ impl RenderPolicy {
         self.export.container
     }
 
+    #[cfg(feature = "native")]
     pub(crate) const fn export_extension(self) -> &'static str {
         self.export.extension
     }
@@ -120,6 +123,7 @@ impl RenderPolicy {
         self.export.movflags
     }
 
+    #[cfg(feature = "native")]
     pub(crate) fn validate_output_path(self, output: &Path, span: &SourceSpan) -> Result<()> {
         if output
             .extension()
@@ -153,7 +157,7 @@ impl RenderPolicy {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::*;
 

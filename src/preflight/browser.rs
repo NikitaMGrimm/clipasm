@@ -155,11 +155,8 @@ impl BrowserPreparedPlan {
 /// browser source.
 pub fn required_assets(compiled: &CompiledProgram) -> Result<Vec<BrowserAssetRequest>> {
     let output = compiled.render_output()?;
-    let order = crate::compiler::traversal::topological_order(
-        compiled.nodes(),
-        compiled.symbol_values(),
-        [output],
-    )?;
+    let order =
+        crate::semantic::topological_order(compiled.nodes(), compiled.symbol_values(), [output])?;
     let mut paths = BTreeMap::<String, usize>::new();
     let mut requests = Vec::<BrowserAssetRequest>::new();
     for value in order {
@@ -269,7 +266,7 @@ pub fn prepare(compiled: &CompiledProgram, assets: &[BrowserAsset]) -> Result<Br
         nodes: Vec::new(),
         lowered: HashMap::new(),
     };
-    let order = crate::compiler::traversal::topological_order(
+    let order = crate::semantic::topological_order(
         compiled.nodes(),
         compiled.symbol_values(),
         [render_output],

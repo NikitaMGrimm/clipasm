@@ -1,13 +1,18 @@
 use std::path::Path;
+#[cfg(feature = "native")]
 use std::process::Command;
 
 use serde::Deserialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
+#[cfg(feature = "native")]
 use crate::media_tool;
-use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
+#[cfg(feature = "native")]
+use crate::model::{AudioDomain, AudioSpec};
+use crate::model::{FrameCount, VideoSpec};
 use crate::source::SourceSpan;
 
+#[cfg(feature = "native")]
 use super::ToolIdentity;
 
 #[derive(Deserialize)]
@@ -22,6 +27,7 @@ struct ImageProbeStream {
     nb_read_frames: Option<String>,
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn verify_image_decodable(
     path: &Path,
     span: &SourceSpan,
@@ -112,6 +118,7 @@ fn validate_image_document(
     ))
 }
 
+#[cfg(feature = "native")]
 fn decode_image_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
     let mut decode = Command::new(ffmpeg.executable());
     decode
@@ -139,6 +146,7 @@ fn decode_image_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> 
     })
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn decoded_audio_samples(
     ffprobe: &Path,
     path: &Path,
@@ -222,6 +230,7 @@ struct VideoProbeStream {
     duration_ts: Option<ProbeInteger>,
     time_base: Option<String>,
     avg_frame_rate: Option<String>,
+    #[cfg(feature = "native")]
     sample_rate: Option<String>,
 }
 
@@ -241,6 +250,7 @@ impl ProbeInteger {
     }
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn verify_video_decodable(
     path: &Path,
     video: &VideoSpec,
@@ -264,6 +274,7 @@ pub(crate) fn validate_video_probe_json(
     validate_video_document(path, video, span, &document)
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn verify_audio_decodable(
     path: &Path,
     audio: AudioSpec,
@@ -314,6 +325,7 @@ pub(crate) fn verify_audio_decodable(
     AudioDomain::covering_duration(duration_numerator, duration_denominator, audio, span)
 }
 
+#[cfg(feature = "native")]
 fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
     Diagnostic::builtin(
         BuiltinDiagnostic::AudioDurationOverflow,
@@ -322,6 +334,7 @@ fn audio_duration_overflow(span: &SourceSpan) -> Diagnostic {
     )
 }
 
+#[cfg(feature = "native")]
 fn probe_video(
     path: &Path,
     span: &SourceSpan,
@@ -426,6 +439,7 @@ fn validate_video_document(
     Ok((frames, has_audio))
 }
 
+#[cfg(feature = "native")]
 fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> Result<()> {
     let mut decode = Command::new(ffmpeg.executable());
     decode
@@ -443,6 +457,7 @@ fn decode_video_frame(path: &Path, span: &SourceSpan, ffmpeg: &ToolIdentity) -> 
     })
 }
 
+#[cfg(feature = "native")]
 fn tool_context(mut error: Diagnostic, mut context: String) -> Diagnostic {
     context.push('\n');
     context.push_str(&error.message);
@@ -450,6 +465,7 @@ fn tool_context(mut error: Diagnostic, mut context: String) -> Diagnostic {
     error
 }
 
+#[cfg(feature = "native")]
 fn audio_duration(stream: &VideoProbeStream, decoded_samples: u64) -> Option<(u128, u128)> {
     stream_duration(stream).or_else(|| {
         let sample_rate = stream.sample_rate.as_deref()?.parse::<u128>().ok()?;
@@ -489,7 +505,7 @@ fn parse_positive_ratio(value: &str) -> Option<(u128, u128)> {
     (numerator > 0 && denominator > 0).then_some((numerator, denominator))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "native"))]
 mod tests {
     use super::*;
 

@@ -38,7 +38,11 @@ policy.
 `source` owns the lowered authored model: linked source packages, source units,
 imports, root project/publication settings, source program signatures, bodies,
 invocations, references, literals, and output bindings. The compiler consumes
-only this model.
+only this model. The neutral `catalog` module owns the shared signature
+vocabulary—input and parameter slots, cardinality, stack access, scalar
+parameter types, and unresolved or resolved value signatures—used by `source`,
+`language`, and `program`. It has no dependency on source packages, program
+implementations, or semantic graphs.
 
 ### Parsing and lowering
 
@@ -272,6 +276,14 @@ also versioned integration contracts. Prepared inspection JSON and browser
 render plans remain host-internal; cache metadata remains private. Canonical
 versions and support levels live in `src/contracts.rs`.
 
+The root crate has three explicit build surfaces. With no Cargo features it
+contains the language, source model, compiler, semantic graph, public reference
+catalog, compiled inspection adapter, and pure browser preparation/render-recipe
+adapters. The `native` feature adds filesystem/tool preflight and native
+rendering; the default `cli` feature includes `native` plus command-line parsing
+and project discovery. Native process, temporary-file, and platform process-group
+dependencies are optional and do not enter the dependency-light base library.
+
 The `playground` workspace crate is a downstream browser host adapter. It keeps
 WebAssembly bindings out of the core crate and exposes versioned in-memory
 compilation and browser preparation responses. The book accepts one source unit
@@ -345,6 +357,11 @@ and canonical dependency order. Traversal, named-reference discovery, and
 compiled fingerprinting consume that dependency authority rather than
 reconstructing topology independently. Pure Video domain inference is a
 separate compiler owner from final graph assembly.
+
+Topological traversal is semantic-graph infrastructure rather than a compiler
+service. Compilation and native or browser preflight consume the same
+semantic-owned traversal, so downstream phases do not reach back into compiler
+internals.
 
 Exhaustive matches over the closed semantic-operation and prepared-primitive
 enums are healthy: each phase keeps one dispatcher that must handle every
@@ -595,6 +612,8 @@ remain iterative so graph depth is not limited by the Rust call stack.
 ## Ownership rules
 
 - Canonical source owns lowered authored structures and source locations.
+- The neutral catalog owns program-signature vocabulary shared across authored
+  source, parsing, and executable program definitions.
 - The native CLI owns project-manifest discovery and entrypoint selection.
 - The native language layer owns surface grammar, package loading, callable
   argument elaboration, and structural sugar.

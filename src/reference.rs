@@ -9,9 +9,9 @@ use std::fmt;
 
 use crate::model::Number;
 use crate::program::{
-    BodyOutputConstraint, BuiltinBodyInitialValue, BuiltinDefault,
-    BuiltinProgram as CatalogProgram, Cardinality as ProgramCardinality, ParameterType,
-    ProgramImplementation, StackAccess as ProgramStackAccess,
+    BodyOutputConstraint, BuiltinBodyInitialValue, BuiltinCategory as CatalogCategory,
+    BuiltinDefault, BuiltinProgram as CatalogProgram, Cardinality as ProgramCardinality,
+    ParameterType, ProgramImplementation, StackAccess as ProgramStackAccess,
     TimelineBehavior as ProgramTimelineBehavior, ValueTypeSpec,
 };
 
@@ -31,7 +31,10 @@ pub use diagnostics::{
 /// Return a deterministic snapshot of every built-in program reference.
 #[must_use]
 pub fn builtin_programs() -> Vec<BuiltinProgram> {
-    crate::program::builtin_references()
+    crate::program::builtin_catalog()
+        .iter()
+        .map(BuiltinProgram::from_catalog)
+        .collect()
 }
 
 /// Return the reference for one exact built-in program name.
@@ -81,6 +84,19 @@ impl BuiltinCategory {
             Self::Effects => "Effects",
             Self::Transitions => "Transitions",
             Self::BodyPrograms => "Body programs",
+        }
+    }
+}
+
+impl From<CatalogCategory> for BuiltinCategory {
+    fn from(value: CatalogCategory) -> Self {
+        match value {
+            CatalogCategory::Sources => Self::Sources,
+            CatalogCategory::Timeline => Self::Timeline,
+            CatalogCategory::Audio => Self::Audio,
+            CatalogCategory::Effects => Self::Effects,
+            CatalogCategory::Transitions => Self::Transitions,
+            CatalogCategory::BodyPrograms => Self::BodyPrograms,
         }
     }
 }
@@ -172,7 +188,7 @@ impl BuiltinProgram {
 
         Self {
             name: descriptor.name.clone(),
-            category: program.metadata.category,
+            category: program.metadata.category.into(),
             summary: program.metadata.summary.to_owned(),
             inputs,
             parameters,

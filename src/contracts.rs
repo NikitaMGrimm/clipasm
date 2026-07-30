@@ -22,7 +22,7 @@ pub(crate) const BROWSER_RECIPE_CONTRACT_VERSION: u32 = 2;
 pub enum MachineContract {
     /// JSON printed by `clipasm inspect` and [`crate::compiler::CompiledProgram::compiled_json`].
     CompiledInspection,
-    /// JSON returned by [`crate::preflight::PreparedPlan::prepared_json`].
+    /// JSON returned by native `PreparedPlan::prepared_json`.
     PreparedInspection,
     /// JSON manifest published beside a rendered MP4.
     RenderManifest,

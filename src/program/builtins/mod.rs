@@ -10,12 +10,21 @@ use std::collections::BTreeSet;
 
 use crate::diagnostic::{BuiltinDiagnostic, Result};
 use crate::model::{ExactNumber, ValueType};
-use crate::reference::BuiltinCategory;
 
 use super::{
     BodyOutputConstraint, ParameterType, ProgramDefinition, ProgramImplementation, ValueTypeSpec,
     definition_error, validate_definitions,
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BuiltinCategory {
+    Sources,
+    Timeline,
+    Audio,
+    Effects,
+    Transitions,
+    BodyPrograms,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BuiltinDefault {
@@ -224,7 +233,7 @@ const NO_EXAMPLE_OUTPUTS: [ValueType; 0] = [];
     clippy::too_many_lines,
     reason = "the canonical catalog keeps all built-in entries visible together for completeness review"
 )]
-fn builtin_catalog() -> Vec<BuiltinProgram> {
+pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
     let catalog = vec![
         BuiltinProgram::new(
             sources::image(),
@@ -478,13 +487,6 @@ pub(crate) fn builtin_programs() -> Vec<ProgramDefinition> {
     builtin_catalog()
         .into_iter()
         .map(BuiltinProgram::into_definition)
-        .collect()
-}
-
-pub(crate) fn builtin_references() -> Vec<crate::reference::BuiltinProgram> {
-    builtin_catalog()
-        .iter()
-        .map(crate::reference::BuiltinProgram::from_catalog)
         .collect()
 }
 

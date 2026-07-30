@@ -1,8 +1,8 @@
+//! Canonical dependency traversal for draft and compiled semantic graphs.
+
+use super::{CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SourceOrigin};
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::ValueRef;
-use crate::semantic::{
-    CompiledNode, DraftNode, SemanticDependency, SemanticNodeKind, SourceOrigin,
-};
 
 pub(crate) trait SemanticNodeView {
     fn kind(&self) -> &SemanticNodeKind;

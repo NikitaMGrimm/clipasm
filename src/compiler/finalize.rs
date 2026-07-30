@@ -15,7 +15,7 @@ struct SymbolFrame {
 
 pub(super) fn finalize(
     entrypoint: &SourceUnit,
-    source_paths: Vec<PathBuf>,
+    #[cfg(feature = "native")] source_paths: Vec<PathBuf>,
     output: Option<Spanned<PathBuf>>,
     video: VideoSpec,
     audio: AudioSpec,
@@ -34,7 +34,7 @@ pub(super) fn finalize(
         .values()
         .map(|symbol| symbol_values[symbol.index()])
         .chain(evaluation.outputs.iter().copied());
-    let order = super::traversal::topological_order(&evaluation.nodes, &symbol_values, roots)?;
+    let order = crate::semantic::topological_order(&evaluation.nodes, &symbol_values, roots)?;
     let domains = super::domain::infer_domains(&evaluation, &video, &order)?;
     let structure_hash =
         super::fingerprint::compiled_structure_hash(&evaluation, &domains, &video, audio, &order)?;
@@ -92,6 +92,7 @@ pub(super) fn finalize(
         explain,
         output,
         entrypoint_source: entrypoint.source().clone(),
+        #[cfg(feature = "native")]
         source_paths,
     })
 }
@@ -347,8 +348,8 @@ mod tests {
                 .expect("repeat");
         }
         let evaluation = make_evaluation(nodes, Vec::new(), root);
-        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
-            .expect("order");
+        let order =
+            crate::semantic::topological_order(&evaluation.nodes, &[], [root]).expect("order");
 
         let domains =
             super::super::domain::infer_domains(&evaluation, &video, &order).expect("domains");
@@ -375,8 +376,8 @@ mod tests {
             .repeat(source, NonZeroU64::new(3).expect("nonzero"))
             .expect("repeat");
         let evaluation = make_evaluation(nodes, Vec::new(), root);
-        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
-            .expect("order");
+        let order =
+            crate::semantic::topological_order(&evaluation.nodes, &[], [root]).expect("order");
         let domains =
             super::super::domain::infer_domains(&evaluation, &video, &order).expect("domains");
         assert_eq!(
@@ -402,8 +403,8 @@ mod tests {
             .repeat(source, NonZeroU64::new(2).expect("nonzero"))
             .expect("repeat");
         let evaluation = make_evaluation(nodes, Vec::new(), root);
-        let order = super::super::traversal::topological_order(&evaluation.nodes, &[], [root])
-            .expect("order");
+        let order =
+            crate::semantic::topological_order(&evaluation.nodes, &[], [root]).expect("order");
         let error =
             super::super::domain::infer_domains(&evaluation, &video, &order).expect_err("overflow");
         assert_eq!(error.code, "E_FRAME_OVERFLOW");

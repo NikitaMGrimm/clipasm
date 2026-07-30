@@ -17,11 +17,12 @@ mod link;
 mod parameter;
 mod scalar_scope;
 mod stack;
-pub(crate) mod traversal;
 mod typecheck;
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "native")]
+use std::path::Path;
+use std::path::PathBuf;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, ValueRef, VideoDomain, VideoSpec};
@@ -38,8 +39,8 @@ pub use entrypoint::EntrypointBindings;
 /// A pure compiled program whose media-dependent facts may remain deferred.
 ///
 /// Use [`result_domain`](Self::result_domain) to inspect a domain known from
-/// authored data, or pass the program to [`crate::preflight::preflight`] to
-/// resolve assets and exact renderer primitives.
+/// authored data, or pass the program to native preflight to resolve assets and
+/// exact renderer primitives.
 pub struct CompiledProgram {
     format_version: u32,
     engine_version: String,
@@ -53,6 +54,7 @@ pub struct CompiledProgram {
     explain: Vec<ExplainEntry>,
     output: Option<Spanned<PathBuf>>,
     entrypoint_source: SourceFile,
+    #[cfg(feature = "native")]
     source_paths: Vec<PathBuf>,
 }
 
@@ -181,6 +183,7 @@ impl CompiledProgram {
         &self.entrypoint_source
     }
 
+    #[cfg(feature = "native")]
     pub(crate) fn source_paths(&self) -> &[PathBuf] {
         &self.source_paths
     }
@@ -303,6 +306,7 @@ fn compile_checked(
     validate_publication_output(entrypoint, output, &evaluation)?;
     finalize::finalize(
         entrypoint,
+        #[cfg(feature = "native")]
         package
             .units()
             .iter()

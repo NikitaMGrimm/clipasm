@@ -2,10 +2,9 @@
 
 - Read `CONTRIBUTING.md` before changing files.
 - Use `docs/development/change-guide.md` for public, cross-phase, or identity-affecting changes.
-- Read only the relevant language reference, architecture section, and ADRs.
+- Read only the relevant language reference and architecture section.
 - Preserve unrelated worktree changes.
 - Treat handoffs as unverified working notes; verify consequential claims from code or tests.
-- Do not silently override accepted ADRs.
 - Review semantic, format, protocol, and cache identities when behavior crosses their boundaries.
 - ALWAYS attempt to add or update a test for changed behavior.
 - PREFER integration tests under `tests/` over unit tests when behavior is observable.

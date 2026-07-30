@@ -13,10 +13,19 @@ for command in cargo mdbook ffmpeg ffprobe node; do
 done
 
 cargo fmt --all -- --check
+cargo clippy -p clipasm --no-default-features --all-targets -- -D warnings
+cargo clippy -p clipasm --no-default-features --features native --all-targets -- -D warnings
+cargo clippy -p clipasm-playground --all-targets -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test -p clipasm --no-default-features --all-targets
+cargo test -p clipasm --no-default-features --doc
+cargo test -p clipasm --no-default-features --features native --all-targets
+cargo test -p clipasm --no-default-features --features native --doc
 cargo test --workspace --all-targets
 cargo test --workspace --doc
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+RUSTDOCFLAGS="-D warnings" cargo doc --lib --no-deps --no-default-features
+RUSTDOCFLAGS="-D warnings" cargo doc --lib --no-deps --no-default-features --features native
 cargo run --locked -p clipasm-reference-docs -- check
 mdbook build
 python3 scripts/check_docs.py

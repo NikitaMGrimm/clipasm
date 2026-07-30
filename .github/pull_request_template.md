@@ -10,8 +10,8 @@
       applicable.
 - [ ] Canonical documentation and affected examples were updated, or no update
       is needed.
-- [ ] ADR implications and semantic, format, or cache identity-version changes
-      were considered.
+- [ ] Semantic, format, protocol, and cache identity-version changes were
+      considered.
 - [ ] This pull request contains no unrelated changes.
 
 ## AI assistance

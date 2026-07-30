@@ -11,6 +11,19 @@ RELEASE_WORKFLOW_PATH = WORKFLOW_DIRECTORY / "release.yml"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_release_checks_both_public_api_surfaces(self) -> None:
+        workflow = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("cargo-semver-checks@0.49.0", workflow)
+        self.assertIn(
+            "cargo semver-checks check-release --default-features",
+            workflow,
+        )
+        self.assertIn(
+            "cargo semver-checks check-release --only-explicit-features",
+            workflow,
+        )
+
     def test_build_installs_ffmpeg_on_every_runner(self) -> None:
         workflow = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
         build_steps = workflow.split("\n  build:\n", maxsplit=1)[1].split(

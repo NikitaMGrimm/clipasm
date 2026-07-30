@@ -1,11 +1,13 @@
 mod builder;
 mod operation;
+mod traversal;
 
 use crate::model::{ValueId, ValueType, VideoDomain};
 use crate::source::SourceSpan;
 
 pub(crate) use builder::{GraphBuilder, require_value_type};
 pub(crate) use operation::{SemanticDependency, SemanticNodeKind, SymbolId};
+pub(crate) use traversal::topological_order;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledNode {

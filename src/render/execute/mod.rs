@@ -1,7 +1,9 @@
 mod audio;
+#[cfg(feature = "native")]
 mod context;
 mod effects;
 mod export;
+#[cfg(feature = "native")]
 mod external;
 mod filters;
 mod media;
@@ -9,22 +11,28 @@ mod recipe;
 mod timeline;
 mod transitions;
 
+#[cfg(feature = "native")]
 use std::path::{Path, PathBuf};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::preflight::{
-    PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
-};
+#[cfg(feature = "native")]
+use crate::preflight::PreparedPlan;
+use crate::preflight::{PreparedAudioKind, PreparedNode, PreparedNodeMedia, PreparedVideoKind};
 
+#[cfg(feature = "native")]
 use super::cache::StagedArtifact;
+#[cfg(feature = "native")]
 use context::RenderContext;
 pub(crate) use export::export_recipe;
-pub(crate) use recipe::{FfmpegArgument, FfmpegRecipe, RecipeContext};
+pub(crate) use recipe::FfmpegArgument;
+pub(crate) use recipe::{FfmpegRecipe, RecipeContext};
 
+#[cfg(feature = "native")]
 pub(super) struct Executor<'a> {
     plan: &'a PreparedPlan,
 }
 
+#[cfg(feature = "native")]
 impl<'a> Executor<'a> {
     pub(super) const fn new(plan: &'a PreparedPlan) -> Self {
         Self { plan }

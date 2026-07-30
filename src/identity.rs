@@ -5,7 +5,9 @@
 //! documents, and streaming SHA-256 for file content. Callers retain ownership
 //! of phase-specific diagnostics and identity structure.
 
+#[cfg(feature = "native")]
 use std::fs;
+#[cfg(feature = "native")]
 use std::io::{self, BufReader, Read as _};
 use std::path::Path;
 
@@ -88,6 +90,7 @@ pub(crate) fn hash_serializable(value: &impl Serialize) -> Result<String> {
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
+#[cfg(feature = "native")]
 pub(crate) fn hash_file(path: &Path) -> io::Result<String> {
     let file = fs::File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -133,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn file_hash_is_streaming_sha256() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let path = directory.path().join("input.bin");

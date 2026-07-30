@@ -25,7 +25,9 @@ pub(super) struct PreflightLowerer<'a> {
     pub(super) lowered: HashMap<ValueId, NodeId>,
 }
 
-pub(super) use host::{NativePreparationHost, PreparationHost};
+#[cfg(feature = "native")]
+pub(super) use host::NativePreparationHost;
+pub(super) use host::PreparationHost;
 
 impl PreflightLowerer<'_> {
     pub(super) fn lower(&mut self, value: ValueRef) -> Result<NodeId> {

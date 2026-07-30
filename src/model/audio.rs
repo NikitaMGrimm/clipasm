@@ -2,7 +2,9 @@ use std::num::{NonZeroU8, NonZeroU32};
 
 use serde::{Serialize, Serializer};
 
+#[cfg(any(feature = "native", test))]
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
+#[cfg(any(feature = "native", test))]
 use crate::source::SourceSpan;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
@@ -68,6 +70,7 @@ impl AudioDomain {
     /// Return the smallest project-audio domain covering an exact rational duration.
     ///
     /// `duration_numerator / duration_denominator` is measured in seconds.
+    #[cfg(any(feature = "native", test))]
     pub(crate) fn covering_duration(
         duration_numerator: u128,
         duration_denominator: u128,

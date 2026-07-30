@@ -220,7 +220,7 @@ fn repeat_audio_pts_expression(step: FrameSampleStep, input_samples: u64) -> Str
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use std::fs;
     use std::mem::size_of;

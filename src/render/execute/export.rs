@@ -1,12 +1,20 @@
+#[cfg(feature = "native")]
 use std::fs;
+#[cfg(feature = "native")]
 use std::path::Path;
 
+#[cfg(feature = "native")]
 use crate::diagnostic::{BuiltinDiagnostic, Result};
-use crate::model::{AudioSpec, NodeId, VideoDomain, VideoSpec};
+#[cfg(feature = "native")]
+use crate::model::VideoDomain;
+use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::RenderPolicy;
+#[cfg(feature = "native")]
 use crate::source::SourceSpan;
 
+#[cfg(feature = "native")]
 use super::super::artifact::verify_video_artifact;
+#[cfg(feature = "native")]
 use super::context::run_command;
 use super::recipe::FfmpegRecipe;
 
@@ -14,6 +22,7 @@ use super::recipe::FfmpegRecipe;
     clippy::too_many_arguments,
     reason = "the export transaction keeps its artifact contract, policy, and tool identities explicit at one call site"
 )]
+#[cfg(feature = "native")]
 pub(super) fn stage_export(
     result: NodeId,
     artifact: &Path,
@@ -64,6 +73,7 @@ pub(super) fn stage_export(
     clippy::too_many_arguments,
     reason = "the private export step mirrors the complete recipe inputs without introducing a duplicate request type"
 )]
+#[cfg(feature = "native")]
 fn export_video(
     result: NodeId,
     artifact: &Path,
@@ -133,7 +143,7 @@ pub(crate) fn export_recipe(
     recipe
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use std::ffi::OsString;
     use std::process::Command;

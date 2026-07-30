@@ -109,8 +109,9 @@ git push origin vX.Y.Z
 ```
 
 The tag starts the Release workflow. Before crates.io publication, that workflow
-repeats repository verification and the portable Rust suite on Linux, macOS, and
-Windows, then builds native archives. It publishes through crates.io trusted
+repeats repository verification, checks the default and dependency-light Rust API
+surfaces against crates.io, and runs the portable Rust suite on Linux, macOS, and
+Windows before building native archives. It publishes through crates.io trusted
 publishing and creates the GitHub release only after every required job succeeds.
 Do not move or reuse a pushed release tag; use a new patch version after an
 aborted tagged release.

@@ -1,7 +1,8 @@
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::source::SourceSpan;
 
-use super::{AudioSpec, FrameCount, VideoSpec};
+use super::FrameCount;
+use super::{AudioSpec, VideoSpec};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FrameSampleStep {

@@ -15,7 +15,8 @@ pub use number::Number;
 pub(crate) use number::Number as ExactNumber;
 pub(crate) use time::{DurationValue, NativeRange, SourceTime, SourceTimeRange};
 pub use time::{FrameCount, FrameRange, SampleRange};
-pub(crate) use timeline::{FrameSampleStep, TimelineRate};
+pub(crate) use timeline::FrameSampleStep;
+pub(crate) use timeline::TimelineRate;
 pub(crate) use timeline_expression::{TimelineExpression, TimelineRangeExpression};
 pub use video::{FrameRate, ImageFit, VideoDomain, VideoSpec};
 
