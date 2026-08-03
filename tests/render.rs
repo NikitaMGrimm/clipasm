@@ -90,38 +90,27 @@ fn assert_working_artifacts_equal(all: &Path, fused: &Path) {
 }
 
 fn write_partition_source(directory: &Path) {
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc2=size=64x48:rate=24:duration=0.2916666666666667",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:sample_rate=48000:duration=0.2916666666666667",
-            "-frames:v",
-            "7",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p10le",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-            "-c:a",
-            "pcm_s16le",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=64x48:rate=24:duration=0.2916666666666667",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=0.2916666666666667",
+        "-frames:v",
+        "7",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p10le", None);
+    let status = command
+        .args(["-c:a", "pcm_s16le"])
         .arg(directory.join("source.mkv"))
         .status()
         .expect("create audiovisual source");
@@ -129,38 +118,27 @@ fn write_partition_source(directory: &Path) {
 }
 
 fn write_fractional_rate_source(directory: &Path) {
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc2=size=64x48:rate=29:duration=0.1724137931034483",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:sample_rate=48000:duration=0.1724137931034483",
-            "-frames:v",
-            "5",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p10le",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-            "-c:a",
-            "pcm_s16le",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=64x48:rate=29:duration=0.1724137931034483",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=0.1724137931034483",
+        "-frames:v",
+        "5",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p10le", None);
+    let status = command
+        .args(["-c:a", "pcm_s16le"])
         .arg(directory.join("source.mkv"))
         .status()
         .expect("create fractional-rate audiovisual source");
@@ -695,35 +673,25 @@ fn fused_materialization_combines_stream_disjoint_video_fan_out() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc2=s=64x48:r=10:d=1",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:sample_rate=48000:duration=1",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-c:a",
-            "pcm_s16le",
-            "-shortest",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=s=64x48:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=1",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command
+        .args(["-c:a", "pcm_s16le", "-shortest"])
         .arg(&source)
         .status()
         .expect("create audiovisual fixture");
@@ -1323,39 +1291,29 @@ fn renders_and_normalizes_a_video_source() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc2=size=96x48:rate=12:duration=2",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=1000:sample_rate=48000:duration=2",
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-c:a",
-            "pcm_s16le",
-            "-shortest",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=96x48:rate=12:duration=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=1000:sample_rate=48000:duration=2",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command
+        .args(["-c:a", "pcm_s16le", "-shortest"])
         .arg(&source)
         .status()
         .expect("create source video");
@@ -1442,31 +1400,20 @@ fn video_source_duration_is_quantized_by_coverage() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=25:d=1",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=25:d=1",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -1497,28 +1444,20 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=120:d=0.1",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=120:d=0.1",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command
         .arg(&source)
         .status()
         .expect("create one-frame source");
@@ -2014,28 +1953,20 @@ fn renders_a_native_video_input_with_a_non_utf8_path() {
     let source = directory
         .path()
         .join(OsString::from_vec(b"source-\xFF.mkv".to_vec()));
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=0.2",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-        ])
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=0.2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command
         .arg(&source)
         .status()
         .expect("create non-UTF source video");

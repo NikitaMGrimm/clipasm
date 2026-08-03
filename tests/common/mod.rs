@@ -17,6 +17,32 @@ pub fn media_tools_available() -> bool {
     executable_available("ffmpeg", "-version") && executable_available("ffprobe", "-version")
 }
 
+pub fn configure_bt709_video_output(
+    command: &mut Command,
+    pixel_format: &str,
+    chroma_location: Option<&str>,
+) {
+    // `setparams` tags frames while the output options tag the encoded stream.
+    // FFmpeg builds differ in whether either set propagates to the other.
+    command.args([
+        "-vf",
+        "setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        "-pix_fmt",
+        pixel_format,
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-colorspace",
+        "bt709",
+        "-color_range",
+        "tv",
+    ]);
+    if let Some(location) = chroma_location {
+        command.args(["-chroma_sample_location", location]);
+    }
+}
+
 pub fn cache_artifact(directory: &Path, fingerprint: &str, extension: &str) -> PathBuf {
     let cache = directory.join(".clipasm").join("cache");
     let namespaces = std::fs::read_dir(&cache)

@@ -243,31 +243,20 @@ fn preflight_checks_crossfade_against_deferred_video_duration() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "before.ppm", "255 0 0");
     let after = directory.path().join("after.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=blue:s=64x48:r=10:d=0.2",
-            "-c:v",
-            "ffv1",
-            "-pix_fmt",
-            "yuv444p",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-        ])
-        .arg(&after)
-        .status()
-        .expect("create deferred Video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=blue:s=64x48:r=10:d=0.2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv444p", None);
+    let status = command.arg(&after).status().expect("create deferred Video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(

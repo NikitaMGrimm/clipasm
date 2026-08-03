@@ -636,31 +636,20 @@ fn output_cannot_replace_a_reachable_video_asset() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let video = directory.path().join("source.mp4");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=1",
-            "-c:v",
-            "libx264",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&video)
-        .status()
-        .expect("create video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=1",
+        "-c:v",
+        "libx264",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&video).status().expect("create video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -850,31 +839,20 @@ fn video_preflight_derives_the_full_source_duration() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=1",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=1",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -903,31 +881,20 @@ fn preflight_resolves_media_dependent_marker_trim() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=2",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -964,31 +931,20 @@ fn preflight_resolves_nested_media_marker_offsets() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "intro.ppm", "0 0 0");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=2",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -1028,31 +984,20 @@ fn preflight_resolves_deferred_during_and_inherited_image_extent() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "replacement.ppm", "0 255 0");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=2",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -1107,31 +1052,12 @@ fn preflight_resolves_crossfade_overlap_markers_from_video_sources() {
     for (name, color) in [("before.mkv", "red"), ("after.mkv", "blue")] {
         let path = directory.path().join(name);
         let source = format!("color=c={color}:s=64x64:r=10:d=1");
-        let status = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-v",
-                "error",
-                "-f",
-                "lavfi",
-                "-i",
-                &source,
-                "-c:v",
-                "ffv1",
-                "-color_primaries",
-                "bt709",
-                "-color_trc",
-                "bt709",
-                "-colorspace",
-                "bt709",
-                "-color_range",
-                "tv",
-                "-chroma_sample_location",
-                "left",
-            ])
-            .arg(&path)
-            .status()
-            .expect("create source video");
+        let mut command = Command::new("ffmpeg");
+        command.args([
+            "-y", "-v", "error", "-f", "lavfi", "-i", &source, "-c:v", "ffv1",
+        ]);
+        common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+        let status = command.arg(&path).status().expect("create source video");
         assert!(status.success());
     }
     let workflow = directory.path().join("workflow.clipasm");
@@ -1171,31 +1097,20 @@ fn preflight_rejects_unaligned_media_dependent_marker() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=1.9",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=1.9",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -1224,31 +1139,20 @@ fn preflight_rejects_out_of_bounds_media_dependent_marker() {
     }
     let directory = tempfile::tempdir().expect("temporary directory");
     let source = directory.path().join("source.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x64:r=10:d=2",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x64:r=10:d=2",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
@@ -1465,31 +1369,20 @@ fn preflight_rejects_flash_cut_longer_than_a_deferred_after_video() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "before.ppm", "0 0 0");
     let source = directory.path().join("after.mkv");
-    let status = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=red:s=64x48:r=10:d=1",
-            "-c:v",
-            "ffv1",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg(&source)
-        .status()
-        .expect("create source video");
+    let mut command = Command::new("ffmpeg");
+    command.args([
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x48:r=10:d=1",
+        "-c:v",
+        "ffv1",
+    ]);
+    common::configure_bt709_video_output(&mut command, "yuv420p", Some("left"));
+    let status = command.arg(&source).status().expect("create source video");
     assert!(status.success());
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
