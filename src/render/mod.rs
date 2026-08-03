@@ -11,6 +11,7 @@ mod artifact;
 pub mod browser;
 #[cfg(feature = "native")]
 mod cache;
+mod color;
 mod execute;
 #[cfg(feature = "native")]
 mod execution_plan;
@@ -26,4 +27,7 @@ mod publication;
 mod staging;
 
 #[cfg(feature = "native")]
-pub use native::{CacheMode, RenderReport, render, render_with_cache_root, render_without_cache};
+pub use native::{
+    CacheMode, MaterializationMode, RenderOptions, RenderReport, render, render_with_cache_root,
+    render_with_options, render_without_cache,
+};

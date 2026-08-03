@@ -19,5 +19,10 @@ optionally validate the change, and render again.
 `render.cache = "none"` when you want each render to use temporary artifacts
 only.
 
+`render.materialization = "all"` keeps one working artifact per prepared node.
+Set it to `"fused"` to combine compatible FFmpeg-only graph regions. Cache
+hits, duplicated physical streams, temporal joins, external programs, and
+branches with different materialized endpoints remain artifact boundaries.
+
 The files are ordinary ClipAsm project files. `clipasm init` creates them but
 does not manage or update them afterward.

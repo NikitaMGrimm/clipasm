@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +8,7 @@ use crate::preflight::tools::verify_external_tool;
 use crate::preflight::{PreparedNode, PreparedPlan, PreparedResource, verify_prepared_asset};
 use crate::source::SourceSpan;
 
+use super::MaterializationMode;
 use super::artifact::verify_prepared_artifact;
 use super::cache;
 use super::execute::Executor;
@@ -153,19 +154,26 @@ pub(super) struct ExecutionPlan {
 struct ExecutionAction {
     node: NodeId,
     artifact: PathBuf,
-    disposition: CacheDisposition,
+    kind: ExecutionActionKind,
+    frontier: Vec<NodeId>,
 }
 
-#[derive(Clone, Copy)]
-enum CacheDisposition {
+enum ExecutionActionKind {
+    ReuseVerified,
+    Render { region: Vec<NodeId> },
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum NodeState {
+    Unreached,
     ReuseVerified,
     Render,
 }
 
 pub(super) struct ExecutionResult {
     artifacts: Vec<Option<PathBuf>>,
-    cache_hits: usize,
-    cache_misses: usize,
+    reused_artifacts: usize,
+    rendered_jobs: usize,
 }
 
 impl ExecutionPlan {
@@ -173,46 +181,78 @@ impl ExecutionPlan {
         plan: &PreparedPlan,
         storage: &ArtifactStorage,
         protected: &ProtectedResources,
+        materialization: MaterializationMode,
     ) -> Result<Self> {
         validate_prepared_order(plan)?;
-        let mut seen = vec![false; plan.nodes().len()];
+        let mut states = vec![NodeState::Unreached; plan.nodes().len()];
         let mut pending = vec![plan.result()];
-        let mut actions = Vec::new();
 
         while let Some(id) = pending.pop() {
             let index = id.get() as usize;
-            if seen[index] {
+            if states[index] != NodeState::Unreached {
                 continue;
             }
-            seen[index] = true;
             let node = &plan.nodes()[index];
             let artifact = storage.artifact_path(plan, node);
             if storage.is_persistent() {
                 protected.reject_cache_entry(&artifact)?;
             }
-            let disposition = if storage.is_persistent() && probe_cache(plan, node, &artifact)? {
+            states[index] = if storage.is_persistent() && probe_cache(plan, node, &artifact)? {
                 verify_node_resources(node)?;
-                CacheDisposition::ReuseVerified
+                NodeState::ReuseVerified
             } else {
                 node.visit_inputs(|input| pending.push(input));
-                CacheDisposition::Render
+                NodeState::Render
             };
-            actions.push(ExecutionAction {
-                node: id,
-                artifact,
-                disposition,
-            });
         }
 
+        let fused_regions = (materialization == MaterializationMode::Fused)
+            .then(|| plan_fused_regions(plan, &states));
+        let mut actions = Vec::new();
+        for node in plan.nodes() {
+            let id = node.id();
+            match states[id.get() as usize] {
+                NodeState::Unreached => {}
+                NodeState::ReuseVerified => actions.push(ExecutionAction {
+                    node: id,
+                    artifact: storage.artifact_path(plan, node),
+                    kind: ExecutionActionKind::ReuseVerified,
+                    frontier: Vec::new(),
+                }),
+                NodeState::Render => {
+                    let region = match materialization {
+                        MaterializationMode::All => vec![id],
+                        MaterializationMode::Fused => {
+                            let regions = fused_regions
+                                .as_ref()
+                                .expect("fused regions were planned for fused materialization");
+                            let region = &regions[id.get() as usize];
+                            if region.is_empty() {
+                                continue;
+                            }
+                            region.clone()
+                        }
+                    };
+                    let frontier = region_frontier(plan, &region);
+                    actions.push(ExecutionAction {
+                        node: id,
+                        artifact: storage.artifact_path(plan, node),
+                        kind: ExecutionActionKind::Render { region },
+                        frontier,
+                    });
+                }
+            }
+        }
         actions.sort_unstable_by_key(|action| action.node.get());
         let remaining_consumers = (!storage.is_persistent()).then(|| {
             let mut counts = vec![0_usize; plan.nodes().len()];
             for action in &actions {
-                plan.nodes()[action.node.get() as usize].visit_inputs(|input| {
+                for input in &action.frontier {
+                    let input = *input;
                     counts[input.get() as usize] = counts[input.get() as usize]
                         .checked_add(1)
                         .expect("prepared graph consumer count fits in usize");
-                });
+                }
             }
             counts
         });
@@ -231,32 +271,34 @@ impl ExecutionPlan {
     ) -> Result<ExecutionResult> {
         let executor = Executor::new(plan);
         let mut artifacts = vec![None; self.slot_count];
-        let mut cache_hits = 0;
-        let mut cache_misses = 0;
+        let mut reused_artifacts = 0;
+        let mut rendered_jobs = 0;
 
         let mut remaining_consumers = self.remaining_consumers;
         for action in self.actions {
             let index = action.node.get() as usize;
             let node = &plan.nodes()[index];
-            match action.disposition {
-                CacheDisposition::ReuseVerified => {
-                    cache_hits += 1;
+            match &action.kind {
+                ExecutionActionKind::ReuseVerified => {
+                    reused_artifacts += 1;
                 }
-                CacheDisposition::Render => {
+                ExecutionActionKind::Render { region } => {
                     let reused = match storage {
-                        ArtifactStorage::Persistent { .. } => render_persistent_node(
+                        ArtifactStorage::Persistent { .. } => render_persistent_region(
                             plan,
                             protected,
                             &executor,
                             node,
+                            region,
                             &artifacts,
                             &action.artifact,
                         )?,
                         ArtifactStorage::Transient { .. } => {
-                            render_transient_node(
+                            render_transient_region(
                                 plan,
                                 &executor,
                                 node,
+                                region,
                                 &artifacts,
                                 &action.artifact,
                             )?;
@@ -264,31 +306,37 @@ impl ExecutionPlan {
                         }
                     };
                     if reused {
-                        cache_hits += 1;
+                        reused_artifacts += 1;
                     } else {
-                        cache_misses += 1;
+                        rendered_jobs += 1;
                     }
                 }
             }
             artifacts[index] = Some(action.artifact);
             if let Some(remaining_consumers) = &mut remaining_consumers {
-                release_consumed_artifacts(node, remaining_consumers, &mut artifacts)?;
+                release_consumed_artifacts(
+                    node,
+                    &action.frontier,
+                    remaining_consumers,
+                    &mut artifacts,
+                )?;
             }
         }
 
         Ok(ExecutionResult {
             artifacts,
-            cache_hits,
-            cache_misses,
+            reused_artifacts,
+            rendered_jobs,
         })
     }
 }
 
-fn render_persistent_node(
+fn render_persistent_region(
     plan: &PreparedPlan,
     protected: &ProtectedResources,
     executor: &Executor<'_>,
     node: &PreparedNode,
+    region: &[NodeId],
     artifacts: &[Option<PathBuf>],
     artifact: &Path,
 ) -> Result<bool> {
@@ -301,26 +349,28 @@ fn render_persistent_node(
     )?;
     protected.reject_cache_entry(artifact)?;
     let cache_hit = cache_is_valid(plan, node, artifact);
-    verify_node_resources(node)?;
     if cache_hit {
+        verify_node_resources(node)?;
         return Ok(true);
     }
     cache::remove_entry(artifact)?;
-    let staged = executor.stage_cache_node(node, artifacts, artifact)?;
+    verify_region_resources(plan, region)?;
+    let staged = executor.stage_cache_region(node, region, artifacts, artifact)?;
     let verified = staged.verify(|path| verify_node_artifact(plan, node, path))?;
     verified.commit(cache_identity(plan, node))?;
     Ok(false)
 }
 
-fn render_transient_node(
+fn render_transient_region(
     plan: &PreparedPlan,
     executor: &Executor<'_>,
     node: &PreparedNode,
+    region: &[NodeId],
     artifacts: &[Option<PathBuf>],
     artifact: &Path,
 ) -> Result<()> {
-    verify_node_resources(node)?;
-    executor.render_node_to(node, artifacts, artifact)?;
+    verify_region_resources(plan, region)?;
+    executor.render_region_to(node, region, artifacts, artifact)?;
     verify_node_artifact(plan, node, artifact)
 }
 
@@ -336,12 +386,12 @@ fn verify_node_artifact(plan: &PreparedPlan, node: &PreparedNode, path: &Path) -
 
 fn release_consumed_artifacts(
     node: &PreparedNode,
+    frontier: &[NodeId],
     remaining_consumers: &mut [usize],
     artifacts: &mut [Option<PathBuf>],
 ) -> Result<()> {
-    let mut inputs = Vec::new();
-    node.visit_inputs(|input| inputs.push(input));
-    for input in inputs {
+    for input in frontier {
+        let input = *input;
         let index = input.get() as usize;
         let remaining = remaining_consumers.get_mut(index).ok_or_else(|| {
             Diagnostic::builtin(
@@ -394,12 +444,12 @@ impl ExecutionResult {
             })
     }
 
-    pub(super) const fn cache_hits(&self) -> usize {
-        self.cache_hits
+    pub(super) const fn reused_artifacts(&self) -> usize {
+        self.reused_artifacts
     }
 
-    pub(super) const fn cache_misses(&self) -> usize {
-        self.cache_misses
+    pub(super) const fn rendered_jobs(&self) -> usize {
+        self.rendered_jobs
     }
 }
 
@@ -480,4 +530,82 @@ fn verify_node_resources(node: &PreparedNode) -> Result<()> {
             verify_external_tool(executable, &node.origin().span)
         }
     })
+}
+
+fn verify_region_resources(plan: &PreparedPlan, region: &[NodeId]) -> Result<()> {
+    for id in region {
+        verify_node_resources(&plan.nodes()[id.get() as usize])?;
+    }
+    Ok(())
+}
+
+fn plan_fused_regions(plan: &PreparedPlan, states: &[NodeState]) -> Vec<Vec<NodeId>> {
+    let mut consumers = vec![Vec::new(); plan.nodes().len()];
+    for node in plan.nodes() {
+        if states[node.id().get() as usize] != NodeState::Render {
+            continue;
+        }
+        super::execute::visit_fused_inputs(node, |input, streams| {
+            if states[input.get() as usize] == NodeState::Render {
+                consumers[input.get() as usize].push((node.id(), streams));
+            }
+        });
+    }
+
+    // Each render node belongs to the downstream materialized endpoint that owns
+    // it. Reverse topological order ensures every consumer already has an owner.
+    let mut owners = vec![None; plan.nodes().len()];
+    for node in plan.nodes().iter().rev() {
+        let id = node.id();
+        let index = id.get() as usize;
+        if states[index] != NodeState::Render {
+            continue;
+        }
+
+        let downstream = &consumers[index];
+        let adopted_owner = super::execute::is_graph_native(node)
+            .then(|| {
+                let (first, _) = *downstream.first()?;
+                let owner = owners[first.get() as usize]?;
+                let mut picture_uses = 0_usize;
+                let mut audio_uses = 0_usize;
+                let compatible = downstream.iter().copied().all(|(consumer, streams)| {
+                    picture_uses = picture_uses
+                        .checked_add(streams.picture)
+                        .expect("prepared picture-stream use count fits in usize");
+                    audio_uses = audio_uses
+                        .checked_add(streams.audio)
+                        .expect("prepared audio-stream use count fits in usize");
+                    let consumer_node = &plan.nodes()[consumer.get() as usize];
+                    super::execute::is_graph_native(consumer_node)
+                        && super::execute::accepts_fused_input(consumer_node, id)
+                        && owners[consumer.get() as usize] == Some(owner)
+                });
+                (compatible && picture_uses <= 1 && audio_uses <= 1).then_some(owner)
+            })
+            .flatten();
+        owners[index] = Some(adopted_owner.unwrap_or(id));
+    }
+
+    let mut regions = vec![Vec::new(); plan.nodes().len()];
+    for node in plan.nodes() {
+        let index = node.id().get() as usize;
+        if let Some(owner) = owners[index] {
+            regions[owner.get() as usize].push(node.id());
+        }
+    }
+    regions
+}
+
+fn region_frontier(plan: &PreparedPlan, region: &[NodeId]) -> Vec<NodeId> {
+    let included = region.iter().copied().collect::<BTreeSet<_>>();
+    let mut frontier = Vec::new();
+    for id in region {
+        plan.nodes()[id.get() as usize].visit_inputs(|input| {
+            if !included.contains(&input) {
+                frontier.push(input);
+            }
+        });
+    }
+    frontier
 }

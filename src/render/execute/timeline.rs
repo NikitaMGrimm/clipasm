@@ -1,132 +1,9 @@
-use std::fmt::Write as _;
-use std::num::NonZeroU64;
-
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::{
-    AudioSpec, FrameCount, FrameSampleStep, NodeId, TimelineRate, VideoDomain, VideoSpec,
-};
+use crate::model::{AudioSpec, FrameCount, FrameSampleStep, NodeId, TimelineRate, VideoSpec};
 use crate::preflight::{AudioEncoding, PreparedNode};
 use crate::source::SourceSpan;
 
-use super::filters::{normalize_audio, samples_for_video};
-use super::recipe::{FfmpegRecipe, RecipeContext};
-
-pub(super) fn slice(
-    context: &RecipeContext<'_>,
-    input: NodeId,
-    start: u64,
-    end: u64,
-) -> Result<FfmpegRecipe> {
-    let start_sample = samples_for_video(
-        FrameCount(start),
-        context.video(),
-        context.audio(),
-        context.span(),
-    )?;
-    let end_sample = samples_for_video(
-        FrameCount(end),
-        context.video(),
-        context.audio(),
-        context.span(),
-    )?;
-    let mut recipe = FfmpegRecipe::new();
-    recipe.args(["-i"]).artifact(input);
-    let filter = format!(
-        "[0:v]trim=start_frame={start}:end_frame={end},setpts=PTS-STARTPTS[v];[0:a]atrim=start_sample={start_sample}:end_sample={end_sample},asetpts=PTS-STARTPTS[a]"
-    );
-    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut recipe);
-    Ok(recipe)
-}
-
-pub(super) fn repeat(
-    context: &RecipeContext<'_>,
-    input: NodeId,
-    count: NonZeroU64,
-    frames: FrameCount,
-) -> Result<FfmpegRecipe> {
-    let input_frames = context
-        .nodes()
-        .get(input.get() as usize)
-        .and_then(PreparedNode::video_domain)
-        .ok_or_else(|| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::InvalidPlan,
-                format!("repeat input {} is not an available Video", input.get()),
-                context.span().clone(),
-            )
-        })?
-        .frames();
-    let audio_filter = repeat_audio_filter(
-        input_frames,
-        frames,
-        context.video(),
-        context.audio(),
-        context.policy().working_audio_encoding(),
-        context.span(),
-    )?;
-    let mut recipe = FfmpegRecipe::new();
-    recipe
-        .args(["-stream_loop", &(count.get() - 1).to_string(), "-i"])
-        .artifact(input);
-    let filter = format!(
-        "[0:v]trim=end_frame={},setpts=PTS-STARTPTS[v];[0:a]{audio_filter}[a]",
-        frames.0,
-    );
-    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut recipe);
-    Ok(recipe)
-}
-
-pub(super) fn concat(
-    context: &RecipeContext<'_>,
-    inputs: &[NodeId],
-    domain: &VideoDomain,
-) -> Result<FfmpegRecipe> {
-    let mut recipe = FfmpegRecipe::new();
-    for input in inputs {
-        recipe.args(["-i"]).artifact(*input);
-    }
-    let segment_samples = video_segment_sample_counts(
-        inputs,
-        context.nodes(),
-        context.video(),
-        context.audio(),
-        context.span(),
-    )?;
-    let mut audio_filters = String::new();
-    let mut labels = String::new();
-    for (index, samples) in segment_samples.into_iter().enumerate() {
-        let _ = write!(
-            audio_filters,
-            "[{index}:a]{}[a{index}];",
-            normalize_audio(
-                samples,
-                context.audio(),
-                context.policy().working_audio_encoding(),
-            )
-        );
-        let _ = write!(labels, "[{index}:v][a{index}]");
-    }
-    let samples = samples_for_video(
-        domain.frames(),
-        context.video(),
-        context.audio(),
-        context.span(),
-    )?;
-    let filter = format!(
-        "{audio_filters}{labels}concat=n={}:v=1:a=1[v][joined];[joined]{}[a]",
-        inputs.len(),
-        normalize_audio(
-            samples,
-            context.audio(),
-            context.policy().working_audio_encoding(),
-        )
-    );
-    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut recipe);
-    Ok(recipe)
-}
+use super::filters::normalize_audio;
 
 pub(super) fn video_segment_sample_counts(
     inputs: &[NodeId],
@@ -169,7 +46,7 @@ pub(super) fn video_segment_sample_counts(
         .collect()
 }
 
-fn repeat_audio_filter(
+pub(super) fn repeat_audio_filter(
     input_frames: FrameCount,
     output_frames: FrameCount,
     video: &VideoSpec,

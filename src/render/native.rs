@@ -31,24 +31,87 @@ impl CacheMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Policy for materializing working artifacts between renderer primitives.
+pub enum MaterializationMode {
+    /// Materialize every reachable prepared node.
+    #[default]
+    All,
+    /// Fuse compatible `FFmpeg` graph regions without duplicating physical streams.
+    Fused,
+}
+
+impl MaterializationMode {
+    /// Return the stable configuration and manifest label for this mode.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Fused => "fused",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// Execution policies for one native render.
+pub struct RenderOptions {
+    cache_mode: CacheMode,
+    materialization_mode: MaterializationMode,
+    cache_root: Option<PathBuf>,
+}
+
+impl RenderOptions {
+    /// Create render options with explicit cache and materialization policies.
+    #[must_use]
+    pub const fn new(cache_mode: CacheMode, materialization_mode: MaterializationMode) -> Self {
+        Self {
+            cache_mode,
+            materialization_mode,
+            cache_root: None,
+        }
+    }
+
+    /// Select persistent caching with an explicit cache root.
+    #[must_use]
+    pub fn with_cache_root(mut self, cache_root: impl Into<PathBuf>) -> Self {
+        self.cache_mode = CacheMode::Persistent;
+        self.cache_root = Some(cache_root.into());
+        self
+    }
+
+    /// Return the selected cache policy.
+    #[must_use]
+    pub const fn cache_mode(&self) -> CacheMode {
+        self.cache_mode
+    }
+
+    /// Return the selected intermediate-materialization policy.
+    #[must_use]
+    pub const fn materialization_mode(&self) -> MaterializationMode {
+        self.materialization_mode
+    }
+}
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
-/// Paths and cache statistics from a completed render.
+/// Paths and execution statistics from a completed render.
 pub struct RenderReport {
     /// Published MP4 output path.
     output: PathBuf,
     /// Published JSON manifest path.
     manifest: PathBuf,
-    /// Number of verified cache artifacts actually reused.
+    /// Number of verified working artifacts actually reused.
     ///
     /// Nodes pruned behind a downstream cache hit are not counted.
-    cache_hits: usize,
-    /// Number of prepared-node artifacts actually rendered.
+    reused_artifacts: usize,
+    /// Number of execution jobs actually rendered.
     ///
     /// Nodes pruned behind a downstream cache hit are not counted.
-    cache_misses: usize,
+    rendered_jobs: usize,
     /// Cache policy used for the render.
     cache_mode: CacheMode,
+    /// Intermediate-materialization policy used for the render.
+    materialization_mode: MaterializationMode,
 }
 
 impl RenderReport {
@@ -66,20 +129,26 @@ impl RenderReport {
 
     /// Return the number of verified working artifacts actually reused.
     #[must_use]
-    pub const fn cache_hits(&self) -> usize {
-        self.cache_hits
+    pub const fn reused_artifacts(&self) -> usize {
+        self.reused_artifacts
     }
 
-    /// Return the number of working artifacts rendered during this run.
+    /// Return the number of execution jobs rendered during this run.
     #[must_use]
-    pub const fn cache_misses(&self) -> usize {
-        self.cache_misses
+    pub const fn rendered_jobs(&self) -> usize {
+        self.rendered_jobs
     }
 
     /// Return the cache policy used for this render.
     #[must_use]
     pub const fn cache_mode(&self) -> CacheMode {
         self.cache_mode
+    }
+
+    /// Return the intermediate-materialization policy used for this render.
+    #[must_use]
+    pub const fn materialization_mode(&self) -> MaterializationMode {
+        self.materialization_mode
     }
 }
 
@@ -100,14 +169,7 @@ impl RenderReport {
 /// Returns a diagnostic for changed execution-frontier assets,
 /// rendering/cache failures, contract violations, or publication failures.
 pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
-    let source_directory = plan.entrypoint_source().base_directory().ok_or_else(|| {
-        Diagnostic::builtin(
-            BuiltinDiagnostic::InvalidPlan,
-            "prepared plan has no entrypoint base directory",
-            SourceSpan::source_start(plan.entrypoint_source().clone()),
-        )
-    })?;
-    render_with_cache_root(plan, &source_directory.join(".clipasm").join("cache"))
+    render_with_options(plan, &RenderOptions::default())
 }
 
 /// Render an invariant-protected prepared plan with an explicit persistent cache root.
@@ -118,10 +180,7 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
 ///
 /// Returns the same diagnostics as [`render`].
 pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<RenderReport> {
-    plan.verify_tool_identities()?;
-    create_output_directory(plan)?;
-    let storage = ArtifactStorage::persistent(plan, cache_root)?;
-    render_with_storage(plan, &storage, CacheMode::Persistent)
+    render_with_options(plan, &RenderOptions::default().with_cache_root(cache_root))
 }
 
 /// Render an invariant-protected prepared plan without persistent cache access.
@@ -134,20 +193,58 @@ pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<
 ///
 /// Returns the same diagnostics as [`render`].
 pub fn render_without_cache(plan: &PreparedPlan) -> Result<RenderReport> {
+    render_with_options(
+        plan,
+        &RenderOptions::new(CacheMode::None, MaterializationMode::All),
+    )
+}
+
+/// Render an invariant-protected prepared plan with explicit execution policies.
+///
+/// # Errors
+///
+/// Returns the same diagnostics as [`render`].
+pub fn render_with_options(plan: &PreparedPlan, options: &RenderOptions) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
     create_output_directory(plan)?;
-    let storage = ArtifactStorage::transient(plan.output())?;
-    render_with_storage(plan, &storage, CacheMode::None)
+    let default_cache_root;
+    let storage = match options.cache_mode {
+        CacheMode::Persistent => {
+            let cache_root = if let Some(cache_root) = options.cache_root.as_deref() {
+                cache_root
+            } else {
+                let source_directory =
+                    plan.entrypoint_source().base_directory().ok_or_else(|| {
+                        Diagnostic::builtin(
+                            BuiltinDiagnostic::InvalidPlan,
+                            "prepared plan has no entrypoint base directory",
+                            SourceSpan::source_start(plan.entrypoint_source().clone()),
+                        )
+                    })?;
+                default_cache_root = source_directory.join(".clipasm").join("cache");
+                &default_cache_root
+            };
+            ArtifactStorage::persistent(plan, cache_root)?
+        }
+        CacheMode::None => ArtifactStorage::transient(plan.output())?,
+    };
+    render_with_storage(
+        plan,
+        &storage,
+        options.cache_mode,
+        options.materialization_mode,
+    )
 }
 
 fn render_with_storage(
     plan: &PreparedPlan,
     storage: &ArtifactStorage,
     cache_mode: CacheMode,
+    materialization_mode: MaterializationMode,
 ) -> Result<RenderReport> {
     let protected = ProtectedResources::new(plan);
-    let execution =
-        ExecutionPlan::build(plan, storage, &protected)?.execute(plan, storage, &protected)?;
+    let execution = ExecutionPlan::build(plan, storage, &protected, materialization_mode)?
+        .execute(plan, storage, &protected)?;
     let result_node = &plan.nodes()[plan.result().get() as usize];
     let result_artifact = execution.artifact(plan.result(), &result_node.origin().span)?;
 
@@ -171,8 +268,9 @@ fn render_with_storage(
         plan,
         result_node,
         cache_mode,
-        execution.cache_hits(),
-        execution.cache_misses(),
+        materialization_mode,
+        execution.reused_artifacts(),
+        execution.rendered_jobs(),
     )?;
     publication.stage_manifest(&manifest_json)?;
     publication.commit()?;
@@ -180,9 +278,10 @@ fn render_with_storage(
     Ok(RenderReport {
         output: plan.output().to_path_buf(),
         manifest: plan.manifest().to_path_buf(),
-        cache_hits: execution.cache_hits(),
-        cache_misses: execution.cache_misses(),
+        reused_artifacts: execution.reused_artifacts(),
+        rendered_jobs: execution.rendered_jobs(),
         cache_mode,
+        materialization_mode,
     })
 }
 

@@ -148,6 +148,7 @@ entrypoint = "main.clipasm"
 
 [render]
 cache = "persistent"
+materialization = "all"
 ```
 
 `project.entrypoint` is a forward-slash relative `.clipasm` path
@@ -169,6 +170,18 @@ create, change, or delete persistent cache entries. It still materializes
 working artifacts in a private temporary directory, deletes intermediates after
 their final consumer, and removes the directory when the render ends. Override
 the project setting for one invocation with `clipasm render --cache MODE`.
+
+`render.materialization` is independent of cache retention. It accepts `"all"`
+or `"fused"` and defaults to `"all"`. All mode materializes every reached
+prepared node, matching the original execution model. Fused mode combines
+compatible FFmpeg primitives that lead to one materialized endpoint into one
+filter graph. Stream-disjoint picture and Audio consumers may share a region,
+but duplicated physical streams remain materialized so fusion does not add
+duration-scaled buffering. Temporal joins materialize their inputs for the same
+reason. Cache hits, external programs, operations that require their own FFmpeg
+input behavior, and branches with different materialized endpoints remain
+artifact boundaries. Override the project setting for one invocation with
+`clipasm render --materialization MODE`.
 
 The selected source file and paths authored inside it resolve according to the
 source-unit rules in the [language reference](language/index.md). Paths supplied
@@ -277,8 +290,10 @@ reachable external programs as trusted native code.
 
 Use `--cache persistent` or `--cache none` to override cache retention for one
 render. This option also applies to explicit standalone sources. In `none`
-mode, reported cache hits are zero and misses count artifacts rendered during
-the invocation.
+mode, the reused-artifact count is zero. Use `--materialization all` or
+`--materialization fused` independently to select intermediate execution. The
+render report and manifest record reused artifacts separately from rendered
+jobs, so one fused region counts as one rendered job.
 
 ## Help and version
 

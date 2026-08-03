@@ -1,194 +1,285 @@
-use std::fmt::Write as _;
-
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, FrameCount, NodeId, TimelineRate, VideoDomain};
 use crate::preflight::{AudioEncoding, PreparedNode};
 
 use super::super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
 use super::super::filters::normalize_audio;
-use super::super::recipe::{FfmpegRecipe, RecipeContext};
+use super::super::graph::{GraphBuilder, NodePads, Pad, VideoPads};
+use super::super::recipe::RecipeContext;
 
-pub(super) fn render(
-    context: &RecipeContext<'_>,
+pub(in crate::render::execute) fn lower_video(
+    graph: &mut GraphBuilder<'_, '_>,
     before: NodeId,
     after: NodeId,
     frames: FrameCount,
     domain: &VideoDomain,
-) -> Result<FfmpegRecipe> {
-    let layout = CrossfadeLayout::new(context, before, after, frames, domain)?;
-    let mut filter = String::new();
-    append_crossfade_video_filter(
-        &mut filter,
+) -> Result<NodePads> {
+    let layout = CrossfadeLayout::new(graph.context(), before, after, frames, domain)?;
+    let before = graph.video_input(before)?;
+    let after = graph.video_input(after)?;
+    let video = append_crossfade_video_filter(
+        graph,
         &layout,
-        context.policy().working_video_encoding(),
+        before.video,
+        after.video,
+        graph.context().policy().working_video_encoding(),
     );
-    append_crossfade_audio_filter(
-        &mut filter,
+    let audio = append_crossfade_audio_filter(
+        graph,
         &layout.audio_layout(),
-        context.audio(),
-        context.policy().working_audio_encoding(),
+        before.audio,
+        after.audio,
+        graph.context().audio(),
+        graph.context().policy().working_audio_encoding(),
     );
-
-    let mut recipe = FfmpegRecipe::new();
-    recipe.args(["-i"]).artifact(before);
-    recipe.args(["-i"]).artifact(after);
-    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut recipe);
-    Ok(recipe)
+    Ok(NodePads::Video(VideoPads { video, audio }))
 }
 
-pub(super) fn render_audio(
-    context: &RecipeContext<'_>,
+pub(in crate::render::execute) fn lower_audio(
+    graph: &mut GraphBuilder<'_, '_>,
     before: NodeId,
     after: NodeId,
     samples: u64,
     domain: &AudioDomain,
-) -> Result<FfmpegRecipe> {
-    let layout = AudioCrossfadeLayout::new(context, before, after, samples, domain)?;
-    let mut filter = String::new();
-    append_crossfade_audio_filter(
-        &mut filter,
+) -> Result<NodePads> {
+    let layout = AudioCrossfadeLayout::new(graph.context(), before, after, samples, domain)?;
+    let before = graph.audio_input(before)?;
+    let after = graph.audio_input(after)?;
+    let audio = append_crossfade_audio_filter(
+        graph,
         &layout,
-        context.audio(),
-        context.policy().working_audio_encoding(),
+        before,
+        after,
+        graph.context().audio(),
+        graph.context().policy().working_audio_encoding(),
     );
-    let mut recipe = FfmpegRecipe::new();
-    recipe.args(["-i"]).artifact(before);
-    recipe.args(["-i"]).artifact(after);
-    recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
-    context.append_audio_output(&mut recipe);
-    Ok(recipe)
+    Ok(NodePads::Audio(audio))
 }
 
 fn append_crossfade_video_filter(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &CrossfadeLayout,
+    before: Pad,
+    after: Pad,
     working: crate::preflight::VideoEncoding,
-) {
-    let before_overlap = if layout.prefix_frames > 0 {
-        let _ = write!(
-            filter,
-            "[0:v]split=2[before_v_prefix_src][before_v_overlap_src];[before_v_prefix_src]trim=end_frame={},setpts=PTS-STARTPTS[v_prefix];",
-            layout.prefix_frames
-        );
-        "[before_v_overlap_src]"
-    } else {
-        "[0:v]"
-    };
-    let after_overlap = if layout.suffix_frames > 0 {
-        filter.push_str("[1:v]split=2[after_v_overlap_src][after_v_suffix_src];");
-        "[after_v_overlap_src]"
-    } else {
-        "[1:v]"
-    };
-    let _ = write!(
-        filter,
-        "{before_overlap}trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS[before_v_overlap];{after_overlap}trim=end_frame={},setpts=PTS-STARTPTS[after_v_overlap];",
-        layout.prefix_frames, layout.before_frames, layout.overlap_frames,
-    );
-    let piece_count =
-        usize::from(layout.prefix_frames > 0) + 1 + usize::from(layout.suffix_frames > 0);
-    let overlap_output = if piece_count == 1 {
-        "v_joined"
-    } else {
-        "v_overlap"
-    };
-    let _ = write!(
-        filter,
-        "[before_v_overlap]{}[before_v_linear];[after_v_overlap]{}[after_v_linear];[before_v_linear][after_v_linear]blend=all_expr='{}':shortest=1:repeatlast=0,trim=end_frame={},setpts=PTS-STARTPTS,{}[{overlap_output}];",
+) -> Pad {
+    let (prefix, before_overlap_source) = before_video_pieces(graph, layout, before);
+    let (after_overlap_source, suffix) = after_video_pieces(graph, layout, after);
+
+    let before_overlap = graph.output_video_pad();
+    graph.clause(format!(
+        "{}trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS{}",
+        before_overlap_source.bracketed(),
+        layout.prefix_frames,
+        layout.before_frames,
+        before_overlap.bracketed(),
+    ));
+    let after_overlap = graph.output_video_pad();
+    graph.clause(format!(
+        "{}trim=end_frame={},setpts=PTS-STARTPTS{}",
+        after_overlap_source.bracketed(),
+        layout.overlap_frames,
+        after_overlap.bracketed(),
+    ));
+    let before_linear = graph.output_video_pad();
+    graph.clause(format!(
+        "{}{}{}",
+        before_overlap.bracketed(),
         working_to_linear_rgb(),
+        before_linear.bracketed(),
+    ));
+    let after_linear = graph.output_video_pad();
+    graph.clause(format!(
+        "{}{}{}",
+        after_overlap.bracketed(),
         working_to_linear_rgb(),
+        after_linear.bracketed(),
+    ));
+    let overlap = graph.output_video_pad();
+    graph.clause(format!(
+        "{}{}blend=all_expr='{}':shortest=1:repeatlast=0,trim=end_frame={},setpts=PTS-STARTPTS,{}{}",
+        before_linear.bracketed(),
+        after_linear.bracketed(),
         blend_expression(layout.overlap_frames),
         layout.overlap_frames,
         linear_rgb_to_encoding(working),
-    );
-    if layout.suffix_frames > 0 {
-        let _ = write!(
-            filter,
-            "[after_v_suffix_src]trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS[v_suffix];",
-            layout.overlap_frames, layout.after_frames,
-        );
-    }
-    if piece_count > 1 {
-        let mut labels = String::new();
-        if layout.prefix_frames > 0 {
-            labels.push_str("[v_prefix]");
-        }
-        labels.push_str("[v_overlap]");
-        if layout.suffix_frames > 0 {
-            labels.push_str("[v_suffix]");
-        }
-        let _ = write!(filter, "{labels}concat=n={piece_count}:v=1:a=0[v_joined];");
-    }
-    let _ = write!(
-        filter,
-        "[v_joined]trim=end_frame={},setpts=PTS-STARTPTS[v];",
+        overlap.bracketed(),
+    ));
+
+    let mut pieces = Vec::with_capacity(3);
+    pieces.extend(prefix);
+    pieces.push(overlap);
+    pieces.extend(suffix);
+    let joined = if pieces.len() == 1 {
+        pieces.pop().expect("crossfade has one overlap piece")
+    } else {
+        let labels = pieces.iter().map(Pad::bracketed).collect::<String>();
+        let joined = graph.output_video_pad();
+        graph.clause(format!(
+            "{labels}concat=n={}:v=1:a=0{}",
+            pieces.len(),
+            joined.bracketed(),
+        ));
+        joined
+    };
+    let output = graph.output_video_pad();
+    graph.clause(format!(
+        "{}trim=end_frame={},setpts=PTS-STARTPTS{}",
+        joined.bracketed(),
         layout.output_frames,
-    );
+        output.bracketed(),
+    ));
+    output
+}
+
+fn before_video_pieces(
+    graph: &mut GraphBuilder<'_, '_>,
+    layout: &CrossfadeLayout,
+    before: Pad,
+) -> (Option<Pad>, Pad) {
+    if layout.prefix_frames > 0 {
+        let prefix_source = graph.output_video_pad();
+        let overlap_source = graph.output_video_pad();
+        graph.clause(format!(
+            "{}split=2{}{}",
+            before.bracketed(),
+            prefix_source.bracketed(),
+            overlap_source.bracketed(),
+        ));
+        let prefix = graph.output_video_pad();
+        graph.clause(format!(
+            "{}trim=end_frame={},setpts=PTS-STARTPTS{}",
+            prefix_source.bracketed(),
+            layout.prefix_frames,
+            prefix.bracketed(),
+        ));
+        (Some(prefix), overlap_source)
+    } else {
+        (None, before)
+    }
+}
+
+fn after_video_pieces(
+    graph: &mut GraphBuilder<'_, '_>,
+    layout: &CrossfadeLayout,
+    after: Pad,
+) -> (Pad, Option<Pad>) {
+    if layout.suffix_frames > 0 {
+        let overlap_source = graph.output_video_pad();
+        let suffix_source = graph.output_video_pad();
+        graph.clause(format!(
+            "{}split=2{}{}",
+            after.bracketed(),
+            overlap_source.bracketed(),
+            suffix_source.bracketed(),
+        ));
+        let suffix = graph.output_video_pad();
+        graph.clause(format!(
+            "{}trim=start_frame={}:end_frame={},setpts=PTS-STARTPTS{}",
+            suffix_source.bracketed(),
+            layout.overlap_frames,
+            layout.after_frames,
+            suffix.bracketed(),
+        ));
+        (overlap_source, Some(suffix))
+    } else {
+        (after, None)
+    }
 }
 
 fn append_crossfade_audio_filter(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &AudioCrossfadeLayout,
+    before: Pad,
+    after: Pad,
     audio: crate::model::AudioSpec,
     audio_encoding: AudioEncoding,
-) {
-    let sources = crossfade_audio_sources(filter, layout);
+) -> Pad {
+    let sources = crossfade_audio_sources(graph, layout, before, after);
     let mut tracks = Vec::new();
-    if let Some(source) = sources.before_prefix {
-        append_prefix_audio_track(filter, layout, audio, audio_encoding, source);
-        tracks.push("[a_prefix_track]");
+    if let Some(source) = sources.before_prefix.as_ref() {
+        tracks.push(append_prefix_audio_track(
+            graph,
+            layout,
+            audio,
+            audio_encoding,
+            source,
+        ));
     }
     if layout.overlap_samples > 0 {
-        append_overlap_audio_tracks(filter, layout, audio, audio_encoding, &sources);
-        tracks.push("[a_before_overlap_track]");
-        tracks.push("[a_after_overlap_track]");
+        tracks.extend(append_overlap_audio_tracks(
+            graph,
+            layout,
+            audio,
+            audio_encoding,
+            &sources,
+        ));
     }
-    if let Some(source) = sources.after_suffix {
-        append_suffix_audio_track(filter, layout, audio, audio_encoding, source);
-        tracks.push("[a_suffix_track]");
+    if let Some(source) = sources.after_suffix.as_ref() {
+        tracks.push(append_suffix_audio_track(
+            graph,
+            layout,
+            audio,
+            audio_encoding,
+            source,
+        ));
     }
     debug_assert!(!tracks.is_empty());
-    let labels = tracks.concat();
+    let output = graph.output_audio_pad();
     if tracks.len() == 1 {
-        let _ = write!(
-            filter,
-            "{labels}{}[a]",
+        graph.clause(format!(
+            "{}{}{}",
+            tracks[0].bracketed(),
             normalize_audio(layout.output_samples, audio, audio_encoding),
-        );
+            output.bracketed(),
+        ));
     } else {
-        let _ = write!(
-            filter,
-            "{labels}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0[mixed_a];[mixed_a]{}[a]",
+        let labels = tracks.iter().map(Pad::bracketed).collect::<String>();
+        let mixed = graph.output_audio_pad();
+        graph.clause(format!(
+            "{labels}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0{}",
             tracks.len(),
+            mixed.bracketed(),
+        ));
+        graph.clause(format!(
+            "{}{}{}",
+            mixed.bracketed(),
             normalize_audio(layout.output_samples, audio, audio_encoding),
-        );
+            output.bracketed(),
+        ));
     }
+    output
 }
 
 struct CrossfadeAudioSources {
-    before_prefix: Option<&'static str>,
-    before_overlap: Option<&'static str>,
-    after_overlap: Option<&'static str>,
-    after_suffix: Option<&'static str>,
+    before_prefix: Option<Pad>,
+    before_overlap: Option<Pad>,
+    after_overlap: Option<Pad>,
+    after_suffix: Option<Pad>,
 }
 
 fn crossfade_audio_sources(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &AudioCrossfadeLayout,
+    before: Pad,
+    after: Pad,
 ) -> CrossfadeAudioSources {
     let before_branches =
         usize::from(layout.prefix_samples > 0) + usize::from(layout.overlap_samples > 0);
     let (before_prefix, before_overlap) = match before_branches {
         2 => {
-            filter.push_str("[0:a]asplit=2[before_a_prefix_src][before_a_overlap_src];");
-            (
-                Some("[before_a_prefix_src]"),
-                Some("[before_a_overlap_src]"),
-            )
+            let prefix = graph.output_audio_pad();
+            let overlap = graph.output_audio_pad();
+            graph.clause(format!(
+                "{}asplit=2{}{}",
+                before.bracketed(),
+                prefix.bracketed(),
+                overlap.bracketed(),
+            ));
+            (Some(prefix), Some(overlap))
         }
-        1 if layout.prefix_samples > 0 => (Some("[0:a]"), None),
-        1 => (None, Some("[0:a]")),
+        1 if layout.prefix_samples > 0 => (Some(before), None),
+        1 => (None, Some(before)),
         0 => (None, None),
         _ => unreachable!("crossfade has at most two before Audio branches"),
     };
@@ -196,11 +287,18 @@ fn crossfade_audio_sources(
         usize::from(layout.overlap_samples > 0) + usize::from(layout.suffix_samples > 0);
     let (after_overlap, after_suffix) = match after_branches {
         2 => {
-            filter.push_str("[1:a]asplit=2[after_a_overlap_src][after_a_suffix_src];");
-            (Some("[after_a_overlap_src]"), Some("[after_a_suffix_src]"))
+            let overlap = graph.output_audio_pad();
+            let suffix = graph.output_audio_pad();
+            graph.clause(format!(
+                "{}asplit=2{}{}",
+                after.bracketed(),
+                overlap.bracketed(),
+                suffix.bracketed(),
+            ));
+            (Some(overlap), Some(suffix))
         }
-        1 if layout.overlap_samples > 0 => (Some("[1:a]"), None),
-        1 => (None, Some("[1:a]")),
+        1 if layout.overlap_samples > 0 => (Some(after), None),
+        1 => (None, Some(after)),
         0 => (None, None),
         _ => unreachable!("crossfade has at most two after Audio branches"),
     };
@@ -213,38 +311,44 @@ fn crossfade_audio_sources(
 }
 
 fn append_prefix_audio_track(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     audio_encoding: AudioEncoding,
-    source: &str,
-) {
-    let _ = write!(
-        filter,
-        "{source}atrim=end_sample={},asetpts=PTS-STARTPTS,{},apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_prefix_track];",
+    source: &Pad,
+) -> Pad {
+    let output = graph.output_audio_pad();
+    graph.clause(format!(
+        "{}atrim=end_sample={},asetpts=PTS-STARTPTS,{},apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS{}",
+        source.bracketed(),
         layout.prefix_samples,
         normalize_audio(layout.prefix_samples, audio, audio_encoding),
         layout.output_samples,
         layout.output_samples,
-    );
+        output.bracketed(),
+    ));
+    output
 }
 
 fn append_overlap_audio_tracks(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     audio_encoding: AudioEncoding,
     sources: &CrossfadeAudioSources,
-) {
+) -> [Pad; 2] {
     let before = sources
         .before_overlap
+        .as_ref()
         .expect("positive overlap has before Audio");
     let after = sources
         .after_overlap
+        .as_ref()
         .expect("positive overlap has after Audio");
-    let _ = write!(
-        filter,
-        "{before}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},afade=t=out:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_before_overlap_track];",
+    let before_output = graph.output_audio_pad();
+    graph.clause(format!(
+        "{}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},afade=t=out:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS{}",
+        before.bracketed(),
         layout.prefix_samples,
         layout.before_total_samples,
         normalize_audio(layout.overlap_samples, audio, audio_encoding),
@@ -252,36 +356,43 @@ fn append_overlap_audio_tracks(
         layout.prefix_samples,
         layout.output_samples,
         layout.output_samples,
-    );
-    let _ = write!(
-        filter,
-        "{after}atrim=end_sample={},asetpts=PTS-STARTPTS,{},afade=t=in:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_after_overlap_track];",
+        before_output.bracketed(),
+    ));
+    let after_output = graph.output_audio_pad();
+    graph.clause(format!(
+        "{}atrim=end_sample={},asetpts=PTS-STARTPTS,{},afade=t=in:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS{}",
+        after.bracketed(),
         layout.after_overlap_end_samples,
         normalize_audio(layout.overlap_samples, audio, audio_encoding),
         layout.overlap_samples,
         layout.prefix_samples,
         layout.output_samples,
         layout.output_samples,
-    );
+        after_output.bracketed(),
+    ));
+    [before_output, after_output]
 }
 
 fn append_suffix_audio_track(
-    filter: &mut String,
+    graph: &mut GraphBuilder<'_, '_>,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
     audio_encoding: AudioEncoding,
-    source: &str,
-) {
-    let _ = write!(
-        filter,
-        "{source}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_suffix_track];",
+    source: &Pad,
+) -> Pad {
+    let output = graph.output_audio_pad();
+    graph.clause(format!(
+        "{}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS{}",
+        source.bracketed(),
         layout.after_overlap_end_samples,
         layout.after_total_samples,
         normalize_audio(layout.suffix_samples, audio, audio_encoding),
         layout.before_total_samples,
         layout.output_samples,
         layout.output_samples,
-    );
+        output.bracketed(),
+    ));
+    output
 }
 
 struct CrossfadeLayout {

@@ -127,7 +127,7 @@ fn project_cache_none_is_temporary_and_the_cli_can_override_it() {
     fs::create_dir_all(directory.path().join("src/nested")).expect("nested directory");
     fs::write(
         directory.path().join("clipasm.toml"),
-        "[project]\nentrypoint = \"src/main.clipasm\"\n\n[render]\ncache = \"none\"\n",
+        "[project]\nentrypoint = \"src/main.clipasm\"\n\n[render]\ncache = \"none\"\nmaterialization = \"fused\"\n",
     )
     .expect("manifest");
     fs::write(
@@ -148,12 +148,27 @@ fn project_cache_none_is_temporary_and_the_cli_can_override_it() {
         String::from_utf8_lossy(&uncached.stderr)
     );
     assert!(String::from_utf8_lossy(&uncached.stdout).contains("cache: none"));
+    assert!(String::from_utf8_lossy(&uncached.stdout).contains("materialization: fused"));
     assert!(!directory.path().join(".clipasm/cache").exists());
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(directory.path().join("src/final.mp4.manifest.json")).expect("manifest"),
     )
     .expect("manifest JSON");
     assert_eq!(manifest["cache"]["mode"], "none");
+    assert_eq!(manifest["execution"]["materialization"], "fused");
+
+    let materialized_all = run_clipasm(
+        &directory.path().join("src/nested"),
+        &["render", "--materialization", "all"],
+    );
+    assert!(
+        materialized_all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&materialized_all.stderr)
+    );
+    assert!(String::from_utf8_lossy(&materialized_all.stdout).contains("cache: none"));
+    assert!(String::from_utf8_lossy(&materialized_all.stdout).contains("materialization: all"));
+    assert!(!directory.path().join(".clipasm/cache").exists());
 
     let persistent = run_clipasm(
         &directory.path().join("src/nested"),
@@ -165,6 +180,7 @@ fn project_cache_none_is_temporary_and_the_cli_can_override_it() {
         String::from_utf8_lossy(&persistent.stderr)
     );
     assert!(String::from_utf8_lossy(&persistent.stdout).contains("cache: persistent"));
+    assert!(String::from_utf8_lossy(&persistent.stdout).contains("materialization: fused"));
     assert!(directory.path().join(".clipasm/cache").is_dir());
     assert!(!directory.path().join("src/.clipasm").exists());
 }

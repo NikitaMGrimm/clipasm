@@ -36,7 +36,7 @@ pub(crate) mod tools;
 
 #[cfg(feature = "native")]
 pub(crate) use assets::verify_prepared_asset;
-pub use color::{PreparedSourceColor, SourceColorConvention};
+pub use color::{ChromaLocation, PreparedSourceColor, SourceColorConvention};
 #[cfg(feature = "native")]
 pub use native::preflight;
 #[cfg(feature = "native")]

@@ -3,7 +3,7 @@
 mod common;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clipasm::{compiler, preflight, render};
@@ -28,6 +28,450 @@ fn color_project(color: &str) -> (tempfile::TempDir, compiler::CompiledProgram) 
     .expect("workflow");
     let compiled = compile_file(&workflow).expect("compile");
     (directory, compiled)
+}
+
+fn render_to_cache(
+    plan: &preflight::PreparedPlan,
+    cache_root: &Path,
+    materialization: render::MaterializationMode,
+) -> render::RenderReport {
+    render::render_with_options(
+        plan,
+        &render::RenderOptions::new(render::CacheMode::Persistent, materialization)
+            .with_cache_root(cache_root),
+    )
+    .expect("render to isolated cache")
+}
+
+fn endpoint_cache_artifact(cache_root: &Path, plan: &preflight::PreparedPlan) -> PathBuf {
+    let namespace = fs::read_dir(cache_root)
+        .expect("cache root")
+        .find_map(|entry| {
+            let entry = entry.expect("cache entry");
+            entry
+                .file_type()
+                .expect("cache entry type")
+                .is_dir()
+                .then(|| entry.path())
+        })
+        .expect("execution namespace");
+    namespace.join(format!(
+        "{}.mkv",
+        plan.nodes()[plan.result().get() as usize].fingerprint()
+    ))
+}
+
+fn decode_working_stream(path: &Path, arguments: [&str; 5]) -> Vec<u8> {
+    let output = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(arguments)
+        .output()
+        .expect("decode working artifact");
+    assert!(
+        output.status.success(),
+        "decode failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+fn assert_working_artifacts_equal(all: &Path, fused: &Path) {
+    for arguments in [
+        ["-map", "0:v:0", "-f", "framemd5", "-"],
+        ["-map", "0:a:0", "-f", "s16le", "-"],
+    ] {
+        assert_eq!(
+            decode_working_stream(fused, arguments),
+            decode_working_stream(all, arguments)
+        );
+    }
+}
+
+#[test]
+fn fused_materialization_preserves_exact_video_and_audio_with_one_region() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fusion test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+    )
+    .expect("image");
+    let tone = directory.path().join("tone.wav");
+    let tone_status = Command::new("ffmpeg")
+        .args(["-y", "-v", "error", "-f", "lavfi", "-i"])
+        .arg("sine=frequency=440:sample_rate=48000:duration=1")
+        .args(["-c:a", "pcm_s16le"])
+        .arg(&tone)
+        .status()
+        .expect("create tone fixture");
+    assert!(tone_status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s, stretch)\nzoom_in(20%)\naudio(\"tone.wav\")\ntrim<Audio>(100ms..900ms)\nset_audio\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert!(plan.nodes().len() > 1);
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), plan.nodes().len());
+
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 1);
+    assert_eq!(
+        fused.materialization_mode(),
+        render::MaterializationMode::Fused
+    );
+
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(fused.manifest()).expect("manifest"))
+            .expect("manifest JSON");
+    assert_eq!(manifest["execution"]["materialization"], "fused");
+}
+
+#[test]
+fn fused_materialization_preserves_adaptations_concat_and_video_slice() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fusion adaptation test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    for (name, frequency) in [("first.wav", 440), ("second.wav", 660)] {
+        let status = Command::new("ffmpeg")
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i"])
+            .arg(format!(
+                "sine=frequency={frequency}:sample_rate=48000:duration=1"
+            ))
+            .args(["-c:a", "pcm_s16le"])
+            .arg(directory.path().join(name))
+            .status()
+            .expect("create tone fixture");
+        assert!(status.success());
+    }
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nset_audio(\n  video={\n    image(\"card.ppm\", 1s, stretch)\n    trim(100ms..900ms)\n  },\n  audio=zoom_in(\n    video={\n      audio(\"first.wav\")\n      trim<Audio>(0ms..400ms)\n      audio(\"second.wav\")\n      trim<Audio>(0ms..400ms)\n      concat<Audio>\n    },\n    by=10%,\n  ),\n)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.video_kind(),
+        Some(preflight::PreparedVideoKind::AudioOnBlack { .. })
+    )));
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.audio_kind(),
+        Some(preflight::PreparedAudioKind::ExtractAudio { .. })
+    )));
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.audio_kind(),
+        Some(preflight::PreparedAudioKind::AudioConcat { .. })
+    )));
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), plan.nodes().len());
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 3);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+}
+
+#[test]
+fn fused_materialization_keeps_sequential_fan_out_bounded() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fused fan-out test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nclip { image(\"card.ppm\", 500ms, stretch) } as card\nzoom_in(video=$card, by=10%) as first\ndrop<Video>\nzoom_in(video=$card, by=20%) as second\ndrop<Video>\n{\n  $first\n  $second\n  concat\n}\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 4);
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), 4);
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 4);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+}
+
+#[test]
+fn fused_materialization_combines_stream_disjoint_video_fan_out() {
+    if !common::media_tools_available() {
+        eprintln!("skipping mixed-stream fan-out test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source = directory.path().join("source.mkv");
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=64x48:r=10:d=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=1",
+            "-c:v",
+            "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-c:a",
+            "pcm_s16le",
+            "-shortest",
+        ])
+        .arg(&source)
+        .status()
+        .expect("create audiovisual fixture");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nvideo(\"source.mkv\", stretch) as source\ndrop<Video>\nextract_audio(video=$source) as sound\ndrop<Audio>\nset_audio(audio=$sound, video=$source)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 3);
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), 3);
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 1);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+}
+
+#[test]
+fn fused_materialization_preserves_chained_video_crossfades_and_attached_audio() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fused crossfade test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("before.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("before image");
+    fs::write(
+        directory.path().join("after.ppm"),
+        b"P3\n1 1\n255\n0 0 255\n",
+    )
+    .expect("after image");
+    fs::write(
+        directory.path().join("third.ppm"),
+        b"P3\n1 1\n255\n0 255 0\n",
+    )
+    .expect("third image");
+    for (name, frequency) in [("before.wav", 440), ("after.wav", 660)] {
+        let status = Command::new("ffmpeg")
+            .args(["-y", "-v", "error", "-f", "lavfi", "-i"])
+            .arg(format!(
+                "sine=frequency={frequency}:sample_rate=48000:duration=1"
+            ))
+            .args(["-c:a", "pcm_s16le"])
+            .arg(directory.path().join(name))
+            .status()
+            .expect("create tone fixture");
+        assert!(status.success());
+    }
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"before.ppm\", 1s, stretch)\naudio(\"before.wav\")\nset_audio\nimage(\"after.ppm\", 1s, stretch)\naudio(\"after.wav\")\nset_audio\ncrossfade(400ms)\nimage(\"third.ppm\", 1s, stretch)\ncrossfade(400ms)\nzoom_in(10%)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert!(plan.nodes().iter().any(|node| matches!(
+        node.video_kind(),
+        Some(preflight::PreparedVideoKind::Crossfade { .. })
+    )));
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), plan.nodes().len());
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 5);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+}
+
+#[test]
+fn fused_materialization_preserves_input_scoped_video_repeat() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fused Video repeat test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+    )
+    .expect("image");
+    let tone = directory.path().join("tone.wav");
+    let status = Command::new("ffmpeg")
+        .args(["-y", "-v", "error", "-f", "lavfi", "-i"])
+        .arg("sine=frequency=440:sample_rate=48000:duration=1")
+        .args(["-c:a", "pcm_s16le"])
+        .arg(&tone)
+        .status()
+        .expect("create tone fixture");
+    assert!(status.success());
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 7 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 3f, stretch)\naudio(\"tone.wav\")\nset_audio\nrepeat(3)\nzoom_in(10%)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 5);
+
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), plan.nodes().len());
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 2);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
+}
+
+#[test]
+fn fused_materialization_stops_at_a_verified_cache_frontier() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fusion cache-frontier test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let image = directory.path().join("card.ppm");
+    fs::write(&image, b"P3\n1 1\n255\n255 0 0\n").expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s, stretch)\nzoom_in(10%)\nzoom_in(10%)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 3);
+    render::render(&plan).expect("populate per-node cache");
+
+    let result = common::cache_artifact(
+        directory.path(),
+        plan.nodes()[plan.result().get() as usize].fingerprint(),
+        "mkv",
+    );
+    fs::remove_file(&result).expect("remove result artifact");
+    fs::remove_file(common::cache_metadata(&result)).expect("remove result metadata");
+    fs::write(&image, b"P3\n1 1\n255\n0 0 255\n").expect("change pruned source");
+
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(
+            render::CacheMode::Persistent,
+            render::MaterializationMode::Fused,
+        ),
+    )
+    .expect("render from the verified intermediate frontier");
+    assert_eq!(report.reused_artifacts(), 1);
+    assert_eq!(report.rendered_jobs(), 1);
+}
+
+#[test]
+fn fused_materialization_rechecks_resources_inside_the_region() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fusion resource test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s, stretch)\nzoom_in(10%)\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 2);
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n0 0 255\n",
+    )
+    .expect("change fused source after preflight");
+
+    let error = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(render::CacheMode::None, render::MaterializationMode::Fused),
+    )
+    .expect_err("changed source inside a fused region");
+    assert_eq!(error.code, "E_ASSET_CHANGED");
 }
 
 #[test]
@@ -63,34 +507,35 @@ fn renders_and_reuses_verified_cache() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(first.manifest()).expect("new manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["format_version"], 3);
+    assert_eq!(manifest["format_version"], 4);
     assert_eq!(manifest["project"]["video"]["fps"]["numerator"], 10);
     assert_eq!(manifest["project"]["video"]["color"]["transfer"], "bt709");
     assert_eq!(manifest["output_encoding"]["pixel_format"], "yuv420p");
     assert_eq!(manifest["output_encoding"]["chroma_location"], "left");
     assert_eq!(manifest["semantic_hash"], plan.semantic_hash());
-    assert_eq!(manifest["cache"]["hits"], 0);
-    assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
+    assert_eq!(manifest["cache"]["reused_artifacts"], 0);
+    assert_eq!(manifest["execution"]["rendered_jobs"], plan.nodes().len());
     assert_eq!(manifest["cache"]["mode"], "persistent");
+    assert_eq!(manifest["execution"]["materialization"], "all");
     assert!(manifest.get("plan").is_none());
     assert!(manifest.get("execution_namespace").is_none());
-    assert_eq!(first.cache_hits(), 0);
-    assert_eq!(first.cache_misses(), plan.nodes().len());
+    assert_eq!(first.reused_artifacts(), 0);
+    assert_eq!(first.rendered_jobs(), plan.nodes().len());
     let upstream = common::cache_artifact(directory.path(), plan.nodes()[0].fingerprint(), "mkv");
     fs::remove_file(&upstream).expect("remove upstream artifact");
     fs::remove_file(common::cache_metadata(&upstream)).expect("remove upstream metadata");
     fs::write(directory.path().join("card.ppm"), b"P3\n1 1\n255\n0 0 0\n")
         .expect("change authored image after preflight");
     let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits(), 1);
-    assert_eq!(second.cache_misses(), 0);
+    assert_eq!(second.reused_artifacts(), 1);
+    assert_eq!(second.rendered_jobs(), 0);
     assert!(!upstream.exists(), "pruned upstream cache was recreated");
     assert!(second.manifest().is_file());
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(second.manifest()).expect("cached manifest"))
             .expect("cached manifest JSON");
-    assert_eq!(manifest["cache"]["hits"], 1);
-    assert_eq!(manifest["cache"]["misses"], 0);
+    assert_eq!(manifest["cache"]["reused_artifacts"], 1);
+    assert_eq!(manifest["execution"]["rendered_jobs"], 0);
 }
 
 #[test]
@@ -114,11 +559,19 @@ fn cache_none_uses_temporary_artifacts_and_releases_shared_inputs_after_last_use
     let compiled = compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight");
 
-    let report = render::render_without_cache(&plan).expect("uncached render");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(render::CacheMode::None, render::MaterializationMode::Fused),
+    )
+    .expect("uncached fused render");
 
     assert_eq!(report.cache_mode(), render::CacheMode::None);
-    assert_eq!(report.cache_hits(), 0);
-    assert_eq!(report.cache_misses(), plan.nodes().len());
+    assert_eq!(
+        report.materialization_mode(),
+        render::MaterializationMode::Fused
+    );
+    assert_eq!(report.reused_artifacts(), 0);
+    assert_eq!(report.rendered_jobs(), 2);
     assert!(report.output().is_file());
     assert!(!directory.path().join(".clipasm").exists());
     assert!(
@@ -134,10 +587,11 @@ fn cache_none_uses_temporary_artifacts_and_releases_shared_inputs_after_last_use
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["format_version"], 3);
+    assert_eq!(manifest["format_version"], 4);
     assert_eq!(manifest["cache"]["mode"], "none");
-    assert_eq!(manifest["cache"]["hits"], 0);
-    assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
+    assert_eq!(manifest["cache"]["reused_artifacts"], 0);
+    assert_eq!(manifest["execution"]["rendered_jobs"], plan.nodes().len());
+    assert_eq!(manifest["execution"]["materialization"], "fused");
 }
 
 #[cfg(unix)]
@@ -267,8 +721,8 @@ fn invalid_downstream_cache_expands_to_its_valid_input() {
     fs::write(&result, &substituted).expect("replace result with shorter input");
 
     let report = render::render(&plan).expect("repair invalid result cache");
-    assert_eq!(report.cache_hits(), 1);
-    assert_eq!(report.cache_misses(), 1);
+    assert_eq!(report.reused_artifacts(), 1);
+    assert_eq!(report.rendered_jobs(), 1);
 }
 
 #[test]
@@ -292,8 +746,8 @@ fn shape_compatible_cache_substitution_is_rejected() {
     fs::copy(&blue_artifact, &red_artifact).expect("substitute shape-compatible artifact");
 
     let report = render::render(&red_plan).expect("rerender substituted cache");
-    assert_eq!(report.cache_hits(), 0);
-    assert_eq!(report.cache_misses(), 1);
+    assert_eq!(report.reused_artifacts(), 0);
+    assert_eq!(report.rendered_jobs(), 1);
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(report.output())
@@ -332,8 +786,8 @@ fn image_paths_are_literal_for_rendering_and_cache_identity() {
     let compiled = compile_file(&workflow).expect("compile");
     let plan = preflight::preflight(&compiled).expect("preflight literal image");
     let first = render::render(&plan).expect("render literal image");
-    assert_eq!(first.cache_hits(), 0);
-    assert_eq!(first.cache_misses(), 1);
+    assert_eq!(first.reused_artifacts(), 0);
+    assert_eq!(first.rendered_jobs(), 1);
     let decode = |path: &Path| {
         let output = Command::new("ffmpeg")
             .args(["-v", "error", "-i"])
@@ -361,8 +815,8 @@ fn image_paths_are_literal_for_rendering_and_cache_identity() {
     )
     .expect("change pattern neighbor");
     let second = render::render(&plan).expect("reuse literal image cache");
-    assert_eq!(second.cache_hits(), 1);
-    assert_eq!(second.cache_misses(), 0);
+    assert_eq!(second.reused_artifacts(), 1);
+    assert_eq!(second.rendered_jobs(), 0);
     let second_frame = decode(second.output());
     assert!(
         second_frame[0] > 200,
@@ -400,7 +854,7 @@ fn renders_during_with_an_exact_duration_change() {
     let plan = preflight::preflight(&compiled).expect("preflight");
     let report = render::render(&plan).expect("render during");
     assert!(report.output().is_file());
-    assert_eq!(report.cache_misses(), plan.nodes().len());
+    assert_eq!(report.rendered_jobs(), plan.nodes().len());
 }
 
 #[test]
@@ -487,9 +941,17 @@ fn renders_and_normalizes_a_video_source() {
             .0,
         30
     );
-    let first = render::render(&plan).expect("first render");
-    assert_eq!(first.cache_hits(), 0);
-    assert_eq!(first.cache_misses(), plan.nodes().len());
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert_eq!(all.rendered_jobs(), plan.nodes().len());
+    let fused_cache = directory.path().join("fused-cache");
+    let first = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(first.reused_artifacts(), 0);
+    assert_eq!(first.rendered_jobs(), 3);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
     assert!(first.output().is_file());
     let probe = Command::new("ffprobe")
         .args([
@@ -513,9 +975,9 @@ fn renders_and_normalizes_a_video_source() {
             .count(),
         1
     );
-    let second = render::render(&plan).expect("cached render");
-    assert_eq!(second.cache_hits(), 1);
-    assert_eq!(second.cache_misses(), 0);
+    let second = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(second.reused_artifacts(), 1);
+    assert_eq!(second.rendered_jobs(), 0);
 }
 
 #[test]
@@ -792,7 +1254,15 @@ fn flash_cut_renders_an_exact_join_with_a_white_to_normal_after_cut() {
             .0,
         20
     );
-    let report = render::render(&plan).expect("render flash_cut");
+    let all_cache = directory.path().join("all-cache");
+    render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    let fused_cache = directory.path().join("fused-cache");
+    let report = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(report.rendered_jobs(), 3);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
     let decoded = Command::new("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(report.output())
@@ -964,8 +1434,16 @@ fn renders_native_audio_trim_repeat_and_concat() {
         node.audio_kind(),
         Some(preflight::PreparedAudioKind::AudioConcat { .. })
     )));
-    let report = render::render(&plan).expect("render native audio operations");
-    assert!(report.output().is_file());
+    let all_cache = directory.path().join("all-cache");
+    let all = render_to_cache(&plan, &all_cache, render::MaterializationMode::All);
+    assert!(all.rendered_jobs() > 2);
+    let fused_cache = directory.path().join("fused-cache");
+    let fused = render_to_cache(&plan, &fused_cache, render::MaterializationMode::Fused);
+    assert_eq!(fused.rendered_jobs(), 4);
+    assert_working_artifacts_equal(
+        &endpoint_cache_artifact(&all_cache, &plan),
+        &endpoint_cache_artifact(&fused_cache, &plan),
+    );
 }
 
 #[test]
@@ -1062,7 +1540,7 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     let document: serde_json::Value =
         serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(document["format_version"], 3);
+    assert_eq!(document["format_version"], 4);
     assert!(document.get("plan").is_none());
     output_name.push(".manifest.json");
     assert_eq!(report.manifest(), directory.path().join(output_name));
@@ -1135,7 +1613,7 @@ fn renders_a_native_video_input_with_a_non_utf8_path() {
     let report = render::render(&plan).expect("render non-UTF input");
 
     assert!(report.output().is_file());
-    assert_eq!(report.cache_misses(), plan.nodes().len());
+    assert_eq!(report.rendered_jobs(), plan.nodes().len());
 }
 
 #[cfg(unix)]
@@ -1157,8 +1635,11 @@ fn renders_an_external_video_program() {
         r#"import json, pathlib, subprocess, sys
 r = json.load(sys.stdin)
 assert r["protocol_version"] == 3
-assert r["parameters"]["amount"] == 7
-assert pathlib.Path(r["parameters"]["lut"]).read_bytes() == b"original lookup"
+assert r["parameters"]["amount"] in (7, 8)
+lut = pathlib.Path(r["parameters"]["lut"])
+assert lut.read_bytes() == b"original lookup"
+with lut.with_name("amounts.log").open("a") as log:
+    print(r["parameters"]["amount"], file=log)
 subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]["path"]], check=True)
 "#,
     )
@@ -1172,15 +1653,30 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let workflow = directory.path().join("workflow.clipasm");
     fs::write(
         &workflow,
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nimage(\"card.ppm\", 1s)\neffect(7)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"result.mp4\" }\nimport \"effect.clipasm\" as effect\nclip { image(\"card.ppm\", 500ms) } as card\n{\n  $card\n  effect(7)\n  $card\n  effect(8)\n  concat\n}\nzoom_in(10%)\n",
     )
     .expect("workflow");
 
     let compiled = compile_file(&workflow).expect("compile external program");
     let plan = preflight::preflight(&compiled).expect("preflight external program");
-    let report = render::render(&plan).expect("render external program");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(
+            render::CacheMode::Persistent,
+            render::MaterializationMode::Fused,
+        ),
+    )
+    .expect("render external program with fusion boundaries");
     assert!(report.output().is_file());
-    assert_eq!(report.cache_misses(), 2);
+    assert_eq!(plan.nodes().len(), 5);
+    assert_eq!(report.rendered_jobs(), 4);
+    let mut amounts = fs::read_to_string(directory.path().join("amounts.log"))
+        .expect("external invocation log")
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    amounts.sort();
+    assert_eq!(amounts, ["7", "8"]);
 }
 
 #[cfg(unix)]
@@ -1229,12 +1725,12 @@ subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["vi
     let plan = preflight::preflight(&compiled).expect("preflight");
     assert_eq!(plan.nodes().len(), 3);
     let first = render::render(&plan).expect("initial render");
-    assert_eq!(first.cache_misses(), 3);
+    assert_eq!(first.rendered_jobs(), 3);
 
     fs::write(&executable, "#!/bin/sh\nexit 1\n").expect("change external executable");
     let cached = render::render(&plan).expect("cached downstream prunes external executable");
-    assert_eq!(cached.cache_hits(), 1);
-    assert_eq!(cached.cache_misses(), 0);
+    assert_eq!(cached.reused_artifacts(), 1);
+    assert_eq!(cached.rendered_jobs(), 0);
 
     let result = common::cache_artifact(
         directory.path(),

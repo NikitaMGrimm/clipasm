@@ -28,12 +28,15 @@ Prepared primitive plan + one result
 The native CLI owns `clipasm.toml` discovery and decoding. When the caller omits
 a source path, the CLI searches upward from the current directory. It resolves
 the manifest's relative entrypoint and project root. An explicit source path
-bypasses project discovery.
+bypasses project discovery. One optional render-settings schema owns both the
+manifest table and flattened render flags; ClipAsm resolves built-in defaults,
+then project settings, then command-line overrides once into renderer options.
 
-The manifest selects a source package. It also selects the host location for
-project-local `.clipasm/` state. The manifest does not contribute language
-configuration, semantic identity, media settings, output settings, or renderer
-policy.
+The manifest selects a source package, cache retention, and native execution
+materialization. It also selects the host location for project-local
+`.clipasm/` state. These host execution settings do not contribute language
+configuration, semantic identity, media settings, output settings, or physical
+artifact identity.
 
 ### Authored model
 
@@ -609,13 +612,18 @@ consumes exact Audio sample counts as a bounded line stream, not one complete
 frame document. Media-tool execution has no fixed deadline because valid render
 time scales with the input and operation graph. The
 sibling render manifest has its own versioned schema and records only project
-media properties, semantic/result identity, tool version summaries, and cache
-statistics. It does not serialize the executable prepared plan or local paths.
+media properties, semantic/result identity, tool version summaries, cache reuse,
+and execution statistics. It does not serialize the executable prepared plan or
+local paths.
 
-Cache and publication orchestration remain in `render`. One exhaustive
-prepared-primitive dispatcher delegates media, Audio, timeline, effect, and
-transition argument construction to focused modules and returns a typed FFmpeg
-recipe. Recipes distinguish literal arguments, source assets, and prepared
+Cache and publication orchestration remain in `render`. A typed stream-graph
+lowerer owns FFmpeg inputs, Video and Audio pads, filter labels, unused-pad
+sinks, and the one output encoder boundary for a materialized region. It lowers
+renderer primitives without parsing or joining opaque FFmpeg argument lists.
+Every non-external prepared operation is exhaustively graph-lowered, so adding
+one requires its typed rendering branch at compile time. Operations that need
+input-scoped FFmpeg behavior lower from an explicit materialized frontier.
+Closed recipes distinguish literal arguments, source assets, and prepared
 artifacts. They contain no shell commands or host paths.
 
 The native adapter materializes recipes with platform paths. It owns FFmpeg
@@ -639,13 +647,29 @@ when its versioned sidecar identifies the current execution namespace and node
 fingerprint. Its recorded SHA-256 must also match the artifact.
 
 A persistent-cache miss expands to the node's canonical prepared inputs.
-Actions then run in stable topological order, rechecking planned misses under
-their per-artifact lock so a concurrent renderer can satisfy them without
-duplicate work. Cache-none execution expands the complete reachable graph,
-verifies every artifact, and deletes each non-result artifact after its final
-consumer. Shared graph inputs remain available until all consumers finish. The
-planner rehashes source assets, external executables, and declared external
-files when it reaches their node. A verified persistent downstream artifact
+In `all` materialization, every reached node becomes one execution action. In
+`fused` materialization, compatible FFmpeg nodes that converge on one
+materialized endpoint contract into one typed filter-graph region. The planner
+tracks picture and Audio consumption separately, so stream-disjoint consumers
+can share a region without duplicating a physical stream. A duplicated stream
+remains materialized. Temporal joins also reject fused inputs because FFmpeg can
+otherwise queue fused preprocessing from a later branch in proportion to clip
+length. Linear work within each input branch and work downstream of the join can
+still form their own regions. Verified cache hits, external programs, primitives with
+input-scoped FFmpeg behavior, and branches that require different materialized
+endpoints also remain boundaries. Crossfade consumes and produces typed Video
+and Audio pads directly. Repeat graph-lowers from a materialized input because
+its exact implementation uses demuxer looping, then remains fusible with
+downstream operations.
+
+Region actions run in stable topological order and recheck planned persistent
+misses under the endpoint artifact lock so a concurrent renderer can satisfy
+them without duplicate work. Persistent fused execution caches region
+endpoints, not internal nodes. Cache-none execution expands the complete
+reachable graph, verifies each region endpoint, and deletes each non-result
+artifact after its final region consumer. Shared graph inputs remain available
+until all consumers finish. Before rendering a region, the planner rehashes the
+resources of every included node. A verified persistent downstream artifact
 makes the pruned upstream subtree irrelevant. FFmpeg/FFprobe identity
 verification and final export remain unconditional.
 

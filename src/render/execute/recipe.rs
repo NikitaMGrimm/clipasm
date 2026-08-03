@@ -5,7 +5,7 @@ use std::process::Command;
 #[cfg(feature = "native")]
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoSpec};
-use crate::preflight::{PreparedNode, RenderPolicy};
+use crate::preflight::{PreparedNode, RenderPolicy, VideoEncoding};
 use crate::source::SourceSpan;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,23 +66,18 @@ impl<'a> RecipeContext<'a> {
     }
 
     pub(super) fn append_video_output(&self, recipe: &mut FfmpegRecipe) {
+        let encoding = self.policy.working_video_encoding();
         recipe
             .args(["-c:v", self.policy.native_video_encoder()])
             .args([
                 "-level",
                 &self.policy.native_video_level().to_string(),
                 "-pix_fmt",
-                self.policy.working_pixel_format(),
-                "-color_primaries",
-                "bt709",
-                "-color_trc",
-                "bt709",
-                "-colorspace",
-                "bt709",
-                "-color_range",
-                "tv",
-                "-r",
-            ])
+                encoding.pixel_format(),
+            ]);
+        append_video_encoding_metadata(recipe, encoding);
+        recipe
+            .arg("-r")
             .arg(format!(
                 "{}/{}",
                 self.video.fps().numerator(),
@@ -115,6 +110,23 @@ impl<'a> RecipeContext<'a> {
             "-f",
             self.policy.native_container(),
         ]);
+    }
+}
+
+pub(super) fn append_video_encoding_metadata(recipe: &mut FfmpegRecipe, encoding: VideoEncoding) {
+    let color = super::super::color::metadata(encoding.color());
+    recipe.args([
+        "-color_primaries",
+        color.primaries,
+        "-color_trc",
+        color.transfer,
+        "-colorspace",
+        color.matrix,
+        "-color_range",
+        color.range,
+    ]);
+    if let Some(location) = encoding.chroma_location() {
+        recipe.args(["-chroma_sample_location", location.ffmpeg_name()]);
     }
 }
 

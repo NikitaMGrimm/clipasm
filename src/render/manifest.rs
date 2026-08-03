@@ -5,7 +5,7 @@ use crate::model::{AudioSpec, VideoDomain, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan, VideoEncoding};
 use crate::source::SourceSpan;
 
-use super::CacheMode;
+use super::{CacheMode, MaterializationMode};
 
 #[derive(Serialize)]
 struct ManifestDocument<'a> {
@@ -17,6 +17,7 @@ struct ManifestDocument<'a> {
     result: ResultDocument<'a>,
     tools: ToolDocument<'a>,
     cache: CacheDocument,
+    execution: ExecutionDocument,
 }
 
 #[derive(Serialize)]
@@ -41,16 +42,22 @@ struct ToolDocument<'a> {
 #[derive(Serialize)]
 struct CacheDocument {
     mode: &'static str,
-    hits: usize,
-    misses: usize,
+    reused_artifacts: usize,
+}
+
+#[derive(Serialize)]
+struct ExecutionDocument {
+    materialization: &'static str,
+    rendered_jobs: usize,
 }
 
 pub(super) fn serialize(
     plan: &PreparedPlan,
     result: &PreparedNode,
     cache_mode: CacheMode,
-    cache_hits: usize,
-    cache_misses: usize,
+    materialization_mode: MaterializationMode,
+    reused_artifacts: usize,
+    rendered_jobs: usize,
 ) -> Result<Vec<u8>> {
     let PreparedNodeMedia::Video {
         domain, has_audio, ..
@@ -82,8 +89,11 @@ pub(super) fn serialize(
         },
         cache: CacheDocument {
             mode: cache_mode.label(),
-            hits: cache_hits,
-            misses: cache_misses,
+            reused_artifacts,
+        },
+        execution: ExecutionDocument {
+            materialization: materialization_mode.label(),
+            rendered_jobs,
         },
     };
     serde_json::to_vec_pretty(&document).map_err(|error| {

@@ -787,6 +787,21 @@ mod tests {
     }
 
     #[test]
+    fn color_pipeline_builtins_have_current_semantic_versions() {
+        let catalog = builtin_catalog();
+        for (name, expected_version) in [("image", 3), ("video", 4), ("zoom_in", 5)] {
+            let program = catalog
+                .iter()
+                .find(|program| program.definition.descriptor.name == name)
+                .expect("built-in program");
+            assert_eq!(
+                program.definition.descriptor.semantic_version, expected_version,
+                "{name} must change identity whenever its rendered meaning changes",
+            );
+        }
+    }
+
+    #[test]
     fn reference_metadata_cannot_change_semantic_identity_or_json() {
         fn compile(catalog: &[BuiltinProgram]) -> crate::compiler::CompiledProgram {
             let registry = crate::program::ProgramRegistry::from_definitions(

@@ -10,7 +10,7 @@ pub(super) fn zoom_in() -> ProgramDefinition {
     direct_with_timeline(
         exact_descriptor(
             "zoom_in",
-            4,
+            5,
             vec![input("video", ValueType::Video, Cardinality::One)],
             vec![parameter("by", ParameterType::Number, false)],
             ValueType::Video,

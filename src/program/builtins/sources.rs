@@ -12,7 +12,7 @@ pub(super) fn image() -> ProgramDefinition {
     direct(
         exact_descriptor(
             "image",
-            2,
+            3,
             vec![],
             vec![
                 parameter("path", ParameterType::File, true),
@@ -29,7 +29,7 @@ pub(super) fn video() -> ProgramDefinition {
     direct(
         exact_descriptor(
             "video",
-            3,
+            4,
             vec![],
             vec![
                 parameter("path", ParameterType::File, true),

@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use clap::ValueEnum;
 use serde::Deserialize;
 
 use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use clipasm::source::{SourceFile, SourceSpan};
+
+use super::render_settings::RenderSettingsPatch;
 
 const MANIFEST_NAME: &str = "clipasm.toml";
 
@@ -14,7 +15,7 @@ const MANIFEST_NAME: &str = "clipasm.toml";
 struct Manifest {
     project: ProjectTable,
     #[serde(default)]
-    render: RenderTable,
+    render: RenderSettingsPatch,
 }
 
 #[derive(Deserialize)]
@@ -23,35 +24,11 @@ struct ProjectTable {
     entrypoint: toml::Spanned<String>,
 }
 
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RenderTable {
-    #[serde(default)]
-    cache: CacheSetting,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub(super) enum CacheSetting {
-    #[default]
-    Persistent,
-    None,
-}
-
-impl CacheSetting {
-    pub(super) const fn render_mode(self) -> clipasm::render::CacheMode {
-        match self {
-            Self::Persistent => clipasm::render::CacheMode::Persistent,
-            Self::None => clipasm::render::CacheMode::None,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct Project {
     root: PathBuf,
     entrypoint: PathBuf,
-    cache: CacheSetting,
+    render_settings: RenderSettingsPatch,
 }
 
 impl Project {
@@ -63,8 +40,8 @@ impl Project {
         self.root.join(".clipasm").join("cache")
     }
 
-    pub(super) const fn cache(&self) -> CacheSetting {
-        self.cache
+    pub(super) const fn render_settings(&self) -> RenderSettingsPatch {
+        self.render_settings
     }
 }
 
@@ -180,7 +157,7 @@ fn load(manifest_path: &Path) -> Result<Project> {
     Ok(Project {
         root: root.to_path_buf(),
         entrypoint: root.join(entrypoint),
-        cache: manifest.render.cache,
+        render_settings: manifest.render,
     })
 }
 
@@ -220,6 +197,13 @@ fn line_column(text: &str, byte_offset: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn resolved_render_options(project: &Project) -> clipasm::render::RenderOptions {
+        RenderSettingsPatch::resolve(
+            Some(project.render_settings()),
+            RenderSettingsPatch::default(),
+        )
+    }
 
     #[test]
     fn manifest_entrypoints_are_forward_slash_relative_paths() {
@@ -262,6 +246,16 @@ mod tests {
             load(&manifest).expect_err("unknown field").code,
             "E_PROJECT_MANIFEST"
         );
+
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\ncahce = \"none\"\n",
+        )
+        .expect("unknown render field");
+        assert_eq!(
+            load(&manifest).expect_err("unknown render field").code,
+            "E_PROJECT_MANIFEST"
+        );
     }
 
     #[test]
@@ -269,20 +263,39 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         let manifest = directory.path().join(MANIFEST_NAME);
         fs::write(&manifest, "[project]\nentrypoint = \"main.clipasm\"\n").expect("manifest");
-        assert!(matches!(
-            load(&manifest).expect("default project").cache,
-            CacheSetting::Persistent
-        ));
+        let project = load(&manifest).expect("default project");
+        let options = resolved_render_options(&project);
+        assert_eq!(options.cache_mode(), clipasm::render::CacheMode::Persistent);
+        assert_eq!(
+            options.materialization_mode(),
+            clipasm::render::MaterializationMode::All
+        );
+
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\n",
+        )
+        .expect("empty render table");
+        let project = load(&manifest).expect("project with empty render table");
+        let options = resolved_render_options(&project);
+        assert_eq!(options.cache_mode(), clipasm::render::CacheMode::Persistent);
+        assert_eq!(
+            options.materialization_mode(),
+            clipasm::render::MaterializationMode::All
+        );
 
         fs::write(
             &manifest,
             "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\ncache = \"none\"\n",
         )
         .expect("manifest");
-        assert!(matches!(
-            load(&manifest).expect("uncached project").cache,
-            CacheSetting::None
-        ));
+        let project = load(&manifest).expect("uncached project");
+        let options = resolved_render_options(&project);
+        assert_eq!(options.cache_mode(), clipasm::render::CacheMode::None);
+        assert_eq!(
+            options.materialization_mode(),
+            clipasm::render::MaterializationMode::All
+        );
 
         fs::write(
             &manifest,
@@ -291,6 +304,36 @@ mod tests {
         .expect("manifest");
         assert_eq!(
             load(&manifest).expect_err("invalid cache mode").code,
+            "E_PROJECT_MANIFEST"
+        );
+    }
+
+    #[test]
+    fn manifests_configure_materialization_and_default_to_all() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let manifest = directory.path().join(MANIFEST_NAME);
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\nmaterialization = \"fused\"\n",
+        )
+        .expect("manifest");
+        let project = load(&manifest).expect("fused project");
+        let options = resolved_render_options(&project);
+        assert_eq!(options.cache_mode(), clipasm::render::CacheMode::Persistent);
+        assert_eq!(
+            options.materialization_mode(),
+            clipasm::render::MaterializationMode::Fused
+        );
+
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\nmaterialization = \"sometimes\"\n",
+        )
+        .expect("manifest");
+        assert_eq!(
+            load(&manifest)
+                .expect_err("invalid materialization mode")
+                .code,
             "E_PROJECT_MANIFEST"
         );
     }

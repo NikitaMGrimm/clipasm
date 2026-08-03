@@ -1,44 +1,6 @@
-use crate::diagnostic::Result;
-use crate::model::{ExactNumber, FrameCount, NodeId, VideoDomain};
+use crate::model::{ExactNumber, FrameCount};
 
-use super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
-use super::filters::{normalize_audio, samples_for_video};
-use super::recipe::{FfmpegRecipe, RecipeContext};
-
-pub(super) fn zoom_in(
-    context: &RecipeContext<'_>,
-    input: NodeId,
-    by: &ExactNumber,
-    domain: &VideoDomain,
-) -> Result<FfmpegRecipe> {
-    let samples = samples_for_video(
-        domain.frames(),
-        context.video(),
-        context.audio(),
-        context.span(),
-    )?;
-    let mut recipe = FfmpegRecipe::new();
-    recipe.args(["-i"]).artifact(input);
-    let video_filter = format!(
-        "{},{},{}",
-        working_to_linear_rgb(),
-        zoom_filter(by, domain.frames()),
-        linear_rgb_to_encoding(context.policy().working_video_encoding()),
-    );
-    let filter = format!(
-        "[0:v]{video_filter}[v];[0:a]{}[a]",
-        normalize_audio(
-            samples,
-            context.audio(),
-            context.policy().working_audio_encoding(),
-        )
-    );
-    recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
-    context.append_video_output(&mut recipe);
-    Ok(recipe)
-}
-
-fn zoom_filter(by: &ExactNumber, frames: FrameCount) -> String {
+pub(super) fn zoom_filter(by: &ExactNumber, frames: FrameCount) -> String {
     let last_frame = frames.0.saturating_sub(1).max(1);
     let zoom_in = format!(
         "(1+{}*(in-1)/({}*{last_frame}))",

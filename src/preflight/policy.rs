@@ -7,21 +7,9 @@ use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{ColorSpec, VideoSpec};
 use crate::source::SourceSpan;
 
+use super::ChromaLocation;
+
 const ARTIFACT_CONTRACT_REVISION: u32 = 14;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ChromaLocation {
-    Left,
-}
-
-impl ChromaLocation {
-    const fn ffmpeg_name(self) -> &'static str {
-        match self {
-            Self::Left => "left",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct VideoEncoding {
@@ -43,6 +31,7 @@ impl AudioEncoding {
         self.sample_format
     }
 
+    #[cfg(feature = "native")]
     pub(crate) const fn component_bits(self) -> u8 {
         self.component_bits
     }
@@ -57,7 +46,6 @@ impl VideoEncoding {
         self.pixel_format
     }
 
-    #[cfg(feature = "native")]
     pub(crate) const fn component_bits(self) -> u8 {
         self.component_bits
     }
@@ -66,11 +54,8 @@ impl VideoEncoding {
         self.color
     }
 
-    pub(crate) const fn chroma_location(self) -> Option<&'static str> {
-        match self.chroma_location {
-            Some(location) => Some(location.ffmpeg_name()),
-            None => None,
-        }
+    pub(crate) const fn chroma_location(self) -> Option<ChromaLocation> {
+        self.chroma_location
     }
 }
 
@@ -167,10 +152,6 @@ impl RenderPolicy {
 
     pub(crate) const fn native_container(self) -> &'static str {
         self.artifact_cache.native_container
-    }
-
-    pub(crate) const fn working_pixel_format(self) -> &'static str {
-        self.artifact_cache.video_encoding.pixel_format
     }
 
     pub(crate) const fn working_video_encoding(self) -> VideoEncoding {

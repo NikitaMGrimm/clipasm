@@ -571,5 +571,7 @@ fn render_help_mentions_ffprobe() {
     assert!(help.contains("FFprobe"));
     assert!(help.contains("--cache <MODE>"));
     assert!(help.contains("possible values: persistent, none"));
+    assert!(help.contains("--materialization <MODE>"));
+    assert!(help.contains("possible values: all, fused"));
     assert!(output.stderr.is_empty());
 }

@@ -3,3 +3,4 @@ entrypoint = "main.clipasm"
 
 [render]
 cache = "persistent"
+materialization = "all"

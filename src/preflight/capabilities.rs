@@ -94,7 +94,7 @@ fn add_video_requirements(
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::SetAudio { .. } => {
-            requirements.require_filters(["trim", "setpts"]);
+            requirements.require_filters(["trim", "setpts", "anullsink"]);
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::AudioOnBlack { .. } => {
@@ -119,9 +119,13 @@ fn add_audio_requirements(
 ) {
     requirements.require_native_audio_output(render_policy);
     match kind {
-        PreparedAudioKind::AudioSource { .. }
-        | PreparedAudioKind::AudioRepeat { .. }
-        | PreparedAudioKind::ExtractAudio { .. } => require_normalized_audio(requirements),
+        PreparedAudioKind::AudioSource { .. } | PreparedAudioKind::AudioRepeat { .. } => {
+            require_normalized_audio(requirements);
+        }
+        PreparedAudioKind::ExtractAudio { .. } => {
+            requirements.require_filters(["nullsink"]);
+            require_normalized_audio(requirements);
+        }
         PreparedAudioKind::AudioSlice { .. } => {
             requirements.require_filters(["atrim", "asetpts"]);
         }
@@ -229,5 +233,29 @@ mod tests {
             );
         }
         assert!(requirements.requires_encoder("aac"));
+    }
+
+    #[test]
+    fn selective_fused_video_consumers_require_stream_sinks() {
+        let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, true);
+        add_video_requirements(
+            RenderPolicy::CURRENT,
+            &PreparedVideoKind::SetAudio {
+                audio: NodeId::new(0),
+                video: NodeId::new(1),
+            },
+            true,
+            &mut requirements,
+        );
+        assert!(requirements.requires_filter("anullsink"));
+
+        add_audio_requirements(
+            RenderPolicy::CURRENT,
+            &PreparedAudioKind::ExtractAudio {
+                video: NodeId::new(1),
+            },
+            &mut requirements,
+        );
+        assert!(requirements.requires_filter("nullsink"));
     }
 }

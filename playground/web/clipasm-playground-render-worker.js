@@ -1,10 +1,10 @@
 import { FFmpeg, FFFSType } from "./ffmpeg/wrapper/index.js";
 
-const PLAN_VERSION = 1;
-const RECIPE_CONTRACT = 2;
+const PLAN_VERSION = 3;
+const RECIPE_CONTRACT = 6;
 const WRAPPER_VERSION = "0.12.15";
 const CORE_VERSION = "0.12.10";
-const RUNTIME_POLICY = "ffv1-yuv444p10-bt709-v2";
+const RUNTIME_POLICY = "ffv1-yuv444p10-s16-bt709-v3";
 const EXECUTION_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_LOG_LINES = 24;
 const MAX_PROBE_JSON_BYTES = 256 * 1024;
@@ -339,17 +339,15 @@ function verifyVideo(path, contract, videos, audios) {
         );
     }
     const expectedColor = contract.encoding.color;
-    const expectedRange = expectedColor.range === "limited" ? "tv" : "pc";
-    const expectedMatrix = expectedColor.matrix === "rgb" ? "gbr" : expectedColor.matrix;
     if (
         video.color_primaries !== expectedColor.primaries ||
         video.color_transfer !== expectedColor.transfer ||
-        video.color_space !== expectedMatrix ||
-        video.color_range !== expectedRange
+        video.color_space !== expectedColor.matrix ||
+        video.color_range !== expectedColor.range
     ) {
         contractFailure(
             path,
-            `expected color ${expectedColor.primaries}/${expectedColor.transfer}/${expectedMatrix}/${expectedRange}, found ${String(video.color_primaries)}/${String(video.color_transfer)}/${String(video.color_space)}/${String(video.color_range)}`,
+            `expected color ${expectedColor.primaries}/${expectedColor.transfer}/${expectedColor.matrix}/${expectedColor.range}, found ${String(video.color_primaries)}/${String(video.color_transfer)}/${String(video.color_space)}/${String(video.color_range)}`,
         );
     }
     if (
@@ -397,6 +395,15 @@ function verifyAudio(path, contract, videos, audios) {
 }
 
 function verifyAudioStream(path, stream, contract) {
+    if (
+        contract.audio_encoding != null &&
+        stream.channel_layout !== contract.audio_encoding.channel_layout
+    ) {
+        contractFailure(
+            path,
+            `expected Audio channel layout ${contract.audio_encoding.channel_layout}, found ${String(stream.channel_layout)}`,
+        );
+    }
     if (
         contract.audio_encoding != null &&
         stream.sample_fmt !== contract.audio_encoding.sample_format

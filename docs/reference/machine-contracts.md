@@ -8,7 +8,7 @@ contracts. Always read the version field before decoding a document.
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
 | Compiled inspection JSON | `format_version: 24` | `clipasm inspect` | source-analysis and diagnostic tooling |
-| Render manifest | `format_version: 3` | successful native render | automation and render provenance |
+| Render manifest | `format_version: 4` | successful native render | automation and render provenance |
 | External-program request | `protocol_version: 3` | trusted external executable | implementing an external program |
 
 A versioned JSON document is not an authoring format. ClipAsm does not accept
@@ -45,8 +45,10 @@ records:
 - The result fingerprint and exact Video domain.
 - Whether the Video carries meaningful Audio.
 - FFmpeg and FFprobe version summaries.
-- The cache mode and cache hit and miss counts. Cache-none renders report zero
-  hits; misses count artifacts rendered during that invocation.
+- The cache mode and number of verified working artifacts reused. Cache-none
+  renders report zero reused artifacts.
+- The execution materialization mode (`all` or `fused`) and number of rendered
+  jobs.
 
 It deliberately excludes local source paths, executable recipes, and cache
 locations.
@@ -77,7 +79,7 @@ user's permissions. This protocol is not a sandbox.
 ## Internal formats
 
 **Prepared inspection JSON** (`format_version: 15`) and the **Browser render plan**
-(`version: 3`, `recipe_contract: 4`) are internal to matching ClipAsm components.
+(`version: 3`, `recipe_contract: 6`) are internal to matching ClipAsm components.
 They may help when you debug ClipAsm. They are not persistence or interchange
 contracts.
 

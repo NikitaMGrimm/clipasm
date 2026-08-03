@@ -305,7 +305,12 @@ fn crossfade_renders_a_one_frame_full_overlap() {
     let compiled = compile_file(&workflow).expect("compile");
     assert_eq!(compiled.result_domain().expect("domain").frames().0, 1);
     let plan = preflight::preflight(&compiled).expect("preflight");
-    let report = render::render(&plan).expect("render crossfade");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(render::CacheMode::None, render::MaterializationMode::Fused),
+    )
+    .expect("render crossfade with fused materialization");
+    assert_eq!(report.rendered_jobs(), 3);
     let video = decode_video(report.output());
     assert_eq!(video.len(), WIDTH * HEIGHT * 3);
     let red = video
@@ -407,8 +412,17 @@ set_audio(video=$picture)
         OUTPUT_SAMPLES
     );
 
-    render::render(&plan).expect("render Audio crossfade");
-    let artifact = common::cache_artifact(directory.path(), transition.fingerprint(), "mka");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(
+            render::CacheMode::Persistent,
+            render::MaterializationMode::Fused,
+        ),
+    )
+    .expect("render Audio crossfade");
+    assert_eq!(report.rendered_jobs(), 3);
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let artifact = common::cache_artifact(directory.path(), result.fingerprint(), "mkv");
     let audio = decode_audio(&artifact);
     assert_eq!(
         audio.len(),
@@ -479,7 +493,15 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     );
     assert!(transition.has_audio());
 
-    let report = render::render(&plan).expect("render crossfade");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(
+            render::CacheMode::Persistent,
+            render::MaterializationMode::Fused,
+        ),
+    )
+    .expect("render crossfade");
+    assert_eq!(report.rendered_jobs(), 3);
     let video = decode_video(report.output());
     assert_eq!(
         video.len(),

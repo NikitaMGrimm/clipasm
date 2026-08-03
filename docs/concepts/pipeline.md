@@ -37,8 +37,16 @@ blocking rendering, as long as the imported source itself is valid.
 ## 3. Execute, verify, and publish
 
 ClipAsm reuses verified cached artifacts when possible and executes the missing
-operations in dependency order. External programs reached here run as trusted
-native code.
+work in dependency order. With fused materialization, compatible FFmpeg
+operations that lead to one materialized endpoint share one filter graph.
+Branches may join that region when they divide a Video's picture and Audio
+without duplicating either physical stream. Cache hits, duplicated streams,
+temporal joins, external programs, input-scoped FFmpeg behavior, and branches
+that require different materialized endpoints remain artifact boundaries.
+Keeping temporal-join inputs separate prevents fused preprocessing on a later
+branch from being buffered for the length of an earlier one. Cache retention
+and intermediate materialization are separate settings. External programs
+reached here run as trusted native code.
 
 The renderer checks produced media before it enters the cache or replaces the published
 output. A successful render writes the MP4 and a sibling manifest.

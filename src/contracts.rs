@@ -8,13 +8,13 @@ pub(crate) const COMPILED_INSPECTION_FORMAT_VERSION: u32 = 24;
 /// Current prepared inspection JSON format version.
 pub(crate) const PREPARED_INSPECTION_FORMAT_VERSION: u32 = 15;
 /// Current render manifest format version.
-pub(crate) const RENDER_MANIFEST_FORMAT_VERSION: u32 = 3;
+pub(crate) const RENDER_MANIFEST_FORMAT_VERSION: u32 = 4;
 /// Current external-program request protocol version.
 pub(crate) const EXTERNAL_PROGRAM_PROTOCOL_VERSION: u32 = 3;
 /// Current browser render-plan version.
 pub(crate) const BROWSER_RENDER_PLAN_VERSION: u32 = 3;
 /// Current browser `FFmpeg` recipe contract version.
-pub(crate) const BROWSER_RECIPE_CONTRACT_VERSION: u32 = 4;
+pub(crate) const BROWSER_RECIPE_CONTRACT_VERSION: u32 = 6;
 
 /// A machine-readable boundary produced by `ClipAsm`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

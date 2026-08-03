@@ -85,6 +85,13 @@ impl ColorSpec {
         range: ColorRange::Full,
     };
 
+    pub(crate) const LINEAR_RGB: Self = Self {
+        primaries: ColorPrimaries::Bt709,
+        transfer: TransferCharacteristic::Linear,
+        matrix: MatrixCoefficients::Rgb,
+        range: ColorRange::Full,
+    };
+
     /// Resolve an authored, coherent color-profile name.
     #[must_use]
     pub fn from_profile_name(name: &str) -> Option<Self> {

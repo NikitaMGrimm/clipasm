@@ -17,7 +17,7 @@ use super::super::artifact::verify_video_artifact;
 use super::color::working_to_encoding;
 #[cfg(feature = "native")]
 use super::context::run_command;
-use super::recipe::FfmpegRecipe;
+use super::recipe::{FfmpegRecipe, append_video_encoding_metadata};
 
 #[expect(
     clippy::too_many_arguments,
@@ -104,32 +104,21 @@ pub(crate) fn export_recipe(
     has_audio: bool,
     render_policy: RenderPolicy,
 ) -> FfmpegRecipe {
+    let encoding = render_policy.export_video_encoding();
     let mut recipe = FfmpegRecipe::new();
     recipe
         .args(["-i"])
         .artifact(result)
         .args(["-map", "0:v:0", "-vf"])
-        .arg(working_to_encoding(render_policy.export_video_encoding()))
+        .arg(working_to_encoding(encoding))
         .args(["-c:v", render_policy.export_video_encoder(), "-pix_fmt"])
-        .arg(render_policy.export_pixel_format())
-        .args([
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
-            "-colorspace",
-            "bt709",
-            "-color_range",
-            "tv",
-            "-chroma_sample_location",
-            "left",
-        ])
-        .arg("-r")
-        .arg(format!(
-            "{}/{}",
-            spec.fps().numerator(),
-            spec.fps().denominator()
-        ));
+        .arg(encoding.pixel_format());
+    append_video_encoding_metadata(&mut recipe, encoding);
+    recipe.arg("-r").arg(format!(
+        "{}/{}",
+        spec.fps().numerator(),
+        spec.fps().denominator()
+    ));
     if has_audio {
         recipe.args([
             "-map",

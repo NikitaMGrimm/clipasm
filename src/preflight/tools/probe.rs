@@ -10,7 +10,7 @@ use crate::media_tool;
 #[cfg(feature = "native")]
 use crate::model::{AudioDomain, AudioSpec};
 use crate::model::{ColorSpec, FrameCount, VideoSpec};
-use crate::preflight::PreparedSourceColor;
+use crate::preflight::{ChromaLocation, PreparedSourceColor};
 use crate::source::SourceSpan;
 
 #[cfg(feature = "native")]
@@ -168,7 +168,7 @@ fn validate_image_color(
         "yuvj420p" | "yuvj422p" | "yuvj444p" | "yuvj440p"
     ) {
         validate_image_tags(path, span, stream, &["bt470bg", "smpte170m"])?;
-        let chroma_location = is_subsampled(pixel_format).then(|| "center".to_owned());
+        let chroma_location = (pixel_format != "yuvj444p").then_some(ChromaLocation::Center);
         return Ok(PreparedSourceColor::image_srgb_yuv(
             pixel_format.to_owned(),
             chroma_location,
@@ -597,21 +597,15 @@ fn validate_video_color(
             "FFprobe did not report a pixel format",
         ));
     };
-    if pixel_format.contains('a')
-        && (pixel_format.starts_with("yuva") || pixel_format.starts_with("gbrap"))
-    {
+    let Some(sampling) = video_pixel_sampling(pixel_format) else {
         return Err(source_color_error(
             path,
             span,
-            "video sources with alpha are outside the opaque Video contract",
+            &format!("video pixel format `{pixel_format}` is not a supported opaque Y'CbCr format"),
         ));
-    }
-    let chroma_location = stream
-        .chroma_location
-        .as_deref()
-        .filter(|value| !is_unknown(value))
-        .map(str::to_owned);
-    if is_subsampled(pixel_format) && chroma_location.is_none() {
+    };
+    let chroma_location = parse_chroma_location(path, span, stream.chroma_location.as_deref())?;
+    if sampling == VideoPixelSampling::Subsampled && chroma_location.is_none() {
         return Err(source_color_error(
             path,
             span,
@@ -623,8 +617,78 @@ fn validate_video_color(
     Ok(PreparedSourceColor::explicit_video(
         color,
         pixel_format.to_owned(),
-        chroma_location,
+        (sampling == VideoPixelSampling::Subsampled)
+            .then_some(chroma_location)
+            .flatten(),
     ))
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum VideoPixelSampling {
+    Yuv444,
+    Subsampled,
+}
+
+fn video_pixel_sampling(pixel_format: &str) -> Option<VideoPixelSampling> {
+    use VideoPixelSampling::{Subsampled, Yuv444};
+
+    match pixel_format {
+        "yuvj444p" | "nv24" | "nv42" | "p410le" | "p410be" | "p412le" | "p412be" | "p416le"
+        | "p416be" => Some(Yuv444),
+        "yuvj420p" | "yuvj422p" | "yuvj440p" | "nv12" | "nv21" | "nv16" | "nv20le" | "nv20be"
+        | "p010le" | "p010be" | "p012le" | "p012be" | "p016le" | "p016be" | "p210le" | "p210be"
+        | "p212le" | "p212be" | "p216le" | "p216be" => Some(Subsampled),
+        _ => planar_yuv_sampling(pixel_format),
+    }
+}
+
+fn planar_yuv_sampling(pixel_format: &str) -> Option<VideoPixelSampling> {
+    for (prefix, sampling) in [
+        ("yuv444p", VideoPixelSampling::Yuv444),
+        ("yuv440p", VideoPixelSampling::Subsampled),
+        ("yuv422p", VideoPixelSampling::Subsampled),
+        ("yuv420p", VideoPixelSampling::Subsampled),
+        ("yuv411p", VideoPixelSampling::Subsampled),
+        ("yuv410p", VideoPixelSampling::Subsampled),
+    ] {
+        if let Some(suffix) = pixel_format.strip_prefix(prefix)
+            && matches!(
+                suffix,
+                "" | "9le"
+                    | "9be"
+                    | "10le"
+                    | "10be"
+                    | "12le"
+                    | "12be"
+                    | "14le"
+                    | "14be"
+                    | "16le"
+                    | "16be"
+            )
+        {
+            return Some(sampling);
+        }
+    }
+    None
+}
+
+fn parse_chroma_location(
+    path: &Path,
+    span: &SourceSpan,
+    value: Option<&str>,
+) -> Result<Option<ChromaLocation>> {
+    let Some(value) = value.filter(|value| !is_unknown(value)) else {
+        return Ok(None);
+    };
+    ChromaLocation::from_ffmpeg_name(value)
+        .map(Some)
+        .ok_or_else(|| {
+            source_color_error(
+                path,
+                span,
+                &format!("FFprobe reported unknown chroma location `{value}`"),
+            )
+        })
 }
 
 fn require_unknown_or(
@@ -646,12 +710,6 @@ fn require_unknown_or(
 
 fn is_unknown(value: &str) -> bool {
     matches!(value, "unknown" | "unspecified" | "reserved")
-}
-
-fn is_subsampled(pixel_format: &str) -> bool {
-    ["420", "422", "411", "410"]
-        .iter()
-        .any(|marker| pixel_format.contains(marker))
 }
 
 fn source_color_error(path: &Path, span: &SourceSpan, detail: &str) -> Diagnostic {
@@ -776,7 +834,92 @@ mod tests {
         let (_, _, color) =
             validate_video_probe_json(path, &video, &span, tagged).expect("complete SDR metadata");
         assert_eq!(color.color(), ColorSpec::SDR_BT709);
-        assert_eq!(color.chroma_location(), Some("left"));
+        assert_eq!(color.chroma_location(), Some(ChromaLocation::Left));
+    }
+
+    fn tagged_sdr_probe(pixel_format: &str, chroma_location: Option<&str>) -> String {
+        let chroma = chroma_location
+            .map(|value| format!(",\"chroma_location\":\"{value}\""))
+            .unwrap_or_default();
+        format!(
+            r#"{{"streams":[{{"codec_type":"video","nb_read_frames":"1","avg_frame_rate":"30/1","pix_fmt":"{pixel_format}","color_primaries":"bt709","color_transfer":"bt709","color_space":"bt709","color_range":"tv"{chroma}}}]}}"#
+        )
+    }
+
+    #[test]
+    fn video_pixel_formats_are_validated_fail_closed() {
+        let path = Path::new("source.mkv");
+        let span = SourceSpan::file_start(path);
+        for pixel_format in ["rgba", "bgra", "yuva420p", "gbrp", "yuyv422"] {
+            let error = validate_video_probe_json(
+                path,
+                &VideoSpec::default(),
+                &span,
+                &tagged_sdr_probe(pixel_format, Some("left")),
+            )
+            .expect_err("unsupported pixel format must be rejected");
+            assert!(error.message.contains(pixel_format));
+            assert!(error.message.contains("opaque Y'CbCr"));
+        }
+    }
+
+    #[test]
+    fn subsampled_video_requires_a_known_chroma_location() {
+        let path = Path::new("source.mkv");
+        let span = SourceSpan::file_start(path);
+        for pixel_format in ["nv12", "p010le", "yuvj440p"] {
+            let error = validate_video_probe_json(
+                path,
+                &VideoSpec::default(),
+                &span,
+                &tagged_sdr_probe(pixel_format, None),
+            )
+            .expect_err("subsampled video without chroma location must be rejected");
+            assert!(error.message.contains("chroma location"));
+        }
+
+        let (_, _, color) = validate_video_probe_json(
+            path,
+            &VideoSpec::default(),
+            &span,
+            &tagged_sdr_probe("nv12", Some("left")),
+        )
+        .expect("NV12 with explicit chroma location");
+        assert_eq!(color.chroma_location(), Some(ChromaLocation::Left));
+
+        let error = validate_video_probe_json(
+            path,
+            &VideoSpec::default(),
+            &span,
+            &tagged_sdr_probe("nv12", Some("mystery")),
+        )
+        .expect_err("unknown chroma location must be rejected");
+        assert!(error.message.contains("unknown chroma location `mystery`"));
+    }
+
+    #[test]
+    fn full_resolution_chroma_does_not_carry_a_sampling_location() {
+        let path = Path::new("source.mkv");
+        let span = SourceSpan::file_start(path);
+        for pixel_format in ["yuv444p10le", "nv24", "p410le"] {
+            let (_, _, color) = validate_video_probe_json(
+                path,
+                &VideoSpec::default(),
+                &span,
+                &tagged_sdr_probe(pixel_format, Some("left")),
+            )
+            .expect("supported 4:4:4 video");
+            assert_eq!(color.chroma_location(), None);
+        }
+    }
+
+    #[test]
+    fn subsampled_yuv_stills_use_the_centered_image_convention() {
+        let path = Path::new("still.png");
+        let span = SourceSpan::file_start(path);
+        let probe = r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"yuvj440p","color_primaries":"unknown","color_transfer":"unknown","color_space":"unknown","color_range":"pc"}]}"#;
+        let color = validate_image_probe_json(path, &span, probe).expect("supported YUV still");
+        assert_eq!(color.chroma_location(), Some(ChromaLocation::Center));
     }
 
     #[test]

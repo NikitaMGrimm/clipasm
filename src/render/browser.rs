@@ -163,7 +163,7 @@ fn final_contract(
         fps_numerator: domain.frame_rate().numerator(),
         fps_denominator: domain.frame_rate().denominator(),
         frames: domain.frames().0,
-        encoding: policy.export_video_encoding(),
+        encoding: policy.export_video_encoding().into(),
         audio_encoding: None,
         audio: result.has_audio(),
         sample_rate: plan.audio().sample_rate(),
@@ -251,7 +251,7 @@ enum BrowserArtifactContract {
         fps_numerator: u32,
         fps_denominator: u32,
         frames: u64,
-        encoding: crate::preflight::VideoEncoding,
+        encoding: BrowserVideoEncoding,
         audio_encoding: Option<crate::preflight::AudioEncoding>,
         audio: bool,
         sample_rate: u32,
@@ -265,6 +265,25 @@ enum BrowserArtifactContract {
         channels: u8,
         samples: u64,
     },
+}
+
+#[derive(Serialize)]
+struct BrowserVideoEncoding {
+    pixel_format: &'static str,
+    component_bits: u8,
+    color: super::color::ColorMetadata,
+    chroma_location: Option<crate::preflight::ChromaLocation>,
+}
+
+impl From<crate::preflight::VideoEncoding> for BrowserVideoEncoding {
+    fn from(encoding: crate::preflight::VideoEncoding) -> Self {
+        Self {
+            pixel_format: encoding.pixel_format(),
+            component_bits: encoding.component_bits(),
+            color: super::color::metadata(encoding.color()),
+            chroma_location: encoding.chroma_location(),
+        }
+    }
 }
 
 fn browser_mounts(nodes: &[PreparedNode]) -> Result<Vec<BrowserMount>> {
@@ -371,7 +390,7 @@ fn artifact_contract(node: &PreparedNode, policy: RenderPolicy) -> BrowserArtifa
             fps_numerator: video.frame_rate().numerator(),
             fps_denominator: video.frame_rate().denominator(),
             frames: video.frames().0,
-            encoding: policy.working_video_encoding(),
+            encoding: policy.working_video_encoding().into(),
             audio_encoding: Some(policy.working_audio_encoding()),
             audio: true,
             sample_rate: audio.audio_spec().sample_rate(),
@@ -625,9 +644,28 @@ mod tests {
         assert_eq!(export["contract"]["channels"], 2);
         assert_eq!(export["contract"]["encoding"]["pixel_format"], "yuv420p");
         assert_eq!(export["contract"]["encoding"]["color"]["transfer"], "bt709");
+        assert_eq!(export["contract"]["encoding"]["color"]["range"], "tv");
         assert_eq!(
             export["delete_after"],
             serde_json::json!(["/work/node-3.mkv"])
+        );
+    }
+
+    #[test]
+    fn repeat_recipes_keep_input_scoped_artifact_looping() {
+        let compiled = compiled("clipasm 1\nimage(\"card.png\", 1s)\nrepeat(2)\n");
+        let assets = [image_asset("card.png", "55")];
+        let plan = prepare(&compiled, &assets).expect("browser plan");
+        let document: serde_json::Value =
+            serde_json::from_str(&render_json(&plan).expect("render JSON")).expect("valid JSON");
+        let steps = document["steps"].as_array().expect("steps");
+        assert_eq!(steps.len(), 2);
+        let arguments = steps[1]["arguments"].as_array().expect("arguments");
+        assert_eq!(
+            &arguments[3..7],
+            serde_json::json!(["-stream_loop", "1", "-i", "/work/node-0.mkv"])
+                .as_array()
+                .expect("repeat input arguments")
         );
     }
 

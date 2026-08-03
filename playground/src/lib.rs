@@ -308,14 +308,14 @@ mod tests {
         let plan: serde_json::Value =
             serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
                 .expect("valid plan JSON");
-        assert_eq!(plan["version"], 2);
-        assert_eq!(plan["recipe_contract"], 3);
+        assert_eq!(plan["version"], 3);
+        assert_eq!(plan["recipe_contract"], 6);
         assert_eq!(
             plan["runtime"],
             serde_json::json!({
                 "wrapper": "0.12.15",
                 "core": "0.12.10",
-                "policy": "ffv1-yuv444p10-bt709-v2",
+                "policy": "ffv1-yuv444p10-s16-bt709-v3",
             })
         );
         assert_eq!(plan["steps"].as_array().map(Vec::len), Some(4));

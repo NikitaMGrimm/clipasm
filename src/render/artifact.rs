@@ -27,6 +27,7 @@ struct ProbeStream {
     sample_aspect_ratio: Option<String>,
     sample_rate: Option<String>,
     channels: Option<u8>,
+    channel_layout: Option<String>,
     sample_fmt: Option<String>,
     bits_per_raw_sample: Option<String>,
     color_primaries: Option<String>,
@@ -89,6 +90,10 @@ fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "artifact verification keeps every independent physical stream expectation explicit"
+)]
 pub(super) fn verify_video_artifact(
     ffprobe: &Path,
     path: &Path,
@@ -222,26 +227,7 @@ fn verify_video_timing(path: &Path, video: &ProbeStream, domain: &VideoDomain) -
 }
 
 fn verify_video_color(path: &Path, stream: &ProbeStream, encoding: VideoEncoding) -> Result<()> {
-    let color = encoding.color();
-    let expected = (
-        match color.primaries() {
-            crate::model::ColorPrimaries::Bt709 => "bt709",
-        },
-        match color.transfer() {
-            crate::model::TransferCharacteristic::Bt709 => "bt709",
-            crate::model::TransferCharacteristic::Srgb => "iec61966-2-1",
-            crate::model::TransferCharacteristic::Linear => "linear",
-        },
-        match color.matrix() {
-            crate::model::MatrixCoefficients::Bt709 => "bt709",
-            crate::model::MatrixCoefficients::Bt601 => "smpte170m",
-            crate::model::MatrixCoefficients::Rgb => "gbr",
-        },
-        match color.range() {
-            crate::model::ColorRange::Limited => "tv",
-            crate::model::ColorRange::Full => "pc",
-        },
-    );
+    let expected = super::color::metadata(encoding.color());
     let actual = (
         stream.color_primaries.as_deref(),
         stream.color_transfer.as_deref(),
@@ -250,20 +236,20 @@ fn verify_video_color(path: &Path, stream: &ProbeStream, encoding: VideoEncoding
     );
     if actual
         != (
-            Some(expected.0),
-            Some(expected.1),
-            Some(expected.2),
-            Some(expected.3),
+            Some(expected.primaries),
+            Some(expected.transfer),
+            Some(expected.matrix),
+            Some(expected.range),
         )
     {
         return Err(contract_error(
             path,
             &format!(
                 "expected color primaries={0}, transfer={1}, matrix={2}, range={3}; found primaries={4:?}, transfer={5:?}, matrix={6:?}, range={7:?}",
-                expected.0,
-                expected.1,
-                expected.2,
-                expected.3,
+                expected.primaries,
+                expected.transfer,
+                expected.matrix,
+                expected.range,
                 actual.0,
                 actual.1,
                 actual.2,
@@ -272,12 +258,13 @@ fn verify_video_color(path: &Path, stream: &ProbeStream, encoding: VideoEncoding
         ));
     }
     if let Some(expected_location) = encoding.chroma_location()
-        && stream.chroma_location.as_deref() != Some(expected_location)
+        && stream.chroma_location.as_deref() != Some(expected_location.ffmpeg_name())
     {
         return Err(contract_error(
             path,
             &format!(
-                "expected chroma location {expected_location}, found {:?}",
+                "expected chroma location {}, found {:?}",
+                expected_location.ffmpeg_name(),
                 stream.chroma_location
             ),
         ));
@@ -360,6 +347,16 @@ fn verify_audio_stream(
         ));
     }
     if let Some(encoding) = encoding {
+        if stream.channel_layout.as_deref() != Some(encoding.channel_layout()) {
+            return Err(contract_error(
+                path,
+                &format!(
+                    "expected audio channel layout {}, found {:?}",
+                    encoding.channel_layout(),
+                    stream.channel_layout
+                ),
+            ));
+        }
         if stream.sample_fmt.as_deref() != Some(encoding.sample_format()) {
             return Err(contract_error(
                 path,
@@ -440,6 +437,7 @@ mod tests {
             sample_aspect_ratio: None,
             sample_rate: None,
             channels: None,
+            channel_layout: None,
             sample_fmt: None,
             bits_per_raw_sample: None,
             color_primaries: None,
@@ -496,6 +494,7 @@ mod tests {
         let mut stream = stream_with_start(Some("0"));
         stream.sample_rate = Some("48000".to_owned());
         stream.channels = Some(2);
+        stream.channel_layout = Some("stereo".to_owned());
         stream.sample_fmt = Some("s32".to_owned());
         stream.bits_per_raw_sample = Some("24".to_owned());
         let error = verify_audio_stream(
@@ -507,5 +506,25 @@ mod tests {
         .expect_err("wrong sample representation must invalidate an artifact");
         assert_eq!(error.code, "E_ARTIFACT_CONTRACT");
         assert!(error.message.contains("sample format s16"));
+    }
+
+    #[test]
+    fn artifact_audio_channel_layout_is_part_of_the_physical_contract() {
+        let path = Path::new("artifact.mka");
+        let mut stream = stream_with_start(Some("0"));
+        stream.sample_rate = Some("48000".to_owned());
+        stream.channels = Some(2);
+        stream.channel_layout = Some("2 channels".to_owned());
+        stream.sample_fmt = Some("s16".to_owned());
+        stream.bits_per_raw_sample = Some("16".to_owned());
+        let error = verify_audio_stream(
+            path,
+            &stream,
+            AudioSpec::default(),
+            Some(crate::preflight::RenderPolicy::CURRENT.working_audio_encoding()),
+        )
+        .expect_err("wrong channel layout must invalidate an artifact");
+        assert_eq!(error.code, "E_ARTIFACT_CONTRACT");
+        assert!(error.message.contains("channel layout stereo"));
     }
 }
