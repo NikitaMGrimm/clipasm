@@ -157,7 +157,7 @@ fn machine_contract_catalog_matches_the_documented_versions() {
     assert_eq!(contracts.len(), 5);
     assert_eq!(contracts[0].title(), "Compiled inspection JSON");
     assert_eq!(contracts[0].versions()[0].value(), 23);
-    assert_eq!(contracts[1].versions()[0].value(), 1);
+    assert_eq!(contracts[1].versions()[0].value(), 2);
     assert_eq!(contracts[2].versions()[0].value(), 1);
     assert_eq!(contracts[3].versions()[0].value(), 14);
     assert_eq!(contracts[4].versions()[0].value(), 1);

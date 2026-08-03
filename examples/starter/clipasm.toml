@@ -1,2 +1,5 @@
 [project]
 entrypoint = "main.clipasm"
+
+[render]
+cache = "persistent"

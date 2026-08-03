@@ -553,8 +553,10 @@ input to global output boundaries.
 ### Recipe generation and native execution
 
 `render` verifies the prepared FFmpeg and FFprobe build identities and reached
-source assets. It reuses only verified cached artifacts. It renders missing
-native FFV1+FLAC Video intermediates and FLAC Audio intermediates in Matroska.
+source assets. Persistent mode reuses only verified cached artifacts. Cache-none
+mode renders the same working contracts into private temporary storage without
+reading or writing persistent entries. Both modes render native FFV1+FLAC Video
+intermediates and FLAC Audio intermediates in Matroska.
 It verifies external-program artifacts against the same prepared media shape.
 When the result Video has audio, it exports one H.264/yuv420p MP4 with AAC.
 
@@ -592,13 +594,16 @@ it commits a new cache sidecar. A later cache entry becomes a dependency barrier
 when its versioned sidecar identifies the current execution namespace and node
 fingerprint. Its recorded SHA-256 must also match the artifact.
 
-A miss expands to the node's canonical prepared inputs. Actions then run in stable
-topological order, rechecking planned misses under their per-artifact lock so a
-concurrent renderer can satisfy them without duplicate work. The planner rehashes
-source assets, external executables, and declared external files when it reaches
-their node. A verified downstream artifact makes the pruned upstream subtree
-irrelevant. FFmpeg/FFprobe identity verification and final export remain
-unconditional.
+A persistent-cache miss expands to the node's canonical prepared inputs.
+Actions then run in stable topological order, rechecking planned misses under
+their per-artifact lock so a concurrent renderer can satisfy them without
+duplicate work. Cache-none execution expands the complete reachable graph,
+verifies every artifact, and deletes each non-result artifact after its final
+consumer. Shared graph inputs remain available until all consumers finish. The
+planner rehashes source assets, external executables, and declared external
+files when it reaches their node. A verified persistent downstream artifact
+makes the pruned upstream subtree irrelevant. FFmpeg/FFprobe identity
+verification and final export remain unconditional.
 
 Rehashing detects ordinary changes but does not snapshot files or make the
 check atomic with a renderer or external process opening the path.
@@ -647,17 +652,20 @@ cache.
 
 ### Cache and publication
 
-Project renders keep the cache under `.clipasm/cache/` at the discovered
-manifest root. Explicit standalone sources use `.clipasm/cache/` beside the
-entrypoint source. The compiler retains the canonical path identity of every
-linked package source, including imported units outside the result-reachable
-graph. Native preflight and rendering protect those identities separately from
-the prepared-node resource traversal. Rendering rejects publication destinations,
-private cache artifacts, sidecars, and lock paths when they alias a source
-program, asset, or external executable. Lock files also reject symlink paths
-before opening them.
+Project renders in persistent mode keep the cache under `.clipasm/cache/` at
+the discovered manifest root. Explicit standalone sources use
+`.clipasm/cache/` beside the entrypoint source. Cache-none renders use a private
+directory beside the publication destination and remove it at the end; this
+temporary materialization is separate from cache retention policy. Existing
+persistent entries are left untouched. The compiler retains the canonical path
+identity of every linked package source, including imported units outside the
+result-reachable graph. Native preflight and rendering protect those identities
+separately from the prepared-node resource traversal. Rendering rejects
+publication destinations, private cache artifacts, sidecars, and lock paths
+when they alias a source program, asset, or external executable. Lock files
+also reject symlink paths before opening them.
 
-Per-artifact file locks serialize validation and
+Per-artifact file locks serialize persistent-cache validation and
 replacement across ClipAsm processes without blocking unrelated fingerprints.
 
 Exact media verification happens once. ClipAsm then commits the versioned

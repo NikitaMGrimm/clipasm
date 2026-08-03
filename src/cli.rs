@@ -93,6 +93,9 @@ enum Command {
         /// Override `config.output`. Relative paths resolve from the caller's working directory.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Override the project's persistent working-artifact cache policy.
+        #[arg(long, value_enum, value_name = "MODE")]
+        cache: Option<project::CacheSetting>,
         #[command(flatten)]
         bindings: BindingArgs,
     },
@@ -186,6 +189,7 @@ fn execute(cli: Cli) -> Result<()> {
         Command::Render {
             source,
             output,
+            cache,
             bindings,
         } => {
             let selection = resolve_source(source)?;
@@ -193,13 +197,22 @@ fn execute(cli: Cli) -> Result<()> {
             let bindings = entrypoint_bindings(bindings, output)?;
             let compiled = compiler::compile_with_bindings(&authored, &bindings)?;
             let prepared = preflight::preflight(&compiled)?;
-            let report = match selection.project() {
-                Some(project) => render::render_with_cache_root(&prepared, &project.cache_root())?,
-                None => render::render(&prepared)?,
+            let cache = cache.unwrap_or_else(|| {
+                selection
+                    .project()
+                    .map_or(project::CacheSetting::Persistent, project::Project::cache)
+            });
+            let report = if cache.render_mode() == render::CacheMode::None {
+                render::render_without_cache(&prepared)?
+            } else if let Some(project) = selection.project() {
+                render::render_with_cache_root(&prepared, &project.cache_root())?
+            } else {
+                render::render(&prepared)?
             };
             println!(
-                "rendered {} (cache: {} hit(s), {} miss(es)); manifest: {}",
+                "rendered {} (cache: {}; {} hit(s), {} miss(es)); manifest: {}",
                 report.output().display(),
+                report.cache_mode().label(),
                 report.cache_hits(),
                 report.cache_misses(),
                 report.manifest().display()

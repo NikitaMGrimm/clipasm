@@ -5,10 +5,31 @@ use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::preflight::PreparedPlan;
 use crate::source::SourceSpan;
 
-use super::execution_plan::{ExecutionPlan, ProtectedResources};
+use super::execution_plan::{ArtifactStorage, ExecutionPlan, ProtectedResources};
 use super::lock::{FileLock, sibling_lock_path};
 use super::publication::PublicationTransaction;
 use super::{execute, manifest};
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Retention policy for working render artifacts.
+pub enum CacheMode {
+    /// Reuse verified artifacts and retain newly rendered artifacts for future renders.
+    #[default]
+    Persistent,
+    /// Render into private temporary storage without reading or writing persistent cache entries.
+    None,
+}
+
+impl CacheMode {
+    /// Return the stable configuration and manifest label for this mode.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Persistent => "persistent",
+            Self::None => "none",
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -26,6 +47,8 @@ pub struct RenderReport {
     ///
     /// Nodes pruned behind a downstream cache hit are not counted.
     cache_misses: usize,
+    /// Cache policy used for the render.
+    cache_mode: CacheMode,
 }
 
 impl RenderReport {
@@ -51,6 +74,12 @@ impl RenderReport {
     #[must_use]
     pub const fn cache_misses(&self) -> usize {
         self.cache_misses
+    }
+
+    /// Return the cache policy used for this render.
+    #[must_use]
+    pub const fn cache_mode(&self) -> CacheMode {
+        self.cache_mode
     }
 }
 
@@ -90,35 +119,37 @@ pub fn render(plan: &PreparedPlan) -> Result<RenderReport> {
 /// Returns the same diagnostics as [`render`].
 pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<RenderReport> {
     plan.verify_tool_identities()?;
-    let protected = ProtectedResources::new(plan);
-    let cache_directory = cache_root.join(plan.execution_namespace());
-    fs::create_dir_all(&cache_directory).map_err(|error| {
-        Diagnostic::builtin(
-            BuiltinDiagnostic::CacheIo,
-            format!(
-                "could not create cache directory `{}`: {error}",
-                cache_directory.display()
-            ),
-            SourceSpan::source_start(plan.entrypoint_source().clone()),
-        )
-    })?;
+    create_output_directory(plan)?;
+    let storage = ArtifactStorage::persistent(plan, cache_root)?;
+    render_with_storage(plan, &storage, CacheMode::Persistent)
+}
 
+/// Render an invariant-protected prepared plan without persistent cache access.
+///
+/// Working artifacts use private temporary storage and are removed after their
+/// final consumer. Existing persistent cache entries are neither read nor
+/// changed.
+///
+/// # Errors
+///
+/// Returns the same diagnostics as [`render`].
+pub fn render_without_cache(plan: &PreparedPlan) -> Result<RenderReport> {
+    plan.verify_tool_identities()?;
+    create_output_directory(plan)?;
+    let storage = ArtifactStorage::transient(plan.output())?;
+    render_with_storage(plan, &storage, CacheMode::None)
+}
+
+fn render_with_storage(
+    plan: &PreparedPlan,
+    storage: &ArtifactStorage,
+    cache_mode: CacheMode,
+) -> Result<RenderReport> {
+    let protected = ProtectedResources::new(plan);
     let execution =
-        ExecutionPlan::build(plan, &cache_directory, &protected)?.execute(plan, &protected)?;
+        ExecutionPlan::build(plan, storage, &protected)?.execute(plan, storage, &protected)?;
     let result_node = &plan.nodes()[plan.result().get() as usize];
     let result_artifact = execution.artifact(plan.result(), &result_node.origin().span)?;
-    if let Some(parent) = plan.output().parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            Diagnostic::builtin(
-                BuiltinDiagnostic::OutputIo,
-                format!(
-                    "could not create output directory `{}`: {error}",
-                    parent.display()
-                ),
-                SourceSpan::file_start(plan.output()),
-            )
-        })?;
-    }
 
     let publication_lock_path = sibling_lock_path(plan.output(), "publication");
     protected.reject_existing_path(
@@ -139,6 +170,7 @@ pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<
     let manifest_json = manifest::serialize(
         plan,
         result_node,
+        cache_mode,
         execution.cache_hits(),
         execution.cache_misses(),
     )?;
@@ -150,5 +182,22 @@ pub fn render_with_cache_root(plan: &PreparedPlan, cache_root: &Path) -> Result<
         manifest: plan.manifest().to_path_buf(),
         cache_hits: execution.cache_hits(),
         cache_misses: execution.cache_misses(),
+        cache_mode,
+    })
+}
+
+fn create_output_directory(plan: &PreparedPlan) -> Result<()> {
+    let Some(parent) = plan.output().parent() else {
+        return Ok(());
+    };
+    fs::create_dir_all(parent).map_err(|error| {
+        Diagnostic::builtin(
+            BuiltinDiagnostic::OutputIo,
+            format!(
+                "could not create output directory `{}`: {error}",
+                parent.display()
+            ),
+            SourceSpan::file_start(plan.output()),
+        )
     })
 }

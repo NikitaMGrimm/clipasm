@@ -5,6 +5,8 @@ use crate::model::{AudioSpec, VideoDomain, VideoSpec};
 use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan};
 use crate::source::SourceSpan;
 
+use super::CacheMode;
+
 #[derive(Serialize)]
 struct ManifestDocument<'a> {
     format_version: u32,
@@ -37,6 +39,7 @@ struct ToolDocument<'a> {
 
 #[derive(Serialize)]
 struct CacheDocument {
+    mode: &'static str,
     hits: usize,
     misses: usize,
 }
@@ -44,6 +47,7 @@ struct CacheDocument {
 pub(super) fn serialize(
     plan: &PreparedPlan,
     result: &PreparedNode,
+    cache_mode: CacheMode,
     cache_hits: usize,
     cache_misses: usize,
 ) -> Result<Vec<u8>> {
@@ -75,6 +79,7 @@ pub(super) fn serialize(
             ffprobe: plan.ffprobe().version(),
         },
         cache: CacheDocument {
+            mode: cache_mode.label(),
             hits: cache_hits,
             misses: cache_misses,
         },

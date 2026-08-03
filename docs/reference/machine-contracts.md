@@ -8,7 +8,7 @@ contracts. Always read the version field before decoding a document.
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
 | Compiled inspection JSON | `format_version: 23` | `clipasm inspect` | source-analysis and diagnostic tooling |
-| Render manifest | `format_version: 1` | successful native render | automation and render provenance |
+| Render manifest | `format_version: 2` | successful native render | automation and render provenance |
 | External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
 
 A versioned JSON document is not an authoring format. ClipAsm does not accept
@@ -44,7 +44,8 @@ records:
 - The result fingerprint and exact Video domain.
 - Whether the Video carries meaningful Audio.
 - FFmpeg and FFprobe version summaries.
-- Cache hit and miss counts.
+- The cache mode and cache hit and miss counts. Cache-none renders report zero
+  hits; misses count artifacts rendered during that invocation.
 
 It deliberately excludes local source paths, executable recipes, and cache
 locations.

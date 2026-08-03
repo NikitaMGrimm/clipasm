@@ -140,12 +140,14 @@ clipasm <COMMAND> [OPTIONS] [SOURCE]
 ```
 
 When you omit `SOURCE`, ClipAsm searches the current directory and then each
-parent directory for the nearest `clipasm.toml`. The manifest is strict and
-currently contains exactly:
+parent directory for the nearest `clipasm.toml`. The manifest is strict:
 
 ```toml
 [project]
 entrypoint = "main.clipasm"
+
+[render]
+cache = "persistent"
 ```
 
 `project.entrypoint` is a forward-slash relative `.clipasm` path
@@ -159,6 +161,14 @@ standalone invocation and does not read an ambient project manifest.
 Project renders keep persistent state under `.clipasm/` at the manifest root,
 even when the entrypoint is in a nested directory. Explicit standalone sources
 keep the existing source-adjacent cache location.
+
+`render.cache` accepts `"persistent"` or `"none"` and defaults to
+`"persistent"` when `[render]` is absent. Persistent mode reads verified cache
+entries and retains newly rendered working artifacts. None mode does not read,
+create, change, or delete persistent cache entries. It still materializes
+working artifacts in a private temporary directory, deletes intermediates after
+their final consumer, and removes the directory when the render ends. Override
+the project setting for one invocation with `clipasm render --cache MODE`.
 
 The selected source file and paths authored inside it resolve according to the
 source-unit rules in the [language reference](language/index.md). Paths supplied
@@ -264,6 +274,11 @@ The root source may declare `config.output`. Override it with `-o` or
 requires an output path from one of those sources and exactly one publishable
 `Video` output. It may inspect media, invoke FFmpeg and FFprobe, and execute
 reachable external programs as trusted native code.
+
+Use `--cache persistent` or `--cache none` to override cache retention for one
+render. This option also applies to explicit standalone sources. In `none`
+mode, reported cache hits are zero and misses count artifacts rendered during
+the invocation.
 
 ## Help and version
 

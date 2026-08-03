@@ -82,6 +82,91 @@ fn project_render_keeps_cache_at_the_manifest_root() {
     );
     assert!(directory.path().join(".clipasm/cache").is_dir());
     assert!(!directory.path().join("src/.clipasm").exists());
+
+    let namespace = fs::read_dir(directory.path().join(".clipasm/cache"))
+        .expect("cache root")
+        .next()
+        .expect("execution namespace")
+        .expect("execution namespace entry")
+        .path();
+    let artifact = fs::read_dir(namespace)
+        .expect("execution namespace")
+        .map(|entry| entry.expect("cache entry").path())
+        .find(|path| {
+            matches!(
+                path.extension().and_then(|value| value.to_str()),
+                Some("mkv" | "flac")
+            )
+        })
+        .expect("cache artifact");
+    let sentinel = b"persistent cache remains untouched";
+    fs::write(&artifact, sentinel).expect("replace cache artifact with sentinel");
+
+    let uncached_again = run_clipasm(
+        &directory.path().join("src/nested"),
+        &["render", "--cache", "none"],
+    );
+    assert!(
+        uncached_again.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uncached_again.stderr)
+    );
+    assert_eq!(
+        fs::read(artifact).expect("preserved cache artifact"),
+        sentinel
+    );
+}
+
+#[test]
+fn project_cache_none_is_temporary_and_the_cli_can_override_it() {
+    if !common::media_tools_available() {
+        eprintln!("skipping project cache-mode test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::create_dir_all(directory.path().join("src/nested")).expect("nested directory");
+    fs::write(
+        directory.path().join("clipasm.toml"),
+        "[project]\nentrypoint = \"src/main.clipasm\"\n\n[render]\ncache = \"none\"\n",
+    )
+    .expect("manifest");
+    fs::write(
+        directory.path().join("src/card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    fs::write(
+        directory.path().join("src/main.clipasm"),
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 100ms)\n",
+    )
+    .expect("source");
+
+    let uncached = run_clipasm(&directory.path().join("src/nested"), &["render"]);
+    assert!(
+        uncached.status.success(),
+        "{}",
+        String::from_utf8_lossy(&uncached.stderr)
+    );
+    assert!(String::from_utf8_lossy(&uncached.stdout).contains("cache: none"));
+    assert!(!directory.path().join(".clipasm/cache").exists());
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(directory.path().join("src/final.mp4.manifest.json")).expect("manifest"),
+    )
+    .expect("manifest JSON");
+    assert_eq!(manifest["cache"]["mode"], "none");
+
+    let persistent = run_clipasm(
+        &directory.path().join("src/nested"),
+        &["render", "--cache", "persistent"],
+    );
+    assert!(
+        persistent.status.success(),
+        "{}",
+        String::from_utf8_lossy(&persistent.stderr)
+    );
+    assert!(String::from_utf8_lossy(&persistent.stdout).contains("cache: persistent"));
+    assert!(directory.path().join(".clipasm/cache").is_dir());
+    assert!(!directory.path().join("src/.clipasm").exists());
 }
 
 #[test]

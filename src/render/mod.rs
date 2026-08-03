@@ -26,4 +26,4 @@ mod publication;
 mod staging;
 
 #[cfg(feature = "native")]
-pub use native::{RenderReport, render, render_with_cache_root};
+pub use native::{CacheMode, RenderReport, render, render_with_cache_root, render_without_cache};

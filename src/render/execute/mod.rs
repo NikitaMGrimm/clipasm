@@ -69,7 +69,7 @@ impl<'a> Executor<'a> {
         )
     }
 
-    pub(in crate::render) fn render_node(
+    pub(in crate::render) fn stage_cache_node(
         &self,
         node: &PreparedNode,
         artifacts: &[Option<PathBuf>],
@@ -80,9 +80,18 @@ impl<'a> Executor<'a> {
             crate::model::ValueType::Video => self.plan.render_policy().working_video_extension(),
         };
         let staged = StagedArtifact::new(destination, extension)?;
-        let context = RenderContext::new(self.plan, node, artifacts, staged.path());
-        Self::render_into(node, &context)?;
+        self.render_node_to(node, artifacts, staged.path())?;
         Ok(staged)
+    }
+
+    pub(in crate::render) fn render_node_to(
+        &self,
+        node: &PreparedNode,
+        artifacts: &[Option<PathBuf>],
+        destination: &Path,
+    ) -> Result<()> {
+        let context = RenderContext::new(self.plan, node, artifacts, destination);
+        Self::render_into(node, &context)
     }
 
     fn render_into(node: &PreparedNode, context: &RenderContext<'_>) -> Result<()> {

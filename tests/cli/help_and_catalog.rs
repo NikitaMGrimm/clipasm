@@ -566,10 +566,9 @@ fn render_help_mentions_ffprobe() {
         .expect("run clipasm");
 
     assert!(output.status.success());
-    assert!(
-        String::from_utf8(output.stdout)
-            .expect("UTF-8 help")
-            .contains("FFprobe")
-    );
+    let help = String::from_utf8(output.stdout).expect("UTF-8 help");
+    assert!(help.contains("FFprobe"));
+    assert!(help.contains("--cache <MODE>"));
+    assert!(help.contains("possible values: persistent, none"));
     assert!(output.stderr.is_empty());
 }

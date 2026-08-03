@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
 use serde::Deserialize;
 
 use clipasm::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
@@ -12,6 +13,8 @@ const MANIFEST_NAME: &str = "clipasm.toml";
 #[serde(deny_unknown_fields)]
 struct Manifest {
     project: ProjectTable,
+    #[serde(default)]
+    render: RenderTable,
 }
 
 #[derive(Deserialize)]
@@ -20,10 +23,35 @@ struct ProjectTable {
     entrypoint: toml::Spanned<String>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenderTable {
+    #[serde(default)]
+    cache: CacheSetting,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum CacheSetting {
+    #[default]
+    Persistent,
+    None,
+}
+
+impl CacheSetting {
+    pub(super) const fn render_mode(self) -> clipasm::render::CacheMode {
+        match self {
+            Self::Persistent => clipasm::render::CacheMode::Persistent,
+            Self::None => clipasm::render::CacheMode::None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct Project {
     root: PathBuf,
     entrypoint: PathBuf,
+    cache: CacheSetting,
 }
 
 impl Project {
@@ -33,6 +61,10 @@ impl Project {
 
     pub(super) fn cache_root(&self) -> PathBuf {
         self.root.join(".clipasm").join("cache")
+    }
+
+    pub(super) const fn cache(&self) -> CacheSetting {
+        self.cache
     }
 }
 
@@ -148,6 +180,7 @@ fn load(manifest_path: &Path) -> Result<Project> {
     Ok(Project {
         root: root.to_path_buf(),
         entrypoint: root.join(entrypoint),
+        cache: manifest.render.cache,
     })
 }
 
@@ -227,6 +260,37 @@ mod tests {
         .expect("unknown field");
         assert_eq!(
             load(&manifest).expect_err("unknown field").code,
+            "E_PROJECT_MANIFEST"
+        );
+    }
+
+    #[test]
+    fn manifests_configure_render_cache_and_default_to_persistent() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let manifest = directory.path().join(MANIFEST_NAME);
+        fs::write(&manifest, "[project]\nentrypoint = \"main.clipasm\"\n").expect("manifest");
+        assert!(matches!(
+            load(&manifest).expect("default project").cache,
+            CacheSetting::Persistent
+        ));
+
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\ncache = \"none\"\n",
+        )
+        .expect("manifest");
+        assert!(matches!(
+            load(&manifest).expect("uncached project").cache,
+            CacheSetting::None
+        ));
+
+        fs::write(
+            &manifest,
+            "[project]\nentrypoint = \"main.clipasm\"\n\n[render]\ncache = \"sometimes\"\n",
+        )
+        .expect("manifest");
+        assert_eq!(
+            load(&manifest).expect_err("invalid cache mode").code,
             "E_PROJECT_MANIFEST"
         );
     }

@@ -63,11 +63,12 @@ fn renders_and_reuses_verified_cache() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(first.manifest()).expect("new manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["format_version"], 1);
+    assert_eq!(manifest["format_version"], 2);
     assert_eq!(manifest["project"]["video"]["fps"]["numerator"], 10);
     assert_eq!(manifest["semantic_hash"], plan.semantic_hash());
     assert_eq!(manifest["cache"]["hits"], 0);
     assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
+    assert_eq!(manifest["cache"]["mode"], "persistent");
     assert!(manifest.get("plan").is_none());
     assert!(manifest.get("execution_namespace").is_none());
     assert_eq!(first.cache_hits(), 0);
@@ -87,6 +88,53 @@ fn renders_and_reuses_verified_cache() {
             .expect("cached manifest JSON");
     assert_eq!(manifest["cache"]["hits"], 1);
     assert_eq!(manifest["cache"]["misses"], 0);
+}
+
+#[test]
+fn cache_none_uses_temporary_artifacts_and_releases_shared_inputs_after_last_use() {
+    if !common::media_tools_available() {
+        eprintln!("skipping cache-none test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nclip {\n  image(\"card.ppm\", 100ms)\n} as card\n{\n  $card\n  $card\n  concat\n}\n",
+    )
+    .expect("workflow");
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+
+    let report = render::render_without_cache(&plan).expect("uncached render");
+
+    assert_eq!(report.cache_mode(), render::CacheMode::None);
+    assert_eq!(report.cache_hits(), 0);
+    assert_eq!(report.cache_misses(), plan.nodes().len());
+    assert!(report.output().is_file());
+    assert!(!directory.path().join(".clipasm").exists());
+    assert!(
+        fs::read_dir(directory.path())
+            .expect("render directory")
+            .all(|entry| !entry
+                .expect("render directory entry")
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".final.mp4.render-")),
+        "private render staging directory was not removed"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
+            .expect("manifest JSON");
+    assert_eq!(manifest["format_version"], 2);
+    assert_eq!(manifest["cache"]["mode"], "none");
+    assert_eq!(manifest["cache"]["hits"], 0);
+    assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
 }
 
 #[cfg(unix)]
@@ -972,7 +1020,7 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     let document: serde_json::Value =
         serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(document["format_version"], 1);
+    assert_eq!(document["format_version"], 2);
     assert!(document.get("plan").is_none());
     output_name.push(".manifest.json");
     assert_eq!(report.manifest(), directory.path().join(output_name));
