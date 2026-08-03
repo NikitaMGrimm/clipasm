@@ -22,7 +22,7 @@ use super::execute::{FfmpegArgument, FfmpegRecipe, RecipeContext, export_recipe,
 
 const FFMPEG_WRAPPER_VERSION: &str = "0.12.15";
 const FFMPEG_CORE_VERSION: &str = "0.12.10";
-const BROWSER_RUNTIME_POLICY: &str = "ffv1-flac-matroska-v1";
+const BROWSER_RUNTIME_POLICY: &str = "ffv1-yuv444p10-s16-bt709-v3";
 
 /// Serialize a prepared browser graph as closed `FFmpeg` recipes and virtual
 /// artifact contracts for `ClipAsm`'s matching bundled browser host.
@@ -163,7 +163,8 @@ fn final_contract(
         fps_numerator: domain.frame_rate().numerator(),
         fps_denominator: domain.frame_rate().denominator(),
         frames: domain.frames().0,
-        pixel_format: policy.export_pixel_format(),
+        encoding: policy.export_video_encoding(),
+        audio_encoding: None,
         audio: result.has_audio(),
         sample_rate: plan.audio().sample_rate(),
         channels: plan.audio().channels(),
@@ -250,7 +251,8 @@ enum BrowserArtifactContract {
         fps_numerator: u32,
         fps_denominator: u32,
         frames: u64,
-        pixel_format: &'static str,
+        encoding: crate::preflight::VideoEncoding,
+        audio_encoding: Option<crate::preflight::AudioEncoding>,
         audio: bool,
         sample_rate: u32,
         channels: u8,
@@ -258,6 +260,7 @@ enum BrowserArtifactContract {
         samples: Option<u64>,
     },
     Audio {
+        audio_encoding: Option<crate::preflight::AudioEncoding>,
         sample_rate: u32,
         channels: u8,
         samples: u64,
@@ -368,7 +371,8 @@ fn artifact_contract(node: &PreparedNode, policy: RenderPolicy) -> BrowserArtifa
             fps_numerator: video.frame_rate().numerator(),
             fps_denominator: video.frame_rate().denominator(),
             frames: video.frames().0,
-            pixel_format: policy.working_pixel_format(),
+            encoding: policy.working_video_encoding(),
+            audio_encoding: Some(policy.working_audio_encoding()),
             audio: true,
             sample_rate: audio.audio_spec().sample_rate(),
             channels: audio.audio_spec().channels(),
@@ -376,6 +380,7 @@ fn artifact_contract(node: &PreparedNode, policy: RenderPolicy) -> BrowserArtifa
             samples: Some(audio.samples()),
         },
         WorkingArtifactContract::Audio { audio } => BrowserArtifactContract::Audio {
+            audio_encoding: Some(policy.working_audio_encoding()),
             sample_rate: audio.audio_spec().sample_rate(),
             channels: audio.audio_spec().channels(),
             samples: audio.samples(),
@@ -480,7 +485,7 @@ mod tests {
         BrowserAsset::new(
             path,
             hash_byte.repeat(32),
-            r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#,
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"rgb24","color_range":"pc","color_space":"gbr","color_transfer":"unknown","color_primaries":"unknown"}]}"#,
         )
     }
 
@@ -495,6 +500,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the browser contract test intentionally checks one complete serialized plan"
+    )]
     fn scenic_plan_serializes_runtime_artifacts_and_cleanup_contracts() {
         let compiled = compiled(include_str!("../../examples/scenic-sequence.clipasm"));
         let assets = [
@@ -553,6 +562,14 @@ mod tests {
             assert_eq!(step["contract"]["media"], "video");
             assert_eq!(step["contract"]["sample_rate"], 48_000);
             assert_eq!(step["contract"]["channels"], 2);
+            assert_eq!(
+                step["contract"]["audio_encoding"],
+                serde_json::json!({
+                    "sample_format": "s16",
+                    "component_bits": 16,
+                    "channel_layout": "stereo",
+                })
+            );
             assert_eq!(step["contract"]["exact_audio_samples"], true);
         }
         assert_eq!(steps[0]["contract"]["frames"], 36);
@@ -576,10 +593,22 @@ mod tests {
                 "/work/node-3.mkv",
                 "-map",
                 "0:v:0",
+                "-vf",
+                "zscale=matrixin=bt709:transferin=bt709:primariesin=bt709:rangein=limited:matrix=bt709:transfer=bt709:primaries=bt709:range=limited:chromal=left:npl=100:agamma=0:dither=error_diffusion,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-chroma_sample_location",
+                "left",
                 "-r",
                 "24/1",
                 "-an",
@@ -594,6 +623,8 @@ mod tests {
         assert_eq!(export["contract"]["audio"], false);
         assert_eq!(export["contract"]["sample_rate"], 48_000);
         assert_eq!(export["contract"]["channels"], 2);
+        assert_eq!(export["contract"]["encoding"]["pixel_format"], "yuv420p");
+        assert_eq!(export["contract"]["encoding"]["color"]["transfer"], "bt709");
         assert_eq!(
             export["delete_after"],
             serde_json::json!(["/work/node-3.mkv"])
@@ -608,7 +639,7 @@ mod tests {
         let assets = [BrowserAsset::new(
             "scene.mkv",
             "44".repeat(32),
-            r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1","pix_fmt":"yuv444p","color_range":"tv","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
         )];
         let plan = prepare(&compiled, &assets).expect("browser plan");
 

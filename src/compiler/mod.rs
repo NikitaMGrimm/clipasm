@@ -374,7 +374,22 @@ fn resolve_video_spec(entrypoint: &SourceUnit) -> Result<VideoSpec> {
         Some(fps) => crate::model::FrameRate::parse(&fps.value, &fps.span)?,
         None => defaults.fps(),
     };
-    Ok(VideoSpec::new(width, height, fps)
+    let color = match &project.value.video.color {
+        Some(color) => {
+            crate::model::ColorSpec::from_profile_name(&color.value).ok_or_else(|| {
+                Diagnostic::builtin(
+                    BuiltinDiagnostic::InvalidVideoSpec,
+                    format!(
+                        "unknown video color profile `{}`; expected `sdr_bt709`",
+                        color.value
+                    ),
+                    color.span.clone(),
+                )
+            })?
+        }
+        None => defaults.color(),
+    };
+    Ok(VideoSpec::with_color(width, height, fps, color)
         .expect("positive dimensions and frame rate form a valid VideoSpec"))
 }
 

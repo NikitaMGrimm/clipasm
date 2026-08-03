@@ -13,7 +13,7 @@ use crate::model::{
 };
 use crate::semantic::{SemanticDependency, SemanticNodeKind};
 
-const COMPILED_IDENTITY_REVISION: u32 = 22;
+const COMPILED_IDENTITY_REVISION: u32 = 23;
 
 #[derive(Serialize)]
 struct CompiledIdentity<'a> {

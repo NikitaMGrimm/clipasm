@@ -25,6 +25,7 @@ mod assets;
 pub mod browser;
 #[cfg(feature = "native")]
 mod capabilities;
+mod color;
 mod identity;
 mod lower;
 #[cfg(feature = "native")]
@@ -35,6 +36,7 @@ pub(crate) mod tools;
 
 #[cfg(feature = "native")]
 pub(crate) use assets::verify_prepared_asset;
+pub use color::{PreparedSourceColor, SourceColorConvention};
 #[cfg(feature = "native")]
 pub use native::preflight;
 #[cfg(feature = "native")]
@@ -46,5 +48,5 @@ pub use plan::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
     PreparedNode, PreparedNodeMedia, PreparedVideoKind,
 };
-pub(crate) use policy::RenderPolicy;
+pub(crate) use policy::{AudioEncoding, RenderPolicy, VideoEncoding};
 pub use tools::ExternalToolIdentity;

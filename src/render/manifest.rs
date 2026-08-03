@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, VideoDomain, VideoSpec};
-use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan};
+use crate::preflight::{PreparedNode, PreparedNodeMedia, PreparedPlan, VideoEncoding};
 use crate::source::SourceSpan;
 
 use super::CacheMode;
@@ -13,6 +13,7 @@ struct ManifestDocument<'a> {
     engine_version: &'static str,
     semantic_hash: &'a str,
     project: ProjectDocument<'a>,
+    output_encoding: VideoEncoding,
     result: ResultDocument<'a>,
     tools: ToolDocument<'a>,
     cache: CacheDocument,
@@ -69,6 +70,7 @@ pub(super) fn serialize(
             video: plan.video(),
             audio: plan.audio(),
         },
+        output_encoding: plan.render_policy().export_video_encoding(),
         result: ResultDocument {
             fingerprint: result.fingerprint(),
             domain,

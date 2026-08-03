@@ -18,7 +18,7 @@ use super::{
     PreparedVideoKind,
 };
 
-const PREPARED_IDENTITY_REVISION: u32 = 13;
+const PREPARED_IDENTITY_REVISION: u32 = 14;
 
 #[derive(Serialize)]
 struct PreparedNodeIdentity<'a> {
@@ -51,11 +51,13 @@ struct CacheIdentity<'a> {
 enum PreparedOperationIdentity<'a> {
     ImageVideo {
         content_hash: &'a str,
+        color: &'a crate::preflight::PreparedSourceColor,
         frames: FrameCount,
         fit: ImageFit,
     },
     VideoSource {
         content_hash: &'a str,
+        color: &'a crate::preflight::PreparedSourceColor,
         frames: FrameCount,
         fit: ImageFit,
     },
@@ -155,20 +157,28 @@ pub(super) fn node_fingerprint(
 
 fn video_identity(kind: &PreparedVideoKind) -> PreparedOperationIdentity<'_> {
     match kind {
-        PreparedVideoKind::ImageVideo { asset, frames, fit } => {
-            PreparedOperationIdentity::ImageVideo {
-                content_hash: asset.content_hash(),
-                frames: *frames,
-                fit: *fit,
-            }
-        }
-        PreparedVideoKind::VideoSource { asset, frames, fit } => {
-            PreparedOperationIdentity::VideoSource {
-                content_hash: asset.content_hash(),
-                frames: *frames,
-                fit: *fit,
-            }
-        }
+        PreparedVideoKind::ImageVideo {
+            asset,
+            color,
+            frames,
+            fit,
+        } => PreparedOperationIdentity::ImageVideo {
+            content_hash: asset.content_hash(),
+            color,
+            frames: *frames,
+            fit: *fit,
+        },
+        PreparedVideoKind::VideoSource {
+            asset,
+            color,
+            frames,
+            fit,
+        } => PreparedOperationIdentity::VideoSource {
+            content_hash: asset.content_hash(),
+            color,
+            frames: *frames,
+            fit: *fit,
+        },
         PreparedVideoKind::Slice { input: _, range } => {
             PreparedOperationIdentity::Slice { range: *range }
         }

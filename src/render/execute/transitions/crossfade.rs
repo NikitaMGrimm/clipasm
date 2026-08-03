@@ -2,8 +2,9 @@ use std::fmt::Write as _;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, FrameCount, NodeId, TimelineRate, VideoDomain};
-use crate::preflight::PreparedNode;
+use crate::preflight::{AudioEncoding, PreparedNode};
 
+use super::super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
 use super::super::filters::normalize_audio;
 use super::super::recipe::{FfmpegRecipe, RecipeContext};
 
@@ -16,12 +17,16 @@ pub(super) fn render(
 ) -> Result<FfmpegRecipe> {
     let layout = CrossfadeLayout::new(context, before, after, frames, domain)?;
     let mut filter = String::new();
-    append_crossfade_video_filter(&mut filter, &layout);
+    append_crossfade_video_filter(
+        &mut filter,
+        &layout,
+        context.policy().working_video_encoding(),
+    );
     append_crossfade_audio_filter(
         &mut filter,
         &layout.audio_layout(),
         context.audio(),
-        context.policy().working_channel_layout(),
+        context.policy().working_audio_encoding(),
     );
 
     let mut recipe = FfmpegRecipe::new();
@@ -45,7 +50,7 @@ pub(super) fn render_audio(
         &mut filter,
         &layout,
         context.audio(),
-        context.policy().working_channel_layout(),
+        context.policy().working_audio_encoding(),
     );
     let mut recipe = FfmpegRecipe::new();
     recipe.args(["-i"]).artifact(before);
@@ -55,7 +60,11 @@ pub(super) fn render_audio(
     Ok(recipe)
 }
 
-fn append_crossfade_video_filter(filter: &mut String, layout: &CrossfadeLayout) {
+fn append_crossfade_video_filter(
+    filter: &mut String,
+    layout: &CrossfadeLayout,
+    working: crate::preflight::VideoEncoding,
+) {
     let before_overlap = if layout.prefix_frames > 0 {
         let _ = write!(
             filter,
@@ -86,9 +95,12 @@ fn append_crossfade_video_filter(filter: &mut String, layout: &CrossfadeLayout) 
     };
     let _ = write!(
         filter,
-        "[before_v_overlap][after_v_overlap]blend=all_expr='{}':shortest=1:repeatlast=0,trim=end_frame={},setpts=PTS-STARTPTS[{overlap_output}];",
+        "[before_v_overlap]{}[before_v_linear];[after_v_overlap]{}[after_v_linear];[before_v_linear][after_v_linear]blend=all_expr='{}':shortest=1:repeatlast=0,trim=end_frame={},setpts=PTS-STARTPTS,{}[{overlap_output}];",
+        working_to_linear_rgb(),
+        working_to_linear_rgb(),
         blend_expression(layout.overlap_frames),
         layout.overlap_frames,
+        linear_rgb_to_encoding(working),
     );
     if layout.suffix_frames > 0 {
         let _ = write!(
@@ -119,21 +131,21 @@ fn append_crossfade_audio_filter(
     filter: &mut String,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
-    channel_layout: &str,
+    audio_encoding: AudioEncoding,
 ) {
     let sources = crossfade_audio_sources(filter, layout);
     let mut tracks = Vec::new();
     if let Some(source) = sources.before_prefix {
-        append_prefix_audio_track(filter, layout, audio, channel_layout, source);
+        append_prefix_audio_track(filter, layout, audio, audio_encoding, source);
         tracks.push("[a_prefix_track]");
     }
     if layout.overlap_samples > 0 {
-        append_overlap_audio_tracks(filter, layout, audio, channel_layout, &sources);
+        append_overlap_audio_tracks(filter, layout, audio, audio_encoding, &sources);
         tracks.push("[a_before_overlap_track]");
         tracks.push("[a_after_overlap_track]");
     }
     if let Some(source) = sources.after_suffix {
-        append_suffix_audio_track(filter, layout, audio, channel_layout, source);
+        append_suffix_audio_track(filter, layout, audio, audio_encoding, source);
         tracks.push("[a_suffix_track]");
     }
     debug_assert!(!tracks.is_empty());
@@ -142,14 +154,14 @@ fn append_crossfade_audio_filter(
         let _ = write!(
             filter,
             "{labels}{}[a]",
-            normalize_audio(layout.output_samples, audio, channel_layout),
+            normalize_audio(layout.output_samples, audio, audio_encoding),
         );
     } else {
         let _ = write!(
             filter,
             "{labels}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0[mixed_a];[mixed_a]{}[a]",
             tracks.len(),
-            normalize_audio(layout.output_samples, audio, channel_layout),
+            normalize_audio(layout.output_samples, audio, audio_encoding),
         );
     }
 }
@@ -204,14 +216,14 @@ fn append_prefix_audio_track(
     filter: &mut String,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
-    channel_layout: &str,
+    audio_encoding: AudioEncoding,
     source: &str,
 ) {
     let _ = write!(
         filter,
         "{source}atrim=end_sample={},asetpts=PTS-STARTPTS,{},apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_prefix_track];",
         layout.prefix_samples,
-        normalize_audio(layout.prefix_samples, audio, channel_layout),
+        normalize_audio(layout.prefix_samples, audio, audio_encoding),
         layout.output_samples,
         layout.output_samples,
     );
@@ -221,7 +233,7 @@ fn append_overlap_audio_tracks(
     filter: &mut String,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
-    channel_layout: &str,
+    audio_encoding: AudioEncoding,
     sources: &CrossfadeAudioSources,
 ) {
     let before = sources
@@ -235,7 +247,7 @@ fn append_overlap_audio_tracks(
         "{before}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},afade=t=out:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_before_overlap_track];",
         layout.prefix_samples,
         layout.before_total_samples,
-        normalize_audio(layout.overlap_samples, audio, channel_layout),
+        normalize_audio(layout.overlap_samples, audio, audio_encoding),
         layout.overlap_samples,
         layout.prefix_samples,
         layout.output_samples,
@@ -245,7 +257,7 @@ fn append_overlap_audio_tracks(
         filter,
         "{after}atrim=end_sample={},asetpts=PTS-STARTPTS,{},afade=t=in:start_sample=0:nb_samples={}:curve=qsin,adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_after_overlap_track];",
         layout.after_overlap_end_samples,
-        normalize_audio(layout.overlap_samples, audio, channel_layout),
+        normalize_audio(layout.overlap_samples, audio, audio_encoding),
         layout.overlap_samples,
         layout.prefix_samples,
         layout.output_samples,
@@ -257,7 +269,7 @@ fn append_suffix_audio_track(
     filter: &mut String,
     layout: &AudioCrossfadeLayout,
     audio: crate::model::AudioSpec,
-    channel_layout: &str,
+    audio_encoding: AudioEncoding,
     source: &str,
 ) {
     let _ = write!(
@@ -265,7 +277,7 @@ fn append_suffix_audio_track(
         "{source}atrim=start_sample={}:end_sample={},asetpts=PTS-STARTPTS,{},adelay={}S:all=1,apad=whole_len={},atrim=end_sample={},asetpts=PTS-STARTPTS[a_suffix_track];",
         layout.after_overlap_end_samples,
         layout.after_total_samples,
-        normalize_audio(layout.suffix_samples, audio, channel_layout),
+        normalize_audio(layout.suffix_samples, audio, audio_encoding),
         layout.before_total_samples,
         layout.output_samples,
         layout.output_samples,
@@ -500,6 +512,6 @@ fn blend_expression(frames: u64) -> String {
         "(A+B)/2".to_owned()
     } else {
         let last = frames - 1;
-        format!("A*(1-N/{last})+B*N/{last}")
+        format!("A*(1-(N-1)/{last})+B*(N-1)/{last}")
     }
 }

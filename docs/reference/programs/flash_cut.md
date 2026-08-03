@@ -58,6 +58,7 @@ The reference checks parse and compile this exact example. Compilation does not 
 ## Behavior
 
 - duration becomes the smallest whole project-frame count that covers the authored duration.
+- The white fade is evaluated in display-linear BT.709 RGB.
 - The output exposes sequential before and after timeline regions.
 
 ## Requirements

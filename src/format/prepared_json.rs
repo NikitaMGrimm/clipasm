@@ -12,7 +12,7 @@ use crate::model::{
 use crate::preflight::tools::{ExternalToolIdentity, ToolIdentity};
 use crate::preflight::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
-    PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind,
+    PreparedNode, PreparedNodeMedia, PreparedPlan, PreparedVideoKind, VideoEncoding,
 };
 use crate::source::SourceSpan;
 
@@ -25,6 +25,8 @@ struct PreparedDocument<'a> {
     semantic_hash: &'a str,
     video: &'a VideoSpec,
     audio: &'a AudioSpec,
+    working_video_encoding: VideoEncoding,
+    export_video_encoding: VideoEncoding,
     nodes: Vec<PreparedNodeDocument<'a>>,
     result: NodeId,
     named_values: &'a BTreeMap<String, NodeId>,
@@ -86,11 +88,13 @@ enum ExternalArgumentDocument<'a> {
 enum PreparedOperationDocument<'a> {
     ImageVideo {
         asset: PreparedAssetDocument<'a>,
+        color: &'a crate::preflight::PreparedSourceColor,
         frames: FrameCount,
         fit: ImageFit,
     },
     VideoSource {
         asset: PreparedAssetDocument<'a>,
+        color: &'a crate::preflight::PreparedSourceColor,
         frames: FrameCount,
         fit: ImageFit,
     },
@@ -167,6 +171,8 @@ pub(crate) fn prepared_plan(plan: &PreparedPlan) -> Result<String> {
         semantic_hash: plan.semantic_hash(),
         video: plan.video(),
         audio: plan.audio(),
+        working_video_encoding: plan.render_policy().working_video_encoding(),
+        export_video_encoding: plan.render_policy().export_video_encoding(),
         nodes: plan.nodes().iter().map(node_document).collect(),
         result: plan.result(),
         named_values: plan.named_values(),
@@ -216,20 +222,28 @@ fn node_document(node: &PreparedNode) -> PreparedNodeDocument<'_> {
 
 fn video_operation_document(kind: &PreparedVideoKind) -> PreparedOperationDocument<'_> {
     match kind {
-        PreparedVideoKind::ImageVideo { asset, frames, fit } => {
-            PreparedOperationDocument::ImageVideo {
-                asset: asset_document(asset),
-                frames: *frames,
-                fit: *fit,
-            }
-        }
-        PreparedVideoKind::VideoSource { asset, frames, fit } => {
-            PreparedOperationDocument::VideoSource {
-                asset: asset_document(asset),
-                frames: *frames,
-                fit: *fit,
-            }
-        }
+        PreparedVideoKind::ImageVideo {
+            asset,
+            color,
+            frames,
+            fit,
+        } => PreparedOperationDocument::ImageVideo {
+            asset: asset_document(asset),
+            color,
+            frames: *frames,
+            fit: *fit,
+        },
+        PreparedVideoKind::VideoSource {
+            asset,
+            color,
+            frames,
+            fit,
+        } => PreparedOperationDocument::VideoSource {
+            asset: asset_document(asset),
+            color,
+            frames: *frames,
+            fit: *fit,
+        },
         PreparedVideoKind::Slice { input, range } => PreparedOperationDocument::Slice {
             input: *input,
             range: *range,

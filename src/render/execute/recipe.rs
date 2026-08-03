@@ -73,6 +73,14 @@ impl<'a> RecipeContext<'a> {
                 &self.policy.native_video_level().to_string(),
                 "-pix_fmt",
                 self.policy.working_pixel_format(),
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
                 "-r",
             ])
             .arg(format!(
@@ -83,6 +91,8 @@ impl<'a> RecipeContext<'a> {
             .args([
                 "-c:a",
                 self.policy.native_audio_encoder(),
+                "-sample_fmt",
+                self.policy.working_audio_encoding().sample_format(),
                 "-ar",
                 &self.audio.sample_rate().to_string(),
                 "-ac",
@@ -96,6 +106,8 @@ impl<'a> RecipeContext<'a> {
         recipe.args([
             "-c:a",
             self.policy.native_audio_encoder(),
+            "-sample_fmt",
+            self.policy.working_audio_encoding().sample_format(),
             "-ar",
             &self.audio.sample_rate().to_string(),
             "-ac",

@@ -181,6 +181,7 @@ impl Parser {
         let mut width = None;
         let mut height = None;
         let mut fps = None;
+        let mut color = None;
         while !self.at(&TokenKind::RightBrace) {
             if self.at(&TokenKind::End) {
                 return Err(Diagnostic::builtin(
@@ -201,6 +202,7 @@ impl Parser {
                 "width" => &mut width,
                 "height" => &mut height,
                 "fps" => &mut fps,
+                "color" => &mut color,
                 _ => {
                     return Err(Diagnostic::builtin(
                         BuiltinDiagnostic::UnknownVideoField,
@@ -223,6 +225,7 @@ impl Parser {
             width,
             height,
             fps,
+            color,
             span,
         })
     }

@@ -4,6 +4,7 @@
 //! engine-assigned and opaque; Video and Audio domains retain exact native frames and samples.
 
 mod audio;
+mod color;
 mod number;
 mod time;
 mod timeline;
@@ -11,6 +12,9 @@ mod timeline_expression;
 mod video;
 
 pub use audio::{AudioDomain, AudioSpec};
+pub use color::{
+    ColorPrimaries, ColorRange, ColorSpec, MatrixCoefficients, TransferCharacteristic,
+};
 pub use number::Number;
 pub(crate) use number::Number as ExactNumber;
 pub(crate) use time::{DurationValue, NativeDuration, NativeRange, SourceTime, SourceTimeRange};

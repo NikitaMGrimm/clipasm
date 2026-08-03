@@ -329,7 +329,8 @@ fn verify_node_artifact(plan: &PreparedPlan, node: &PreparedNode, path: &Path) -
         plan.ffprobe().executable(),
         path,
         &node.artifact_contract(),
-        plan.render_policy().working_pixel_format(),
+        plan.render_policy().working_video_encoding(),
+        plan.render_policy().working_audio_encoding(),
     )
 }
 

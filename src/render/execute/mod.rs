@@ -1,4 +1,5 @@
 mod audio;
+mod color;
 #[cfg(feature = "native")]
 mod context;
 mod effects;
@@ -120,14 +121,26 @@ pub(crate) fn ffmpeg_recipe(
 ) -> Result<FfmpegRecipe> {
     match node.media() {
         PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::ImageVideo { asset, fit, frames },
+            kind:
+                PreparedVideoKind::ImageVideo {
+                    asset,
+                    color,
+                    fit,
+                    frames,
+                },
             ..
-        } => media::image(context, asset, *fit, *frames),
+        } => media::image(context, asset, color, *fit, *frames),
         PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::VideoSource { asset, fit, frames },
+            kind:
+                PreparedVideoKind::VideoSource {
+                    asset,
+                    color,
+                    fit,
+                    frames,
+                },
             has_audio,
             ..
-        } => media::video_source(context, asset, *fit, *frames, has_audio),
+        } => media::video_source(context, asset, color, *fit, *frames, has_audio),
         PreparedNodeMedia::Audio { kind, domain } => audio_recipe(context, kind, domain),
         PreparedNodeMedia::Video {
             kind: PreparedVideoKind::Slice { input, range },

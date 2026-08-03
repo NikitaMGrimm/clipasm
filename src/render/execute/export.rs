@@ -14,6 +14,7 @@ use crate::source::SourceSpan;
 
 #[cfg(feature = "native")]
 use super::super::artifact::verify_video_artifact;
+use super::color::working_to_encoding;
 #[cfg(feature = "native")]
 use super::context::run_command;
 use super::recipe::FfmpegRecipe;
@@ -53,7 +54,8 @@ pub(super) fn stage_export(
             audio,
             has_audio,
             None,
-            render_policy.export_pixel_format(),
+            render_policy.export_video_encoding(),
+            None,
         )
     });
     if let Err(error) = result {
@@ -106,14 +108,22 @@ pub(crate) fn export_recipe(
     recipe
         .args(["-i"])
         .artifact(result)
-        .args([
-            "-map",
-            "0:v:0",
-            "-c:v",
-            render_policy.export_video_encoder(),
-            "-pix_fmt",
-        ])
+        .args(["-map", "0:v:0", "-vf"])
+        .arg(working_to_encoding(render_policy.export_video_encoding()))
+        .args(["-c:v", render_policy.export_video_encoder(), "-pix_fmt"])
         .arg(render_policy.export_pixel_format())
+        .args([
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
+        ])
         .arg("-r")
         .arg(format!(
             "{}/{}",
@@ -190,10 +200,22 @@ mod tests {
                 "cache/result.mkv",
                 "-map",
                 "0:v:0",
+                "-vf",
+                "zscale=matrixin=bt709:transferin=bt709:primariesin=bt709:rangein=limited:matrix=bt709:transfer=bt709:primaries=bt709:range=limited:chromal=left:npl=100:agamma=0:dither=error_diffusion,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-chroma_sample_location",
+                "left",
                 "-r",
                 "10/1",
                 "-an",
@@ -219,10 +241,22 @@ mod tests {
                 "cache/result.mkv",
                 "-map",
                 "0:v:0",
+                "-vf",
+                "zscale=matrixin=bt709:transferin=bt709:primariesin=bt709:rangein=limited:matrix=bt709:transfer=bt709:primaries=bt709:range=limited:chromal=left:npl=100:agamma=0:dither=error_diffusion,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-chroma_sample_location",
+                "left",
                 "-r",
                 "10/1",
                 "-map",

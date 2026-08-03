@@ -5,7 +5,7 @@ use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     AudioSpec, FrameCount, FrameSampleStep, NodeId, TimelineRate, VideoDomain, VideoSpec,
 };
-use crate::preflight::PreparedNode;
+use crate::preflight::{AudioEncoding, PreparedNode};
 use crate::source::SourceSpan;
 
 use super::filters::{normalize_audio, samples_for_video};
@@ -62,7 +62,7 @@ pub(super) fn repeat(
         frames,
         context.video(),
         context.audio(),
-        context.policy().working_channel_layout(),
+        context.policy().working_audio_encoding(),
         context.span(),
     )?;
     let mut recipe = FfmpegRecipe::new();
@@ -103,7 +103,7 @@ pub(super) fn concat(
             normalize_audio(
                 samples,
                 context.audio(),
-                context.policy().working_channel_layout(),
+                context.policy().working_audio_encoding(),
             )
         );
         let _ = write!(labels, "[{index}:v][a{index}]");
@@ -120,7 +120,7 @@ pub(super) fn concat(
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
@@ -174,14 +174,14 @@ fn repeat_audio_filter(
     output_frames: FrameCount,
     video: &VideoSpec,
     audio: AudioSpec,
-    channel_layout: &str,
+    audio_encoding: AudioEncoding,
     span: &SourceSpan,
 ) -> Result<String> {
     let timeline = TimelineRate::new(*video, audio);
     let output_samples = timeline.samples_for_frames(output_frames, span)?;
     let step = timeline.frame_sample_step(input_frames, span)?;
     if step.is_integral() {
-        return Ok(normalize_audio(output_samples, audio, channel_layout));
+        return Ok(normalize_audio(output_samples, audio, audio_encoding));
     }
 
     let input_samples = step.covering_samples().ok_or_else(|| {
@@ -202,11 +202,13 @@ fn repeat_audio_filter(
         )
     })?;
     Ok(format!(
-        "asetnsamples=n={frame_samples}:p=0,asetpts='{}',aresample={}:async={}:min_hard_comp=0.000001:first_pts=0,aformat=sample_rates={}:channel_layouts={channel_layout},atrim=end_sample={output_samples},apad=whole_len={output_samples},asetpts=PTS-STARTPTS",
+        "asetnsamples=n={frame_samples}:p=0,asetpts='{}',aresample={}:async={}:min_hard_comp=0.000001:first_pts=0,aformat=sample_fmts={}:sample_rates={}:channel_layouts={},atrim=end_sample={output_samples},apad=whole_len={output_samples},asetpts=PTS-STARTPTS",
         repeat_audio_pts_expression(step, input_samples),
         audio.sample_rate(),
         audio.sample_rate(),
+        audio_encoding.sample_format(),
         audio.sample_rate(),
+        audio_encoding.channel_layout(),
     ))
 }
 
@@ -239,9 +241,15 @@ mod tests {
             VideoSpec::new(64, 64, FrameRate::new(25, 4).expect("frame rate")).expect("video spec");
         let audio = AudioSpec::new(10, 2).expect("audio spec");
         let span = SourceSpan::file_start("repeat-test");
-        let filter =
-            repeat_audio_filter(FrameCount(1), FrameCount(5), &video, audio, "stereo", &span)
-                .expect("repeat filter");
+        let filter = repeat_audio_filter(
+            FrameCount(1),
+            FrameCount(5),
+            &video,
+            audio,
+            crate::preflight::RenderPolicy::CURRENT.working_audio_encoding(),
+            &span,
+        )
+        .expect("repeat filter");
         assert!(filter.contains("asetnsamples=n=2:p=0"));
         assert!(filter.contains("((N/2)*1+ceil((N/2)*3/5))/(SR*TB)"));
 

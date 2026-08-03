@@ -300,13 +300,54 @@ and its structure hash.
 ### Formats and host adapters
 
 Project media formats are invariant-protected model values: Video dimensions,
-frame-rate components, audio sample rate, and channel count are positive by
-construction. Language lowering may carry representable raw settings such as
-a zero dimension. The compiler owns semantic project-format validation, so the
-language layer cannot bypass it. Video domains compose an exact frame count
-with a `VideoSpec`. Audio domains compose an exact sample count with an
-`AudioSpec`. Explicit serialization adapters preserve the established flat JSON
-schemas.
+frame-rate components, color interpretation, audio sample rate, and channel
+count are valid by construction. Language lowering may carry representable raw
+settings such as a zero dimension. The compiler owns semantic project-format
+validation, so the language layer cannot bypass it. Video domains compose an
+exact frame count with a `VideoSpec`. Audio domains compose an exact sample
+count with an `AudioSpec`.
+
+### Explicit color pipeline
+
+Semantic color and physical encoding have separate owners. `VideoSpec` carries
+the project `ColorSpec`: primaries, transfer characteristic, matrix
+coefficients, and numeric range. Authored source selects the closed
+`sdr_bt709` profile rather than independently combining those fields.
+`RenderPolicy` separately owns codec, container, pixel format, bit depth,
+subsampling, and chroma location. Both contracts serialize at their relevant
+identity boundaries.
+
+The foundation profile is opaque SDR BT.709. Persistent working Video is
+lossless FFV1 in Matroska with `yuv444p10le`, BT.709 primaries, BT.709 transfer,
+BT.709 matrix coefficients, and limited range. Final Video is H.264
+`yuv420p`, 8-bit BT.709 limited range with left chroma location. FFmpeg output
+options tag both representations, and native and browser artifact verification
+checks the complete tuple, bit depth, pixel format, and final chroma location.
+Working Audio is lossless FLAC carrying explicitly quantized signed 16-bit PCM
+at the project sample rate and stereo channel layout. Every logical Audio node
+ends in that representation, and artifact verification checks the sample
+format and bit depth as well as rate, channels, timestamps, and sample count.
+
+Preflight resolves source interpretation before recipe generation. Untagged
+opaque RGB stills use the language's sRGB convention. JPEG Y'CbCr stills use
+full-range BT.601 matrix coefficients with centered chroma. Conflicting still
+metadata, alpha, and embedded ICC profiles are rejected until the corresponding
+conversion or compositing policy exists. Video-file sources must carry complete
+BT.709 primaries, transfer, matrix, range, and any required chroma location.
+Missing video metadata is unknown; ClipAsm does not infer it from resolution,
+codec, or file name. PQ, HLG, and HDR mastering metadata are rejected because
+gamut conversion is not HDR-to-SDR tone mapping.
+
+One renderer color module owns every zscale conversion. Source fitting,
+resizing, `zoom_in` interpolation, `flash_cut`, and Video `crossfade` convert to
+full-range `gbrpf32le` display-linear BT.709 RGB before doing pixel arithmetic,
+then convert back to the canonical working signal. Here display-linear means
+zimg's BT.1886-style display EOTF for BT.709 mastered Video, not inverse camera
+OETF or scene-linear radiance. The conversion fixes nominal peak luminance at
+100 cd/m² and disables zimg's approximate-gamma path. Routing-only operations
+such as trim, repeat, and concat preserve the working representation. Export
+uses an explicit zscale depth and chroma conversion with dithering; `setparams`
+is used only after sample conversion to establish frame metadata.
 
 An explicit downstream document adapter produces compiled JSON. It is a
 versioned inspection view of compiled semantics, not an authored source
@@ -555,10 +596,12 @@ input to global output boundaries.
 `render` verifies the prepared FFmpeg and FFprobe build identities and reached
 source assets. Persistent mode reuses only verified cached artifacts. Cache-none
 mode renders the same working contracts into private temporary storage without
-reading or writing persistent entries. Both modes render native FFV1+FLAC Video
-intermediates and FLAC Audio intermediates in Matroska.
-It verifies external-program artifacts against the same prepared media shape.
-When the result Video has audio, it exports one H.264/yuv420p MP4 with AAC.
+reading or writing persistent entries. Both modes render native
+FFV1/yuv444p10le+FLAC Video intermediates and signed-16-bit FLAC Audio
+intermediates in Matroska. It verifies external-program artifacts against the same prepared
+media shape and complete color encoding. The external request states the exact
+working output encoding. When the result Video has audio, ClipAsm exports one
+explicitly converted and tagged H.264/yuv420p BT.709 MP4 with AAC.
 
 ClipAsm captures FFmpeg and FFprobe metadata and capability output with fixed
 limits. Long-running commands retain only bounded diagnostic stderr. ClipAsm
@@ -585,7 +628,8 @@ satisfy artifact verification rather than the native encoding policy.
 
 Before execution, a private execution plan walks backward from the prepared
 result. Each prepared node owns one exact physical working-artifact contract.
-Video includes its exact Video domain and normalized physical Audio domain.
+Video includes its exact Video domain, color interpretation, physical encoding,
+and normalized physical Audio domain.
 Every working Video artifact stores that Audio domain. Audio includes its exact
 Audio domain.
 

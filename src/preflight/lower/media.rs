@@ -14,9 +14,14 @@ pub(super) fn image(
     frames: FrameCount,
     fit: ImageFit,
 ) -> Result<NodeId> {
-    let asset = lowerer.host.prepare_image(path, node.origin())?;
+    let (asset, color) = lowerer.host.prepare_image(path, node.origin())?;
     lowerer.add_video_node(
-        PreparedVideoKind::ImageVideo { asset, frames, fit },
+        PreparedVideoKind::ImageVideo {
+            asset,
+            color,
+            frames,
+            fit,
+        },
         *node.domain().expect("Video node domain"),
         false,
         node.semantic_version(),
@@ -32,9 +37,14 @@ pub(super) fn deferred_image(
     fit: ImageFit,
 ) -> Result<NodeId> {
     let frames = super::timeline::resolve_video_extent(lowerer, node, extent)?;
-    let asset = lowerer.host.prepare_image(path, node.origin())?;
+    let (asset, color) = lowerer.host.prepare_image(path, node.origin())?;
     lowerer.add_video_node(
-        PreparedVideoKind::ImageVideo { asset, frames, fit },
+        PreparedVideoKind::ImageVideo {
+            asset,
+            color,
+            frames,
+            fit,
+        },
         project_domain(lowerer.compiled.video(), frames),
         false,
         node.semantic_version(),
@@ -48,12 +58,17 @@ pub(super) fn video_source(
     path: &Path,
     fit: ImageFit,
 ) -> Result<NodeId> {
-    let (asset, frames, has_audio) =
+    let (asset, frames, has_audio, color) =
         lowerer
             .host
             .prepare_video(path, lowerer.compiled.video(), node.origin())?;
     lowerer.add_video_node(
-        PreparedVideoKind::VideoSource { asset, frames, fit },
+        PreparedVideoKind::VideoSource {
+            asset,
+            color,
+            frames,
+            fit,
+        },
         project_domain(lowerer.compiled.video(), frames),
         has_audio,
         node.semantic_version(),

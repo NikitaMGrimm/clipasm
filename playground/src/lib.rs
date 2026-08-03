@@ -293,9 +293,9 @@ mod tests {
     #[test]
     fn prepares_scenic_browser_recipes_from_virtual_asset_hashes() {
         let assets = serde_json::json!([
-            {"path": "assets/morning.png", "content_hash": "11".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
-            {"path": "assets/meadow.png", "content_hash": "22".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
-            {"path": "assets/evening.png", "content_hash": "33".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#},
+            {"path": "assets/morning.png", "content_hash": "11".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"rgb24","color_range":"pc","color_space":"gbr","color_transfer":"unknown","color_primaries":"unknown"}]}"#},
+            {"path": "assets/meadow.png", "content_hash": "22".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"rgb24","color_range":"pc","color_space":"gbr","color_transfer":"unknown","color_primaries":"unknown"}]}"#},
+            {"path": "assets/evening.png", "content_hash": "33".repeat(32), "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"rgb24","color_range":"pc","color_space":"gbr","color_transfer":"unknown","color_primaries":"unknown"}]}"#},
         ]);
         let response: serde_json::Value = serde_json::from_str(&prepare_render(
             include_str!("../../examples/scenic-sequence.clipasm"),
@@ -308,14 +308,14 @@ mod tests {
         let plan: serde_json::Value =
             serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
                 .expect("valid plan JSON");
-        assert_eq!(plan["version"], 1);
-        assert_eq!(plan["recipe_contract"], 2);
+        assert_eq!(plan["version"], 2);
+        assert_eq!(plan["recipe_contract"], 3);
         assert_eq!(
             plan["runtime"],
             serde_json::json!({
                 "wrapper": "0.12.15",
                 "core": "0.12.10",
-                "policy": "ffv1-flac-matroska-v1",
+                "policy": "ffv1-yuv444p10-bt709-v2",
             })
         );
         assert_eq!(plan["steps"].as_array().map(Vec::len), Some(4));
@@ -323,6 +323,10 @@ mod tests {
         assert_eq!(plan["export"]["contract"]["width"], 320);
         assert_eq!(plan["export"]["contract"]["height"], 180);
         assert_eq!(plan["export"]["contract"]["sample_rate"], 48_000);
+        assert_eq!(
+            plan["export"]["contract"]["encoding"]["pixel_format"],
+            "yuv420p"
+        );
         assert_eq!(plan["export"]["contract"]["channels"], 2);
     }
 
@@ -348,7 +352,7 @@ mod tests {
         let assets = serde_json::json!([{
             "path": "scene.mkv",
             "content_hash": "11".repeat(32),
-            "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+            "probe": r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1","pix_fmt":"yuv444p","color_range":"tv","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
         }]);
         let response: serde_json::Value =
             serde_json::from_str(&prepare_render(source, &assets.to_string()))

@@ -13,7 +13,7 @@ pub(super) fn crossfade() -> ProgramDefinition {
     direct_with_timeline(
         ProgramDescriptor {
             name: "crossfade".to_owned(),
-            semantic_version: 2,
+            semantic_version: 3,
             default_stack_access: StackAccess::Owned,
             inputs: ["before", "after"]
                 .into_iter()
@@ -38,7 +38,7 @@ pub(super) fn flash_cut() -> ProgramDefinition {
     direct_with_timeline(
         exact_descriptor(
             "flash_cut",
-            2,
+            3,
             vec![
                 input("before", ValueType::Video, Cardinality::One),
                 input("after", ValueType::Video, Cardinality::One),

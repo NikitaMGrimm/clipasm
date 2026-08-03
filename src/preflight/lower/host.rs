@@ -2,22 +2,26 @@ use std::path::Path;
 
 use crate::diagnostic::Result;
 use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoSpec};
-use crate::preflight::PreparedAsset;
 use crate::preflight::tools::ExternalToolIdentity;
 #[cfg(feature = "native")]
 use crate::preflight::tools::ToolIdentity;
+use crate::preflight::{PreparedAsset, PreparedSourceColor};
 use crate::semantic::SourceOrigin;
 use crate::source::SourceSpan;
 
 pub(in crate::preflight) trait PreparationHost {
-    fn prepare_image(&mut self, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset>;
+    fn prepare_image(
+        &mut self,
+        authored: &Path,
+        origin: &SourceOrigin,
+    ) -> Result<(PreparedAsset, PreparedSourceColor)>;
 
     fn prepare_video(
         &mut self,
         authored: &Path,
         video: &VideoSpec,
         origin: &SourceOrigin,
-    ) -> Result<(PreparedAsset, FrameCount, bool)>;
+    ) -> Result<(PreparedAsset, FrameCount, bool, PreparedSourceColor)>;
 
     fn prepare_audio(
         &mut self,
@@ -57,7 +61,11 @@ impl<'a> NativePreparationHost<'a> {
 
 #[cfg(feature = "native")]
 impl PreparationHost for NativePreparationHost<'_> {
-    fn prepare_image(&mut self, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset> {
+    fn prepare_image(
+        &mut self,
+        authored: &Path,
+        origin: &SourceOrigin,
+    ) -> Result<(PreparedAsset, PreparedSourceColor)> {
         super::super::assets::prepare_image_asset(authored, origin, self.ffmpeg, self.ffprobe)
     }
 
@@ -66,7 +74,7 @@ impl PreparationHost for NativePreparationHost<'_> {
         authored: &Path,
         video: &VideoSpec,
         origin: &SourceOrigin,
-    ) -> Result<(PreparedAsset, FrameCount, bool)> {
+    ) -> Result<(PreparedAsset, FrameCount, bool, PreparedSourceColor)> {
         super::super::assets::prepare_video_asset(
             authored,
             video,

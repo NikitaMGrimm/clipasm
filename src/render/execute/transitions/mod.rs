@@ -1,6 +1,7 @@
 use crate::diagnostic::Result;
 use crate::model::{AudioDomain, FrameCount, NodeId, VideoDomain};
 
+use super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
 use super::filters::{normalize_audio, samples_for_video};
 use super::recipe::{FfmpegRecipe, RecipeContext};
 use super::timeline::video_segment_sample_counts;
@@ -29,22 +30,24 @@ pub(super) fn flash_cut(
     recipe.args(["-i"]).artifact(before);
     recipe.args(["-i"]).artifact(after);
     let filter = format!(
-        "[1:v]fade=t=in:start_frame=0:nb_frames={}:color=white[after];[0:a]{}[before_a];[1:a]{}[after_a];[0:v][before_a][after][after_a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
+        "[1:v]{},fade=t=in:start_frame=0:nb_frames={}:color=white,{}[after];[0:a]{}[before_a];[1:a]{}[after_a];[0:v][before_a][after][after_a]concat=n=2:v=1:a=1[v][joined];[joined]{}[a]",
+        working_to_linear_rgb(),
         frames.0,
+        linear_rgb_to_encoding(context.policy().working_video_encoding()),
         normalize_audio(
             segment_samples[0],
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         ),
         normalize_audio(
             segment_samples[1],
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         ),
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);

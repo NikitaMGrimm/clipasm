@@ -319,6 +319,7 @@ Timeline:
 
 Behavior:
   - ClipAsm fits the image to the project Video dimensions.
+  - Untagged opaque RGB stills use the sRGB convention, and fitting interpolation runs in display-linear light.
   - The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.
   - A surrounding Video body may supply the requested duration when the author omits `duration`.
 
@@ -418,7 +419,7 @@ Timeline:
 
 Behavior:
   - For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.
-  - Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.
+  - Video pictures blend in display-linear BT.709 RGB, while standalone and attached Audio use equal-power fade curves.
   - The output exposes before, overlap, and after timeline regions.
 
 Constraints:

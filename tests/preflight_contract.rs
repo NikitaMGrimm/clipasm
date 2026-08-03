@@ -109,7 +109,7 @@ set_audio(video=$picture)
     let document: serde_json::Value =
         serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
             .expect("prepared document");
-    assert_eq!(document["format_version"], 14);
+    assert_eq!(document["format_version"], 15);
     let crossfade = document["nodes"]
         .as_array()
         .expect("nodes")
@@ -138,7 +138,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 14);
+    assert_eq!(document["format_version"], 15);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -146,6 +146,24 @@ fn prepared_json_serializes_one_distinguished_result() {
     assert!(document["ffmpeg"]["build_fingerprint"].is_string());
     assert!(document["ffprobe"]["executable"].is_string());
     assert!(document["execution_namespace"].is_string());
+    assert_eq!(
+        document["working_video_encoding"]["pixel_format"],
+        "yuv444p10le"
+    );
+    assert_eq!(document["working_video_encoding"]["component_bits"], 10);
+    assert_eq!(document["export_video_encoding"]["pixel_format"], "yuv420p");
+    assert_eq!(
+        document["nodes"][0]["kind"]["color"]["convention"],
+        "image_srgb"
+    );
+    assert_eq!(
+        document["nodes"][0]["kind"]["color"]["color"]["transfer"],
+        "srgb"
+    );
+    assert_eq!(
+        document["nodes"][0]["kind"]["color"]["pixel_format"],
+        "rgb24"
+    );
     assert_eq!(
         plan.nodes()[plan.result().get() as usize]
             .video_domain()
@@ -628,6 +646,16 @@ fn output_cannot_replace_a_reachable_video_asset() {
             "color=c=red:s=64x64:r=10:d=1",
             "-c:v",
             "libx264",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&video)
         .status()
@@ -832,6 +860,16 @@ fn video_preflight_derives_the_full_source_duration() {
             "color=c=red:s=64x64:r=10:d=1",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -875,6 +913,16 @@ fn preflight_resolves_media_dependent_marker_trim() {
             "color=c=red:s=64x64:r=10:d=2",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -926,6 +974,16 @@ fn preflight_resolves_nested_media_marker_offsets() {
             "color=c=red:s=64x64:r=10:d=2",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -980,6 +1038,16 @@ fn preflight_resolves_deferred_during_and_inherited_image_extent() {
             "color=c=red:s=64x64:r=10:d=2",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -1040,7 +1108,25 @@ fn preflight_resolves_crossfade_overlap_markers_from_video_sources() {
         let source = format!("color=c={color}:s=64x64:r=10:d=1");
         let status = Command::new("ffmpeg")
             .args([
-                "-y", "-v", "error", "-f", "lavfi", "-i", &source, "-c:v", "ffv1",
+                "-y",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                &source,
+                "-c:v",
+                "ffv1",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-chroma_sample_location",
+                "left",
             ])
             .arg(&path)
             .status()
@@ -1095,6 +1181,16 @@ fn preflight_rejects_unaligned_media_dependent_marker() {
             "color=c=red:s=64x64:r=10:d=1.9",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -1138,6 +1234,16 @@ fn preflight_rejects_out_of_bounds_media_dependent_marker() {
             "color=c=red:s=64x64:r=10:d=2",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()
@@ -1262,6 +1368,16 @@ fn preflight_rejects_flash_cut_longer_than_a_deferred_after_video() {
             "color=c=red:s=64x48:r=10:d=1",
             "-c:v",
             "ffv1",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-chroma_sample_location",
+            "left",
         ])
         .arg(&source)
         .status()

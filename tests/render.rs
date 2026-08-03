@@ -63,8 +63,11 @@ fn renders_and_reuses_verified_cache() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(first.manifest()).expect("new manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["format_version"], 2);
+    assert_eq!(manifest["format_version"], 3);
     assert_eq!(manifest["project"]["video"]["fps"]["numerator"], 10);
+    assert_eq!(manifest["project"]["video"]["color"]["transfer"], "bt709");
+    assert_eq!(manifest["output_encoding"]["pixel_format"], "yuv420p");
+    assert_eq!(manifest["output_encoding"]["chroma_location"], "left");
     assert_eq!(manifest["semantic_hash"], plan.semantic_hash());
     assert_eq!(manifest["cache"]["hits"], 0);
     assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
@@ -131,7 +134,7 @@ fn cache_none_uses_temporary_artifacts_and_releases_shared_inputs_after_last_use
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(manifest["format_version"], 2);
+    assert_eq!(manifest["format_version"], 3);
     assert_eq!(manifest["cache"]["mode"], "none");
     assert_eq!(manifest["cache"]["hits"], 0);
     assert_eq!(manifest["cache"]["misses"], plan.nodes().len());
@@ -401,6 +404,10 @@ fn renders_during_with_an_exact_duration_change() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the end-to-end source test keeps normalization, audio, and cache assertions together"
+)]
 fn renders_and_normalizes_a_video_source() {
     if !common::media_tools_available() {
         eprintln!("skipping render test because FFmpeg/FFprobe are unavailable");
@@ -416,7 +423,7 @@ fn renders_and_normalizes_a_video_source() {
             "-f",
             "lavfi",
             "-i",
-            "testsrc=size=96x48:rate=12:duration=2",
+            "testsrc2=size=96x48:rate=12:duration=2",
             "-f",
             "lavfi",
             "-i",
@@ -427,6 +434,16 @@ fn renders_and_normalizes_a_video_source() {
             "1:a:0",
             "-c:v",
             "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
             "-c:a",
             "pcm_s16le",
             "-shortest",
@@ -520,6 +537,16 @@ fn video_source_duration_is_quantized_by_coverage() {
             "color=c=red:s=64x64:r=25:d=1",
             "-c:v",
             "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
         ])
         .arg(&source)
         .status()
@@ -565,6 +592,16 @@ fn nonempty_video_shorter_than_one_project_frame_renders_one_frame() {
             "color=c=red:s=64x64:r=120:d=0.1",
             "-c:v",
             "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
         ])
         .arg(&source)
         .status()
@@ -776,7 +813,8 @@ fn flash_cut_renders_an_exact_join_with_a_white_to_normal_after_cut() {
     };
     let before = brightness(9);
     let first_after = brightness(10);
-    let transition_end = brightness(13);
+    let transition_last = brightness(13);
+    let post_transition = brightness(14);
     let normal_after = brightness(19);
     assert!(before < 15, "before-cut frame was not black: {before}");
     assert!(
@@ -784,12 +822,16 @@ fn flash_cut_renders_an_exact_join_with_a_white_to_normal_after_cut() {
         "first post-cut frame was not white: {first_after}"
     );
     assert!(
-        transition_end + 50 < first_after,
-        "flash_cut did not visibly clear: first={first_after}, end={transition_end}"
+        transition_last + 30 < first_after,
+        "flash_cut did not visibly clear: first={first_after}, end={transition_last}"
     );
     assert!(
-        transition_end.abs_diff(normal_after) < 80,
-        "transition end did not approach normal: end={transition_end}, normal={normal_after}"
+        transition_last > normal_after,
+        "the last linear-light fade frame should remain brighter than normal: end={transition_last}, normal={normal_after}"
+    );
+    assert!(
+        post_transition.abs_diff(normal_after) < 10,
+        "the frame after the fade did not return to normal: after={post_transition}, normal={normal_after}"
     );
 }
 
@@ -1020,7 +1062,7 @@ fn renders_non_utf8_output_without_serializing_local_paths() {
     let document: serde_json::Value =
         serde_json::from_slice(&fs::read(report.manifest()).expect("manifest"))
             .expect("manifest JSON");
-    assert_eq!(document["format_version"], 2);
+    assert_eq!(document["format_version"], 3);
     assert!(document.get("plan").is_none());
     output_name.push(".manifest.json");
     assert_eq!(report.manifest(), directory.path().join(output_name));
@@ -1051,6 +1093,16 @@ fn renders_a_native_video_input_with_a_non_utf8_path() {
             "color=c=red:s=64x64:r=10:d=0.2",
             "-c:v",
             "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
         ])
         .arg(&source)
         .status()
@@ -1104,10 +1156,10 @@ fn renders_an_external_video_program() {
         &script,
         r#"import json, pathlib, subprocess, sys
 r = json.load(sys.stdin)
-assert r["protocol_version"] == 1
+assert r["protocol_version"] == 3
 assert r["parameters"]["amount"] == 7
 assert pathlib.Path(r["parameters"]["lut"]).read_bytes() == b"original lookup"
-subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
+subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]["path"]], check=True)
 "#,
     )
     .expect("script");
@@ -1152,7 +1204,7 @@ fn cached_downstream_node_prunes_a_changed_external_executable() {
         r#"#!/usr/bin/env python3
 import json, subprocess, sys
 r = json.load(sys.stdin)
-subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]], check=True)
+subprocess.run([r["tools"]["ffmpeg"], "-y", "-v", "error", "-i", r["inputs"]["video"]["path"], "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", r["output"]["path"]], check=True)
 "#,
     )
     .expect("external executable");

@@ -10,7 +10,9 @@ use serde::Serialize;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioDomain, AudioSpec, NodeId, ValueType, VideoDomain, VideoSpec};
 use crate::preflight::tools::ExternalToolIdentity;
-use crate::preflight::{PreparedExternalArgument, PreparedExternalParameterValue};
+use crate::preflight::{
+    AudioEncoding, PreparedExternalArgument, PreparedExternalParameterValue, VideoEncoding,
+};
 use crate::process::{self as child_process, ReaderError, RetainedOutput};
 use crate::source::SourceSpan;
 
@@ -21,9 +23,17 @@ struct ExternalRunRequest<'a> {
     protocol_version: u32,
     inputs: BTreeMap<&'a str, ExternalRunInput<'a>>,
     parameters: BTreeMap<&'a str, ExternalRunParameter<'a>>,
-    output: &'a Path,
+    output: ExternalRunOutput<'a>,
     project: ExternalRunProject<'a>,
     tools: ExternalRunTools<'a>,
+}
+
+#[derive(Serialize)]
+struct ExternalRunOutput<'a> {
+    path: &'a Path,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
+    audio: AudioSpec,
 }
 
 #[derive(Serialize)]
@@ -97,7 +107,12 @@ pub(super) fn video(
         protocol_version: crate::contracts::EXTERNAL_PROGRAM_PROTOCOL_VERSION,
         inputs,
         parameters,
-        output: context.temporary(),
+        output: ExternalRunOutput {
+            path: context.temporary(),
+            video_encoding: context.policy().working_video_encoding(),
+            audio_encoding: context.policy().working_audio_encoding(),
+            audio: *context.audio(),
+        },
         project: ExternalRunProject {
             video: context.video(),
             audio: context.audio(),
@@ -256,7 +271,7 @@ fn main() {
     }
     let mut request = String::new();
     std::io::stdin().read_to_string(&mut request).expect("request");
-    if !request.contains("\"protocol_version\":1") {
+    if !request.contains("\"protocol_version\":3") {
         eprintln!("missing protocol version");
         std::process::exit(22);
     }
@@ -282,7 +297,12 @@ fn main() {
             protocol_version: crate::contracts::EXTERNAL_PROGRAM_PROTOCOL_VERSION,
             inputs: BTreeMap::new(),
             parameters: BTreeMap::new(),
-            output: &output,
+            output: ExternalRunOutput {
+                path: &output,
+                video_encoding: crate::preflight::RenderPolicy::CURRENT.working_video_encoding(),
+                audio_encoding: crate::preflight::RenderPolicy::CURRENT.working_audio_encoding(),
+                audio,
+            },
             project: ExternalRunProject {
                 video: &video,
                 audio: &audio,
@@ -292,6 +312,17 @@ fn main() {
                 ffprobe: Path::new("ffprobe"),
             },
         };
+        let document = serde_json::to_value(&request).expect("external request JSON");
+        assert_eq!(document["output"]["path"], output.display().to_string());
+        assert_eq!(
+            document["output"]["video_encoding"]["pixel_format"],
+            "yuv444p10le"
+        );
+        assert_eq!(
+            document["output"]["video_encoding"]["color"]["transfer"],
+            "bt709"
+        );
+        assert_eq!(document["output"]["audio_encoding"]["sample_format"], "s16");
 
         let error = run_external(
             &executable,

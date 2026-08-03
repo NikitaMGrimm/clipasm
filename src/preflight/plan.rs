@@ -511,6 +511,8 @@ pub enum PreparedVideoKind {
     ImageVideo {
         /// Verified source image and its preflight content hash.
         asset: PreparedAsset,
+        /// Preflight-resolved sRGB source interpretation.
+        color: crate::preflight::PreparedSourceColor,
         /// Number of output frames.
         frames: FrameCount,
         /// Source-to-project fitting policy.
@@ -520,6 +522,8 @@ pub enum PreparedVideoKind {
     VideoSource {
         /// Verified source video and its preflight content hash.
         asset: PreparedAsset,
+        /// Complete color metadata resolved during preflight.
+        color: crate::preflight::PreparedSourceColor,
         /// Exact source duration converted to project frames.
         frames: FrameCount,
         /// Source-to-project fitting policy.

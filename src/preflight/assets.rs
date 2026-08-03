@@ -10,7 +10,7 @@ use crate::source::{SourceFile, SourceSpan};
 use super::tools::{
     ToolIdentity, verify_audio_decodable, verify_image_decodable, verify_video_decodable,
 };
-use super::{PreparedAsset, PreparedNode, RenderPolicy};
+use super::{PreparedAsset, PreparedNode, PreparedSourceColor, RenderPolicy};
 
 pub(super) fn prepare_output_path(
     compiled: &CompiledProgram,
@@ -172,15 +172,15 @@ pub(super) fn prepare_image_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
-) -> Result<PreparedAsset> {
+) -> Result<(PreparedAsset, PreparedSourceColor)> {
     let asset = prepare_file_asset(
         authored,
         origin,
         "image",
         BuiltinDiagnostic::MissingImageFile,
     )?;
-    verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
-    Ok(asset)
+    let color = verify_image_decodable(asset.source_path(), &origin.span, ffmpeg, ffprobe)?;
+    Ok((asset, color))
 }
 
 pub(super) fn prepare_video_asset(
@@ -189,16 +189,16 @@ pub(super) fn prepare_video_asset(
     origin: &SourceOrigin,
     ffmpeg: &ToolIdentity,
     ffprobe: &ToolIdentity,
-) -> Result<(PreparedAsset, FrameCount, bool)> {
+) -> Result<(PreparedAsset, FrameCount, bool, PreparedSourceColor)> {
     let asset = prepare_file_asset(
         authored,
         origin,
         "video",
         BuiltinDiagnostic::MissingVideoFile,
     )?;
-    let (frames, has_audio) =
+    let (frames, has_audio, color) =
         verify_video_decodable(asset.source_path(), video, &origin.span, ffmpeg, ffprobe)?;
-    Ok((asset, frames, has_audio))
+    Ok((asset, frames, has_audio, color))
 }
 
 pub(super) fn prepare_audio_asset(

@@ -435,7 +435,11 @@ struct BrowserPreparedAsset {
 }
 
 impl PreparationHost for BrowserPreparationHost {
-    fn prepare_image(&mut self, authored: &Path, origin: &SourceOrigin) -> Result<PreparedAsset> {
+    fn prepare_image(
+        &mut self,
+        authored: &Path,
+        origin: &SourceOrigin,
+    ) -> Result<(PreparedAsset, super::PreparedSourceColor)> {
         let path = PathBuf::from(virtual_path(authored, &origin.span)?);
         let prepared = self.assets.get(&path).ok_or_else(|| {
             Diagnostic::builtin(
@@ -444,8 +448,8 @@ impl PreparationHost for BrowserPreparationHost {
                 origin.span.clone(),
             )
         })?;
-        super::tools::validate_image_probe_json(&path, &origin.span, &prepared.probe)?;
-        Ok(prepared.asset.clone())
+        let color = super::tools::validate_image_probe_json(&path, &origin.span, &prepared.probe)?;
+        Ok((prepared.asset.clone(), color))
     }
 
     fn prepare_video(
@@ -453,7 +457,7 @@ impl PreparationHost for BrowserPreparationHost {
         authored: &Path,
         video: &VideoSpec,
         origin: &SourceOrigin,
-    ) -> Result<(PreparedAsset, FrameCount, bool)> {
+    ) -> Result<(PreparedAsset, FrameCount, bool, super::PreparedSourceColor)> {
         let path = PathBuf::from(virtual_path(authored, &origin.span)?);
         let prepared = self.assets.get(&path).ok_or_else(|| {
             Diagnostic::builtin(
@@ -462,9 +466,9 @@ impl PreparationHost for BrowserPreparationHost {
                 origin.span.clone(),
             )
         })?;
-        let (frames, has_audio) =
+        let (frames, has_audio, color) =
             super::tools::validate_video_probe_json(&path, video, &origin.span, &prepared.probe)?;
-        Ok((prepared.asset.clone(), frames, has_audio))
+        Ok((prepared.asset.clone(), frames, has_audio, color))
     }
 
     fn prepare_audio(
@@ -510,8 +514,8 @@ mod tests {
     use crate::model::ValueType;
     use crate::preflight::{PreparedNodeMedia, PreparedVideoKind};
 
-    const IMAGE_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"1"}]}"#;
-    const VIDEO_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1"},{"codec_type":"audio","sample_rate":"48000"}]}"#;
+    const IMAGE_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"1","pix_fmt":"rgb24","color_range":"pc","color_space":"gbr","color_transfer":"unknown","color_primaries":"unknown"}]}"#;
+    const VIDEO_PROBE: &str = r#"{"streams":[{"codec_type":"video","nb_read_frames":"48","avg_frame_rate":"24/1","pix_fmt":"yuv444p","color_range":"tv","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709"},{"codec_type":"audio","sample_rate":"48000"}]}"#;
 
     fn compiled(source: &str) -> CompiledProgram {
         let package =

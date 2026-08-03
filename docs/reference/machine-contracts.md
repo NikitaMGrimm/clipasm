@@ -7,9 +7,9 @@ contracts. Always read the version field before decoding a document.
 
 | Document | Current version | Produced or consumed by | Intended use |
 | --- | ---: | --- | --- |
-| Compiled inspection JSON | `format_version: 23` | `clipasm inspect` | source-analysis and diagnostic tooling |
-| Render manifest | `format_version: 2` | successful native render | automation and render provenance |
-| External-program request | `protocol_version: 1` | trusted external executable | implementing an external program |
+| Compiled inspection JSON | `format_version: 24` | `clipasm inspect` | source-analysis and diagnostic tooling |
+| Render manifest | `format_version: 3` | successful native render | automation and render provenance |
+| External-program request | `protocol_version: 3` | trusted external executable | implementing an external program |
 
 A versioned JSON document is not an authoring format. ClipAsm does not accept
 these documents as source input.
@@ -41,6 +41,7 @@ records:
 - Manifest and engine versions.
 - The compiled semantic hash.
 - Project Video and Audio settings.
+- The published Video pixel and color encoding.
 - The result fingerprint and exact Video domain.
 - Whether the Video carries meaningful Audio.
 - FFmpeg and FFprobe version summaries.
@@ -53,18 +54,20 @@ locations.
 ## External-program request
 
 A reachable external implementation receives one JSON object on standard input.
-Protocol version 1 contains:
+Protocol version 3 contains:
 
 - Named prepared inputs with artifact paths, types, exact domains, and audio
   state.
 - Resolved Integer, Keyword, and File parameters.
-- The output path the process must create.
+- An output object containing the path the process must create, the complete
+  working Video encoding, and the signed-16-bit working Audio encoding.
 - Project Video and Audio settings.
 - Resolved FFmpeg and FFprobe executable paths.
 
 The process does not return JSON. It creates the requested file and exits with
-status zero. ClipAsm then probes and verifies the artifact. An implementation
-must reject protocol versions it does not support.
+status zero. ClipAsm then probes and verifies dimensions, duration, audio, pixel
+format, bit depth, primaries, transfer, matrix, and range against the request.
+An implementation must reject protocol versions it does not support.
 
 Paths refer to native host paths, but JSON strings carry them. Every path in an
 external-program request must therefore be valid Unicode. Native ClipAsm
@@ -73,8 +76,8 @@ user's permissions. This protocol is not a sandbox.
 
 ## Internal formats
 
-**Prepared inspection JSON** (`format_version: 14`) and the **Browser render plan**
-(`version: 1`, `recipe_contract: 2`) are internal to matching ClipAsm components.
+**Prepared inspection JSON** (`format_version: 15`) and the **Browser render plan**
+(`version: 3`, `recipe_contract: 4`) are internal to matching ClipAsm components.
 They may help when you debug ClipAsm. They are not persistence or interchange
 contracts.
 

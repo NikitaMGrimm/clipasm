@@ -42,6 +42,7 @@ Use these guides when you have a concrete task:
 These pages explain the underlying model without using the learning project:
 
 - [From source to published video](concepts/pipeline.md)
+- [Color and linear-light processing](concepts/color.md)
 - [Stack ownership and visibility](concepts/stack-values.md)
 - [Source programs and imports](concepts/source-programs-and-imports.md)
 - [External programs and the trust boundary](concepts/external-programs-and-trust.md)

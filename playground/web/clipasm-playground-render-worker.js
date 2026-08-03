@@ -4,7 +4,7 @@ const PLAN_VERSION = 1;
 const RECIPE_CONTRACT = 2;
 const WRAPPER_VERSION = "0.12.15";
 const CORE_VERSION = "0.12.10";
-const RUNTIME_POLICY = "ffv1-flac-matroska-v1";
+const RUNTIME_POLICY = "ffv1-yuv444p10-bt709-v2";
 const EXECUTION_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_LOG_LINES = 24;
 const MAX_PROBE_JSON_BYTES = 256 * 1024;
@@ -201,7 +201,7 @@ async function probeAsset(path) {
                 "error",
                 "-count_frames",
                 "-show_entries",
-                "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate,sample_rate",
+                "stream=codec_type,nb_read_frames,duration_ts,time_base,avg_frame_rate,sample_rate,pix_fmt,color_primaries,color_transfer,color_space,color_range,chroma_location:stream_side_data=side_data_type",
                 "-of",
                 "json",
                 "-o",
@@ -326,10 +326,39 @@ function verifyVideo(path, contract, videos, audios) {
             `expected ${contract.width}x${contract.height}, found ${video.width}x${video.height}`,
         );
     }
-    if (video.pix_fmt !== contract.pixel_format) {
+    if (video.pix_fmt !== contract.encoding.pixel_format) {
         contractFailure(
             path,
-            `expected pixel format ${contract.pixel_format}, found ${String(video.pix_fmt)}`,
+            `expected pixel format ${contract.encoding.pixel_format}, found ${String(video.pix_fmt)}`,
+        );
+    }
+    if (Number.parseInt(video.bits_per_raw_sample, 10) !== contract.encoding.component_bits) {
+        contractFailure(
+            path,
+            `expected ${contract.encoding.component_bits}-bit components, found ${String(video.bits_per_raw_sample)}`,
+        );
+    }
+    const expectedColor = contract.encoding.color;
+    const expectedRange = expectedColor.range === "limited" ? "tv" : "pc";
+    const expectedMatrix = expectedColor.matrix === "rgb" ? "gbr" : expectedColor.matrix;
+    if (
+        video.color_primaries !== expectedColor.primaries ||
+        video.color_transfer !== expectedColor.transfer ||
+        video.color_space !== expectedMatrix ||
+        video.color_range !== expectedRange
+    ) {
+        contractFailure(
+            path,
+            `expected color ${expectedColor.primaries}/${expectedColor.transfer}/${expectedMatrix}/${expectedRange}, found ${String(video.color_primaries)}/${String(video.color_transfer)}/${String(video.color_space)}/${String(video.color_range)}`,
+        );
+    }
+    if (
+        contract.encoding.chroma_location != null &&
+        video.chroma_location !== contract.encoding.chroma_location
+    ) {
+        contractFailure(
+            path,
+            `expected chroma location ${contract.encoding.chroma_location}, found ${String(video.chroma_location)}`,
         );
     }
     const expectedRate = `${contract.fps_numerator}/${contract.fps_denominator}`;
@@ -368,6 +397,25 @@ function verifyAudio(path, contract, videos, audios) {
 }
 
 function verifyAudioStream(path, stream, contract) {
+    if (
+        contract.audio_encoding != null &&
+        stream.sample_fmt !== contract.audio_encoding.sample_format
+    ) {
+        contractFailure(
+            path,
+            `expected Audio sample format ${contract.audio_encoding.sample_format}, found ${String(stream.sample_fmt)}`,
+        );
+    }
+    if (
+        contract.audio_encoding != null &&
+        Number.parseInt(stream.bits_per_raw_sample, 10) !==
+        contract.audio_encoding.component_bits
+    ) {
+        contractFailure(
+            path,
+            `expected ${contract.audio_encoding.component_bits}-bit Audio, found ${String(stream.bits_per_raw_sample)}`,
+        );
+    }
     if (Number.parseInt(stream.sample_rate, 10) !== contract.sample_rate) {
         contractFailure(
             path,

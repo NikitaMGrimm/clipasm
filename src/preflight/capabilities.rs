@@ -56,17 +56,36 @@ fn add_video_requirements(
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::ZoomIn { .. } => {
-            requirements.require_filters(["perspective", "setpts"]);
+            requirements.require_filters([
+                "perspective",
+                "setpts",
+                "zscale",
+                "format",
+                "setparams",
+            ]);
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::FlashCut { .. } => {
-            requirements.require_filters(["fade", "concat"]);
+            requirements.require_filters(["fade", "concat", "zscale", "format", "setparams"]);
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::Crossfade { .. } => {
             requirements.require_filters([
-                "split", "trim", "setpts", "blend", "concat", "asplit", "atrim", "asetpts",
-                "afade", "adelay", "apad", "amix",
+                "split",
+                "trim",
+                "setpts",
+                "blend",
+                "concat",
+                "asplit",
+                "atrim",
+                "asetpts",
+                "afade",
+                "adelay",
+                "apad",
+                "amix",
+                "zscale",
+                "format",
+                "setparams",
             ]);
             require_normalized_audio(requirements);
         }
@@ -79,7 +98,14 @@ fn add_video_requirements(
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::AudioOnBlack { .. } => {
-            requirements.require_filters(["color", "trim", "setpts", "format"]);
+            requirements.require_filters([
+                "color",
+                "trim",
+                "setpts",
+                "format",
+                "zscale",
+                "setparams",
+            ]);
             require_normalized_audio(requirements);
         }
         PreparedVideoKind::ExternalVideo { .. } => {}
@@ -113,7 +139,7 @@ fn add_audio_requirements(
 }
 
 fn require_image_filter(fit: ImageFit, requirements: &mut FfmpegRequirements) {
-    requirements.require_filters(["scale", "fps", "setsar", "format"]);
+    requirements.require_filters(["scale", "fps", "setsar", "format", "zscale", "setparams"]);
     match fit {
         ImageFit::Cover => requirements.require_filters(["crop"]),
         ImageFit::Contain => requirements.require_filters(["pad"]),
@@ -154,6 +180,7 @@ mod tests {
             RenderPolicy::CURRENT,
             &PreparedVideoKind::ImageVideo {
                 asset: asset(),
+                color: crate::preflight::PreparedSourceColor::image_srgb_rgb("rgb24".to_owned()),
                 frames: FrameCount(1),
                 fit: ImageFit::Stretch,
             },
@@ -163,6 +190,7 @@ mod tests {
         assert!(requirements.requires_encoder("libx264"));
         assert!(requirements.requires_filter("scale"));
         assert!(requirements.requires_filter("anullsrc"));
+        assert!(requirements.requires_filter("zscale"));
         assert!(!requirements.requires_filter("blend"));
         assert!(!requirements.requires_filter("fade"));
         assert!(!requirements.requires_filter("perspective"));

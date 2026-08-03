@@ -1,6 +1,7 @@
 use crate::diagnostic::Result;
 use crate::model::{ExactNumber, FrameCount, NodeId, VideoDomain};
 
+use super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
 use super::filters::{normalize_audio, samples_for_video};
 use super::recipe::{FfmpegRecipe, RecipeContext};
 
@@ -18,13 +19,18 @@ pub(super) fn zoom_in(
     )?;
     let mut recipe = FfmpegRecipe::new();
     recipe.args(["-i"]).artifact(input);
-    let filter = format!(
-        "[0:v]{}[v];[0:a]{}[a]",
+    let video_filter = format!(
+        "{},{},{}",
+        working_to_linear_rgb(),
         zoom_filter(by, domain.frames()),
+        linear_rgb_to_encoding(context.policy().working_video_encoding()),
+    );
+    let filter = format!(
+        "[0:v]{video_filter}[v];[0:a]{}[a]",
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);

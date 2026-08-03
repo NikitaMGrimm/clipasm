@@ -55,6 +55,7 @@ The reference checks parse and compile this exact example. Compilation does not 
 ## Behavior
 
 - ClipAsm fits the image to the project Video dimensions.
+- Untagged opaque RGB stills use the sRGB convention, and fitting interpolation runs in display-linear light.
 - The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.
 - A surrounding Video body may supply the requested duration when the author omits `duration`.
 

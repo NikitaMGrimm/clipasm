@@ -254,6 +254,16 @@ fn preflight_checks_crossfade_against_deferred_video_duration() {
             "color=c=blue:s=64x48:r=10:d=0.2",
             "-c:v",
             "ffv1",
+            "-pix_fmt",
+            "yuv444p",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-colorspace",
+            "bt709",
+            "-color_range",
+            "tv",
         ])
         .arg(&after)
         .status()
@@ -310,6 +320,40 @@ fn crossfade_renders_a_one_frame_full_overlap() {
         / u64::try_from(WIDTH * HEIGHT).expect("pixel count");
     assert!(red > 80 && blue > 80);
     assert!(red.abs_diff(blue) < 40);
+}
+
+#[test]
+fn crossfade_midpoint_is_display_linear_not_code_value_average() {
+    const WIDTH: usize = 64;
+    const HEIGHT: usize = 48;
+
+    if !common::media_tools_available() {
+        eprintln!("skipping linear-light crossfade test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "black.ppm", "0 0 0");
+    write_image(directory.path(), "white.ppm", "255 255 255");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"result.mp4\" }\nimage(\"black.ppm\", 100ms, stretch)\nimage(\"white.ppm\", 100ms, stretch)\ncrossfade(100ms)\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = preflight::preflight(&compiled).expect("preflight");
+    let report = render::render(&plan).expect("render crossfade");
+    let video = decode_video(report.output());
+    assert_eq!(video.len(), WIDTH * HEIGHT * 3);
+    let mean = video.iter().map(|sample| u64::from(*sample)).sum::<u64>()
+        / u64::try_from(video.len()).expect("pixel bytes");
+
+    assert!(
+        (175..=205).contains(&mean),
+        "display-linear 50% should encode near 191, found {mean}"
+    );
+    assert!(mean > 150, "code-value averaging would be near 128");
 }
 
 #[test]
@@ -383,6 +427,10 @@ set_audio(video=$picture)
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the end-to-end transition test keeps picture and audio phase assertions together"
+)]
 fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     const WIDTH: usize = 64;
     const HEIGHT: usize = 48;
@@ -451,13 +499,23 @@ fn crossfade_renders_exact_picture_and_phase_aligned_audio() {
     let overlap_last = overlap_first + usize::try_from(OVERLAP_FRAMES - 1).expect("frame");
     let suffix_first = overlap_last + 1;
     for frame in [prefix_last, overlap_first] {
-        assert!(average(frame, 0) > 220 && average(frame, 2) < 35);
+        assert!(
+            average(frame, 0) > 220 && average(frame, 2) < 35,
+            "frame {frame}: red={}, blue={}",
+            average(frame, 0),
+            average(frame, 2)
+        );
     }
     assert!(average(overlap_middle, 0) > 80);
     assert!(average(overlap_middle, 2) > 80);
     assert!(average(overlap_middle, 0).abs_diff(average(overlap_middle, 2)) < 50);
     for frame in [overlap_last, suffix_first] {
-        assert!(average(frame, 2) > 220 && average(frame, 0) < 35);
+        assert!(
+            average(frame, 2) > 220 && average(frame, 0) < 35,
+            "frame {frame}: red={}, blue={}",
+            average(frame, 0),
+            average(frame, 2)
+        );
     }
 
     let artifact = common::cache_artifact(directory.path(), transition.fingerprint(), "mkv");

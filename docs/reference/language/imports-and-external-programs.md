@@ -74,6 +74,9 @@ program there.
 
 Validation remains media- and process-free. Rendering sends a versioned JSON
 request over standard input and verifies the produced media afterward. An
+external Video implementation must emit the exact working Video and Audio
+encodings stated in the request; attaching color tags without converting
+samples does not satisfy that contract. An
 implementation must complete the work needed for its declared output before the
 direct process exits. ClipAsm terminates remaining descendants in the managed
 process group on Unix or Job Object on Windows. Work that deliberately escapes

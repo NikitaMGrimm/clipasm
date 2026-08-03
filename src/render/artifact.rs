@@ -6,8 +6,8 @@ use serde::Deserialize;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::media_tool;
 use crate::model::{AudioDomain, AudioSpec, VideoDomain};
-use crate::preflight::WorkingArtifactContract;
 use crate::preflight::tools::decoded_audio_samples;
+use crate::preflight::{AudioEncoding, VideoEncoding, WorkingArtifactContract};
 use crate::source::SourceSpan;
 
 #[derive(Deserialize)]
@@ -27,13 +27,21 @@ struct ProbeStream {
     sample_aspect_ratio: Option<String>,
     sample_rate: Option<String>,
     channels: Option<u8>,
+    sample_fmt: Option<String>,
+    bits_per_raw_sample: Option<String>,
+    color_primaries: Option<String>,
+    color_transfer: Option<String>,
+    color_space: Option<String>,
+    color_range: Option<String>,
+    chroma_location: Option<String>,
 }
 
 pub(super) fn verify_prepared_artifact(
     ffprobe: &Path,
     path: &Path,
     contract: &WorkingArtifactContract,
-    pixel_format: &str,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
 ) -> Result<()> {
     match contract {
         WorkingArtifactContract::Video { video, audio } => verify_video_artifact(
@@ -43,10 +51,11 @@ pub(super) fn verify_prepared_artifact(
             audio.audio_spec(),
             true,
             Some(audio.samples()),
-            pixel_format,
+            video_encoding,
+            Some(audio_encoding),
         ),
         WorkingArtifactContract::Audio { audio } => {
-            verify_audio_artifact(ffprobe, path, audio, audio.audio_spec())
+            verify_audio_artifact(ffprobe, path, audio, audio.audio_spec(), audio_encoding)
         }
     }
 }
@@ -87,7 +96,8 @@ pub(super) fn verify_video_artifact(
     audio: AudioSpec,
     expect_audio: bool,
     expected_audio_samples: Option<u64>,
-    pixel_format: &str,
+    encoding: VideoEncoding,
+    audio_encoding: Option<AudioEncoding>,
 ) -> Result<()> {
     let document = probe_artifact(ffprobe, path)?;
     let videos = document
@@ -112,6 +122,23 @@ pub(super) fn verify_video_artifact(
         ));
     }
     let video = videos[0];
+    verify_video_format(path, video, domain, encoding)?;
+    verify_video_timing(path, video, domain)?;
+    if let Some(audio_stream) = audios.first() {
+        verify_audio_stream(path, audio_stream, audio, audio_encoding)?;
+        if let Some(expected_samples) = expected_audio_samples {
+            verify_audio_samples(ffprobe, path, expected_samples)?;
+        }
+    }
+    Ok(())
+}
+
+fn verify_video_format(
+    path: &Path,
+    video: &ProbeStream,
+    domain: &VideoDomain,
+    encoding: VideoEncoding,
+) -> Result<()> {
     if video.width != Some(domain.width()) || video.height != Some(domain.height()) {
         return Err(contract_error(
             path,
@@ -124,12 +151,44 @@ pub(super) fn verify_video_artifact(
             ),
         ));
     }
-    if video.pix_fmt.as_deref() != Some(pixel_format) {
+    if video.pix_fmt.as_deref() != Some(encoding.pixel_format()) {
         return Err(contract_error(
             path,
-            &format!("expected {pixel_format}, found {:?}", video.pix_fmt),
+            &format!(
+                "expected pixel format {}, found {:?}",
+                encoding.pixel_format(),
+                video.pix_fmt
+            ),
         ));
     }
+    let actual_bits = video
+        .bits_per_raw_sample
+        .as_deref()
+        .and_then(|value| value.parse::<u8>().ok());
+    if actual_bits != Some(encoding.component_bits()) {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected {}-bit components, found {:?}",
+                encoding.component_bits(),
+                video.bits_per_raw_sample
+            ),
+        ));
+    }
+    verify_video_color(path, video, encoding)?;
+    if video.sample_aspect_ratio.as_deref() != Some("1:1") {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected square pixels (1:1), found {:?}",
+                video.sample_aspect_ratio
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_video_timing(path: &Path, video: &ProbeStream, domain: &VideoDomain) -> Result<()> {
     let expected_rate = format!(
         "{}/{}",
         domain.frame_rate().numerator(),
@@ -159,20 +218,69 @@ pub(super) fn verify_video_artifact(
         ));
     }
     verify_zero_start(path, video)?;
-    if video.sample_aspect_ratio.as_deref() != Some("1:1") {
+    Ok(())
+}
+
+fn verify_video_color(path: &Path, stream: &ProbeStream, encoding: VideoEncoding) -> Result<()> {
+    let color = encoding.color();
+    let expected = (
+        match color.primaries() {
+            crate::model::ColorPrimaries::Bt709 => "bt709",
+        },
+        match color.transfer() {
+            crate::model::TransferCharacteristic::Bt709 => "bt709",
+            crate::model::TransferCharacteristic::Srgb => "iec61966-2-1",
+            crate::model::TransferCharacteristic::Linear => "linear",
+        },
+        match color.matrix() {
+            crate::model::MatrixCoefficients::Bt709 => "bt709",
+            crate::model::MatrixCoefficients::Bt601 => "smpte170m",
+            crate::model::MatrixCoefficients::Rgb => "gbr",
+        },
+        match color.range() {
+            crate::model::ColorRange::Limited => "tv",
+            crate::model::ColorRange::Full => "pc",
+        },
+    );
+    let actual = (
+        stream.color_primaries.as_deref(),
+        stream.color_transfer.as_deref(),
+        stream.color_space.as_deref(),
+        stream.color_range.as_deref(),
+    );
+    if actual
+        != (
+            Some(expected.0),
+            Some(expected.1),
+            Some(expected.2),
+            Some(expected.3),
+        )
+    {
         return Err(contract_error(
             path,
             &format!(
-                "expected square pixels (1:1), found {:?}",
-                video.sample_aspect_ratio
+                "expected color primaries={0}, transfer={1}, matrix={2}, range={3}; found primaries={4:?}, transfer={5:?}, matrix={6:?}, range={7:?}",
+                expected.0,
+                expected.1,
+                expected.2,
+                expected.3,
+                actual.0,
+                actual.1,
+                actual.2,
+                actual.3
             ),
         ));
     }
-    if let Some(audio_stream) = audios.first() {
-        verify_audio_stream(path, audio_stream, audio)?;
-        if let Some(expected_samples) = expected_audio_samples {
-            verify_audio_samples(ffprobe, path, expected_samples)?;
-        }
+    if let Some(expected_location) = encoding.chroma_location()
+        && stream.chroma_location.as_deref() != Some(expected_location)
+    {
+        return Err(contract_error(
+            path,
+            &format!(
+                "expected chroma location {expected_location}, found {:?}",
+                stream.chroma_location
+            ),
+        ));
     }
     Ok(())
 }
@@ -182,6 +290,7 @@ fn verify_audio_artifact(
     path: &Path,
     domain: &AudioDomain,
     audio: AudioSpec,
+    encoding: AudioEncoding,
 ) -> Result<()> {
     let document = probe_artifact(ffprobe, path)?;
     let videos = document
@@ -203,7 +312,7 @@ fn verify_audio_artifact(
             ),
         ));
     }
-    verify_audio_stream(path, audios[0], audio)?;
+    verify_audio_stream(path, audios[0], audio, Some(encoding))?;
     verify_audio_samples(ffprobe, path, domain.samples())
 }
 
@@ -223,7 +332,12 @@ fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()
     Ok(())
 }
 
-fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: AudioSpec) -> Result<()> {
+fn verify_audio_stream(
+    path: &Path,
+    stream: &ProbeStream,
+    audio: AudioSpec,
+    encoding: Option<AudioEncoding>,
+) -> Result<()> {
     let expected_sample_rate = audio.sample_rate().to_string();
     if stream.sample_rate.as_deref() != Some(expected_sample_rate.as_str()) {
         return Err(contract_error(
@@ -244,6 +358,32 @@ fn verify_audio_stream(path: &Path, stream: &ProbeStream, audio: AudioSpec) -> R
                 stream.channels
             ),
         ));
+    }
+    if let Some(encoding) = encoding {
+        if stream.sample_fmt.as_deref() != Some(encoding.sample_format()) {
+            return Err(contract_error(
+                path,
+                &format!(
+                    "expected audio sample format {}, found {:?}",
+                    encoding.sample_format(),
+                    stream.sample_fmt
+                ),
+            ));
+        }
+        let actual_bits = stream
+            .bits_per_raw_sample
+            .as_deref()
+            .and_then(|value| value.parse::<u8>().ok());
+        if actual_bits != Some(encoding.component_bits()) {
+            return Err(contract_error(
+                path,
+                &format!(
+                    "expected {}-bit audio samples, found {:?}",
+                    encoding.component_bits(),
+                    stream.bits_per_raw_sample
+                ),
+            ));
+        }
     }
     verify_zero_start(path, stream)
 }
@@ -300,6 +440,13 @@ mod tests {
             sample_aspect_ratio: None,
             sample_rate: None,
             channels: None,
+            sample_fmt: None,
+            bits_per_raw_sample: None,
+            color_primaries: None,
+            color_transfer: None,
+            color_space: None,
+            color_range: None,
+            chroma_location: None,
         }
     }
 
@@ -322,5 +469,43 @@ mod tests {
         }
         verify_zero_start(path, &stream_with_start(Some("0.000002")))
             .expect_err("nonzero start must be rejected");
+    }
+
+    #[test]
+    fn artifact_color_tags_are_part_of_the_physical_contract() {
+        let path = Path::new("artifact.mkv");
+        let mut stream = stream_with_start(Some("0"));
+        stream.color_primaries = Some("bt709".to_owned());
+        stream.color_transfer = Some("smpte2084".to_owned());
+        stream.color_space = Some("bt709".to_owned());
+        stream.color_range = Some("tv".to_owned());
+        let error = verify_video_color(
+            path,
+            &stream,
+            crate::preflight::RenderPolicy::CURRENT.working_video_encoding(),
+        )
+        .expect_err("wrong transfer tag must invalidate an artifact");
+        assert_eq!(error.code, "E_ARTIFACT_CONTRACT");
+        assert!(error.message.contains("transfer=bt709"));
+        assert!(error.message.contains("smpte2084"));
+    }
+
+    #[test]
+    fn artifact_audio_encoding_is_part_of_the_physical_contract() {
+        let path = Path::new("artifact.mka");
+        let mut stream = stream_with_start(Some("0"));
+        stream.sample_rate = Some("48000".to_owned());
+        stream.channels = Some(2);
+        stream.sample_fmt = Some("s32".to_owned());
+        stream.bits_per_raw_sample = Some("24".to_owned());
+        let error = verify_audio_stream(
+            path,
+            &stream,
+            AudioSpec::default(),
+            Some(crate::preflight::RenderPolicy::CURRENT.working_audio_encoding()),
+        )
+        .expect_err("wrong sample representation must invalidate an artifact");
+        assert_eq!(error.code, "E_ARTIFACT_CONTRACT");
+        assert!(error.message.contains("sample format s16"));
     }
 }

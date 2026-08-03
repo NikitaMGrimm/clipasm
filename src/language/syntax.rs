@@ -47,6 +47,7 @@ pub(crate) struct VideoConfigDeclaration {
     pub(crate) width: Option<Spanned<String>>,
     pub(crate) height: Option<Spanned<String>>,
     pub(crate) fps: Option<Spanned<String>>,
+    pub(crate) color: Option<Spanned<String>>,
     pub(crate) span: SourceSpan,
 }
 

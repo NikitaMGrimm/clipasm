@@ -252,6 +252,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             ])
             .with_behavior_notes(&[
                 "ClipAsm fits the image to the project Video dimensions.",
+                "Untagged opaque RGB stills use the sRGB convention, and fitting interpolation runs in display-linear light.",
                 "The `cover` mode fills the frame and crops overflow. The `contain` mode adds padding. The `stretch` mode can distort the image.",
                 "A surrounding Video body may supply the requested duration when the author omits `duration`.",
             ])
@@ -269,6 +270,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_behavior_notes(&[
                 "Compilation remains media-pure. Preflight probes the source and resolves its exact project-frame domain.",
+                "Preflight requires complete BT.709 SDR color metadata; it does not guess missing metadata or silently tone-map HDR.",
                 "Preflight fits the source to the project Video dimensions and preserves its resolved duration.",
             ])
             .with_related_programs(&["image", "extract_audio", "set_audio"]),
@@ -412,6 +414,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_diagnostics(&[BuiltinDiagnostic::InvalidFlashCutDuration])
             .with_behavior_notes(&[
                 "duration becomes the smallest whole project-frame count that covers the authored duration.",
+                "The white fade is evaluated in display-linear BT.709 RGB.",
                 "The output exposes sequential before and after timeline regions.",
             ])
             .with_constraints(&["duration must cover at least one project frame."])
@@ -433,7 +436,7 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             ])
             .with_behavior_notes(&[
                 "For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.",
-                "Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.",
+                "Video pictures blend in display-linear BT.709 RGB, while standalone and attached Audio use equal-power fade curves.",
                 "The output exposes before, overlap, and after timeline regions.",
             ])
             .with_constraints(&[

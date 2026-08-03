@@ -205,11 +205,33 @@ fn compiled_program_serializes_ordered_outputs() {
         serde_json::from_str(&compiled.compiled_json().expect("compiled JSON")).expect("JSON");
 
     assert_eq!(document["outputs"].as_array().expect("outputs").len(), 1);
-    assert_eq!(document["format_version"], 23);
+    assert_eq!(document["format_version"], 24);
+    assert_eq!(document["video"]["color"]["primaries"], "bt709");
+    assert_eq!(document["video"]["color"]["transfer"], "bt709");
+    assert_eq!(document["video"]["color"]["matrix"], "bt709");
+    assert_eq!(document["video"]["color"]["range"], "limited");
     assert_eq!(
         compiled.result_domain().expect("known result").frames().0,
         30
     );
+}
+
+#[test]
+fn video_color_is_one_closed_authored_profile() {
+    let compiled = compile_source(
+        Path::new("color.clipasm"),
+        "clipasm 1\nconfig { video { color = sdr_bt709 } }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("supported color profile");
+    assert_eq!(compiled.video().color().profile_name(), "sdr_bt709");
+
+    let error = compile_source(
+        Path::new("color.clipasm"),
+        "clipasm 1\nconfig { video { color = hdr_bt2020_pq } }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect_err("unsupported color profile");
+    assert_eq!(error.code, "E_INVALID_VIDEO_SPEC");
+    assert!(error.message.contains("sdr_bt709"));
 }
 
 #[test]

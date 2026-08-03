@@ -5,6 +5,7 @@ config {
         width = 320
         height = 180
         fps = 24
+        color = sdr_bt709
     }
     output = "generated/scenic-sequence.mp4"
 }

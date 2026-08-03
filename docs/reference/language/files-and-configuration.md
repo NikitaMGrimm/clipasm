@@ -48,6 +48,7 @@ config {
         width = 1920
         height = 1080
         fps = 30000/1001
+        color = sdr_bt709
     }
     audio {
         sample_rate = 48000
@@ -69,8 +70,11 @@ Graph input types are `Video` and `Audio`. Scalar parameter types are `Number`,
 Another program or the CLI must supply parameters that have no defaults.
 
 Only the root file may set project media configuration or an output path.
-Omitted fields use `width = 1280`, `height = 720`, `fps = 30`, and
-`sample_rate = 48000`. Project audio is stereo, and publication is MP4 only.
+Omitted fields use `width = 1280`, `height = 720`, `fps = 30`,
+`color = sdr_bt709`, and `sample_rate = 48000`. Project audio is stereo, and
+publication is MP4 only. Color is one closed profile instead of independent
+primaries, transfer, matrix, and range settings, so authored configuration
+cannot create an incoherent signal description.
 
 Frame rate is an exact positive rational. `fps = 30` means exactly 30 frames per
 second. `fps = 30000/1001` is approximately 29.97 frames per second. This

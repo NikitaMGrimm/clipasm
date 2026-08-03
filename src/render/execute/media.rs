@@ -1,7 +1,8 @@
 use crate::diagnostic::Result;
 use crate::model::{FrameCount, ImageFit, NodeId, VideoDomain};
-use crate::preflight::PreparedAsset;
+use crate::preflight::{PreparedAsset, PreparedSourceColor};
 
+use super::color::{linear_rgb_to_encoding, to_linear_rgb};
 use super::filters::{
     image_filter, normalize_audio, samples_for_video, silence_source, video_filter,
 };
@@ -10,6 +11,7 @@ use super::recipe::{FfmpegRecipe, RecipeContext};
 pub(super) fn image(
     context: &RecipeContext<'_>,
     asset: &PreparedAsset,
+    color: &PreparedSourceColor,
     fit: ImageFit,
     frames: FrameCount,
 ) -> Result<FfmpegRecipe> {
@@ -20,20 +22,21 @@ pub(super) fn image(
         .asset(asset.source_path());
     recipe.args(["-f", "lavfi", "-i"]).arg(silence_source(
         context.audio(),
-        context.policy().working_channel_layout(),
+        context.policy().working_audio_encoding(),
     ));
     let filter = format!(
         "[0:v]{},trim=end_frame={},setpts=PTS-STARTPTS[v];[1:a]{}[a]",
         image_filter(
             fit,
             context.video(),
-            context.policy().working_pixel_format(),
+            color,
+            context.policy().working_video_encoding(),
         ),
         frames.0,
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
@@ -44,6 +47,7 @@ pub(super) fn image(
 pub(super) fn video_source(
     context: &RecipeContext<'_>,
     asset: &PreparedAsset,
+    color: &PreparedSourceColor,
     fit: ImageFit,
     frames: FrameCount,
     has_audio: bool,
@@ -56,7 +60,7 @@ pub(super) fn video_source(
     } else {
         recipe.args(["-f", "lavfi", "-i"]).arg(silence_source(
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         ));
         "[1:a]".to_owned()
     };
@@ -66,12 +70,13 @@ pub(super) fn video_source(
             fit,
             frames,
             context.video(),
-            context.policy().working_pixel_format(),
+            color,
+            context.policy().working_video_encoding(),
         ),
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
@@ -100,7 +105,7 @@ pub(super) fn set_audio(
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);
@@ -129,13 +134,14 @@ pub(super) fn audio_on_black(
     ));
     recipe.args(["-i"]).artifact(audio_node);
     let filter = format!(
-        "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,format={}[v];[1:a]{}[a]",
+        "[0:v]trim=end_frame={},setpts=PTS-STARTPTS,{},{}[v];[1:a]{}[a]",
         domain.frames().0,
-        context.policy().working_pixel_format(),
+        to_linear_rgb(crate::model::ColorSpec::SDR_BT709, None),
+        linear_rgb_to_encoding(context.policy().working_video_encoding()),
         normalize_audio(
             samples,
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[v]", "-map", "[a]"]);

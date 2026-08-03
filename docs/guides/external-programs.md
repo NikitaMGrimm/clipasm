@@ -29,6 +29,9 @@ The declaration chooses `python3` and passes the script as a declared file
 argument. It promises that the output keeps the input Video's exact duration
 and audio state. The script receives a versioned JSON request on standard
 input. It uses the FFmpeg path that ClipAsm provides.
+The request also provides the exact Video pixel/color encoding and Audio sample
+encoding required for the output artifact. ClipAsm probes those fields after
+the process exits.
 
 The `python3`, FFmpeg, and FFprobe binaries are also executable dependencies.
 

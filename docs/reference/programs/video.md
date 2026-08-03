@@ -48,6 +48,7 @@ The reference checks parse and compile this exact example. Compilation does not 
 ## Behavior
 
 - Compilation remains media-pure. Preflight probes the source and resolves its exact project-frame domain.
+- Preflight requires complete BT.709 SDR color metadata; it does not guess missing metadata or silently tone-map HDR.
 - Preflight fits the source to the project Video dimensions and preserves its resolved duration.
 
 ## See also

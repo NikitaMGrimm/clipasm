@@ -18,7 +18,7 @@ pub(super) fn source(
         normalize_audio(
             domain.samples(),
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
@@ -56,7 +56,7 @@ pub(super) fn repeat(
         normalize_audio(
             domain.samples(),
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
@@ -83,7 +83,7 @@ pub(super) fn concat(
         normalize_audio(
             domain.samples(),
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[a]"]);
@@ -103,7 +103,7 @@ pub(super) fn extract(
         normalize_audio(
             domain.samples(),
             context.audio(),
-            context.policy().working_channel_layout(),
+            context.policy().working_audio_encoding(),
         )
     );
     recipe.args(["-filter_complex", &filter, "-map", "[a]"]);

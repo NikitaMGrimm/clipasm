@@ -195,6 +195,7 @@ pub(crate) struct VideoSettings {
     pub(crate) width: Option<Spanned<u32>>,
     pub(crate) height: Option<Spanned<u32>>,
     pub(crate) fps: Option<Spanned<String>>,
+    pub(crate) color: Option<Spanned<String>>,
 }
 
 #[derive(Clone, Debug, Default)]

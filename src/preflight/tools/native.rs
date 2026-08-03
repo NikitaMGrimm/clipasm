@@ -124,6 +124,7 @@ impl FfmpegRequirements {
             requirements.require_encoders([render_policy.export_audio_encoder()]);
         }
         requirements.require_muxers([render_policy.export_container()]);
+        requirements.require_filters(["zscale", "format", "setparams"]);
         requirements
     }
 
@@ -563,7 +564,7 @@ mod tests {
     fn ffmpeg_validation_ignores_unrequested_filters() {
         let _guard = fake_tool_test_lock();
         let (_directory, tool) = executable_script(
-            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo scale; else echo none; fi\n",
+            "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo fake; elif [ \"$2\" = \"-encoders\" ]; then echo 'libx264 ffv1 flac'; elif [ \"$2\" = \"-muxers\" ]; then echo 'mp4 matroska'; elif [ \"$2\" = \"-filters\" ]; then echo 'scale zscale format setparams'; else echo none; fi\n",
         );
         let identity = inspect_ffmpeg_at(&tool).expect("FFmpeg identity");
         let mut requirements = FfmpegRequirements::for_export(RenderPolicy::CURRENT, false);

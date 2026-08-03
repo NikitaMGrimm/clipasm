@@ -229,6 +229,7 @@ fn lower_declarations(declarations: Vec<Declaration>) -> Result<LoweredDeclarati
                                 .map(|value| parse_u32(value, "height"))
                                 .transpose()?,
                             fps: video.fps,
+                            color: video.color,
                         })
                     })
                     .transpose()?;

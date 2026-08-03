@@ -10,7 +10,7 @@ def fail(message: str) -> None:
 
 
 request = json.load(sys.stdin)
-if request.get("protocol_version") != 1:
+if request.get("protocol_version") != 3:
     fail("unsupported ClipAsm external protocol")
 
 amount = request["parameters"].get("amount")
@@ -45,16 +45,26 @@ subprocess.run(
         "-level",
         "3",
         "-pix_fmt",
-        "yuv444p",
+        output["video_encoding"]["pixel_format"],
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-colorspace",
+        "bt709",
+        "-color_range",
+        "tv",
         "-r",
         f"{fps['numerator']}/{fps['denominator']}",
         "-c:a",
         "flac",
+        "-sample_fmt",
+        output["audio_encoding"]["sample_format"],
         "-ar",
         str(project["audio"]["sample_rate"]),
         "-ac",
         str(project["audio"]["channels"]),
-        output,
+        output["path"],
     ],
     check=True,
 )

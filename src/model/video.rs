@@ -3,7 +3,7 @@ use std::num::NonZeroU32;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::FrameCount;
+use crate::model::{ColorSpec, FrameCount};
 use crate::source::SourceSpan;
 
 /// A positive rational project frame rate in canonical reduced form.
@@ -102,6 +102,7 @@ pub struct VideoSpec {
     width: NonZeroU32,
     height: NonZeroU32,
     fps: FrameRate,
+    color: ColorSpec,
 }
 
 impl VideoSpec {
@@ -116,7 +117,36 @@ impl VideoSpec {
         let Some(height) = NonZeroU32::new(height) else {
             return None;
         };
-        Some(Self { width, height, fps })
+        Some(Self {
+            width,
+            height,
+            fps,
+            color: ColorSpec::SDR_BT709,
+        })
+    }
+
+    /// Construct a valid project video format with an explicit color profile.
+    ///
+    /// Returns `None` when either dimension is zero.
+    #[must_use]
+    pub const fn with_color(
+        width: u32,
+        height: u32,
+        fps: FrameRate,
+        color: ColorSpec,
+    ) -> Option<Self> {
+        let Some(width) = NonZeroU32::new(width) else {
+            return None;
+        };
+        let Some(height) = NonZeroU32::new(height) else {
+            return None;
+        };
+        Some(Self {
+            width,
+            height,
+            fps,
+            color,
+        })
     }
 
     /// Return the frame width in pixels.
@@ -135,6 +165,12 @@ impl VideoSpec {
     #[must_use]
     pub const fn fps(self) -> FrameRate {
         self.fps
+    }
+
+    /// Return the complete semantic color interpretation.
+    #[must_use]
+    pub const fn color(self) -> ColorSpec {
+        self.color
     }
 }
 
@@ -205,6 +241,7 @@ impl Serialize for VideoDomain {
             width: u32,
             height: u32,
             frame_rate: FrameRate,
+            color: ColorSpec,
         }
 
         Document {
@@ -212,6 +249,7 @@ impl Serialize for VideoDomain {
             width: self.width(),
             height: self.height(),
             frame_rate: self.frame_rate(),
+            color: self.spec.color(),
         }
         .serialize(serializer)
     }
@@ -250,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn video_specs_and_domains_protect_dimensions_without_changing_json() {
+    fn video_specs_and_domains_protect_dimensions_and_carry_color() {
         let fps = FrameRate::new(30_000, 1_001).expect("frame rate");
         assert!(VideoSpec::new(0, 720, fps).is_none());
         assert!(VideoSpec::new(1280, 0, fps).is_none());
@@ -259,6 +297,7 @@ mod tests {
         assert_eq!(spec.width(), 1280);
         assert_eq!(spec.height(), 720);
         assert_eq!(spec.fps(), fps);
+        assert_eq!(spec.color(), ColorSpec::SDR_BT709);
 
         let domain = VideoDomain::new(FrameCount(30), spec);
         assert_eq!(domain.frames(), FrameCount(30));
@@ -270,6 +309,12 @@ mod tests {
                 "width": 1280,
                 "height": 720,
                 "frame_rate": {"numerator": 30000, "denominator": 1001},
+                "color": {
+                    "primaries": "bt709",
+                    "transfer": "bt709",
+                    "matrix": "bt709",
+                    "range": "limited"
+                },
             })
         );
     }

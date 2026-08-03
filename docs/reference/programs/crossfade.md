@@ -60,7 +60,7 @@ The reference checks parse and compile this exact example. Compilation does not 
 ## Behavior
 
 - For Video, duration becomes the smallest whole project-frame count that covers the authored duration; for Audio, it becomes the smallest whole project-sample count.
-- Video pictures use the existing frame blend, while standalone and attached Audio use the same equal-power fade curves.
+- Video pictures blend in display-linear BT.709 RGB, while standalone and attached Audio use equal-power fade curves.
 - The output exposes before, overlap, and after timeline regions.
 
 ## Requirements

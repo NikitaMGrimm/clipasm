@@ -85,10 +85,10 @@ impl RenderReport {
 
 /// Render an invariant-protected prepared plan and publish its MP4 and manifest.
 ///
-/// Working intermediates use lossless FFV1 with non-subsampled `yuv444p`.
-/// The only delivery profile is H.264 MP4 with `yuv420p`, square pixels, and
-/// AAC when the result carries meaningful audio. This is the renderer's initial
-/// fixed color/media policy.
+/// Working intermediates use lossless FFV1 with explicitly tagged 10-bit,
+/// non-subsampled BT.709 Video. The delivery profile is explicitly tagged
+/// 8-bit BT.709 H.264 MP4 with `yuv420p`, square pixels, and AAC when the result
+/// carries meaningful audio.
 ///
 /// Both files are staged before either destination is changed. If publication
 /// fails, `ClipAsm` attempts to restore both previously published files. Each

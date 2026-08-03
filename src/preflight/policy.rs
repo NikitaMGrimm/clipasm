@@ -4,10 +4,75 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
-use crate::model::VideoSpec;
+use crate::model::{ColorSpec, VideoSpec};
 use crate::source::SourceSpan;
 
-const ARTIFACT_CONTRACT_REVISION: u32 = 12;
+const ARTIFACT_CONTRACT_REVISION: u32 = 14;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ChromaLocation {
+    Left,
+}
+
+impl ChromaLocation {
+    const fn ffmpeg_name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct VideoEncoding {
+    pixel_format: &'static str,
+    component_bits: u8,
+    color: ColorSpec,
+    chroma_location: Option<ChromaLocation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct AudioEncoding {
+    sample_format: &'static str,
+    component_bits: u8,
+    channel_layout: &'static str,
+}
+
+impl AudioEncoding {
+    pub(crate) const fn sample_format(self) -> &'static str {
+        self.sample_format
+    }
+
+    pub(crate) const fn component_bits(self) -> u8 {
+        self.component_bits
+    }
+
+    pub(crate) const fn channel_layout(self) -> &'static str {
+        self.channel_layout
+    }
+}
+
+impl VideoEncoding {
+    pub(crate) const fn pixel_format(self) -> &'static str {
+        self.pixel_format
+    }
+
+    #[cfg(feature = "native")]
+    pub(crate) const fn component_bits(self) -> u8 {
+        self.component_bits
+    }
+
+    pub(crate) const fn color(self) -> ColorSpec {
+        self.color
+    }
+
+    pub(crate) const fn chroma_location(self) -> Option<&'static str> {
+        match self.chroma_location {
+            Some(location) => Some(location.ffmpeg_name()),
+            None => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RenderPolicy {
@@ -24,8 +89,8 @@ pub(crate) struct ArtifactCachePolicy {
     native_video_level: u8,
     native_audio_encoder: &'static str,
     native_container: &'static str,
-    pixel_format: &'static str,
-    channel_layout: &'static str,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,7 +99,7 @@ struct ExportPolicy {
     video_encoder: &'static str,
     audio_encoder: &'static str,
     container: &'static str,
-    pixel_format: &'static str,
+    video_encoding: VideoEncoding,
     movflags: &'static str,
 }
 
@@ -48,15 +113,29 @@ impl RenderPolicy {
             native_video_level: 3,
             native_audio_encoder: "flac",
             native_container: "matroska",
-            pixel_format: "yuv444p",
-            channel_layout: "stereo",
+            video_encoding: VideoEncoding {
+                pixel_format: "yuv444p10le",
+                component_bits: 10,
+                color: ColorSpec::SDR_BT709,
+                chroma_location: None,
+            },
+            audio_encoding: AudioEncoding {
+                sample_format: "s16",
+                component_bits: 16,
+                channel_layout: "stereo",
+            },
         },
         export: ExportPolicy {
             extension: "mp4",
             video_encoder: "libx264",
             audio_encoder: "aac",
             container: "mp4",
-            pixel_format: "yuv420p",
+            video_encoding: VideoEncoding {
+                pixel_format: "yuv420p",
+                component_bits: 8,
+                color: ColorSpec::SDR_BT709,
+                chroma_location: Some(ChromaLocation::Left),
+            },
             movflags: "+faststart",
         },
     };
@@ -91,11 +170,15 @@ impl RenderPolicy {
     }
 
     pub(crate) const fn working_pixel_format(self) -> &'static str {
-        self.artifact_cache.pixel_format
+        self.artifact_cache.video_encoding.pixel_format
     }
 
-    pub(crate) const fn working_channel_layout(self) -> &'static str {
-        self.artifact_cache.channel_layout
+    pub(crate) const fn working_video_encoding(self) -> VideoEncoding {
+        self.artifact_cache.video_encoding
+    }
+
+    pub(crate) const fn working_audio_encoding(self) -> AudioEncoding {
+        self.artifact_cache.audio_encoding
     }
 
     pub(crate) const fn export_video_encoder(self) -> &'static str {
@@ -116,7 +199,11 @@ impl RenderPolicy {
     }
 
     pub(crate) const fn export_pixel_format(self) -> &'static str {
-        self.export.pixel_format
+        self.export.video_encoding.pixel_format
+    }
+
+    pub(crate) const fn export_video_encoding(self) -> VideoEncoding {
+        self.export.video_encoding
     }
 
     pub(crate) const fn export_movflags(self) -> &'static str {
@@ -175,8 +262,22 @@ mod tests {
                 "native_video_level": 3,
                 "native_audio_encoder": "flac",
                 "native_container": "matroska",
-                "pixel_format": "yuv444p",
-                "channel_layout": "stereo",
+                "video_encoding": {
+                    "pixel_format": "yuv444p10le",
+                    "component_bits": 10,
+                    "color": {
+                        "primaries": "bt709",
+                        "transfer": "bt709",
+                        "matrix": "bt709",
+                        "range": "limited"
+                    },
+                    "chroma_location": null
+                },
+                "audio_encoding": {
+                    "sample_format": "s16",
+                    "component_bits": 16,
+                    "channel_layout": "stereo"
+                },
             })
         );
     }
@@ -224,11 +325,17 @@ mod tests {
                 ..current.artifact_cache
             },
             ArtifactCachePolicy {
-                pixel_format: "different",
+                video_encoding: VideoEncoding {
+                    pixel_format: "different",
+                    ..current.artifact_cache.video_encoding
+                },
                 ..current.artifact_cache
             },
             ArtifactCachePolicy {
-                channel_layout: "different",
+                audio_encoding: AudioEncoding {
+                    sample_format: "different",
+                    ..current.artifact_cache.audio_encoding
+                },
                 ..current.artifact_cache
             },
         ];
