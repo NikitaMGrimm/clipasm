@@ -100,7 +100,7 @@ fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
 
 #[cfg(unix)]
 #[test]
-fn cache_none_native_temporaries_trust_recipe_counts_but_publication_does_not() {
+fn cache_none_verifies_result_audio_but_trusts_native_video_counts() {
     if !common::media_tools_available() {
         eprintln!("skipping transient probe test because FFmpeg/FFprobe are unavailable");
         return;
@@ -111,9 +111,16 @@ fn cache_none_native_temporaries_trust_recipe_counts_but_publication_does_not() 
         b"P3\n1 1\n255\n255 0 0\n",
     )
     .expect("image");
+    let audio = Command::new("ffmpeg")
+        .args(["-y", "-v", "error", "-f", "lavfi", "-i"])
+        .arg("sine=frequency=440:sample_rate=48000:duration=1")
+        .arg(directory.path().join("tone.wav"))
+        .status()
+        .expect("create audio fixture");
+    assert!(audio.success());
     fs::write(
         directory.path().join("workflow.clipasm"),
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom_in(10%)\n",
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\naudio(\"tone.wav\")\nset_audio\nzoom_in(10%)\n",
     )
     .expect("workflow");
     let (path, real_ffprobe, log) = install_ffprobe_logger(directory.path());
@@ -139,16 +146,28 @@ fn cache_none_native_temporaries_trust_recipe_counts_but_publication_does_not() 
     );
 
     let probes = fs::read_to_string(&log).expect("probe log");
-    let temporary_probes = probes
+    let temporary_stream_probes = probes
         .lines()
-        .filter(|line| line.contains(".final.mp4.render-"))
+        .filter(|line| line.contains(".final.mp4.render-") && line.contains("-show_streams"))
         .collect::<Vec<_>>();
-    assert_eq!(temporary_probes.len(), 2, "unexpected probes:\n{probes}");
+    assert_eq!(
+        temporary_stream_probes.len(),
+        4,
+        "unexpected probes:\n{probes}"
+    );
     assert!(
-        temporary_probes
+        temporary_stream_probes
             .iter()
             .all(|line| !line.contains("-count_frames")),
-        "native temporary requested decoded frame counts:\n{probes}"
+        "native temporaries requested a redundant video recount:\n{probes}"
+    );
+    assert!(
+        probes.lines().any(|line| {
+            line.contains(".final.mp4.render-")
+                && line.contains("-show_frames")
+                && line.contains("-select_streams a:0")
+        }),
+        "cache-none did not decode-count final lossless Audio:\n{probes}"
     );
     assert!(
         probes.lines().any(|line| {

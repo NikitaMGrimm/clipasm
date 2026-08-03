@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use crate::diagnostic::Result;
 use crate::model::{FrameCount, NodeId};
 
-use super::super::color::{linear_rgb_to_encoding, to_linear_rgb};
+use super::super::color::{linear_rgb_to_encoding, working_to_linear_rgb};
 use super::super::filters::{normalize_audio, samples_for_video};
 use super::super::timeline::video_segment_sample_counts;
 use super::{GraphBuilder, NodePads, VideoPads, invalid_plan};
@@ -256,7 +256,7 @@ impl GraphBuilder<'_, '_> {
             "{}trim=end_frame={},setpts=PTS-STARTPTS,{},{}{}",
             black.bracketed(),
             frames.0,
-            to_linear_rgb(crate::model::ColorSpec::SDR_BT709, None),
+            working_to_linear_rgb(self.context.policy().working_video_encoding()),
             linear_rgb_to_encoding(self.context.policy().working_video_encoding()),
             output.video.bracketed(),
         ));

@@ -110,7 +110,10 @@ pub(crate) fn export_recipe(
         .args(["-i"])
         .artifact(result)
         .args(["-map", "0:v:0", "-vf"])
-        .arg(working_to_encoding(encoding))
+        .arg(working_to_encoding(
+            render_policy.working_video_encoding(),
+            encoding,
+        ))
         .args(["-c:v", render_policy.export_video_encoder(), "-pix_fmt"])
         .arg(encoding.pixel_format());
     append_video_encoding_metadata(&mut recipe, encoding);

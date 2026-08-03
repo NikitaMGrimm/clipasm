@@ -5,8 +5,6 @@ use crate::semantic::CompiledNode;
 use super::super::PreparedVideoKind;
 use super::PreflightLowerer;
 
-const MAX_COMPOSED_ZOOM_FILTER_BYTES: usize = 24 * 1024;
-
 pub(super) fn zoom_in(
     lowerer: &mut PreflightLowerer<'_>,
     node: &CompiledNode,
@@ -16,22 +14,35 @@ pub(super) fn zoom_in(
     let input = lowerer.prepared_dependency(input, node.origin())?;
     let (input_domain, input_has_audio) = lowerer.video_domain(input, node.origin())?;
     let input_domain = *input_domain;
-    let (input, curve) = match lowerer.nodes[input.get() as usize].video_kind() {
-        Some(PreparedVideoKind::ZoomIn {
-            input,
-            curve: preceding,
-        }) => (*input, preceding.appended(by)?),
-        _ => (input, crate::preflight::PreparedZoomCurve::new(by)?),
-    };
-    if curve.estimated_filter_bytes(input_domain.frames()) > MAX_COMPOSED_ZOOM_FILTER_BYTES {
+    let curve = crate::preflight::PreparedZoomCurve::new(by.clone())?;
+    if curve.estimated_filter_bytes(input_domain.frames())
+        > crate::preflight::MAX_COMPOSED_ZOOM_FILTER_BYTES
+    {
         return Err(Diagnostic::builtin(
             BuiltinDiagnostic::GraphTooLarge,
             format!(
-                "adjacent zoom composition exceeds the {MAX_COMPOSED_ZOOM_FILTER_BYTES}-byte FFmpeg filter limit"
+                "zoom expression exceeds the {}-byte FFmpeg filter limit",
+                crate::preflight::MAX_COMPOSED_ZOOM_FILTER_BYTES
             ),
             node.origin().span.clone(),
         ));
     }
+    let (input, curve) = match lowerer.nodes[input.get() as usize].video_kind() {
+        Some(PreparedVideoKind::ZoomIn {
+            input: preceding_input,
+            curve: preceding,
+        }) => {
+            let composed = preceding.appended(by)?;
+            if composed.estimated_filter_bytes(input_domain.frames())
+                <= crate::preflight::MAX_COMPOSED_ZOOM_FILTER_BYTES
+            {
+                (*preceding_input, composed)
+            } else {
+                (input, curve)
+            }
+        }
+        _ => (input, curve),
+    };
     lowerer.add_video_node(
         PreparedVideoKind::ZoomIn { input, curve },
         input_domain,

@@ -161,7 +161,7 @@ fn machine_contract_catalog_matches_the_documented_versions() {
     assert_eq!(contracts[2].versions()[0].value(), 3);
     assert_eq!(contracts[3].versions()[0].value(), 16);
     assert_eq!(contracts[4].versions()[0].value(), 3);
-    assert_eq!(contracts[4].versions()[1].value(), 9);
+    assert_eq!(contracts[4].versions()[1].value(), 10);
 
     assert_eq!(
         contracts[0].stability(),

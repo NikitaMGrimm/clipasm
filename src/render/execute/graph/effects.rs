@@ -25,7 +25,7 @@ impl GraphBuilder<'_, '_> {
         self.clause(format!(
             "{}{},{},{}{}",
             input.video.bracketed(),
-            working_to_linear_rgb(),
+            working_to_linear_rgb(self.context.policy().working_video_encoding()),
             zoom_filter(curve, frames),
             linear_rgb_to_encoding(self.context.policy().working_video_encoding()),
             output.video.bracketed(),
@@ -63,7 +63,7 @@ impl GraphBuilder<'_, '_> {
         self.clause(format!(
             "{}{},fade=t=in:start_frame=0:nb_frames={}:color=white,{}{}",
             after.video.bracketed(),
-            working_to_linear_rgb(),
+            working_to_linear_rgb(self.context.policy().working_video_encoding()),
             fade_frames.0,
             linear_rgb_to_encoding(self.context.policy().working_video_encoding()),
             after_video.bracketed(),

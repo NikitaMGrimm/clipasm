@@ -77,6 +77,22 @@ pub(super) fn verify_native_transient_artifact(
     )
 }
 
+pub(super) fn verify_native_result_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    contract: &WorkingArtifactContract,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
+) -> Result<()> {
+    verify_native_transient_artifact(ffprobe, path, contract, video_encoding, audio_encoding)?;
+    let audio = match contract {
+        WorkingArtifactContract::Video { audio, .. } | WorkingArtifactContract::Audio { audio } => {
+            audio
+        }
+    };
+    verify_audio_samples(ffprobe, path, audio.samples())
+}
+
 fn verify_prepared_artifact_with(
     ffprobe: &Path,
     path: &Path,

@@ -1379,6 +1379,35 @@ fn prepared_zoom_composition_keeps_one_pass_past_sixty_four_stages() {
 }
 
 #[test]
+fn oversized_adjacent_zoom_composition_starts_a_new_pass() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.clipasm");
+    let mut source = String::from(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    );
+    source.push_str(&"zoom_in(1%)\n".repeat(300));
+    fs::write(&workflow, source).expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    let mut passes = 0;
+    let mut input = plan.result();
+    while let Some(PreparedVideoKind::ZoomIn {
+        input: preceding, ..
+    }) = plan.nodes()[input.get() as usize].video_kind()
+    {
+        passes += 1;
+        input = *preceding;
+    }
+    assert!(passes > 1, "oversized zoom chain stayed in one pass");
+    assert!(matches!(
+        plan.nodes()[input.get() as usize].video_kind(),
+        Some(PreparedVideoKind::ImageVideo { .. })
+    ));
+}
+
+#[test]
 fn preflight_rejects_an_oversized_composed_zoom_expression() {
     let directory = tempfile::tempdir().expect("temporary directory");
     write_image(directory.path(), "card.ppm", "255 0 0");

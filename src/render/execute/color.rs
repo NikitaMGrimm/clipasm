@@ -32,30 +32,38 @@ pub(super) fn to_linear_rgb(
     )
 }
 
-pub(super) fn working_to_linear_rgb() -> String {
-    to_linear_rgb(ColorSpec::SDR_BT709, None)
+pub(super) fn working_to_linear_rgb(working: VideoEncoding) -> String {
+    to_linear_rgb(working.color(), working.chroma_location())
 }
 
 pub(super) fn linear_rgb_to_encoding(encoding: VideoEncoding) -> String {
-    convert_encoding(ColorSpec::LINEAR_RGB, encoding)
+    convert_encoding(ColorSpec::LINEAR_RGB, None, encoding)
 }
 
-pub(super) fn working_to_encoding(encoding: VideoEncoding) -> String {
-    convert_encoding(ColorSpec::SDR_BT709, encoding)
+pub(super) fn working_to_encoding(working: VideoEncoding, destination: VideoEncoding) -> String {
+    convert_encoding(working.color(), working.chroma_location(), destination)
 }
 
-fn convert_encoding(source: ColorSpec, encoding: VideoEncoding) -> String {
+fn convert_encoding(
+    source: ColorSpec,
+    source_chroma_location: Option<crate::preflight::ChromaLocation>,
+    encoding: VideoEncoding,
+) -> String {
+    let source_chroma = source_chroma_location
+        .map(|location| format!(":chromalin={}", location.ffmpeg_name()))
+        .unwrap_or_default();
     let destination = encoding.color();
     let chroma = encoding
         .chroma_location()
         .map(|location| format!(":chromal={}", location.ffmpeg_name()))
         .unwrap_or_default();
     format!(
-        "zscale=matrixin={}:transferin={}:primariesin={}:rangein={}:matrix={}:transfer={}:primaries={}:range={}{chroma}:npl={SDR_NOMINAL_PEAK_NITS}:agamma=0:dither=error_diffusion,format={},{}",
+        "zscale=matrixin={}:transferin={}:primariesin={}:rangein={}{}:matrix={}:transfer={}:primaries={}:range={}{chroma}:npl={SDR_NOMINAL_PEAK_NITS}:agamma=0:dither=error_diffusion,format={},{}",
         matrix(source.matrix()),
         transfer(source.transfer()),
         primaries(source.primaries()),
         zscale_range(source.range()),
+        source_chroma,
         matrix(destination.matrix()),
         transfer(destination.transfer()),
         primaries(destination.primaries()),
@@ -96,5 +104,12 @@ mod tests {
         assert!(working.contains("matrixin=gbr"));
         assert!(working.contains("format=yuv444p10le"));
         assert!(working.contains("setparams=range=limited"));
+
+        let export = working_to_encoding(
+            crate::preflight::RenderPolicy::CURRENT.working_video_encoding(),
+            crate::preflight::RenderPolicy::CURRENT.export_video_encoding(),
+        );
+        assert!(export.contains("matrixin=bt709"));
+        assert!(export.contains("format=yuv420p"));
     }
 }

@@ -34,6 +34,8 @@ mod plan;
 mod policy;
 pub(crate) mod tools;
 
+pub(crate) const MAX_COMPOSED_ZOOM_FILTER_BYTES: usize = 24 * 1024;
+
 #[cfg(feature = "native")]
 pub(crate) use assets::verify_prepared_asset;
 pub use color::{ChromaLocation, PreparedSourceColor, SourceColorConvention};

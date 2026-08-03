@@ -534,6 +534,8 @@ per-external cache opt-out.
   every project frame spans an integral number of audio samples
 - aliases replacement with audio extracted directly from the same Video when
   that Video already carries meaningful audio
+- composes adjacent zooms until one FFmpeg composed-filter budget is full, then
+  starts another prepared pass
 - assigns content fingerprints and an execution namespace
 
 ### Prepared plan
@@ -664,12 +666,23 @@ A persistent-cache miss expands to the node's canonical prepared inputs.
 In `all` materialization, every reached node becomes one execution action. In
 `fused` materialization, compatible FFmpeg nodes that converge on one
 materialized endpoint contract into one typed filter-graph region. The planner
+starts a new region before its fully materialized command reaches the
+conservative portable FFmpeg command budget. Native execution and browser
+serialization enforce the
+same bound for every recipe, including singleton regions and final export. This
+includes the private cache-staging path shape used during persistent execution,
+so a region accepted against its cache destination does not fail only after
+staging adds a longer output path. This keeps execution valid for long linear
+graphs and reports an explicit size diagnostic before invoking a platform
+process limit. The planner
 tracks picture and Audio consumption separately, so stream-disjoint consumers
 can share a region without duplicating a physical stream. A duplicated stream
 remains materialized. Temporal joins also reject fused inputs because FFmpeg can
 otherwise queue fused preprocessing from a later branch in proportion to clip
 length. Linear work within each input branch and work downstream of the join can
-still form their own regions. Verified cache hits, external programs, primitives with
+still form their own regions. Graph and edge admission are exhaustive over the
+prepared operation set, so adding a primitive requires an explicit execution
+decision. Verified cache hits, external programs, primitives with
 input-scoped FFmpeg behavior, and branches that require different materialized
 endpoints also remain boundaries. Crossfade consumes and produces typed Video
 and Audio pads directly. Repeat graph-lowers from a materialized input because
@@ -683,8 +696,11 @@ endpoints, not internal nodes. Cache-none execution expands the complete
 reachable graph and deletes each non-result artifact after its final region
 consumer. Native FFmpeg temporary endpoints retain stream, encoding, color,
 rate, and timestamp verification, while their exact decoded counts follow from
-the closed typed recipe and prepared domain. External-program endpoints and
-every persistent-cache admission retain decoded frame and sample counts. Shared
+the closed typed recipe and prepared domain. The final lossless result's Audio
+is always decoded and counted before export because lossy AAC cannot preserve
+an exact sample-count contract; publication verifies the exported frame count.
+External-program endpoints and every persistent-cache admission retain decoded
+frame and sample counts. Shared
 graph inputs remain available until all consumers finish. Before rendering a
 region, the planner rehashes the resources of every included node. A verified
 persistent downstream artifact makes the pruned upstream subtree irrelevant.

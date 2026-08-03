@@ -38,7 +38,7 @@ document owns phase responsibilities. Run `./scripts/check.sh` before handoff.
 | Add or change a direct program | matching `src/program/builtins` module | catalog reference facts, descriptor order, semantic version, domains, prepared lowering, rendering, identities, generated program reference |
 | Add or change a body program | `src/program/builtins/body.rs` | catalog reference facts, body contract, access default, finalizer, lexical aliases, tests, generated program reference |
 | Change call or stack binding | `src/program/call.rs`, compiler stack/typecheck/evaluate | descriptor slots, cardinality, root and authored calls, diagnostics |
-| Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, FFmpeg capability requirements, serialized formats, identities |
+| Add a semantic operation | `src/semantic`, compiler domain, preflight, render | exhaustive dispatch, canonical inputs, FFmpeg capability requirements, serialized formats, identities, fusion admission and stream use, and the working/linear color domain for visual operations |
 | Change semantic identity | affected program or operation | semantic version and compiled/prepared/cache versions |
 | Change preflight behavior | `src/preflight` | pure-compile boundary, capability tests, prepared identity |
 | Change media formats or frame/sample mapping | `src/model`, preflight, render | exact-domain tests, serialized shape, and cache identity |

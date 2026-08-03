@@ -44,6 +44,15 @@ pub(super) struct StagedArtifact {
 pub(super) struct VerifiedArtifact(StagedArtifact);
 
 impl StagedArtifact {
+    pub(super) fn planned_path(destination: &Path, extension: &str) -> Result<PathBuf> {
+        StagingDirectory::planned_path(
+            destination,
+            "cache",
+            &format!("artifact.{extension}"),
+            BuiltinDiagnostic::CacheIo,
+        )
+    }
+
     pub(super) fn new(destination: &Path, extension: &str) -> Result<Self> {
         let staging = StagingDirectory::beside(destination, "cache", BuiltinDiagnostic::CacheIo)?;
         Ok(Self {

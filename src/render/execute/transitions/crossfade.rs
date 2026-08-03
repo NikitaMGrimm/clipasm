@@ -85,14 +85,14 @@ fn append_crossfade_video_filter(
     graph.clause(format!(
         "{}{}{}",
         before_overlap.bracketed(),
-        working_to_linear_rgb(),
+        working_to_linear_rgb(graph.context().policy().working_video_encoding()),
         before_linear.bracketed(),
     ));
     let after_linear = graph.output_video_pad();
     graph.clause(format!(
         "{}{}{}",
         after_overlap.bracketed(),
-        working_to_linear_rgb(),
+        working_to_linear_rgb(graph.context().policy().working_video_encoding()),
         after_linear.bracketed(),
     ));
     let overlap = graph.output_video_pad();

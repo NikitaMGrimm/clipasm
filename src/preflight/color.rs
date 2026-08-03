@@ -104,9 +104,7 @@ impl PreparedSourceColor {
         }
     }
 
-    /// Return the resolved color tuple.
-    #[must_use]
-    pub const fn color(&self) -> ColorSpec {
+    pub(crate) const fn color(&self) -> ColorSpec {
         self.color
     }
 

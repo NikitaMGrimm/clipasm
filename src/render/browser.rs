@@ -18,7 +18,10 @@ use crate::preflight::{
 };
 use crate::source::SourceSpan;
 
-use super::execute::{FfmpegArgument, FfmpegRecipe, RecipeContext, export_recipe, ffmpeg_recipe};
+use super::execute::{
+    FfmpegArgument, FfmpegRecipe, RecipeContext, export_recipe, ffmpeg_recipe,
+    validate_browser_arguments,
+};
 
 const FFMPEG_WRAPPER_VERSION: &str = "0.12.15";
 const FFMPEG_CORE_VERSION: &str = "0.12.10";
@@ -379,6 +382,7 @@ fn browser_arguments(
         }
     }
     arguments.push(output.to_owned());
+    validate_browser_arguments(&arguments, span)?;
     Ok(arguments)
 }
 
@@ -817,6 +821,17 @@ mod tests {
             mixed.nodes()[mixed.result().get() as usize].video_kind(),
             Some(PreparedVideoKind::Concat { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_browser_arguments_above_the_portable_command_limit() {
+        let error = validate_browser_arguments(
+            &["x".repeat(24 * 1024)],
+            &SourceSpan::file_start("playground.clipasm"),
+        )
+        .expect_err("oversized browser arguments");
+
+        assert_eq!(error.code, "E_GRAPH_TOO_LARGE");
     }
 
     #[test]

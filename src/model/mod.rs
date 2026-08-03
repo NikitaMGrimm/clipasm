@@ -12,9 +12,8 @@ mod timeline_expression;
 mod video;
 
 pub use audio::{AudioDomain, AudioSpec};
-pub use color::{
-    ColorPrimaries, ColorRange, ColorSpec, MatrixCoefficients, TransferCharacteristic,
-};
+pub use color::ColorSpec;
+pub(crate) use color::{ColorPrimaries, ColorRange, MatrixCoefficients, TransferCharacteristic};
 pub use number::Number;
 pub(crate) use number::Number as ExactNumber;
 pub(crate) use time::{DurationValue, NativeDuration, NativeRange, SourceTime, SourceTimeRange};

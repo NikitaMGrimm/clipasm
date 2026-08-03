@@ -46,44 +46,64 @@ enum StoredNodePads {
     Audio(StoredPad),
 }
 
+// Keep graph and edge admission exhaustive so every new prepared primitive
+// must choose its execution behavior before it can compile.
 pub(super) fn is_graph_native(node: &PreparedNode) -> bool {
-    !matches!(
-        node.media(),
-        PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::ExternalVideo { .. },
-            ..
-        }
-    )
+    match node.media() {
+        PreparedNodeMedia::Video { kind, .. } => match kind {
+            PreparedVideoKind::ImageVideo { .. }
+            | PreparedVideoKind::VideoSource { .. }
+            | PreparedVideoKind::Slice { .. }
+            | PreparedVideoKind::Repeat { .. }
+            | PreparedVideoKind::ZoomIn { .. }
+            | PreparedVideoKind::FlashCut { .. }
+            | PreparedVideoKind::Crossfade { .. }
+            | PreparedVideoKind::Concat { .. }
+            | PreparedVideoKind::SetAudio { .. }
+            | PreparedVideoKind::AudioOnBlack { .. } => true,
+            PreparedVideoKind::ExternalVideo { .. } => false,
+        },
+        PreparedNodeMedia::Audio { kind, .. } => match kind {
+            PreparedAudioKind::AudioSource { .. }
+            | PreparedAudioKind::AudioSlice { .. }
+            | PreparedAudioKind::AudioRepeat { .. }
+            | PreparedAudioKind::AudioConcat { .. }
+            | PreparedAudioKind::Crossfade { .. }
+            | PreparedAudioKind::ExtractAudio { .. } => true,
+        },
+    }
 }
 
 #[cfg(feature = "native")]
 pub(super) fn accepts_fused_input(node: &PreparedNode, input: NodeId) -> bool {
     match node.media() {
-        PreparedNodeMedia::Video {
-            kind: PreparedVideoKind::Repeat {
+        PreparedNodeMedia::Video { kind, .. } => match kind {
+            PreparedVideoKind::ImageVideo { .. }
+            | PreparedVideoKind::VideoSource { .. }
+            | PreparedVideoKind::Repeat { .. }
+            | PreparedVideoKind::FlashCut { .. }
+            | PreparedVideoKind::Crossfade { .. }
+            | PreparedVideoKind::Concat { .. }
+            | PreparedVideoKind::ExternalVideo { .. } => false,
+            PreparedVideoKind::Slice {
                 input: artifact, ..
-            },
-            ..
-        } if *artifact == input => false,
-        PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioRepeat {
+            }
+            | PreparedVideoKind::ZoomIn {
                 input: artifact, ..
-            },
-            ..
-        } if *artifact == input => false,
-        PreparedNodeMedia::Video {
-            kind:
-                PreparedVideoKind::Concat { .. }
-                | PreparedVideoKind::FlashCut { .. }
-                | PreparedVideoKind::Crossfade { .. }
-                | PreparedVideoKind::ExternalVideo { .. },
-            ..
-        }
-        | PreparedNodeMedia::Audio {
-            kind: PreparedAudioKind::AudioConcat { .. } | PreparedAudioKind::Crossfade { .. },
-            ..
-        } => false,
-        _ => true,
+            } => *artifact == input,
+            PreparedVideoKind::SetAudio { audio, video } => *audio == input || *video == input,
+            PreparedVideoKind::AudioOnBlack { audio } => *audio == input,
+        },
+        PreparedNodeMedia::Audio { kind, .. } => match kind {
+            PreparedAudioKind::AudioSource { .. }
+            | PreparedAudioKind::AudioRepeat { .. }
+            | PreparedAudioKind::AudioConcat { .. }
+            | PreparedAudioKind::Crossfade { .. } => false,
+            PreparedAudioKind::AudioSlice {
+                input: artifact, ..
+            } => *artifact == input,
+            PreparedAudioKind::ExtractAudio { video } => *video == input,
+        },
     }
 }
 

@@ -1,7 +1,7 @@
 import { FFmpeg, FFFSType } from "./ffmpeg/wrapper/index.js";
 
 const PLAN_VERSION = 3;
-const RECIPE_CONTRACT = 9;
+const RECIPE_CONTRACT = 10;
 const WRAPPER_VERSION = "0.12.15";
 const CORE_VERSION = "0.12.10";
 const RUNTIME_POLICY = "ffv1-yuv444p10-s16-bt709-v3";

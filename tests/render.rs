@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -633,6 +634,57 @@ fn fused_materialization_keeps_sequential_fan_out_bounded() {
         &endpoint_cache_artifact(&all_cache, &plan),
         &endpoint_cache_artifact(&fused_cache, &plan),
     );
+}
+
+#[test]
+fn fused_materialization_splits_regions_before_the_command_limit_in_every_storage_mode() {
+    if !common::media_tools_available() {
+        eprintln!("skipping fused command-budget test because media tools are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n2 2\n255\n255 0 0  0 255 0\n0 0 255  255 255 0\n",
+    )
+    .expect("image");
+    let workflow = directory.path().join("workflow.clipasm");
+    let mut source = String::from(
+        "clipasm 1\nconfig { video { width = 64\nheight = 48\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1f, stretch) as v0\ndrop<Video>\nextract_audio(video=$v0) as fixed\ndrop<Audio>\n",
+    );
+    for stage in 0..120 {
+        write!(
+            source,
+            "zoom_in(video=$v{stage}, by=1%) as z{stage}\ndrop<Video>\nset_audio(video=$z{stage}, audio=$fixed) as v{}\ndrop<Video>\n",
+            stage + 1
+        )
+        .expect("write generated workflow");
+    }
+    source.push_str("$v120\n");
+    fs::write(&workflow, source).expect("workflow");
+
+    let plan = preflight::preflight(&compile_file(&workflow).expect("compile"))
+        .expect("preflight long linear graph");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(render::CacheMode::None, render::MaterializationMode::Fused),
+    )
+    .expect("bounded fused render");
+    assert!(report.rendered_jobs() > 1);
+    assert!(report.rendered_jobs() < 120);
+
+    let cache_root = directory.path().join("persistent-cache");
+    let report = render::render_with_options(
+        &plan,
+        &render::RenderOptions::new(
+            render::CacheMode::Persistent,
+            render::MaterializationMode::Fused,
+        )
+        .with_cache_root(cache_root),
+    )
+    .expect("bounded persistent fused render");
+    assert!(report.rendered_jobs() > 1);
+    assert!(report.rendered_jobs() < 120);
 }
 
 #[test]

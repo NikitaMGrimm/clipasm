@@ -14,7 +14,7 @@ pub(crate) const EXTERNAL_PROGRAM_PROTOCOL_VERSION: u32 = 3;
 /// Current browser render-plan version.
 pub(crate) const BROWSER_RENDER_PLAN_VERSION: u32 = 3;
 /// Current browser `FFmpeg` recipe contract version.
-pub(crate) const BROWSER_RECIPE_CONTRACT_VERSION: u32 = 9;
+pub(crate) const BROWSER_RECIPE_CONTRACT_VERSION: u32 = 10;
 
 /// A machine-readable boundary produced by `ClipAsm`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

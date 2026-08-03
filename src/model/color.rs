@@ -3,7 +3,7 @@ use serde::Serialize;
 /// Primaries that define the RGB chromaticities of a video signal.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ColorPrimaries {
+pub(crate) enum ColorPrimaries {
     /// ITU-R BT.709 / sRGB primaries.
     Bt709,
 }
@@ -11,7 +11,7 @@ pub enum ColorPrimaries {
 /// Transfer characteristic that relates encoded samples to light.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TransferCharacteristic {
+pub(crate) enum TransferCharacteristic {
     /// ITU-R BT.709 transfer characteristic.
     Bt709,
     /// IEC 61966-2-1 sRGB transfer characteristic.
@@ -23,7 +23,7 @@ pub enum TransferCharacteristic {
 /// Matrix coefficients, or RGB identity, used by a video signal.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MatrixCoefficients {
+pub(crate) enum MatrixCoefficients {
     /// ITU-R BT.709 non-constant-luminance Y'`CbCr` coefficients.
     Bt709,
     /// BT.601-family non-constant-luminance Y'`CbCr` coefficients.
@@ -35,7 +35,7 @@ pub enum MatrixCoefficients {
 /// Numeric range occupied by encoded component samples.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ColorRange {
+pub(crate) enum ColorRange {
     /// Studio/legal range.
     Limited,
     /// Full component range.
@@ -92,15 +92,6 @@ impl ColorSpec {
         range: ColorRange::Full,
     };
 
-    /// Resolve an authored, coherent color-profile name.
-    #[must_use]
-    pub fn from_profile_name(name: &str) -> Option<Self> {
-        match name {
-            "sdr_bt709" => Some(Self::SDR_BT709),
-            _ => None,
-        }
-    }
-
     /// Return the authored profile name for this semantic color contract.
     #[must_use]
     pub fn profile_name(self) -> &'static str {
@@ -113,25 +104,25 @@ impl ColorSpec {
 
     /// Return the RGB primaries.
     #[must_use]
-    pub const fn primaries(self) -> ColorPrimaries {
+    pub(crate) const fn primaries(self) -> ColorPrimaries {
         self.primaries
     }
 
     /// Return the transfer characteristic.
     #[must_use]
-    pub const fn transfer(self) -> TransferCharacteristic {
+    pub(crate) const fn transfer(self) -> TransferCharacteristic {
         self.transfer
     }
 
     /// Return the matrix coefficients or RGB identity.
     #[must_use]
-    pub const fn matrix(self) -> MatrixCoefficients {
+    pub(crate) const fn matrix(self) -> MatrixCoefficients {
         self.matrix
     }
 
     /// Return the component range.
     #[must_use]
-    pub const fn range(self) -> ColorRange {
+    pub(crate) const fn range(self) -> ColorRange {
         self.range
     }
 }

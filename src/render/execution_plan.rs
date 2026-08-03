@@ -9,7 +9,9 @@ use crate::preflight::{PreparedNode, PreparedPlan, PreparedResource, verify_prep
 use crate::source::SourceSpan;
 
 use super::MaterializationMode;
-use super::artifact::{verify_native_transient_artifact, verify_prepared_artifact};
+use super::artifact::{
+    verify_native_result_artifact, verify_native_transient_artifact, verify_prepared_artifact,
+};
 use super::cache;
 use super::execute::{ArtifactProducer, Executor};
 use super::lock::{FileLock, sibling_lock_path};
@@ -42,10 +44,7 @@ impl ArtifactStorage {
     }
 
     fn artifact_path(&self, plan: &PreparedPlan, node: &PreparedNode) -> PathBuf {
-        let extension = match node.value_type() {
-            ValueType::Video => plan.render_policy().working_video_extension(),
-            ValueType::Audio => plan.render_policy().working_audio_extension(),
-        };
+        let extension = working_extension(plan, node);
         match self {
             Self::Persistent { directory } => {
                 directory.join(format!("{}.{}", node.fingerprint(), extension))
@@ -56,8 +55,29 @@ impl ArtifactStorage {
         }
     }
 
+    fn planned_output_path(
+        &self,
+        plan: &PreparedPlan,
+        node: &PreparedNode,
+        artifact: &Path,
+    ) -> Result<PathBuf> {
+        match self {
+            Self::Persistent { .. } => {
+                cache::StagedArtifact::planned_path(artifact, working_extension(plan, node))
+            }
+            Self::Transient { .. } => Ok(artifact.to_path_buf()),
+        }
+    }
+
     const fn is_persistent(&self) -> bool {
         matches!(self, Self::Persistent { .. })
+    }
+}
+
+fn working_extension<'a>(plan: &'a PreparedPlan, node: &PreparedNode) -> &'a str {
+    match node.value_type() {
+        ValueType::Video => plan.render_policy().working_video_extension(),
+        ValueType::Audio => plan.render_policy().working_audio_extension(),
     }
 }
 
@@ -186,6 +206,11 @@ impl ExecutionPlan {
         validate_prepared_order(plan)?;
         let mut states = vec![NodeState::Unreached; plan.nodes().len()];
         let mut pending = vec![plan.result()];
+        let artifact_paths = plan
+            .nodes()
+            .iter()
+            .map(|node| storage.artifact_path(plan, node))
+            .collect::<Vec<_>>();
 
         while let Some(id) = pending.pop() {
             let index = id.get() as usize;
@@ -193,11 +218,11 @@ impl ExecutionPlan {
                 continue;
             }
             let node = &plan.nodes()[index];
-            let artifact = storage.artifact_path(plan, node);
+            let artifact = &artifact_paths[index];
             if storage.is_persistent() {
-                protected.reject_cache_entry(&artifact)?;
+                protected.reject_cache_entry(artifact)?;
             }
-            states[index] = if storage.is_persistent() && probe_cache(plan, node, &artifact)? {
+            states[index] = if storage.is_persistent() && probe_cache(plan, node, artifact)? {
                 verify_node_resources(node)?;
                 NodeState::ReuseVerified
             } else {
@@ -206,8 +231,22 @@ impl ExecutionPlan {
             };
         }
 
-        let fused_regions = (materialization == MaterializationMode::Fused)
-            .then(|| plan_fused_regions(plan, &states));
+        let fused_regions = if materialization == MaterializationMode::Fused {
+            let output_paths = plan
+                .nodes()
+                .iter()
+                .zip(&artifact_paths)
+                .map(|(node, artifact)| storage.planned_output_path(plan, node, artifact))
+                .collect::<Result<Vec<_>>>()?;
+            Some(plan_fused_regions(
+                plan,
+                &states,
+                &artifact_paths,
+                &output_paths,
+            )?)
+        } else {
+            None
+        };
         let mut actions = Vec::new();
         for node in plan.nodes() {
             let id = node.id();
@@ -215,7 +254,7 @@ impl ExecutionPlan {
                 NodeState::Unreached => {}
                 NodeState::ReuseVerified => actions.push(ExecutionAction {
                     node: id,
-                    artifact: storage.artifact_path(plan, node),
+                    artifact: artifact_paths[id.get() as usize].clone(),
                     kind: ExecutionActionKind::ReuseVerified,
                     frontier: Vec::new(),
                 }),
@@ -236,7 +275,7 @@ impl ExecutionPlan {
                     let frontier = region_frontier(plan, &region);
                     actions.push(ExecutionAction {
                         node: id,
-                        artifact: storage.artifact_path(plan, node),
+                        artifact: artifact_paths[id.get() as usize].clone(),
                         kind: ExecutionActionKind::Render { region },
                         frontier,
                     });
@@ -301,6 +340,7 @@ impl ExecutionPlan {
                                 region,
                                 &artifacts,
                                 &action.artifact,
+                                action.node == plan.result() && node.has_audio(),
                             )?;
                             false
                         }
@@ -368,20 +408,30 @@ fn render_transient_region(
     region: &[NodeId],
     artifacts: &[Option<PathBuf>],
     artifact: &Path,
+    verify_result_audio: bool,
 ) -> Result<()> {
     verify_region_resources(plan, region)?;
     let producer = executor.render_region_to(node, region, artifacts, artifact)?;
     match producer {
-        // A successful closed native recipe already fixes the finite prepared
-        // domain. Keep structural evidence here without decoding the temporary
-        // a second time solely to recount it.
-        ArtifactProducer::NativeFfmpeg => verify_native_transient_artifact(
+        ArtifactProducer::NativeFfmpeg if verify_result_audio => verify_native_result_artifact(
             plan.ffprobe().executable(),
             artifact,
             &node.artifact_contract(),
             plan.render_policy().working_video_encoding(),
             plan.render_policy().working_audio_encoding(),
         ),
+        ArtifactProducer::NativeFfmpeg => {
+            // A successful closed native recipe already fixes the finite
+            // prepared domain. Keep structural evidence for intermediates
+            // without decoding them a second time solely to recount them.
+            verify_native_transient_artifact(
+                plan.ffprobe().executable(),
+                artifact,
+                &node.artifact_contract(),
+                plan.render_policy().working_video_encoding(),
+                plan.render_policy().working_audio_encoding(),
+            )
+        }
         ArtifactProducer::ExternalProgram => verify_node_artifact(plan, node, artifact),
     }
 }
@@ -551,7 +601,12 @@ fn verify_region_resources(plan: &PreparedPlan, region: &[NodeId]) -> Result<()>
     Ok(())
 }
 
-fn plan_fused_regions(plan: &PreparedPlan, states: &[NodeState]) -> Vec<Vec<NodeId>> {
+fn plan_fused_regions(
+    plan: &PreparedPlan,
+    states: &[NodeState],
+    artifacts: &[PathBuf],
+    output_paths: &[PathBuf],
+) -> Result<Vec<Vec<NodeId>>> {
     let mut consumers = vec![Vec::new(); plan.nodes().len()];
     for node in plan.nodes() {
         if states[node.id().get() as usize] != NodeState::Render {
@@ -566,7 +621,8 @@ fn plan_fused_regions(plan: &PreparedPlan, states: &[NodeState]) -> Vec<Vec<Node
 
     // Each render node belongs to the downstream materialized endpoint that owns
     // it. Reverse topological order ensures every consumer already has an owner.
-    let mut owners = vec![None; plan.nodes().len()];
+    let mut owners: Vec<Option<NodeId>> = vec![None; plan.nodes().len()];
+    let mut regions = vec![Vec::new(); plan.nodes().len()];
     for node in plan.nodes().iter().rev() {
         let id = node.id();
         let index = id.get() as usize;
@@ -596,17 +652,32 @@ fn plan_fused_regions(plan: &PreparedPlan, states: &[NodeState]) -> Vec<Vec<Node
                 (compatible && picture_uses <= 1 && audio_uses <= 1).then_some(owner)
             })
             .flatten();
-        owners[index] = Some(adopted_owner.unwrap_or(id));
+        let owner = if let Some(owner) = adopted_owner {
+            let mut candidate = Vec::with_capacity(regions[owner.get() as usize].len() + 1);
+            candidate.push(id);
+            candidate.extend_from_slice(&regions[owner.get() as usize]);
+            // Lower through the real recipe owner before adoption so the
+            // boundary tracks the materialized command rather than node count.
+            if super::execute::fused_region_fits(
+                plan,
+                &candidate,
+                owner,
+                &output_paths[owner.get() as usize],
+                artifacts,
+            )? {
+                regions[owner.get() as usize] = candidate;
+                owner
+            } else {
+                regions[index].push(id);
+                id
+            }
+        } else {
+            regions[index].push(id);
+            id
+        };
+        owners[index] = Some(owner);
     }
-
-    let mut regions = vec![Vec::new(); plan.nodes().len()];
-    for node in plan.nodes() {
-        let index = node.id().get() as usize;
-        if let Some(owner) = owners[index] {
-            regions[owner.get() as usize].push(node.id());
-        }
-    }
-    regions
+    Ok(regions)
 }
 
 fn region_frontier(plan: &PreparedPlan, region: &[NodeId]) -> Vec<NodeId> {

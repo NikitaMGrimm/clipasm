@@ -804,6 +804,7 @@ mod tests {
             ("during", 4),
             ("zoom_in", 6),
             ("flash_cut", 4),
+            ("crossfade", 3),
         ] {
             let program = catalog
                 .iter()

@@ -1,12 +1,15 @@
+#[cfg(feature = "native")]
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "native")]
 use std::process::Command;
 
-#[cfg(feature = "native")]
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{AudioSpec, NodeId, VideoSpec};
 use crate::preflight::{PreparedNode, RenderPolicy, VideoEncoding};
 use crate::source::SourceSpan;
+
+pub(crate) const MAX_FFMPEG_COMMAND_UNITS: usize = 24 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FfmpegRecipe {
@@ -174,6 +177,31 @@ impl FfmpegRecipe {
         ffmpeg: &Path,
         output: &Path,
         span: &SourceSpan,
+        artifact: impl FnMut(NodeId) -> Option<&'a Path>,
+    ) -> Result<Command> {
+        let command = self.build_command(ffmpeg, output, span, artifact)?;
+        validate_native_command(&command, span)?;
+        Ok(command)
+    }
+
+    #[cfg(feature = "native")]
+    pub(super) fn materialized_command_fits<'a>(
+        &self,
+        ffmpeg: &Path,
+        output: &Path,
+        span: &SourceSpan,
+        artifact: impl FnMut(NodeId) -> Option<&'a Path>,
+    ) -> Result<bool> {
+        let command = self.build_command(ffmpeg, output, span, artifact)?;
+        Ok(native_command_units(&command) <= MAX_FFMPEG_COMMAND_UNITS)
+    }
+
+    #[cfg(feature = "native")]
+    fn build_command<'a>(
+        &self,
+        ffmpeg: &Path,
+        output: &Path,
+        span: &SourceSpan,
         mut artifact: impl FnMut(NodeId) -> Option<&'a Path>,
     ) -> Result<Command> {
         let mut command = Command::new(ffmpeg);
@@ -200,6 +228,67 @@ impl FfmpegRecipe {
         command.arg(output);
         Ok(command)
     }
+}
+
+pub(crate) fn validate_browser_arguments(arguments: &[String], span: &SourceSpan) -> Result<()> {
+    let units = command_units(
+        encoded_text_upper_bound("ffmpeg"),
+        arguments
+            .iter()
+            .map(|argument| encoded_text_upper_bound(argument)),
+    );
+    validate_command_units(units, span)
+}
+
+#[cfg(feature = "native")]
+fn validate_native_command(command: &Command, span: &SourceSpan) -> Result<()> {
+    validate_command_units(native_command_units(command), span)
+}
+
+#[cfg(feature = "native")]
+fn native_command_units(command: &Command) -> usize {
+    command_units(
+        encoded_os_upper_bound(command.get_program()),
+        command.get_args().map(encoded_os_upper_bound),
+    )
+}
+
+fn command_units(program: usize, arguments: impl Iterator<Item = usize>) -> usize {
+    arguments.fold(program, usize::saturating_add)
+}
+
+fn encoded_text_upper_bound(value: &str) -> usize {
+    encoded_string_upper_bound(value, value.encode_utf16().count())
+}
+
+#[cfg(feature = "native")]
+fn encoded_os_upper_bound(value: &OsStr) -> usize {
+    let value = value.to_string_lossy();
+    encoded_string_upper_bound(&value, value.encode_utf16().count())
+}
+
+fn encoded_string_upper_bound(value: &str, utf16_units: usize) -> usize {
+    // Windows quoting can at most double an argument's code units when every
+    // character requires escaping. UTF-8 length also conservatively covers
+    // native Unix byte strings after lossy replacement of invalid bytes.
+    value
+        .len()
+        .max(utf16_units)
+        .saturating_mul(2)
+        .saturating_add(3)
+}
+
+fn validate_command_units(units: usize, span: &SourceSpan) -> Result<()> {
+    if units <= MAX_FFMPEG_COMMAND_UNITS {
+        return Ok(());
+    }
+    Err(Diagnostic::builtin(
+        BuiltinDiagnostic::GraphTooLarge,
+        format!(
+            "FFmpeg command exceeds the {MAX_FFMPEG_COMMAND_UNITS}-unit portable execution limit"
+        ),
+        span.clone(),
+    ))
 }
 
 #[cfg(all(test, feature = "native"))]
@@ -264,6 +353,41 @@ mod tests {
 
         assert_eq!(error.code, "E_INVALID_PLAN");
         assert!(error.message.contains("primitive input 12"));
+    }
+
+    #[test]
+    fn rejects_a_materialized_command_above_the_portable_limit() {
+        let mut recipe = FfmpegRecipe::new();
+        recipe.arg("x".repeat(MAX_FFMPEG_COMMAND_UNITS));
+
+        let error = recipe
+            .materialize(
+                Path::new("ffmpeg"),
+                Path::new("output.mkv"),
+                &SourceSpan::file_start("program.clipasm"),
+                |_| None,
+            )
+            .expect_err("oversized command");
+
+        assert_eq!(error.code, "E_GRAPH_TOO_LARGE");
+        assert!(error.message.contains("portable execution limit"));
+    }
+
+    #[test]
+    fn command_limit_includes_paths_added_during_materialization() {
+        let recipe = FfmpegRecipe::new();
+        let output = PathBuf::from("x".repeat(MAX_FFMPEG_COMMAND_UNITS));
+
+        let error = recipe
+            .materialize(
+                Path::new("ffmpeg"),
+                &output,
+                &SourceSpan::file_start("program.clipasm"),
+                |_| None,
+            )
+            .expect_err("oversized output path");
+
+        assert_eq!(error.code, "E_GRAPH_TOO_LARGE");
     }
 
     #[cfg(unix)]

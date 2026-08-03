@@ -27,7 +27,7 @@ use super::cache::StagedArtifact;
 use context::RenderContext;
 pub(crate) use export::export_recipe;
 pub(crate) use recipe::FfmpegArgument;
-pub(crate) use recipe::{FfmpegRecipe, RecipeContext};
+pub(crate) use recipe::{FfmpegRecipe, RecipeContext, validate_browser_arguments};
 
 #[cfg(feature = "native")]
 pub(super) struct Executor<'a> {
@@ -153,6 +153,30 @@ pub(super) fn visit_fused_inputs(
     visitor: impl FnMut(crate::model::NodeId, FusedInputUse),
 ) {
     graph::visit_fused_inputs(node, visitor);
+}
+
+#[cfg(feature = "native")]
+pub(super) fn fused_region_fits(
+    plan: &PreparedPlan,
+    region: &[crate::model::NodeId],
+    output: crate::model::NodeId,
+    output_path: &Path,
+    artifacts: &[PathBuf],
+) -> Result<bool> {
+    let node = &plan.nodes()[output.get() as usize];
+    let context = RecipeContext::new(
+        plan.video(),
+        plan.audio(),
+        plan.nodes(),
+        plan.render_policy(),
+        &node.origin().span,
+    );
+    graph::recipe(&context, region, output)?.materialized_command_fits(
+        plan.ffmpeg().executable(),
+        output_path,
+        &node.origin().span,
+        |input| artifacts.get(input.get() as usize).map(PathBuf::as_path),
+    )
 }
 
 pub(crate) fn ffmpeg_recipe(

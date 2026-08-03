@@ -125,30 +125,6 @@ impl VideoSpec {
         })
     }
 
-    /// Construct a valid project video format with an explicit color profile.
-    ///
-    /// Returns `None` when either dimension is zero.
-    #[must_use]
-    pub const fn with_color(
-        width: u32,
-        height: u32,
-        fps: FrameRate,
-        color: ColorSpec,
-    ) -> Option<Self> {
-        let Some(width) = NonZeroU32::new(width) else {
-            return None;
-        };
-        let Some(height) = NonZeroU32::new(height) else {
-            return None;
-        };
-        Some(Self {
-            width,
-            height,
-            fps,
-            color,
-        })
-    }
-
     /// Return the frame width in pixels.
     #[must_use]
     pub const fn width(self) -> u32 {

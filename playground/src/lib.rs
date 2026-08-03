@@ -218,6 +218,14 @@ pub fn prepare_render(source: &str, assets_json: &str) -> String {
 mod tests {
     use super::*;
 
+    fn javascript_constant<'a>(source: &'a str, name: &str) -> &'a str {
+        let prefix = format!("const {name} = ");
+        source
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix)?.strip_suffix(';'))
+            .unwrap_or_else(|| panic!("browser worker must declare {name}"))
+    }
+
     fn response(source: &str) -> serde_json::Value {
         serde_json::from_str(&compile_source(source)).expect("response JSON")
     }
@@ -309,7 +317,7 @@ mod tests {
             serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
                 .expect("valid plan JSON");
         assert_eq!(plan["version"], 3);
-        assert_eq!(plan["recipe_contract"], 9);
+        assert_eq!(plan["recipe_contract"], 10);
         assert_eq!(
             plan["runtime"],
             serde_json::json!({
@@ -318,6 +326,43 @@ mod tests {
                 "policy": "ffv1-yuv444p10-s16-bt709-v3",
             })
         );
+        let worker = include_str!("../web/clipasm-playground-render-worker.js");
+        for (constant, expected) in [
+            ("PLAN_VERSION", plan["version"].to_string()),
+            ("RECIPE_CONTRACT", plan["recipe_contract"].to_string()),
+            ("WRAPPER_VERSION", plan["runtime"]["wrapper"].to_string()),
+            ("CORE_VERSION", plan["runtime"]["core"].to_string()),
+            ("RUNTIME_POLICY", plan["runtime"]["policy"].to_string()),
+        ] {
+            assert_eq!(
+                javascript_constant(worker, constant),
+                expected,
+                "browser worker {constant} must match the emitted render contract",
+            );
+        }
+        let package: serde_json::Value = serde_json::from_str(include_str!("../web/package.json"))
+            .expect("browser runtime package metadata");
+        let lock: serde_json::Value =
+            serde_json::from_str(include_str!("../web/package-lock.json"))
+                .expect("browser runtime lock metadata");
+        for (constant, dependency, package_path) in [
+            (
+                "WRAPPER_VERSION",
+                "@ffmpeg/ffmpeg",
+                "node_modules/@ffmpeg/ffmpeg",
+            ),
+            ("CORE_VERSION", "@ffmpeg/core", "node_modules/@ffmpeg/core"),
+        ] {
+            let worker_version = javascript_constant(worker, constant);
+            assert_eq!(
+                worker_version,
+                package["dependencies"][dependency].to_string()
+            );
+            assert_eq!(
+                worker_version,
+                lock["packages"][package_path]["version"].to_string()
+            );
+        }
         assert_eq!(plan["steps"].as_array().map(Vec::len), Some(4));
         assert_eq!(plan["export"]["contract"]["frames"], 108);
         assert_eq!(plan["export"]["contract"]["width"], 320);
