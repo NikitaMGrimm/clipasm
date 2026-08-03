@@ -159,9 +159,9 @@ fn machine_contract_catalog_matches_the_documented_versions() {
     assert_eq!(contracts[0].versions()[0].value(), 24);
     assert_eq!(contracts[1].versions()[0].value(), 4);
     assert_eq!(contracts[2].versions()[0].value(), 3);
-    assert_eq!(contracts[3].versions()[0].value(), 15);
+    assert_eq!(contracts[3].versions()[0].value(), 16);
     assert_eq!(contracts[4].versions()[0].value(), 3);
-    assert_eq!(contracts[4].versions()[1].value(), 6);
+    assert_eq!(contracts[4].versions()[1].value(), 9);
 
     assert_eq!(
         contracts[0].stability(),

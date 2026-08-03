@@ -12,7 +12,7 @@ pub(super) fn concat() -> ProgramDefinition {
     direct_with_timeline(
         generic_descriptor(
             "concat",
-            2,
+            3,
             "values",
             Cardinality::Variadic { min: 1 },
             vec![],

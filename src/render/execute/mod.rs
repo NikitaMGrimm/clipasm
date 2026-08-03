@@ -35,6 +35,12 @@ pub(super) struct Executor<'a> {
 }
 
 #[cfg(feature = "native")]
+pub(super) enum ArtifactProducer {
+    NativeFfmpeg,
+    ExternalProgram,
+}
+
+#[cfg(feature = "native")]
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct FusedInputUse {
     pub(super) picture: usize,
@@ -99,16 +105,17 @@ impl<'a> Executor<'a> {
         region: &[crate::model::NodeId],
         artifacts: &[Option<PathBuf>],
         destination: &Path,
-    ) -> Result<()> {
+    ) -> Result<ArtifactProducer> {
         let context = RenderContext::new(self.plan, node, artifacts, destination);
         if region.len() == 1 {
             return Self::render_into(node, &context);
         }
         let recipe_context = context.recipe_context();
-        context.finish_ffmpeg(&graph::recipe(&recipe_context, region, node.id())?)
+        context.finish_ffmpeg(&graph::recipe(&recipe_context, region, node.id())?)?;
+        Ok(ArtifactProducer::NativeFfmpeg)
     }
 
-    fn render_into(node: &PreparedNode, context: &RenderContext<'_>) -> Result<()> {
+    fn render_into(node: &PreparedNode, context: &RenderContext<'_>) -> Result<ArtifactProducer> {
         if let PreparedNodeMedia::Video {
             kind:
                 PreparedVideoKind::ExternalVideo {
@@ -121,10 +128,12 @@ impl<'a> Executor<'a> {
             ..
         } = node.media()
         {
-            return external::video(context, executable, arguments, inputs, parameters);
+            external::video(context, executable, arguments, inputs, parameters)?;
+            return Ok(ArtifactProducer::ExternalProgram);
         }
         let recipe_context = context.recipe_context();
-        context.finish_ffmpeg(&ffmpeg_recipe(node, &recipe_context)?)
+        context.finish_ffmpeg(&ffmpeg_recipe(node, &recipe_context)?)?;
+        Ok(ArtifactProducer::NativeFfmpeg)
     }
 }
 

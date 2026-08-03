@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use clipasm::model::Number;
 use clipasm::preflight::{PreparedAudioKind, PreparedVideoKind};
 
 fn compile_file(path: &Path) -> clipasm::diagnostic::Result<clipasm::compiler::CompiledProgram> {
@@ -109,7 +110,7 @@ set_audio(video=$picture)
     let document: serde_json::Value =
         serde_json::from_str(&plan.prepared_json().expect("prepared JSON"))
             .expect("prepared document");
-    assert_eq!(document["format_version"], 15);
+    assert_eq!(document["format_version"], 16);
     let crossfade = document["nodes"]
         .as_array()
         .expect("nodes")
@@ -138,7 +139,7 @@ fn prepared_json_serializes_one_distinguished_result() {
             .expect("prepared document");
 
     assert!(document.get("result").is_some());
-    assert_eq!(document["format_version"], 15);
+    assert_eq!(document["format_version"], 16);
     assert_eq!(document["semantic_hash"], plan.semantic_hash());
     assert!(document["output"].is_string());
     assert!(document["manifest"].is_string());
@@ -1311,12 +1312,90 @@ fn prepared_zoom_in_preserves_the_exact_input_domain() {
     let input_domain = *compiled.result_domain().expect("known zoom_in domain");
     let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
     let result = &plan.nodes()[plan.result().get() as usize];
-    let Some(PreparedVideoKind::ZoomIn { input, by }) = result.video_kind() else {
+    let Some(PreparedVideoKind::ZoomIn { input, curve }) = result.video_kind() else {
         panic!("prepared zoom_in");
     };
     assert_eq!(input.get(), 0);
-    assert_eq!(by.canonical(), "3/25");
+    assert_eq!(
+        curve
+            .amounts()
+            .into_iter()
+            .map(Number::canonical)
+            .collect::<Vec<_>>(),
+        ["3/25"]
+    );
     assert_eq!(result.video_domain(), Some(&input_domain));
+}
+
+#[test]
+fn preflight_composes_adjacent_zooms_into_one_prepared_pass() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.clipasm");
+    fs::write(
+        &workflow,
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom_in(12%)\nzoom_in(8%)\n",
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    assert_eq!(plan.nodes().len(), 3);
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let Some(PreparedVideoKind::ZoomIn { input, curve }) = result.video_kind() else {
+        panic!("prepared composed zoom_in");
+    };
+    assert_eq!(input.get(), 0);
+    assert_eq!(
+        curve
+            .amounts()
+            .into_iter()
+            .map(Number::canonical)
+            .collect::<Vec<_>>(),
+        ["3/25", "2/25"]
+    );
+    assert_eq!(result.video_domain(), plan.nodes()[0].video_domain());
+}
+
+#[test]
+fn prepared_zoom_composition_keeps_one_pass_past_sixty_four_stages() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.clipasm");
+    let mut source = String::from(
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    );
+    source.push_str(&"zoom_in(1%)\n".repeat(65));
+    fs::write(&workflow, source).expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let plan = clipasm::preflight::preflight(&compiled).expect("preflight");
+    let result = &plan.nodes()[plan.result().get() as usize];
+    let Some(PreparedVideoKind::ZoomIn { input, curve }) = result.video_kind() else {
+        panic!("prepared long zoom_in");
+    };
+    assert_eq!(input.get(), 0);
+    assert_eq!(curve.amounts().len(), 65);
+}
+
+#[test]
+fn preflight_rejects_an_oversized_composed_zoom_expression() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    write_image(directory.path(), "card.ppm", "255 0 0");
+    let workflow = directory.path().join("workflow.clipasm");
+    let amount = "9".repeat(4_000);
+    fs::write(
+        &workflow,
+        format!(
+            "clipasm 1\nconfig {{ video {{ width = 64\nheight = 64\nfps = 10 }}\noutput = \"final.mp4\" }}\nimage(\"card.ppm\", 1s)\nzoom_in({amount}%)\n"
+        ),
+    )
+    .expect("workflow");
+
+    let compiled = compile_file(&workflow).expect("compile");
+    let error = clipasm::preflight::preflight(&compiled).expect_err("oversized zoom expression");
+    assert_eq!(error.code, "E_GRAPH_TOO_LARGE");
+    assert!(error.message.contains("FFmpeg filter limit"));
 }
 
 #[test]

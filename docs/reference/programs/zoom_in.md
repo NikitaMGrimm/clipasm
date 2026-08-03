@@ -56,17 +56,20 @@ The reference checks parse and compile this exact example. Compilation does not 
 ## Behavior
 
 - For a multi-frame Video, scale increases linearly from 100% on the first frame to exactly 100% + by on the last frame.
+- Directly adjacent zoom_in calls are composed into one perspective resampling pass; their per-frame scale curves multiply in authored order.
 - The program preserves the Video timeline and the attached meaningful-Audio state.
 
 ## Requirements
 
 - by must be positive.
+- Adjacent zooms must fit the 24 KiB composed-filter limit.
 
 ## Common diagnostics
 
 These are the diagnostics most specific to this program.
 
 - [`E_INVALID_ZOOM_AMOUNT`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_invalid_zoom_amount) — Invalid zoom amount
+- [`E_GRAPH_TOO_LARGE`](https://nikitamgrimm.github.io/clipasm/diagnostics/#e_graph_too_large) — Graph size limit exceeded
 
 ## See also
 

@@ -9,9 +9,9 @@ use crate::preflight::{PreparedNode, PreparedPlan, PreparedResource, verify_prep
 use crate::source::SourceSpan;
 
 use super::MaterializationMode;
-use super::artifact::verify_prepared_artifact;
+use super::artifact::{verify_native_transient_artifact, verify_prepared_artifact};
 use super::cache;
-use super::execute::Executor;
+use super::execute::{ArtifactProducer, Executor};
 use super::lock::{FileLock, sibling_lock_path};
 use super::staging::StagingDirectory;
 
@@ -370,8 +370,20 @@ fn render_transient_region(
     artifact: &Path,
 ) -> Result<()> {
     verify_region_resources(plan, region)?;
-    executor.render_region_to(node, region, artifacts, artifact)?;
-    verify_node_artifact(plan, node, artifact)
+    let producer = executor.render_region_to(node, region, artifacts, artifact)?;
+    match producer {
+        // A successful closed native recipe already fixes the finite prepared
+        // domain. Keep structural evidence here without decoding the temporary
+        // a second time solely to recount it.
+        ArtifactProducer::NativeFfmpeg => verify_native_transient_artifact(
+            plan.ffprobe().executable(),
+            artifact,
+            &node.artifact_contract(),
+            plan.render_policy().working_video_encoding(),
+            plan.render_policy().working_audio_encoding(),
+        ),
+        ArtifactProducer::ExternalProgram => verify_node_artifact(plan, node, artifact),
+    }
 }
 
 fn verify_node_artifact(plan: &PreparedPlan, node: &PreparedNode, path: &Path) -> Result<()> {

@@ -120,6 +120,13 @@ pub(super) fn set_audio(
 ) -> Result<NodeId> {
     let audio = lowerer.prepared_dependency(audio, node.origin())?;
     let video = lowerer.prepared_dependency(video, node.origin())?;
+    let restores_attached_audio = matches!(
+        lowerer.nodes[audio.get() as usize].audio_kind(),
+        Some(PreparedAudioKind::ExtractAudio { video: source }) if *source == video
+    ) && lowerer.video_domain(video, node.origin())?.1;
+    if restores_attached_audio {
+        return Ok(video);
+    }
     lowerer.add_video_node(
         PreparedVideoKind::SetAudio { audio, video },
         *lowerer.video_domain(video, node.origin())?.0,

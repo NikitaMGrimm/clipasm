@@ -125,7 +125,8 @@ impl GraphBuilder<'_, '_> {
             self.context.audio(),
             self.context.span(),
         )?;
-        let mut labels = String::new();
+        let mut video_labels = String::new();
+        let mut audio_labels = String::new();
         for (input, samples) in inputs.iter().zip(samples) {
             let input = self.video_input(*input)?;
             let normalized = self.output_audio_pad();
@@ -139,14 +140,18 @@ impl GraphBuilder<'_, '_> {
                 ),
                 normalized.bracketed(),
             ));
-            labels.push_str(&input.video.bracketed());
-            labels.push_str(&normalized.bracketed());
+            video_labels.push_str(&input.video.bracketed());
+            audio_labels.push_str(&normalized.bracketed());
         }
         let joined = self.output_video_pads();
         self.clause(format!(
-            "{labels}concat=n={}:v=1:a=1{}{}",
+            "{video_labels}concat=n={}:v=1:a=0{}",
             inputs.len(),
             joined.video.bracketed(),
+        ));
+        self.clause(format!(
+            "{audio_labels}concat=n={}:v=0:a=1{}",
+            inputs.len(),
             joined.audio.bracketed(),
         ));
         let output_audio = self.output_audio_pad();

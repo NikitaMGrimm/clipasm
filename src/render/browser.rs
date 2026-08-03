@@ -49,9 +49,10 @@ pub fn render_json(plan: &BrowserPreparedPlan) -> Result<String> {
 }
 
 fn render_document(plan: &BrowserPreparedPlan) -> Result<BrowserRenderDocument<'_>> {
-    validate_browser_budget(plan)?;
+    let reachable = reachable_nodes(plan)?;
+    validate_browser_budget(plan, &reachable)?;
     let policy = RenderPolicy::CURRENT;
-    let assets = browser_mounts(plan.nodes())?;
+    let assets = browser_mounts(plan.nodes(), &reachable)?;
     let asset_paths = assets
         .iter()
         .map(|asset| (PathBuf::from(&asset.path), asset.virtual_path.clone()))
@@ -66,7 +67,7 @@ fn render_document(plan: &BrowserPreparedPlan) -> Result<BrowserRenderDocument<'
             policy: BROWSER_RUNTIME_POLICY,
         },
         semantic_hash: plan.semantic_hash(),
-        steps: render_steps(plan, &asset_paths, policy)?,
+        steps: render_steps(plan, &asset_paths, policy, &reachable)?,
         export: browser_export(plan, &asset_paths, policy)?,
         assets,
     })
@@ -76,11 +77,15 @@ fn render_steps(
     plan: &BrowserPreparedPlan,
     asset_paths: &BTreeMap<PathBuf, String>,
     policy: RenderPolicy,
+    reachable: &BTreeSet<NodeId>,
 ) -> Result<Vec<BrowserRenderStep>> {
     let nodes = plan.nodes();
-    let last_uses = last_uses(nodes, plan.result());
-    let mut steps = Vec::with_capacity(nodes.len());
+    let last_uses = last_uses(nodes, reachable, plan.result());
+    let mut steps = Vec::with_capacity(reachable.len());
     for (index, node) in nodes.iter().enumerate() {
+        if !reachable.contains(&node.id()) {
+            continue;
+        }
         let context = RecipeContext::new(
             plan.video(),
             plan.audio(),
@@ -286,9 +291,12 @@ impl From<crate::preflight::VideoEncoding> for BrowserVideoEncoding {
     }
 }
 
-fn browser_mounts(nodes: &[PreparedNode]) -> Result<Vec<BrowserMount>> {
+fn browser_mounts(
+    nodes: &[PreparedNode],
+    reachable: &BTreeSet<NodeId>,
+) -> Result<Vec<BrowserMount>> {
     let mut paths = BTreeSet::new();
-    for node in nodes {
+    for node in nodes.iter().filter(|node| reachable.contains(&node.id())) {
         match node.media() {
             PreparedNodeMedia::Video {
                 kind:
@@ -407,9 +415,36 @@ fn artifact_contract(node: &PreparedNode, policy: RenderPolicy) -> BrowserArtifa
     }
 }
 
-fn last_uses(nodes: &[PreparedNode], result: NodeId) -> BTreeMap<NodeId, usize> {
+fn reachable_nodes(plan: &BrowserPreparedPlan) -> Result<BTreeSet<NodeId>> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = vec![plan.result()];
+    while let Some(id) = pending.pop() {
+        if !reachable.insert(id) {
+            continue;
+        }
+        let node = plan.nodes().get(id.get() as usize).ok_or_else(|| {
+            Diagnostic::builtin(
+                BuiltinDiagnostic::InvalidPlan,
+                format!("browser render references unavailable node {}", id.get()),
+                result_span(plan),
+            )
+        })?;
+        node.visit_inputs(|input| pending.push(input));
+    }
+    Ok(reachable)
+}
+
+fn last_uses(
+    nodes: &[PreparedNode],
+    reachable: &BTreeSet<NodeId>,
+    result: NodeId,
+) -> BTreeMap<NodeId, usize> {
     let mut uses = BTreeMap::new();
-    for (index, node) in nodes.iter().enumerate() {
+    for (index, node) in nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| reachable.contains(&node.id()))
+    {
         node.visit_inputs(|input| {
             uses.insert(input, index);
         });
@@ -418,24 +453,28 @@ fn last_uses(nodes: &[PreparedNode], result: NodeId) -> BTreeMap<NodeId, usize> 
     uses
 }
 
-fn validate_browser_budget(plan: &BrowserPreparedPlan) -> Result<()> {
+fn validate_browser_budget(plan: &BrowserPreparedPlan, reachable: &BTreeSet<NodeId>) -> Result<()> {
     const MAX_PIXEL_FRAMES: u128 = 1_000_000_000;
     const MAX_AUDIO_SAMPLES: u128 = 50_000_000;
     const MAX_NODES: usize = 512;
 
-    if plan.nodes().len() > MAX_NODES {
+    if reachable.len() > MAX_NODES {
         return Err(Diagnostic::builtin(
             BuiltinDiagnostic::BrowserRenderLimit,
             format!(
                 "browser rendering supports at most {MAX_NODES} prepared operations; this graph has {}",
-                plan.nodes().len()
+                reachable.len()
             ),
             result_span(plan),
         ));
     }
     let mut pixel_frames = 0_u128;
     let mut audio_samples = 0_u128;
-    for node in plan.nodes() {
+    for node in plan
+        .nodes()
+        .iter()
+        .filter(|node| reachable.contains(&node.id()))
+    {
         if let Some(domain) = node.video_domain() {
             pixel_frames = pixel_frames
                 .checked_add(
@@ -667,6 +706,138 @@ mod tests {
                 .as_array()
                 .expect("repeat input arguments")
         );
+    }
+
+    #[test]
+    fn adjacent_zooms_emit_one_reachable_composed_browser_step() {
+        let compiled = compiled("clipasm 1\nimage(\"card.png\", 1s)\nzoom_in(10%)\nzoom_in(20%)\n");
+        let assets = [image_asset("card.png", "55")];
+        let plan = prepare(&compiled, &assets).expect("browser plan");
+        assert_eq!(plan.nodes().len(), 3);
+        let document: serde_json::Value =
+            serde_json::from_str(&render_json(&plan).expect("render JSON")).expect("valid JSON");
+        let steps = document["steps"].as_array().expect("steps");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["node"], 0);
+        assert_eq!(steps[1]["node"], 2);
+        assert_eq!(
+            steps[1]["delete_after"],
+            serde_json::json!(["/work/node-0.mkv"])
+        );
+
+        let arguments = steps[1]["arguments"].as_array().expect("arguments");
+        let filter_index = arguments
+            .iter()
+            .position(|argument| argument == "-filter_complex")
+            .expect("filter argument");
+        let filter = arguments[filter_index + 1]
+            .as_str()
+            .expect("filter expression");
+        assert_eq!(filter.matches("perspective=").count(), 1);
+        assert!(
+            filter.contains("1/((1+1*(in-1)/(10*29))*(1+1*(in-1)/(5*29)))"),
+            "{filter}"
+        );
+    }
+
+    #[test]
+    fn only_exact_integral_slice_partitions_alias_their_source() {
+        fn partition_source(fps: u32, body: &str) -> String {
+            format!(
+                "clipasm 1\nconfig {{ video {{ fps = {fps} }} }}\nimage(\"card.png\", 6f) as source\ndrop<Video>\n{body}\nconcat\n"
+            )
+        }
+
+        let assets = [image_asset("card.png", "55")];
+        let exact = compiled(&partition_source(
+            30,
+            "trim(value=$source, range=0f..2f)\ntrim(value=$source, range=2f..4f)\ntrim(value=$source, range=4f..6f)",
+        ));
+        let exact = prepare(&exact, &assets).expect("exact partition");
+        assert_eq!(exact.nodes().len(), 4);
+        assert_eq!(exact.result(), exact.nodes()[0].id());
+        let document: serde_json::Value =
+            serde_json::from_str(&render_json(&exact).expect("render JSON")).expect("valid JSON");
+        assert_eq!(document["steps"].as_array().expect("steps").len(), 1);
+
+        let cases = [
+            (
+                "fractional sample grid",
+                29,
+                "trim(value=$source, range=0f..2f)\ntrim(value=$source, range=2f..4f)\ntrim(value=$source, range=4f..6f)",
+            ),
+            (
+                "gap",
+                30,
+                "trim(value=$source, range=0f..2f)\ntrim(value=$source, range=3f..6f)",
+            ),
+            (
+                "overlap",
+                30,
+                "trim(value=$source, range=0f..4f)\ntrim(value=$source, range=3f..6f)",
+            ),
+            (
+                "reordered ranges",
+                30,
+                "trim(value=$source, range=3f..6f)\ntrim(value=$source, range=0f..3f)",
+            ),
+            (
+                "missing prefix",
+                30,
+                "trim(value=$source, range=1f..3f)\ntrim(value=$source, range=3f..6f)",
+            ),
+            (
+                "missing suffix",
+                30,
+                "trim(value=$source, range=0f..3f)\ntrim(value=$source, range=3f..5f)",
+            ),
+            (
+                "non-slice input",
+                30,
+                "$source\ntrim(value=$source, range=0f..3f)",
+            ),
+        ];
+        for (name, fps, body) in cases {
+            let plan = prepare(&compiled(&partition_source(fps, body)), &assets)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(
+                matches!(
+                    plan.nodes()[plan.result().get() as usize].video_kind(),
+                    Some(PreparedVideoKind::Concat { .. })
+                ),
+                "{name} was incorrectly aliased"
+            );
+        }
+
+        let mixed = compiled(
+            "clipasm 1\nconfig { video { fps = 30 } }\nimage(\"card.png\", 6f) as first\ndrop<Video>\nimage(\"card.png\", 6f) as second\ndrop<Video>\ntrim(value=$first, range=0f..3f)\ntrim(value=$second, range=3f..6f)\nconcat\n",
+        );
+        let mixed = prepare(&mixed, &assets).expect("mixed sources");
+        assert!(matches!(
+            mixed.nodes()[mixed.result().get() as usize].video_kind(),
+            Some(PreparedVideoKind::Concat { .. })
+        ));
+    }
+
+    #[test]
+    fn directly_restored_source_audio_emits_only_the_source_step() {
+        let compiled = compiled(
+            "clipasm 1\nvideo(\"scene.mkv\") as source\ndrop<Video>\nextract_audio(video=$source) as sound\ndrop<Audio>\nset_audio(video=$source, audio=$sound) as restored\n",
+        );
+        let assets = [BrowserAsset::new(
+            "scene.mkv",
+            "44".repeat(32),
+            r#"{"streams":[{"codec_type":"video","nb_read_frames":"5","avg_frame_rate":"29/1","pix_fmt":"yuv444p10le","color_range":"tv","color_space":"bt709","color_transfer":"bt709","color_primaries":"bt709"},{"codec_type":"audio","sample_rate":"48000"}]}"#,
+        )];
+        let plan = prepare(&compiled, &assets).expect("browser plan");
+        assert_eq!(plan.nodes().len(), 2);
+        assert_eq!(plan.result(), plan.nodes()[0].id());
+
+        let document: serde_json::Value =
+            serde_json::from_str(&render_json(&plan).expect("render JSON")).expect("valid JSON");
+        let steps = document["steps"].as_array().expect("steps");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["node"], 0);
     }
 
     #[test]

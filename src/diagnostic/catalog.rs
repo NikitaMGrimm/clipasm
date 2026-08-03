@@ -831,7 +831,7 @@ diagnostic_catalog! {
         title: "Graph size limit exceeded",
         category: CompilationAndTimelines,
         retry: FixSource,
-        summary: "Compilation produced more semantic operations than ClipAsm's supported graph limit.",
+        summary: "The authored program exceeded a bounded graph or generated execution-recipe size limit.",
     };
     ImportedOutput => {
         code: "E_IMPORTED_OUTPUT",

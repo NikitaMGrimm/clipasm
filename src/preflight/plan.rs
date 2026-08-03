@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Serialize;
 
-#[cfg(feature = "native")]
 use crate::diagnostic::Result;
 use crate::model::{
     AudioDomain, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, ValueType, VideoDomain,
@@ -545,12 +545,13 @@ pub enum PreparedVideoKind {
         /// Exact total output frames.
         frames: FrameCount,
     },
-    /// A centered linear `zoom_in` over the complete upstream clip.
+    /// One or more centered linear `zoom_in` operations composed over the
+    /// complete upstream clip.
     ZoomIn {
         /// Prepared Video node being zoomed.
         input: NodeId,
-        /// Exact final fractional increase over the source size.
-        by: ExactNumber,
+        /// Non-empty ordered fractional increases represented by this pass.
+        curve: PreparedZoomCurve,
     },
     /// Ordered cut whose latter Video fades from white at its start.
     FlashCut {
@@ -600,6 +601,101 @@ pub enum PreparedVideoKind {
         /// Input whose exact domain and audio presence are preserved.
         preserve_input: String,
     },
+}
+
+#[derive(Clone, Debug)]
+/// A non-empty, structurally shared sequence of adjacent zoom amounts.
+///
+/// Sharing keeps a prepared chain linear in size even though each authored
+/// `zoom_in` value remains available for inspection.
+pub struct PreparedZoomCurve(Arc<PreparedZoomLink>);
+
+#[derive(Debug)]
+struct PreparedZoomLink {
+    preceding: Option<PreparedZoomCurve>,
+    amount: ExactNumber,
+    identity: String,
+    len: usize,
+    numeric_bytes: usize,
+}
+
+#[derive(Serialize)]
+struct PreparedZoomLinkIdentity<'a> {
+    preceding: Option<&'a str>,
+    amount: &'a ExactNumber,
+}
+
+impl PreparedZoomCurve {
+    pub(crate) fn new(amount: ExactNumber) -> Result<Self> {
+        Self::from_link(None, amount)
+    }
+
+    pub(crate) fn appended(&self, amount: ExactNumber) -> Result<Self> {
+        Self::from_link(Some(self.clone()), amount)
+    }
+
+    fn from_link(preceding: Option<Self>, amount: ExactNumber) -> Result<Self> {
+        let identity = crate::identity::hash_serializable(&PreparedZoomLinkIdentity {
+            preceding: preceding.as_ref().map(Self::identity),
+            amount: &amount,
+        })?;
+        let len = preceding.as_ref().map_or(1, |curve| curve.len() + 1);
+        let numeric_bytes = preceding
+            .as_ref()
+            .map_or(0, |curve| curve.0.numeric_bytes)
+            .saturating_add(amount.numerator().to_string().len())
+            .saturating_add(amount.denominator().to_string().len());
+        Ok(Self(Arc::new(PreparedZoomLink {
+            preceding,
+            amount,
+            identity,
+            len,
+            numeric_bytes,
+        })))
+    }
+
+    /// Return the authored zoom amounts in order.
+    #[must_use]
+    pub fn amounts(&self) -> Vec<&ExactNumber> {
+        let mut amounts = self.newest_first().collect::<Vec<_>>();
+        amounts.reverse();
+        amounts
+    }
+
+    fn newest_first(&self) -> impl Iterator<Item = &ExactNumber> {
+        std::iter::successors(Some(self.0.as_ref()), |link| {
+            link.preceding.as_ref().map(|curve| curve.0.as_ref())
+        })
+        .map(|link| &link.amount)
+    }
+
+    pub(crate) fn identity(&self) -> &str {
+        &self.0.identity
+    }
+
+    fn len(&self) -> usize {
+        self.0.len
+    }
+
+    pub(crate) fn estimated_filter_bytes(&self, frames: FrameCount) -> usize {
+        const FACTOR_PUNCTUATION_BYTES: usize = "(1+*(in-1)/(*))".len();
+        const FILTER_OVERHEAD_BYTES: usize = 2_048;
+        const PRODUCT_USES: usize = 8;
+
+        let last_frame_digits = frames.0.saturating_sub(1).max(1).to_string().len();
+        let product_bytes = self
+            .0
+            .numeric_bytes
+            .saturating_add(
+                self.len()
+                    .saturating_mul(FACTOR_PUNCTUATION_BYTES + last_frame_digits),
+            )
+            .saturating_add(self.len().saturating_sub(1))
+            .saturating_add(2);
+        product_bytes
+            .saturating_mul(PRODUCT_USES)
+            .saturating_add(FILTER_OVERHEAD_BYTES)
+    }
 }
 
 impl PreparedVideoKind {

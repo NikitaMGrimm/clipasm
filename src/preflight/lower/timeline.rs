@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use crate::diagnostic::{BuiltinDiagnostic, Diagnostic, Result};
 use crate::model::{
     AudioDomain, FrameCount, FrameRange, NativeRange, NodeId, SampleRange, TimelineRangeExpression,
-    ValueRef, ValueType, VideoDomain,
+    TimelineRate, ValueRef, ValueType, VideoDomain,
 };
 use crate::semantic::CompiledNode;
 use crate::source::SourceSpan;
@@ -78,6 +78,9 @@ fn audio_slice(
     let input = lowerer.prepared_dependency(input, node.origin())?;
     let input_domain = *lowerer.audio_domain(input, node.origin())?;
     validate_prepared_audio_range(range, &input_domain, &node.origin().span)?;
+    if range.start() == 0 && range.end() == input_domain.samples() {
+        return Ok(input);
+    }
     lowerer.add_audio_node(
         PreparedAudioKind::AudioSlice { input, range },
         AudioDomain::new(range.samples(), input_domain.audio_spec()),
@@ -196,6 +199,9 @@ fn add_video_concat(
             .video_domain(*input, node.origin())
             .map(|(_, input_has_audio)| has_audio || input_has_audio)
     })?;
+    if let Some(input) = exhaustive_slice_partition(lowerer, node, &inputs)? {
+        return Ok(input);
+    }
     lowerer.add_video_node(
         PreparedVideoKind::Concat { inputs },
         domain,
@@ -203,6 +209,38 @@ fn add_video_concat(
         node.semantic_version(),
         node.origin().clone(),
     )
+}
+
+fn exhaustive_slice_partition(
+    lowerer: &PreflightLowerer<'_>,
+    node: &CompiledNode,
+    inputs: &[NodeId],
+) -> Result<Option<NodeId>> {
+    let mut source = None;
+    let mut boundary = 0;
+    for input in inputs {
+        let Some(PreparedVideoKind::Slice {
+            input: slice_source,
+            range,
+        }) = lowerer.nodes[input.get() as usize].video_kind()
+        else {
+            return Ok(None);
+        };
+        if source.is_some_and(|source| source != *slice_source) || range.start() != boundary {
+            return Ok(None);
+        }
+        source = Some(*slice_source);
+        boundary = range.end();
+    }
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    if boundary != lowerer.video_domain(source, node.origin())?.0.frames().0 {
+        return Ok(None);
+    }
+    let frame_samples = TimelineRate::new(*lowerer.compiled.video(), *lowerer.compiled.audio())
+        .frame_sample_step(FrameCount(1), &node.origin().span)?;
+    Ok(frame_samples.is_integral().then_some(source))
 }
 
 pub(super) fn deferred_slice(
@@ -339,7 +377,11 @@ fn video_slice(
 ) -> Result<NodeId> {
     let input = lowerer.prepared_dependency(input, node.origin())?;
     let (input_domain, input_has_audio) = lowerer.video_domain(input, node.origin())?;
-    validate_prepared_range(range, input_domain, &node.origin().span)?;
+    let input_domain = *input_domain;
+    validate_prepared_range(range, &input_domain, &node.origin().span)?;
+    if range.start() == 0 && range.end() == input_domain.frames().0 {
+        return Ok(input);
+    }
     lowerer.add_video_node(
         PreparedVideoKind::Slice { input, range },
         project_domain(lowerer.compiled.video(), range.frames()),

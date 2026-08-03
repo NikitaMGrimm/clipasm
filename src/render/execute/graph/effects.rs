@@ -11,7 +11,7 @@ impl GraphBuilder<'_, '_> {
     pub(super) fn zoom(
         &mut self,
         input: NodeId,
-        by: &crate::model::ExactNumber,
+        curve: &crate::preflight::PreparedZoomCurve,
         frames: FrameCount,
     ) -> Result<NodePads> {
         let input = self.video_input(input)?;
@@ -26,7 +26,7 @@ impl GraphBuilder<'_, '_> {
             "{}{},{},{}{}",
             input.video.bracketed(),
             working_to_linear_rgb(),
-            zoom_filter(by, frames),
+            zoom_filter(curve, frames),
             linear_rgb_to_encoding(self.context.policy().working_video_encoding()),
             output.video.bracketed(),
         ));
@@ -92,12 +92,15 @@ impl GraphBuilder<'_, '_> {
         ));
         let joined = self.output_video_pads();
         self.clause(format!(
-            "{}{}{}{}concat=n=2:v=1:a=1{}{}",
+            "{}{}concat=n=2:v=1:a=0{}",
             before.video.bracketed(),
-            before_audio.bracketed(),
             after_video.bracketed(),
-            after_audio.bracketed(),
             joined.video.bracketed(),
+        ));
+        self.clause(format!(
+            "{}{}concat=n=2:v=0:a=1{}",
+            before_audio.bracketed(),
+            after_audio.bracketed(),
             joined.audio.bracketed(),
         ));
         let output_audio = self.output_audio_pad();

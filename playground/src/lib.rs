@@ -309,7 +309,7 @@ mod tests {
             serde_json::from_str(response["plan_json"].as_str().expect("plan JSON"))
                 .expect("valid plan JSON");
         assert_eq!(plan["version"], 3);
-        assert_eq!(plan["recipe_contract"], 6);
+        assert_eq!(plan["recipe_contract"], 9);
         assert_eq!(
             plan["runtime"],
             serde_json::json!({

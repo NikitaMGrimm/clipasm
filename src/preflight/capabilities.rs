@@ -8,11 +8,22 @@ pub(super) fn ffmpeg_requirements(
     nodes: &[PreparedNode],
     result: NodeId,
 ) -> FfmpegRequirements {
-    let result = nodes
+    let result_node = nodes
         .get(result.get() as usize)
         .expect("prepared result identifies an existing node");
-    let mut requirements = FfmpegRequirements::for_export(render_policy, result.has_audio());
-    for node in nodes {
+    let mut requirements = FfmpegRequirements::for_export(render_policy, result_node.has_audio());
+    let mut pending = vec![result];
+    let mut reachable = vec![false; nodes.len()];
+    while let Some(id) = pending.pop() {
+        let reachable = &mut reachable[id.get() as usize];
+        if *reachable {
+            continue;
+        }
+        *reachable = true;
+        let node = nodes
+            .get(id.get() as usize)
+            .expect("prepared input identifies an existing node");
+        node.visit_inputs(|input| pending.push(input));
         match node.media() {
             PreparedNodeMedia::Video {
                 kind, has_audio, ..
@@ -159,13 +170,30 @@ fn require_normalized_audio(requirements: &mut FfmpegRequirements) {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::model::FrameCount;
+    use crate::model::{AudioDomain, AudioSpec, FrameCount, VideoDomain, VideoSpec};
+    use crate::preflight::plan::PreparedMedia;
+    use crate::semantic::SourceOrigin;
+    use crate::source::SourceSpan;
 
     use super::*;
     use crate::preflight::PreparedAsset;
 
     fn asset() -> PreparedAsset {
         PreparedAsset::new(PathBuf::from("asset"), "content".to_owned())
+    }
+
+    fn video_node(id: u32, kind: PreparedVideoKind) -> PreparedNode {
+        PreparedNode::new(
+            NodeId::new(id),
+            PreparedMedia::Video {
+                kind,
+                domain: VideoDomain::new(FrameCount(1), VideoSpec::default()),
+                working_audio: AudioDomain::new(1_600, AudioSpec::default()),
+                has_audio: false,
+            },
+            SourceOrigin::new("test", SourceSpan::file_start("test.clipasm")),
+            format!("node-{id}"),
+        )
     }
 
     #[test]
@@ -199,6 +227,37 @@ mod tests {
         assert!(!requirements.requires_filter("fade"));
         assert!(!requirements.requires_filter("perspective"));
         assert!(!requirements.requires_encoder("aac"));
+    }
+
+    #[test]
+    fn prepared_capabilities_ignore_dead_rewritten_nodes() {
+        let nodes = vec![
+            video_node(
+                0,
+                PreparedVideoKind::ImageVideo {
+                    asset: asset(),
+                    color: crate::preflight::PreparedSourceColor::image_srgb_rgb(
+                        "rgb24".to_owned(),
+                    ),
+                    frames: FrameCount(1),
+                    fit: ImageFit::Stretch,
+                },
+            ),
+            video_node(
+                1,
+                PreparedVideoKind::Crossfade {
+                    before: NodeId::new(0),
+                    after: NodeId::new(0),
+                    frames: FrameCount(1),
+                },
+            ),
+        ];
+
+        let requirements = ffmpeg_requirements(RenderPolicy::CURRENT, &nodes, NodeId::new(0));
+
+        assert!(requirements.requires_filter("scale"));
+        assert!(!requirements.requires_filter("blend"));
+        assert!(!requirements.requires_filter("afade"));
     }
 
     #[test]

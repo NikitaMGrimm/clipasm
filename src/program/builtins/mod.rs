@@ -394,12 +394,19 @@ pub(crate) fn builtin_catalog() -> Vec<BuiltinProgram> {
             .with_defaults(&ZOOM_DEFAULT)
             .with_example_expected_outputs(&VIDEO_EXAMPLE_OUTPUT)
             .with_example_expected_frames(60)
-            .with_diagnostics(&[BuiltinDiagnostic::InvalidZoomAmount])
+            .with_diagnostics(&[
+                BuiltinDiagnostic::InvalidZoomAmount,
+                BuiltinDiagnostic::GraphTooLarge,
+            ])
             .with_behavior_notes(&[
                 "For a multi-frame Video, scale increases linearly from 100% on the first frame to exactly 100% + by on the last frame.",
+                "Directly adjacent zoom_in calls are composed into one perspective resampling pass; their per-frame scale curves multiply in authored order.",
                 "The program preserves the Video timeline and the attached meaningful-Audio state.",
             ])
-            .with_constraints(&["by must be positive."]),
+            .with_constraints(&[
+                "by must be positive.",
+                "Adjacent zooms must fit the 24 KiB composed-filter limit.",
+            ]),
         ),
         BuiltinProgram::new(
             transitions::flash_cut(),
@@ -787,9 +794,17 @@ mod tests {
     }
 
     #[test]
-    fn color_pipeline_builtins_have_current_semantic_versions() {
+    fn rendered_builtins_have_current_semantic_versions() {
         let catalog = builtin_catalog();
-        for (name, expected_version) in [("image", 3), ("video", 4), ("zoom_in", 5)] {
+        for (name, expected_version) in [
+            ("image", 3),
+            ("video", 4),
+            ("concat", 3),
+            ("join", 4),
+            ("during", 4),
+            ("zoom_in", 6),
+            ("flash_cut", 4),
+        ] {
             let program = catalog
                 .iter()
                 .find(|program| program.definition.descriptor.name == name)

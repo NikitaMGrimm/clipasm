@@ -352,6 +352,15 @@ such as trim, repeat, and concat preserve the working representation. Export
 uses an explicit zscale depth and chroma conversion with dithering; `setparams`
 is used only after sample conversion to establish frame metadata.
 
+Preflight composes directly adjacent `zoom_in` operations into one prepared
+perspective pass. Its per-frame scale is the authored-order product of the exact
+zoom curves. The prepared graph therefore removes the intermediate resampling
+and working-signal quantization boundaries in every materialization and cache
+state, rather than making color precision depend on execution fusion. A
+conservative serialized-filter byte limit rejects pathological chains before
+they can exceed process argument limits; it never inserts a hidden pixel
+boundary.
+
 An explicit downstream document adapter produces compiled JSON. It is a
 versioned inspection view of compiled semantics, not an authored source
 representation. Its schema does not derive implicitly from the internal
@@ -520,6 +529,11 @@ per-external cache opt-out.
   compatibility and whose export profile defines publication
 - lowers reachable semantic nodes, including `replace_range`, to compact
   renderer primitives
+- aliases exact full-domain slices before execution planning
+- aliases an ordered, exhaustive partition of one Video back to its source when
+  every project frame spans an integral number of audio samples
+- aliases replacement with audio extracted directly from the same Video when
+  that Video already carries meaningful audio
 - assigns content fingerprints and an execution namespace
 
 ### Prepared plan
@@ -666,24 +680,30 @@ Region actions run in stable topological order and recheck planned persistent
 misses under the endpoint artifact lock so a concurrent renderer can satisfy
 them without duplicate work. Persistent fused execution caches region
 endpoints, not internal nodes. Cache-none execution expands the complete
-reachable graph, verifies each region endpoint, and deletes each non-result
-artifact after its final region consumer. Shared graph inputs remain available
-until all consumers finish. Before rendering a region, the planner rehashes the
-resources of every included node. A verified persistent downstream artifact
-makes the pruned upstream subtree irrelevant. FFmpeg/FFprobe identity
-verification and final export remain unconditional.
+reachable graph and deletes each non-result artifact after its final region
+consumer. Native FFmpeg temporary endpoints retain stream, encoding, color,
+rate, and timestamp verification, while their exact decoded counts follow from
+the closed typed recipe and prepared domain. External-program endpoints and
+every persistent-cache admission retain decoded frame and sample counts. Shared
+graph inputs remain available until all consumers finish. Before rendering a
+region, the planner rehashes the resources of every included node. A verified
+persistent downstream artifact makes the pruned upstream subtree irrelevant.
+FFmpeg/FFprobe identity verification and final export verification remain
+unconditional.
 
 Rehashing detects ordinary changes but does not snapshot files or make the
 check atomic with a renderer or external process opening the path.
 
 ### Exact audio and video execution
 
-Video joins normalize each child audio stream to its cumulative allocation
-before concat. Fractional Video repeats remain compact and timestamp repeated
-audio segments at cumulative boundaries so FFmpeg distributes unavoidable
-sample corrections through the timeline. Crossfade places faded Audio regions
-on one exact full-length sample timeline rather than deriving placement from
-packet boundaries.
+Video joins normalize each child audio stream to its cumulative allocation.
+They concatenate picture and audio independently so container-quantized video
+timestamps cannot make FFmpeg insert silence into an otherwise exact audio
+partition. Fractional Video repeats remain compact and timestamp repeated audio
+segments at cumulative boundaries so FFmpeg distributes unavoidable sample
+corrections through the timeline. Crossfade places faded Audio regions on one
+exact full-length sample timeline rather than deriving placement from packet
+boundaries.
 
 Every native Video filter produces a finite exact frame stream. Working and
 final encoders do not impose a second `-frames:v` cutoff, which could terminate

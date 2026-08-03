@@ -37,6 +37,12 @@ struct ProbeStream {
     chroma_location: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum CountEvidence {
+    Decoded,
+    TrustedNativeRecipe,
+}
+
 pub(super) fn verify_prepared_artifact(
     ffprobe: &Path,
     path: &Path,
@@ -44,8 +50,43 @@ pub(super) fn verify_prepared_artifact(
     video_encoding: VideoEncoding,
     audio_encoding: AudioEncoding,
 ) -> Result<()> {
+    verify_prepared_artifact_with(
+        ffprobe,
+        path,
+        contract,
+        video_encoding,
+        audio_encoding,
+        CountEvidence::Decoded,
+    )
+}
+
+pub(super) fn verify_native_transient_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    contract: &WorkingArtifactContract,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
+) -> Result<()> {
+    verify_prepared_artifact_with(
+        ffprobe,
+        path,
+        contract,
+        video_encoding,
+        audio_encoding,
+        CountEvidence::TrustedNativeRecipe,
+    )
+}
+
+fn verify_prepared_artifact_with(
+    ffprobe: &Path,
+    path: &Path,
+    contract: &WorkingArtifactContract,
+    video_encoding: VideoEncoding,
+    audio_encoding: AudioEncoding,
+    count_evidence: CountEvidence,
+) -> Result<()> {
     match contract {
-        WorkingArtifactContract::Video { video, audio } => verify_video_artifact(
+        WorkingArtifactContract::Video { video, audio } => verify_video_artifact_with(
             ffprobe,
             path,
             video,
@@ -54,25 +95,30 @@ pub(super) fn verify_prepared_artifact(
             Some(audio.samples()),
             video_encoding,
             Some(audio_encoding),
+            count_evidence,
         ),
-        WorkingArtifactContract::Audio { audio } => {
-            verify_audio_artifact(ffprobe, path, audio, audio.audio_spec(), audio_encoding)
-        }
+        WorkingArtifactContract::Audio { audio } => verify_audio_artifact(
+            ffprobe,
+            path,
+            audio,
+            audio.audio_spec(),
+            audio_encoding,
+            count_evidence,
+        ),
     }
 }
 
-fn probe_artifact(ffprobe: &Path, path: &Path) -> Result<ProbeDocument> {
+fn probe_artifact(
+    ffprobe: &Path,
+    path: &Path,
+    count_evidence: CountEvidence,
+) -> Result<ProbeDocument> {
     let mut command = Command::new(ffprobe);
-    command
-        .args([
-            "-v",
-            "error",
-            "-count_frames",
-            "-show_streams",
-            "-of",
-            "json",
-        ])
-        .arg(path);
+    command.args(["-v", "error"]);
+    if matches!(count_evidence, CountEvidence::Decoded) {
+        command.arg("-count_frames");
+    }
+    command.args(["-show_streams", "-of", "json"]).arg(path);
     let output = media_tool::capture(
         command,
         BuiltinDiagnostic::Ffprobe,
@@ -104,7 +150,35 @@ pub(super) fn verify_video_artifact(
     encoding: VideoEncoding,
     audio_encoding: Option<AudioEncoding>,
 ) -> Result<()> {
-    let document = probe_artifact(ffprobe, path)?;
+    verify_video_artifact_with(
+        ffprobe,
+        path,
+        domain,
+        audio,
+        expect_audio,
+        expected_audio_samples,
+        encoding,
+        audio_encoding,
+        CountEvidence::Decoded,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "artifact verification keeps every independent physical stream expectation explicit"
+)]
+fn verify_video_artifact_with(
+    ffprobe: &Path,
+    path: &Path,
+    domain: &VideoDomain,
+    audio: AudioSpec,
+    expect_audio: bool,
+    expected_audio_samples: Option<u64>,
+    encoding: VideoEncoding,
+    audio_encoding: Option<AudioEncoding>,
+    count_evidence: CountEvidence,
+) -> Result<()> {
+    let document = probe_artifact(ffprobe, path, count_evidence)?;
     let videos = document
         .streams
         .iter()
@@ -128,10 +202,12 @@ pub(super) fn verify_video_artifact(
     }
     let video = videos[0];
     verify_video_format(path, video, domain, encoding)?;
-    verify_video_timing(path, video, domain)?;
+    verify_video_timing(path, video, domain, count_evidence)?;
     if let Some(audio_stream) = audios.first() {
         verify_audio_stream(path, audio_stream, audio, audio_encoding)?;
-        if let Some(expected_samples) = expected_audio_samples {
+        if matches!(count_evidence, CountEvidence::Decoded)
+            && let Some(expected_samples) = expected_audio_samples
+        {
             verify_audio_samples(ffprobe, path, expected_samples)?;
         }
     }
@@ -193,7 +269,12 @@ fn verify_video_format(
     Ok(())
 }
 
-fn verify_video_timing(path: &Path, video: &ProbeStream, domain: &VideoDomain) -> Result<()> {
+fn verify_video_timing(
+    path: &Path,
+    video: &ProbeStream,
+    domain: &VideoDomain,
+    count_evidence: CountEvidence,
+) -> Result<()> {
     let expected_rate = format!(
         "{}/{}",
         domain.frame_rate().numerator(),
@@ -208,19 +289,21 @@ fn verify_video_timing(path: &Path, video: &ProbeStream, domain: &VideoDomain) -
             ),
         ));
     }
-    let actual_frames = video
-        .nb_read_frames
-        .as_deref()
-        .and_then(|value| value.parse::<u64>().ok());
-    if actual_frames != Some(domain.frames().0) {
-        return Err(contract_error(
-            path,
-            &format!(
-                "expected {} frames, FFprobe counted {:?}",
-                domain.frames().0,
-                actual_frames
-            ),
-        ));
+    if matches!(count_evidence, CountEvidence::Decoded) {
+        let actual_frames = video
+            .nb_read_frames
+            .as_deref()
+            .and_then(|value| value.parse::<u64>().ok());
+        if actual_frames != Some(domain.frames().0) {
+            return Err(contract_error(
+                path,
+                &format!(
+                    "expected {} frames, FFprobe counted {:?}",
+                    domain.frames().0,
+                    actual_frames
+                ),
+            ));
+        }
     }
     verify_zero_start(path, video)?;
     Ok(())
@@ -278,8 +361,9 @@ fn verify_audio_artifact(
     domain: &AudioDomain,
     audio: AudioSpec,
     encoding: AudioEncoding,
+    count_evidence: CountEvidence,
 ) -> Result<()> {
-    let document = probe_artifact(ffprobe, path)?;
+    let document = probe_artifact(ffprobe, path, count_evidence)?;
     let videos = document
         .streams
         .iter()
@@ -300,7 +384,11 @@ fn verify_audio_artifact(
         ));
     }
     verify_audio_stream(path, audios[0], audio, Some(encoding))?;
-    verify_audio_samples(ffprobe, path, domain.samples())
+    if matches!(count_evidence, CountEvidence::Decoded) {
+        verify_audio_samples(ffprobe, path, domain.samples())
+    } else {
+        Ok(())
+    }
 }
 
 fn verify_audio_samples(ffprobe: &Path, path: &Path, expected: u64) -> Result<()> {

@@ -1,17 +1,17 @@
 use std::fs;
 use std::process::Command;
 
+#[cfg(unix)]
+use std::ffi::OsString;
+#[cfg(unix)]
+use std::path::{Path, PathBuf};
+
 use super::common;
 
 #[cfg(unix)]
-#[test]
-fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
+fn install_ffprobe_logger(directory: &Path) -> (OsString, String, PathBuf) {
     use std::os::unix::fs::PermissionsExt as _;
 
-    if !common::media_tools_available() {
-        eprintln!("skipping cache probe test because FFmpeg/FFprobe are unavailable");
-        return;
-    }
     let real_ffprobe = Command::new("sh")
         .args(["-c", "command -v ffprobe"])
         .output()
@@ -21,19 +21,7 @@ fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
         .expect("UTF-8 ffprobe path")
         .trim()
         .to_owned();
-
-    let directory = tempfile::tempdir().expect("temporary directory");
-    fs::write(
-        directory.path().join("card.ppm"),
-        b"P3\n1 1\n255\n255 0 0\n",
-    )
-    .expect("image");
-    fs::write(
-        directory.path().join("workflow.clipasm"),
-        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
-    )
-    .expect("workflow");
-    let tools = directory.path().join("tools");
+    let tools = directory.join("tools");
     fs::create_dir(&tools).expect("tools directory");
     let wrapper = tools.join("ffprobe");
     fs::write(
@@ -46,10 +34,32 @@ fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
         .permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&wrapper, permissions).expect("wrapper permissions");
-    let log = directory.path().join("ffprobe.log");
+    let log = directory.join("ffprobe.log");
     let mut path = tools.into_os_string();
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
+    (path, real_ffprobe, log)
+}
+
+#[cfg(unix)]
+#[test]
+fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
+    if !common::media_tools_available() {
+        eprintln!("skipping cache probe test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    fs::write(
+        directory.path().join("workflow.clipasm"),
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\n",
+    )
+    .expect("workflow");
+    let (path, real_ffprobe, log) = install_ffprobe_logger(directory.path());
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_clipasm"))
             .current_dir(directory.path())
@@ -67,6 +77,13 @@ fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
         "{}",
         String::from_utf8_lossy(&first.stderr)
     );
+    let first_probes = fs::read_to_string(&log).expect("first probe log");
+    assert!(
+        first_probes
+            .lines()
+            .any(|line| { line.contains(".clipasm/cache") && line.contains("-count_frames") }),
+        "persistent cache admission did not request decoded frame counts:\n{first_probes}"
+    );
     fs::write(&log, b"").expect("clear probe log");
     let second = run();
     assert!(
@@ -78,6 +95,66 @@ fn certified_working_cache_hits_do_not_probe_cached_artifacts() {
     assert!(
         !probes.lines().any(|line| line.contains(".clipasm/cache")),
         "certified cache hit was probed again:\n{probes}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_none_native_temporaries_trust_recipe_counts_but_publication_does_not() {
+    if !common::media_tools_available() {
+        eprintln!("skipping transient probe test because FFmpeg/FFprobe are unavailable");
+        return;
+    }
+    let directory = tempfile::tempdir().expect("temporary directory");
+    fs::write(
+        directory.path().join("card.ppm"),
+        b"P3\n1 1\n255\n255 0 0\n",
+    )
+    .expect("image");
+    fs::write(
+        directory.path().join("workflow.clipasm"),
+        "clipasm 1\nconfig { video { width = 64\nheight = 64\nfps = 10 }\noutput = \"final.mp4\" }\nimage(\"card.ppm\", 1s)\nzoom_in(10%)\n",
+    )
+    .expect("workflow");
+    let (path, real_ffprobe, log) = install_ffprobe_logger(directory.path());
+    let render = Command::new(env!("CARGO_BIN_EXE_clipasm"))
+        .current_dir(directory.path())
+        .args([
+            "render",
+            "--cache",
+            "none",
+            "--materialization",
+            "all",
+            "workflow.clipasm",
+        ])
+        .env("PATH", &path)
+        .env("CLIPASM_REAL_FFPROBE", &real_ffprobe)
+        .env("CLIPASM_FFPROBE_LOG", &log)
+        .output()
+        .expect("run clipasm");
+    assert!(
+        render.status.success(),
+        "{}",
+        String::from_utf8_lossy(&render.stderr)
+    );
+
+    let probes = fs::read_to_string(&log).expect("probe log");
+    let temporary_probes = probes
+        .lines()
+        .filter(|line| line.contains(".final.mp4.render-"))
+        .collect::<Vec<_>>();
+    assert_eq!(temporary_probes.len(), 2, "unexpected probes:\n{probes}");
+    assert!(
+        temporary_probes
+            .iter()
+            .all(|line| !line.contains("-count_frames")),
+        "native temporary requested decoded frame counts:\n{probes}"
+    );
+    assert!(
+        probes.lines().any(|line| {
+            line.contains(".final.mp4.publication-") && line.contains("-count_frames")
+        }),
+        "publication did not request decoded frame counts:\n{probes}"
     );
 }
 

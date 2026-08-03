@@ -248,7 +248,7 @@ impl<'a, 'b> GraphBuilder<'a, 'b> {
             PreparedVideoKind::Slice { input, range } => {
                 self.video_slice(*input, range.start(), range.end())
             }
-            PreparedVideoKind::ZoomIn { input, by } => self.zoom(*input, by, domain.frames()),
+            PreparedVideoKind::ZoomIn { input, curve } => self.zoom(*input, curve, domain.frames()),
             PreparedVideoKind::Concat { inputs } => self.video_concat(inputs, domain.frames()),
             PreparedVideoKind::SetAudio { audio, video } => {
                 self.set_audio(*audio, *video, domain.frames())

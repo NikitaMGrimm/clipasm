@@ -46,7 +46,7 @@ pub(crate) use plan::PreparedResource;
 pub(crate) use plan::WorkingArtifactContract;
 pub use plan::{
     PreparedAsset, PreparedAudioKind, PreparedExternalArgument, PreparedExternalParameterValue,
-    PreparedNode, PreparedNodeMedia, PreparedVideoKind,
+    PreparedNode, PreparedNodeMedia, PreparedVideoKind, PreparedZoomCurve,
 };
 pub(crate) use policy::{AudioEncoding, RenderPolicy, VideoEncoding};
 pub use tools::ExternalToolIdentity;

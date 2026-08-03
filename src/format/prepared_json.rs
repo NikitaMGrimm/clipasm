@@ -109,7 +109,7 @@ enum PreparedOperationDocument<'a> {
     },
     ZoomIn {
         input: NodeId,
-        by: &'a ExactNumber,
+        amounts: Vec<&'a ExactNumber>,
     },
     FlashCut {
         before: NodeId,
@@ -257,9 +257,10 @@ fn video_operation_document(kind: &PreparedVideoKind) -> PreparedOperationDocume
             count: *count,
             frames: *frames,
         },
-        PreparedVideoKind::ZoomIn { input, by } => {
-            PreparedOperationDocument::ZoomIn { input: *input, by }
-        }
+        PreparedVideoKind::ZoomIn { input, curve } => PreparedOperationDocument::ZoomIn {
+            input: *input,
+            amounts: curve.amounts(),
+        },
         PreparedVideoKind::FlashCut {
             before,
             after,

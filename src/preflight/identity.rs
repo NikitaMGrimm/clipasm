@@ -4,9 +4,7 @@ use std::num::NonZeroU64;
 use serde::Serialize;
 
 use crate::diagnostic::Result;
-use crate::model::{
-    AudioSpec, ExactNumber, FrameCount, FrameRange, ImageFit, NodeId, SampleRange, VideoSpec,
-};
+use crate::model::{AudioSpec, FrameCount, FrameRange, ImageFit, NodeId, SampleRange, VideoSpec};
 
 use super::plan::{PreparedMedia, WorkingArtifactContract};
 #[cfg(feature = "native")]
@@ -69,7 +67,7 @@ enum PreparedOperationIdentity<'a> {
         frames: FrameCount,
     },
     ZoomIn {
-        by: &'a ExactNumber,
+        curve: &'a str,
     },
     FlashCut {
         frames: FrameCount,
@@ -190,7 +188,9 @@ fn video_identity(kind: &PreparedVideoKind) -> PreparedOperationIdentity<'_> {
             count: *count,
             frames: *frames,
         },
-        PreparedVideoKind::ZoomIn { input: _, by } => PreparedOperationIdentity::ZoomIn { by },
+        PreparedVideoKind::ZoomIn { input: _, curve } => PreparedOperationIdentity::ZoomIn {
+            curve: curve.identity(),
+        },
         PreparedVideoKind::FlashCut {
             before: _,
             after: _,

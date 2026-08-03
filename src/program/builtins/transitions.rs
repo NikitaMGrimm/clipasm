@@ -38,7 +38,7 @@ pub(super) fn flash_cut() -> ProgramDefinition {
     direct_with_timeline(
         exact_descriptor(
             "flash_cut",
-            3,
+            4,
             vec![
                 input("before", ValueType::Video, Cardinality::One),
                 input("after", ValueType::Video, Cardinality::One),

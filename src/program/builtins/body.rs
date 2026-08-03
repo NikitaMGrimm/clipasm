@@ -18,7 +18,7 @@ pub(crate) fn join() -> ProgramDefinition {
     body(
         generic_descriptor(
             "join",
-            3,
+            4,
             vec![generic_input("before"), generic_input("after")],
             vec![],
         ),
@@ -41,7 +41,7 @@ pub(crate) fn during() -> ProgramDefinition {
     body(
         generic_descriptor(
             "during",
-            3,
+            4,
             vec![generic_input("timeline")],
             vec![ParameterDescriptor {
                 name: "range".to_owned(),
