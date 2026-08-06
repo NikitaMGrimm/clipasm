@@ -1,6 +1,6 @@
 [package]
 name = "clipasm"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 rust-version = "1.95"
 description = "A strict, typed language for compiling and rendering Video and Audio graphs"
