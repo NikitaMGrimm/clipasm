@@ -32,13 +32,22 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
         expected_installers = (
             ("Linux", "sudo apt-get update && sudo apt-get install -y ffmpeg"),
-            ("macOS", "brew install ffmpeg"),
-            ("Windows", "choco install ffmpeg --no-progress --yes"),
+            ("macOS", "brew install ffmpeg-full"),
+            (
+                "Windows",
+                "choco install ffmpeg --no-progress --yes "
+                "--source=https://community.chocolatey.org/api/v2/",
+            ),
         )
         for runner, command in expected_installers:
             with self.subTest(runner=runner):
                 self.assertIn(f"if: runner.os == '{runner}'", build_steps)
                 self.assertIn(command, build_steps)
+
+        self.assertIn('echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"', build_steps)
+        self.assertIn("Get-Command ffmpeg -ErrorAction SilentlyContinue", build_steps)
+        self.assertIn("Get-Command ffprobe -ErrorAction SilentlyContinue", build_steps)
+        self.assertIn('$filters -match "(?m)\\bzscale\\b"', build_steps)
 
 
 class WorkflowConfigurationTests(unittest.TestCase):
