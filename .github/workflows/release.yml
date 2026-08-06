@@ -61,8 +61,11 @@ jobs:
       - name: Install FFmpeg
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - if: runner.os == 'macOS'
-        run: brew install ffmpeg
+      - name: Install FFmpeg
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg-full
+          echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"
       - name: Install FFmpeg
         if: runner.os == 'Windows'
         shell: pwsh
@@ -73,10 +76,20 @@ jobs:
           $attempt = 1
 
           while ($true) {
-            choco install ffmpeg --no-progress --yes
+            choco install ffmpeg --no-progress --yes --source=https://community.chocolatey.org/api/v2/
             $exitCode = $LASTEXITCODE
+            $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+            $ffprobe = Get-Command ffprobe -ErrorAction SilentlyContinue
+            if ($exitCode -eq 0 -and $null -ne $ffmpeg -and $null -ne $ffprobe) {
+              $filters = & ffmpeg -hide_banner -filters 2>&1 | Out-String
+              if ($LASTEXITCODE -eq 0 -and $filters -match "(?m)\bzscale\b") {
+                break
+              }
+            }
+
             if ($exitCode -eq 0) {
-              break
+              $exitCode = 1
+              Write-Host "Chocolatey did not provide discoverable FFmpeg/FFprobe binaries with zscale support."
             }
 
             if ($waitedSeconds + $delaySeconds -gt $maximumWaitSeconds) {
