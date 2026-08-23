@@ -15,10 +15,11 @@ MANIFESTS = (Path("Cargo.toml"), Path("playground/Cargo.toml"))
 EXPECTED_CHANGED_FILES = {"Cargo.toml", "Cargo.lock", "playground/Cargo.toml"}
 
 
-def run(*command: str, capture: bool = False) -> str:
+def run(*command: str, capture: bool = False, cwd: Path | None = None) -> str:
     result = subprocess.run(
         command,
         check=True,
+        cwd=cwd,
         text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
@@ -45,23 +46,26 @@ def replace_manifest_version(contents: str, old: str, new: str) -> str:
     return contents.replace(needle, f'version = "{new}"', 1)
 
 
-def require_clean_main(root: Path) -> None:
-    branch = run("git", "branch", "--show-current", capture=True)
-    if branch != "main":
-        raise ValueError(f"release preparation requires branch 'main', found {branch!r}")
-    if run("git", "status", "--porcelain", capture=True):
+def require_clean_release_branch(root: Path, version: str) -> None:
+    expected_branch = f"feat/release-{version.replace('.', '-')}"
+    branch = run("git", "branch", "--show-current", capture=True, cwd=root)
+    if branch != expected_branch:
+        raise ValueError(
+            f"release preparation requires branch {expected_branch!r}, found {branch!r}"
+        )
+    if run("git", "status", "--porcelain", capture=True, cwd=root):
         raise ValueError("release preparation requires a clean worktree")
-    upstream = run("git", "rev-parse", "--abbrev-ref", "@{upstream}", capture=True)
-    if upstream != "origin/main":
-        raise ValueError(f"main must track origin/main, found {upstream!r}")
-    if run("git", "rev-list", "--left-right", "--count", "origin/main...HEAD", capture=True) != "0\t0":
-        raise ValueError("main must be synchronized with origin/main before release preparation")
-    del root
+    main = run("git", "rev-parse", "origin/main", capture=True, cwd=root)
+    head = run("git", "rev-parse", "HEAD", capture=True, cwd=root)
+    if head != main:
+        raise ValueError(
+            "release branch must start at the synchronized origin/main commit"
+        )
 
 
 def prepare(root: Path, version: str) -> None:
     target = parse_version(version)
-    require_clean_main(root)
+    require_clean_release_branch(root, version)
 
     current_versions = {path: manifest_version(root / path) for path in MANIFESTS}
     if len(set(current_versions.values())) != 1:
@@ -70,7 +74,7 @@ def prepare(root: Path, version: str) -> None:
     current = parse_version(current_text)
     if target <= current:
         raise ValueError(f"new version {version} must be greater than current version {current_text}")
-    if run("git", "tag", "--list", f"v{version}", capture=True):
+    if run("git", "tag", "--list", f"v{version}", capture=True, cwd=root):
         raise ValueError(f"tag v{version} already exists locally")
 
     originals = {path: (root / path).read_bytes() for path in (*MANIFESTS, Path("Cargo.lock"))}
@@ -81,9 +85,18 @@ def prepare(root: Path, version: str) -> None:
                 replace_manifest_version(manifest.read_text(encoding="utf-8"), current_text, version),
                 encoding="utf-8",
             )
-        run("cargo", "check", "--workspace", "--all-targets")
-        run("python3", "scripts/package_release.py", "verify", "--tag", f"v{version}")
-        changed = set(run("git", "diff", "--name-only", capture=True).splitlines())
+        run("cargo", "check", "--workspace", "--all-targets", cwd=root)
+        run(
+            "python3",
+            "scripts/package_release.py",
+            "verify",
+            "--tag",
+            f"v{version}",
+            cwd=root,
+        )
+        changed = set(
+            run("git", "diff", "--name-only", capture=True, cwd=root).splitlines()
+        )
         if changed != EXPECTED_CHANGED_FILES:
             raise ValueError(
                 f"release preparation changed unexpected files: {sorted(changed)}; "
@@ -95,7 +108,10 @@ def prepare(root: Path, version: str) -> None:
         raise
 
     print(f"prepared ClipAsm {version}")
-    print("review the three changed files, run ./scripts/check.sh, then commit and push main")
+    print(
+        "review the three changed files, run ./scripts/check.sh, "
+        "then commit and push the release branch"
+    )
     print("create and push the annotated tag only after main CI succeeds")
 
 

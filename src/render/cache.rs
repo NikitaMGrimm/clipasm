@@ -71,6 +71,7 @@ impl StagedArtifact {
         self,
         verifier: impl FnOnce(&Path) -> Result<()>,
     ) -> Result<VerifiedArtifact> {
+        require_regular_file(&self.path, "staged cache artifact")?;
         verifier(&self.path)?;
         Ok(VerifiedArtifact(self))
     }
@@ -147,6 +148,7 @@ fn commit_verified(
     destination: &Path,
     identity: CacheEntryIdentity<'_>,
 ) -> Result<()> {
+    require_regular_file(artifact, "staged cache artifact")?;
     let content_hash = hash_file(artifact)?;
     let document = CacheEntryDocument {
         format_version: ENTRY_FORMAT_VERSION,
@@ -352,5 +354,44 @@ mod tests {
         symlink(&target, &artifact).expect("artifact symlink");
         let error = verify_entry(&artifact, identity()).expect_err("symlink");
         assert!(error.message.contains("symlink"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_admission_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let destination = directory.path().join("artifact.mkv");
+        let target = directory.path().join("target.mkv");
+        fs::write(&target, b"target").expect("target");
+        let staged = StagedArtifact::new(&destination, "mkv").expect("staging");
+        symlink(&target, staged.path()).expect("staged symlink");
+
+        let Err(error) = staged.verify(|_| Ok(())) else {
+            panic!("symlink admission must fail");
+        };
+        assert!(error.message.contains("staged cache artifact is a symlink"));
+        assert!(!destination.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_commit_rechecks_staged_file_type() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let target = directory.path().join("target.mkv");
+        let staged = directory.path().join("staged.mkv");
+        let staged_metadata = directory.path().join("staged.json");
+        let destination = directory.path().join("artifact.mkv");
+        fs::write(&target, b"target").expect("target");
+        symlink(&target, &staged).expect("staged symlink");
+
+        let error = commit_verified(&staged, &staged_metadata, &destination, identity())
+            .expect_err("symlink commit");
+        assert!(error.message.contains("staged cache artifact is a symlink"));
+        assert!(!staged_metadata.exists());
+        assert!(!destination.exists());
     }
 }

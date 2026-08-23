@@ -11,6 +11,19 @@ RELEASE_WORKFLOW_PATH = WORKFLOW_DIRECTORY / "release.yml"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_release_tag_commit_must_belong_to_origin_main(self) -> None:
+        workflow = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        tag_commit_check = (
+            "git fetch --no-tags origin "
+            "+refs/heads/main:refs/remotes/origin/main\n"
+            "          git merge-base --is-ancestor HEAD origin/main"
+        )
+        self.assertIn(tag_commit_check, workflow)
+        self.assertLess(
+            workflow.index(tag_commit_check), workflow.index("cargo publish --dry-run")
+        )
+
     def test_release_checks_both_public_api_surfaces(self) -> None:
         workflow = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
 

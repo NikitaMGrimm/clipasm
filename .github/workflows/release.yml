@@ -26,6 +26,10 @@ jobs:
         with:
           tool: cargo-deny@0.20.2,cargo-semver-checks@0.49.0,mdbook@0.5.4
           fallback: none
+      - name: Verify tag commit
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD origin/main
       - name: Verify tag version
         run: python scripts/package_release.py verify --tag "$GITHUB_REF_NAME"
       - name: Run repository checks
